@@ -1,12 +1,5 @@
 import { classifyActor } from '../actor-identity.ts';
-import {
-  AGENT_NOTES_PER_AGENT,
-  AGENT_NOTES_WINDOW_MS,
-  WithheldDeclarations,
-  agentNotesByAgent,
-  parseWithheld,
-  placementOfTarget,
-} from '../agent-note-placement.ts';
+import { WithheldDeclarations, parseWithheld, placementOfTarget } from '../agent-note-placement.ts';
 import {
   AGENT_NOTE_RING_CAP,
   type AgentNoteInput,
@@ -26,6 +19,7 @@ import { recordDispatchRequested } from '../dispatch-request-event.ts';
 import { matchRest, restIs } from '../middleware/workspace-scope.ts';
 import { filingStateFor } from '../unfiled-ask-filing.ts';
 import { judgeTurnNote } from '../unfiled-ask.ts';
+import { handleBoardAgentNotesRead } from './board-agent-notes.ts';
 import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.ts';
 
 /**
@@ -107,32 +101,8 @@ export async function handleDispatchAndNoteRoutes(
     proposeAllowRule,
   } = ctx;
   const { req, scope, visitor, authorFor } = rq;
-  // --- REST: every agent's notes that no task took, on this board ---
-  // The board's one read of the unplaced-note log, grouped per agent and
-  // named by state (agent-note-placement.ts) — the Home pane's "Not on a
-  // task" list. Per agent because two of its three states have no task to
-  // hang on. Refused to share visitors like the per-agent read below: a
-  // session's own words, not the board's rows.
-  // Not `restIs`: its false branch would narrow `scope` for every block below.
-  if (scope !== undefined && scope.rest === 'agent-notes') {
-    if (visitor) return j(403, { error: 'not available to share visitors' });
-    if (req.method !== 'GET') return j(405, { error: 'method not allowed' });
-    const board = scope.workspaceId;
-    const since = Date.now() - AGENT_NOTES_WINDOW_MS;
-    const read = agentNoteLog.readBoard(board, since, AGENT_NOTES_PER_AGENT);
-    const agents = agentNotesByAgent(
-      read.lines,
-      (agent) => {
-        const placed = agentNotes
-          .list(agent)
-          .find((n) => n.workspaceId === board && n.taskId !== undefined);
-        return placed?.taskId !== undefined ? { at: placed.at, taskId: placed.taskId } : undefined;
-      },
-      AGENT_NOTES_PER_AGENT,
-      read.skipped,
-    );
-    return j(200, { workspaceId: board, since, agents });
-  }
+  const boardRead = handleBoardAgentNotesRead(ctx, rq);
+  if (boardRead !== undefined) return boardRead;
   // --- REST: builder dispatches ---
   // The lead's statement that a builder is working a task in a private
   // worktree, so the stall loop can read worktree churn as the row
