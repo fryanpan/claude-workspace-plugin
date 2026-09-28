@@ -112,8 +112,9 @@ export interface LiveSyncOptions {
  * deploy, and so is a slept laptop or a backgrounded phone.
  *
  * The first `open` deliberately does not refetch — the page has just loaded
- * the same data — so this costs one extra round of REST calls per genuine
- * outage and none per page view.
+ * the same data — and neither does a trigger inside the dedupe window after
+ * boot, so this costs one extra round of REST calls per genuine outage and
+ * none per page view.
  */
 export function watchLiveSync(o: LiveSyncOptions): void {
   const minIntervalMs = o.minIntervalMs ?? LIVE_RESYNC_MIN_MS;
@@ -123,7 +124,11 @@ export function watchLiveSync(o: LiveSyncOptions): void {
   // recovery; every later one means time passed with nobody listening.
   let everOpen = false;
   let droppedSinceOpen = false;
-  let lastResync = Number.NEGATIVE_INFINITY;
+  // Boot is the first sync: the page fetched these same endpoints a moment
+  // ago. A tab that reports "visible" or "online" while it loads (measured on
+  // staging: one trigger inside the first second doubled /agents and
+  // /review-items) must not fetch them all again.
+  let lastResync = now();
 
   const fire = () => {
     const t = now();
