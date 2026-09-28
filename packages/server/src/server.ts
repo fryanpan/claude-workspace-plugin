@@ -1573,8 +1573,16 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
    *
    * Unknown ids pass through unchanged, so a 404 still reads as "no such
    * doc" rather than becoming a different error on the way.
+   *
+   * A name lookup only: it must not hydrate. It used to be `get(...)?.docId`,
+   * and the agent event stream resolves every watched key through here when
+   * it opens. After a deploy every attached session reconnects at once, so
+   * one reconnect loaded each watched doc from its `.ydoc`, armed its binding
+   * and read its file — on staging, three sessions watching 330 docs took the
+   * server from 136MB to 1.4GB and blocked the loop for 2.6s with nothing in
+   * flight. The id is all any caller here wants.
    */
-  const canonicalDocId = (addressed: string): string => docStore.get(addressed)?.docId ?? addressed;
+  const canonicalDocId = (addressed: string): string => docStore.resolveDocId(addressed);
 
   /**
    * The workspace to address a doc under, or null when nothing holds it.
