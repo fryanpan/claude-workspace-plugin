@@ -16,6 +16,7 @@ import {
   parseProcEnviron,
   parseProcessTable,
   parsePsEnv,
+  resolveProbeBinary,
 } from '../src/auth/agent-caller.ts';
 
 const HARBORLIGHT = agentIdForName('Harborlight');
@@ -73,6 +74,28 @@ it('parseProcessTable keeps the basename of each command', () => {
   const table = parseProcessTable('  10     1 /opt/bin/claude\n  11    10 node\n');
   expect(table.get(10)).toEqual({ ppid: 1, name: 'claude' });
   expect(table.get(11)).toEqual({ ppid: 10, name: 'node' });
+});
+
+describe('resolveProbeBinary', () => {
+  const only =
+    (...present: string[]) =>
+    (path: string) =>
+      present.includes(path);
+
+  it('finds lsof in /usr/sbin on macOS, where PATH under launchd does not look', () => {
+    expect(resolveProbeBinary('lsof', 'darwin', only('/usr/sbin/lsof'))).toBe('/usr/sbin/lsof');
+  });
+
+  it('takes whichever Linux location is installed', () => {
+    expect(resolveProbeBinary('lsof', 'linux', only('/usr/sbin/lsof'))).toBe('/usr/sbin/lsof');
+    expect(resolveProbeBinary('lsof', 'linux', only('/usr/bin/lsof'))).toBe('/usr/bin/lsof');
+    expect(resolveProbeBinary('ps', 'linux', only('/usr/bin/ps'))).toBe('/usr/bin/ps');
+  });
+
+  it('answers null for a binary that is missing or not one the probe runs', () => {
+    expect(resolveProbeBinary('lsof', 'darwin', only())).toBeNull();
+    expect(resolveProbeBinary('curl', 'darwin', () => true)).toBeNull();
+  });
 });
 
 describe('identifyCallerAgent', () => {

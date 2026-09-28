@@ -46,8 +46,12 @@
  * the process table and, on macOS, the environment; Linux reads
  * `/proc/<pid>/environ`. Measured at ~25ms on the host, once per MCP child
  * (the client caches its token for the session).
+ *
+ * Both are spawned by absolute path, never looked up on PATH: prod's launchd
+ * job has no `/usr/sbin` on its PATH, and macOS keeps `lsof` only there, so a
+ * bare `lsof` failed to spawn and every mint was refused.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolveAgentAuthor } from '../../../mcp/src/author.ts';
 import { SHARED_AGENT_IDS } from '../agent-watches.ts';
 
@@ -72,13 +76,32 @@ export interface ProcessProbe {
   selfPid: number;
 }
 
+/** Where each binary the probe runs may live, in the order they are tried. */
+const PROBE_BINARIES: Record<string, Partial<Record<NodeJS.Platform, readonly string[]>>> = {
+  lsof: { darwin: ['/usr/sbin/lsof'], linux: ['/usr/bin/lsof', '/usr/sbin/lsof'] },
+  ps: { darwin: ['/bin/ps'], linux: ['/bin/ps', '/usr/bin/ps'] },
+};
+
+/** The absolute path `name` runs from on `platform`, or null when it is not
+ *  installed where the system puts it. PATH is never consulted. */
+export function resolveProbeBinary(
+  name: string,
+  platform: NodeJS.Platform,
+  exists: (path: string) => boolean = existsSync,
+): string | null {
+  return PROBE_BINARIES[name]?.[platform]?.find(exists) ?? null;
+}
+
 export const systemProbe: ProcessProbe = {
   async run(argv) {
+    const [name = '', ...args] = argv;
+    const bin = resolveProbeBinary(name, process.platform);
+    if (bin === null) return null;
     try {
-      const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'ignore' });
+      const proc = Bun.spawn([bin, ...args], { stdout: 'pipe', stderr: 'ignore' });
       const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       // lsof exits 1 when it matched nothing, which is an answer, not a failure.
-      return code === 0 || (code === 1 && argv[0] === 'lsof') ? out : null;
+      return code === 0 || (code === 1 && name === 'lsof') ? out : null;
     } catch {
       return null;
     }
