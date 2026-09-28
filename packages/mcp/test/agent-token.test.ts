@@ -71,13 +71,36 @@ describe('the MCP agent-token store', () => {
     expect(s.calls).toHaveLength(1);
   });
 
-  it('sends no header, and stops asking, against a server that predates the route', async () => {
-    // A 404 is a server VERSION, not a blip. Re-asking on every tool call
-    // would spend a round trip per call for the life of the session.
-    const s = store(() => new Response('not found', { status: 404 }));
+  it('sends no header after a 404, and asks again on the next call', async () => {
+    // A 404 used to be remembered for the life of the process. On a current
+    // server one bad answer -- a restart window, the wrong listener -- then
+    // left the session tokenless until it restarted, and locked out of its
+    // own feed once the server requires the token.
+    const s = store((n) =>
+      n === 1 ? new Response('not found', { status: 404 }) : okToken('at1.agent-mira.later'),
+    );
     expect(await s.headers()).toEqual({});
-    expect(await s.headers()).toEqual({});
-    expect(s.calls).toHaveLength(1);
+    expect(await s.headers()).toEqual({ authorization: 'Bearer at1.agent-mira.later' });
+    expect(s.calls).toHaveLength(2);
+  });
+
+  it('takes its token from an injected minter instead of the route', async () => {
+    // The shared server's hosted sessions: their REST calls come from the
+    // server's own process, which the mint route refuses.
+    const calls: string[] = [];
+    const s = createAgentTokenStore({
+      agentId: AGENT,
+      resolveBaseUrl: () => 'http://localhost:9999',
+      fetch: async (url) => {
+        calls.push(url);
+        return okToken('at1.agent-mira.overhttp');
+      },
+      log: () => {},
+      identityIsShared: false,
+      mint: async () => 'at1.agent-mira.inprocess',
+    });
+    expect(await s.headers()).toEqual({ authorization: 'Bearer at1.agent-mira.inprocess' });
+    expect(calls).toHaveLength(0);
   });
 
   it('sends no header when the server is down, and retries later', async () => {

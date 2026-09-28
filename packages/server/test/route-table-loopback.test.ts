@@ -64,7 +64,14 @@ interface Answer {
 }
 
 /** A deployer and refresher that record nothing and touch nothing. */
-const fakeOps = (): Pick<ServerOptions, 'deployer' | 'pluginRefresher'> => ({
+const fakeOps = (): Pick<
+  ServerOptions,
+  'deployer' | 'pluginRefresher' | 'identifyAgentCaller'
+> => ({
+  // The token mint's second check asks the operating system which agent the
+  // caller runs as (agent-token-mint.test.ts drives that). This file is about
+  // the address gate in front of it, so the caller is every path's agent.
+  identifyAgentCaller: async () => ({ ok: true, agentId: 'a-1', via: 'session' }),
   deployer: new Deployer({
     run: async () => ({
       ok: true,

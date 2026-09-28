@@ -115,7 +115,11 @@ describe('/mcp on a real server', () => {
   let handles: ServerHandle[] = [];
 
   const boot = (): { handle: ServerHandle; base: string; send: Send } => {
-    const handle = createServer({ port: 0, dataDir });
+    // With the agent token REQUIRED, as prod runs once it is switched on: a
+    // hosted session's REST calls come from the server's own process, which
+    // the loopback mint refuses, so its watches only work if its token is
+    // minted in-process (connector/session-factory.ts).
+    const handle = createServer({ port: 0, dataDir, requireAgentToken: true });
     handles.push(handle);
     const base = `http://127.0.0.1:${handle.port}`;
     const send: Send = (method, headers, body) =>

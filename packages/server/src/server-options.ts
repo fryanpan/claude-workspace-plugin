@@ -18,6 +18,7 @@ import type { AnswerCoverage } from './answer-coverage.ts';
  * The values these options are RESOLVED from live in `server-config.ts`;
  * `bin.ts` reads that config and constructs the object below.
  */
+import type { CallerAgent, PeerSocket } from './auth/agent-caller.ts';
 import type { CodeSender } from './auth/code-sender.ts';
 import type { Deployer } from './deploy.ts';
 import type { WatchFactory } from './dispatch-registry.ts';
@@ -120,6 +121,12 @@ export interface ServerOptions {
    * deployment switch is `CW_REQUIRE_AGENT_TOKEN`; see auth/agent-token.ts.
    */
   requireAgentToken?: boolean;
+  /**
+   * Which agent the process behind a socket belongs to, for the token mint.
+   * Defaults to asking the operating system (auth/agent-caller.ts); tests
+   * inject a fixed answer.
+   */
+  identifyAgentCaller?: (peer: PeerSocket, serverPort: number) => Promise<CallerAgent>;
   /**
    * ACCESS-ONLY browser hosts. Defaults to TRUE — every hostname that is not
    * loopback is browser-facing and must carry a verified Cloudflare Access

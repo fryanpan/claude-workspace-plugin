@@ -47,16 +47,15 @@
  * Stateless: nothing is stored, the MAC is the whole record, and rotating the
  * key file on disk revokes every token at once.
  *
- * **What it is honestly worth.** The mint route is behind the same gate as
- * the routes it unlocks, so a local non-browser process can still mint any
- * agent's token. That is not a hole this module could close: sessions
- * running as one OS user share a single trust zone, which is what
- * `.claude/rules/security-posture.md` says in as many words. The proof is
- * worth exactly this much -- it closes the browser, the edge and the tailnet
- * outright at Layer 1, it makes a WRONG token a refusal rather than a silent
- * cross-agent read, and it is the hook `requireAgentTokenForStreams` hangs
- * on once the fleet is past the deprecation window. It is not claimed to be
- * more.
+ * **Who may mint.** The mint route runs the Layer 1 gate and then asks the
+ * operating system which agent the calling process belongs to
+ * (`auth/agent-caller.ts`): the process holding the socket's client end must
+ * run under a Claude Code session launched as that agent. So one session, or
+ * anything it runs, cannot mint another agent's token. What stays open is
+ * what no route can close while every session runs as one OS user: reading
+ * the key file and computing a token, or launching a new session under
+ * another agent's name (`.claude/rules/security-posture.md`: one trust
+ * zone).
  *
  * ## No expiry, on purpose
  *
@@ -273,8 +272,28 @@ export function createLegacyAgentWarner(
     seen.add(key);
     log(
       `[claude-workspaces] ${route} served to ${agentId} with no agent token -- ` +
-        'this session is on a bundle that predates agent-stream auth. It keeps working ' +
-        'through the deprecation window; set CW_REQUIRE_AGENT_TOKEN=1 to refuse it once the fleet has updated.',
+        'either the session is on a bundle that predates agent-stream auth, or its token mint ' +
+        'failed (a refused mint is logged separately). It keeps working through the deprecation ' +
+        'window; CW_REQUIRE_AGENT_TOKEN=1 refuses it.',
     );
+  };
+}
+
+/**
+ * A refused mint, at most once per agent id and reason per process.
+ *
+ * The line an operator reads before turning `CW_REQUIRE_AGENT_TOKEN` on: a
+ * legitimate session whose mint is refused runs tokenless through the
+ * deprecation window, and would be locked out of its feed after it.
+ */
+export function createRefusedMintWarner(
+  log: (message: string) => void = (m) => console.warn(m),
+): (agentId: string, reason: string) => void {
+  const seen = new Set<string>();
+  return (agentId, reason) => {
+    const key = `${agentId} ${reason}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    log(`[claude-workspaces] refused to mint an agent token for ${agentId}: ${reason}`);
   };
 }

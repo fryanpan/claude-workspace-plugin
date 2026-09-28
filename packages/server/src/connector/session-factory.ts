@@ -74,6 +74,10 @@ export interface SessionFactoryDeps {
    *  after the factory is built. */
   baseUrl: () => string;
   openAgentEvents: OpenAgentEvents;
+  /** Mints an agent's token in-process. A hosted session's REST calls come
+   *  from the server's own process, and the loopback mint refuses that
+   *  caller, so the token is handed over here instead. */
+  mintAgentToken?: (agentId: string) => string;
   log: (...args: unknown[]) => void;
   /** The REST fetch. Defaults to the global one. */
   fetch?: Fetch;
@@ -96,6 +100,9 @@ export function hostedSessionFactory(
       fetch: restFetch,
       eventsFetch,
       eventsNeedToken: false,
+      ...(deps.mintAgentToken
+        ? { mintAgentToken: async () => deps.mintAgentToken?.(spec.author.id) ?? null }
+        : {}),
       log: deps.log,
     });
 }
