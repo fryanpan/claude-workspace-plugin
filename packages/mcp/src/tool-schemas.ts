@@ -549,6 +549,32 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'attach_app',
+      description:
+        'Attach a running dev server to a board so members open it at /workspaces/<workspaceId>/apps/<docId>/ and comment on it with the widget, as on a mockup. origin must be http://127.0.0.1:<port> or http://localhost:<port>; anything else is refused. The server proxies <prefix><path> to <origin>/<path>, including the reload event stream, and rewrites nothing in the pages, so the site must build every link under the returned prefix. Reusing a docId repoints that app. Hand reviewUrl to a person.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: {
+            type: 'string',
+            description:
+              'The board this resource is on. get_workspace lists the boards you are attached to.',
+          },
+          docId: {
+            type: 'string',
+            description:
+              'A readable name for the app, not its address. The server mints the real id, returns it, and keeps this name as an alias.',
+          },
+          origin: {
+            type: 'string',
+            description: 'The dev server, e.g. http://127.0.0.1:4321. Loopback only, no path.',
+          },
+          title: { type: 'string' },
+        },
+        required: ['workspaceId', 'docId', 'origin'],
+      },
+    },
+    {
       name: 'attach_folder',
       description:
         'Attach a folder or worktree as a browsable review. The reviewer picks files from the menu under the filename in the topbar, and a markdown file opens editable. Prefer create_diff_review, which adds the changed-files diff on top of browsing.',
@@ -561,6 +587,12 @@ export const TOOL_LIST: ListToolsResult = {
               'The board this resource is on. get_workspace lists the boards you are attached to.',
           },
           folderPath: { type: 'string' },
+          privacy: {
+            type: 'string',
+            enum: ['workspace', 'local-only'],
+            description:
+              "Who may open the folder's files. 'local-only' serves them, and their names, on this machine alone: every share link, collaboration visitor, tunnel and tailnet caller is refused. 'workspace' (the default for a new folder) lets anyone a share link on the board admits open them. Omit it to keep the set's current privacy; the answer always names it.",
+          },
           exclude: {
             type: 'array',
             items: { type: 'string' },
@@ -1422,7 +1454,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'set_sharing_enabled',
       description:
-        'Master switch for all external access. Off makes every share and link answer 403, and hangs up the open connections of share visitors and share-link members. Existing shares are preserved and resume when it is on again. The local and tailnet surface is unaffected. Call it with no argument to read the current state.',
+        "Turn outside access off or on, for ONE board or for everything. With workspaceId it closes or reopens that board only: its share, share-link and collaboration visitors are refused and its open connections hang up, while the owner and every other board are untouched, and the answer echoes the id back. This is the precaution to use before putting sensitive material on a board (set_project_privacy keeps a project's bytes on this machine as well). Without workspaceId it is the MASTER switch: off refuses every share and link on every board, AND the owner's own public hostname, until someone turns it back on from this machine. Every flip is logged with who, from where and the reason, and the owner is told on their queue when the master switch goes off, with a choice to turn it back on. Call it without enabled to read the current state. Any other argument is refused.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1430,7 +1462,33 @@ export const TOOL_LIST: ListToolsResult = {
             type: 'boolean',
             description: 'Omit to read the current state without changing it.',
           },
+          workspaceId: {
+            type: 'string',
+            description:
+              "The one board to close or reopen. Omit it only when you mean every board and the owner's own hostname.",
+          },
+          reason: {
+            type: 'string',
+            description: "Why, in a sentence. Written to the log line and the owner's notice.",
+          },
         },
+      },
+    },
+    {
+      name: 'set_board_sharing_lock',
+      description:
+        "Lock ONE board never-shareable, or unlock it. A locked board refuses share_workspace and every other share-link mint, naming the lock, and is closed to its share and collaboration visitors, whose open connections hang up. It is stronger than set_sharing_enabled's per-board close, which refuses visitors but still lets a link be minted. Only a call from the owner's machine can set or clear it; through the tunnel or the network it is refused. Call it without locked to read the board's current lock. Any other argument is refused.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: 'The board to lock or unlock.' },
+          locked: {
+            type: 'boolean',
+            description: 'true locks, false unlocks. Omit to read the current state.',
+          },
+          reason: { type: 'string', description: 'Why, in a sentence. Written to the log line.' },
+        },
+        required: ['workspaceId'],
       },
     },
     {
@@ -2546,6 +2604,73 @@ export const TOOL_LIST: ListToolsResult = {
           taskId: { type: 'string', description: 'The task whose dispatch to close.' },
         },
         required: ['workspaceId', 'taskId'],
+      },
+    },
+    {
+      name: 'report_dispatch',
+      description:
+        'End your dispatch with ONE report on the build you just finished, so the lead reads a board record instead of your closing message. Send it once, after the gates have run: the PR number, the commit those gates ran on, what each gate did, and a verdict on every done-when line the task carries. A report missing any of those is refused with a message naming the part. Reporting the SAME commit again is recorded but wakes nobody, so a nudge you already answered costs the lead nothing; a report on a NEW commit is a new build and does wake them.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: {
+            type: 'string',
+            description:
+              'The board this resource is on. get_workspace lists the boards you are attached to.',
+          },
+          taskId: { type: 'string', description: 'The task you were dispatched on.' },
+          prNumber: {
+            type: 'integer',
+            description: 'The pull request this build is on.',
+          },
+          headCommit: {
+            type: 'string',
+            description:
+              'The commit the reported checks actually ran on — `git rev-parse HEAD`. Seven characters or more.',
+          },
+          checks: {
+            type: 'array',
+            description:
+              'One entry per gate you ran. `held` is for a gate the run did not execute, such as a browser-gated member on a machine that opts out — neither a pass nor a failure.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                status: { type: 'string', enum: ['pass', 'fail', 'held'] },
+                detail: {
+                  type: 'string',
+                  description: 'The line a reader would otherwise open the log for.',
+                },
+              },
+              required: ['name', 'status'],
+            },
+          },
+          doneWhen: {
+            type: 'array',
+            description:
+              "A verdict on EVERY done-when line the task carries — list_tasks and next_tasks give you the ids. Leave one out and the report is refused naming that line. The verdict words are the board's own: met, not-met, unchecked, owner.",
+            items: {
+              type: 'object',
+              properties: {
+                id: {
+                  type: 'string',
+                  description: 'The id of the `doneWhen` line this verdict answers (`d-…`).',
+                },
+                verdict: {
+                  type: 'string',
+                  enum: ['met', 'not-met', 'unchecked', 'owner'],
+                },
+                note: {
+                  type: 'string',
+                  description:
+                    'What you measured, or why you could not. Required — a bare `unchecked` is the empty report this refuses.',
+                },
+              },
+              required: ['id', 'verdict', 'note'],
+            },
+          },
+        },
+        required: ['workspaceId', 'taskId', 'prNumber', 'headCommit', 'checks', 'doneWhen'],
       },
     },
     {

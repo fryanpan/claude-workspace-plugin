@@ -325,6 +325,22 @@ nameless voice holding 63% of the words.
   unnamed voice" beside its other measures, with the labels named
   (`unnamedVoiceBullets`, `scripts/rerun-meeting-report.ts`). By hand:
   `grep -oE '\[@(Room |Remote )?Speaker [^]]*\]' <notes.md> | sort | uniq -c`.
+- **What the carry can reach, counted with no model call.**
+  `bun scripts/speaker-carry-audit.ts --data-dir <dir> --doc <docId>` folds a
+  stored index two ways, per meeting and doc-wide. For each fold it reports
+  the turns and WORDS spoken by voices left without a name. It counts turns
+  and words, not bullets, so it does not replace the 87-of-140 line: counting
+  bullets again needs the note-taker, and that needs quota. On the 15
+  September meeting it reads 4 labels, 355 turns and 5,890 words. 64.5% of
+  the words are nameless under BOTH folds, and one label alone holds 62.7%,
+  which matches the 63% above by a separate route. The folds agree because
+  the carry only copies a name typed for a label onto that label in the doc's
+  other legs. A label nobody named in any leg has no name to copy. So while
+  this audit shows the two folds agreeing, a flat bullet count after a replay
+  means a name is missing, not that the fix failed. Two limits: turns with no
+  label count toward total words but never as nameless, and a meeting recorded
+  after the carry shipped already has carried names in its own record, so its
+  per-meeting column is no longer a "before".
 
 ## A recording with nothing in it ends itself (2026-09-12)
 
@@ -493,8 +509,8 @@ assumed. The notes composer and task capture are separate Haiku
 calls and are not in these numbers.
 
 **And the model half, which the transcription table above does not cover.**
-Every Claude call a tick makes — the compose, and the task-capture pass that
-runs on the same tick — now records the `usage` block the API answered with,
+Every Claude call a tick makes — the compose, and the task-capture pass when
+a caller wires one — records the `usage` block the API answered with,
 beside that tick's timing row. The stop sums them through `notes-spend.ts`,
 states the meeting's own dollars and dollars-per-hour in its `[meeting-notes]`
 line split compose-versus-capture, and files the meeting's cost into
@@ -1097,6 +1113,138 @@ with headings"*):
   underneath is narrower and matters more — their line is never rewritten or
   deleted, because an edit naming a block that is not the note-taker's own
   arrives as a suggestion instead.
+- **Open the next heading once a topic has swallowed the meeting** — the
+  remedy nesting cannot be (2026-09-16). Grouping answers "this STRETCH of
+  notes has no structure"; it cannot answer "this HEADING now stands over half
+  an hour", because a topic gathered into four tidy groups is still one entry
+  in the outline for thirty minutes of talk. So there are two bars, and the
+  server counts both: `MAX_FLAT_RUN_BULLETS` on the run, `MAX_TOPIC_NOTES`
+  (twelve — three groups of four) on everything under one heading whatever its
+  depth. Past the second, the per-tick directive stops asking for a group and
+  asks for a heading instead, spelling both shapes at the levels this document
+  writes at: a sub-topic where the room is still on the subject and has
+  reached a new part of it, a new topic where it has moved on. Every topic
+  past the bar is named; which HALF of the remedy it is asked for depends on
+  whether the room is still under it. "Open the next heading" is about where
+  the NEXT note goes, so it is withheld from a heading already moved on from —
+  one aimed there can never be carried out, repeats every remaining tick, and
+  produced 51 headings over 70 ticks the first time it was tried. For the live
+  topic it carries the speech with it: one `insert_at_end` writes the heading
+  and this tick's points together, so no idea waits a tick for somewhere to
+  go.
+- **Naming ONLY the live topic is what made the bar miss on real meetings**
+  (2026-09-18). `insert_under_heading` lands at the END of whatever heading it
+  names, so a note-taker writing under an earlier topic keeps growing it while
+  nothing can ask about it again — the count of a topic the room has left is
+  not frozen, and treating it as frozen was the reasoning the old scan rested
+  on. Instrumented over a fifteen-minute replay: 111 of 147 ticks had a topic
+  past the bar and 107 of those raised no ask at all, because the topic past
+  the bar was never the live one. Three thirty-minute replays of real AMI
+  transcripts through the real note-taker ended with 26, 36 and 79 notes under
+  one heading. Placing a heading in front of a note already written repairs a
+  topic wherever the room has got to, so the repair half now goes to every
+  topic past the bar, and the same three meetings come out at 11, 14 and 13.
+  The directive also says where the heading may NOT go: in front of the FIRST
+  note under a topic it lands in front of the whole list, empties the original
+  heading — the section tidy then removes it — and leaves the count exactly
+  where it was. That is a rename, and it was observed twice before the clause
+  existed.
+- **And the heading can now be PLACED, which is what repairs a stretch that
+  is already on the page** (2026-09-16). The bullet above stops a wall
+  forming. It does nothing for one that has formed, and that was the state
+  the 16 September meeting was actually in: sixty-five bullets written, and
+  no edit in the vocabulary that could break them up. Every insert landed at
+  an END — `insert_at_end` at the end of the document, `insert_under_heading`
+  at the end of the section it names — so a new heading always arrived
+  BELOW the stretch it was meant to head. That is a gap in the edits, not in
+  the prompt: no wording reaches a position the ops cannot express.
+  `insert_before_block` (`packages/core/src/prose-split.ts`) opens a slot in
+  front of a named note, and because an outline reads a block's topic as the
+  nearest heading ABOVE it, the heading re-parents everything below it by
+  arriving. Nothing moves and nothing is retyped, so every note keeps its
+  words, its id and its comment threads. Measured on a meeting driven to
+  sixty flat bullets under one heading and then given twenty-four quiet
+  ticks: the longest run falls from 60 to 3 and the fullest heading from 60
+  to 10, with all 84 notes still present and no heading written twice. The
+  control is the same wall, the same directive and the same obedient
+  note-taker with only the old ops: the run comes down to 9, because nesting
+  can fold a wall — and all sixty notes are still under the one heading,
+  which is the defect in Bryan's words. A test that watched only the run
+  would have called that fixed, which is why the topic size is a bar of its
+  own.
+- **The three remedies compose; they used to exclude each other.** A topic
+  past `MAX_TOPIC_NOTES` was asked for the heading and explicitly told NOT to
+  nest, on the reasoning that grouping is what a note-taker does instead of
+  moving on. That held only while a heading could only be appended — the ask
+  was then "stop adding here", and grouping what was already written was its
+  opposite. With placement it is a repair rather than a redirection, so the
+  directive now asks for both: break the stretch where the meeting turned,
+  and group what is still flat inside the part left behind. Asked for the
+  split alone, a repaired meeting ended with twelve flat bullets under its
+  live heading and no ask ever firing on them. The shipped instructions
+  (`DEFAULT_NOTES_INSTRUCTIONS`) name the subheading remedy too, and say in
+  as many words that it may be used on notes already written — which is the
+  half a note-taker has no way to infer from an op list.
+- **What an hour of real meeting shows, and what it does not.** Two AMI
+  meetings replayed end to end (ES2002 and ES2003, four fifteen-minute
+  windows each, 149 and 124 ticks) with an obedient note-taker come out at a
+  longest run of 3 and 4 and a fullest heading of 10, against 12 for the old
+  ops. The margin is small BECAUSE the scan fix above stops the wall forming
+  when every ask is carried out, and a live replay never builds one. Missing
+  asks is what a real model does, so the same replay was run catching one ask
+  in four (fullest heading 12 new, 15 old) and one in eight (18 new, 19 old).
+  The placement op's value is concentrated where the notes have already gone
+  wrong, which is exactly the case the eval's fifteen-minute windows cannot
+  reach.
+- **Two bugs kept all of this from firing at all**, and they are why a real
+  meeting on 16 September left sixty-five flat bullets under one heading with
+  the bar at four. The scan was scoped to the meeting's section by slicing the
+  outline AFTER the section heading — so a meeting's first topic arrived with
+  no heading in hand and was reported as a run under no heading, and the
+  note-taker was told to open the heading it was already writing under. And
+  the slice ended at the next heading of the section's own level, which is the
+  meeting's own second topic, so everything said after the room first moved on
+  was outside the scan entirely. The scope now starts AT the section heading
+  and walks past every heading the note-taker itself wrote, stopping at one it
+  did not — which keeps what the slice was for: a long list in the document's
+  own section is still not this meeting's wall.
+- **And the same slice was quietly reducing the section tidy to one topic**,
+  which is why twenty-four of about forty-one headings in that 16 September
+  meeting stood over nothing. `notes-section-tidy.ts` has removed an empty
+  topic heading of the note-taker's own since 2026-09-14; its walk ended at
+  the next heading of the section's level, which after the container went away
+  is the meeting's own second topic, so only the first was ever judged. Every
+  one of those headings was WRITTEN empty — a tick opens a topic and its notes
+  land under another one, or its bullets are deduped away — and nothing
+  emptied them afterwards. Both passes now read one rule, `endsMeetingNotes`
+  in `notes-section-fit.ts`: a sibling heading carries the meeting's notes on
+  when the document records it as the note-taker's own, and ends them when it
+  does not. `notes-empty-topic-headings.test.ts` is what fails if the walk
+  goes back, and drives topics at the doc's own level — the older cases in
+  `notes-section-tidy.test.ts` write `###` topics under a `##` section, the
+  nested shape the product no longer produces, which is how they stayed green
+  through the regression.
+- **And the third reader of that slice was the duplicate check, which is what
+  a pause exposed.** A sixteen-second stop-and-restart on 17 September made
+  the second recording re-open eight topics the doc already had; its prompt
+  carried every one of them, and `dedupeNotesEdits` — the deterministic half
+  that folds a repeat into the heading already there — could see one. The two
+  passes above were fixed with `endsMeetingNotes`, which asks AUTHORSHIP, and
+  that answer is unavailable here: `releaseNotesAuthorship` drops every mark
+  when the next recording starts, so across a pause the previous leg's topics
+  read as the document's own. What survives it is the note-taker's own memory
+  of which headings it OPENED (`NotesHeadingMemory.topicsIn`), so the walk
+  carries over those and stops at anything else — `sectionIds`' `carryOver`
+  argument. Two consequences worth knowing: the memory now records EVERY topic
+  a meeting opens rather than only the first, and the section heading itself
+  is judged as a topic, because since the container went away it is the
+  meeting's first one rather than a wrapper naming no subject.
+  `notes-topics-after-pause.test.ts` drives it, and holds the
+  eight-topics-twice reproduction, the arm that proves the second leg's words
+  still land under the topic they are about, and the control that a heading
+  nobody recorded still ends the scope. The memory is per PROCESS, so a
+  restart between the two legs loses the reach — the failure this doc had
+  before any of it existed, not a new one.
 - **Write the smaller sure point, not a hedged bigger one.** Where the speech
   will not support the claim, the note says the part it does support. This
   REPLACED "write the note and end it `(unconfirmed)`" (2026-09-15). That
@@ -1245,9 +1393,12 @@ rather than characters, because the settled text is the same words re-cased
 and punctuated; the remainder goes out when the turn settles, marked
 `continued`, and is never written twice.
 
-**A tick is two Haiku calls** (compose + task capture), so the ceiling raises
-the per-meeting LLM cost roughly in proportion to the extra ticks.
-Transcription is billed on socket-seconds and is unchanged.
+**A tick is one Haiku call** (the compose), so the ceiling raises the
+per-meeting LLM cost roughly in proportion to the extra ticks. It was two
+until 2026-09-18, when the task-capture pass came off the live path — it ran
+in front of every compose at a median of 1.6s and a worst of 9.3s, which the
+note waited for (see "Task capture" below). Transcription is billed on
+socket-seconds and is unchanged.
 
 **Ticks that fire during a compose merge into one.** A tick used to queue
 behind a slow reply one per tick, so a single slow compose put the notes into
@@ -1319,6 +1470,21 @@ the one-line meeting summary. `CW_NOTES_TIMING=0` turns the file off; it is
 on by default because the at-stop quality report reads it, and a measurement
 that exists only when somebody set a flag is one nothing downstream can rely
 on.
+
+**Three spoken clocks, because a turn is not a sentence.** A row dates its
+words three ways. `spokenAt` is the oldest turn a tick names, taken from that
+turn's FIRST frame; `lastSpokenAt` is the last word the tick carries; and
+`firstSpokenAt` — added 2026-09-18 — is the earliest word THIS tick carries,
+which is the one the ten-second goal is about. The three differ because a
+turn is one person talking until they stop: a ceiling tick reached four
+minutes into a monologue carries a tail, while `spokenAt` still points at an
+opening whose words were written three ticks ago. Measured on a 20-minute
+synthetic meeting with no pauses in it, the same ticks read 13.0s on
+`spokenAt` and 7.3s on `firstSpokenAt` — the 12s median wait reported from the
+15 September meeting was that gap, not a queue. `firstSpokenAt` is dated from
+`NotesTurn.fromWord`, which the ticker sets on a carried chunk, against the
+per-frame word counts the session keeps; it is null on an engine that reports
+no word offsets, exactly as the other two are.
 
 **Stopping is the third thing that fires a tick, and the only one that carries
 unfinished words.** Both clocks need the meeting to keep going: the sentence
@@ -1932,6 +2098,17 @@ is no mention to move — the notes gain no attribution they did not have.
 
 ## Task capture ("file a ticket for that")
 
+**Off the live path since 2026-09-18** (Bryan's call). The pass below cost the
+note 1.6s at the median and 9.3s at the worst, in front of every compose, on
+the way to a ten-second goal. `server-deps.ts` builds no extractor and
+`bin.ts` passes none, so a live meeting makes one model call per tick and
+files no spoken tasks, review asks, research placeholders or corrections.
+Nothing is deleted: `meeting-task-capture.ts`, the `taskExtractor` seam on
+`withServerNotesSinks` and every guard described here are intact, a caller
+that passes an extractor still gets the pass, and `bun run meeting:rerun
+--capture` replays the two-call pipeline for comparison. What follows
+describes that pass, and is what restoring it would restore.
+
 Each pause tick ALSO runs a task-capture pass (`meeting-task-capture.ts`)
 before the compose: a second Haiku call — same dedicated-key consent, off
 switch `CW_MEETING_TASKS=0` — extracts explicit task requests and references
@@ -2471,6 +2648,60 @@ to have — so `--smoke` exits 1 on one, and the fix is to raise the structure
 rather than the threshold. The full run still only reports, per meeting, how
 many such topics the meeting ended with.
 
+### Does a note keep its meaning and order? `bun run notes:fidelity`
+
+`notes:eval` asks whether ideas reached the notes. It cannot see a note that
+reached the page in the wrong shape or with the wrong meaning. A solo
+dictation on 2026-09-22 showed three such faults. A laid-out page came back
+as topics of the model's own. A reason was split off its point. A stated
+problem was written as a benefit. The fixes and the checks that hold them:
+
+- **A dictated layout stays that layout.** The prompt's "Dictated layout"
+  section asks for one heading per page in the speaker's words and one
+  numbered note per item. The rule alone held on no tick, so
+  `notes-dictation.ts` names the heading id and the next number on each tick
+  that dictates. A tick dictates only when it carries a cue. A page cue is a
+  sentence that opens with the page and says what it is ("Page two is the
+  flooding"), so "page 2 is broken" opens nothing. An ordering word ("then",
+  "the last thing") counts as an item only within three ticks of a page or
+  item cue, remembered per meeting. A page heading left in the doc does not
+  keep a dictation open, and a tick with no cue gets no block. Three supports
+  keep the list intact. The regroup scan and the flat-run check treat a
+  numbered item as structure. The rename guard applies, rather than proposes,
+  the one rename that names a bare "Page 1" heading the note-taker wrote. On
+  the one tick straight after a cue, a dash detail after the page's last item
+  becomes a sub-bullet of that item, which keeps the item's own markdown.
+- **A reason stays with its point** ("X, because Y"), asked by the prompt and
+  named per tick by `notes-reason-ask.ts`.
+- **An inversion is counted at the stop, not yet flagged.**
+  `notes-inversions.ts` matches each note to its source sentence and finds
+  three changes of meaning: a problem written as a benefit or the reverse, an
+  action from a different synonym class ("repave" as "reassess"), and a
+  question written as a claim. The report, the stored row and the log line
+  carry the count. A review item filed for another reason quotes each one
+  beside its source. It raises no flag of its own, because a flag files a
+  review item and the rules have not been scored against recorded meetings.
+  The verb classes leave out verbs with an everyday second sense ("raise",
+  "add", "review"). A note asking for a fix ("needs to be better") is a
+  remedy, not a benefit, and ", right?" asks for agreement, not an answer. It
+  is lexical, so it misses an inversion in words outside its lists.
+- **A repeated note ignores filler.** The repeated-bullet count keys each note
+  on its words minus a short filler list ("just", "really", "kind of"), so
+  two notes that differ only by one of those count as one duplicate.
+
+`scripts/notes-eval-fidelity.ts` plays one invented dictation
+(`notes-fidelity-dictation.ts`) through the real composer and scores the
+notes in code (`notes-fidelity-score.ts`). A page counts as kept when its
+heading carries the speaker's words and its items form one numbered list in
+the dictated order. A reason counts as retained when one bullet carries both
+the claim and the reason. Three runs each, on the eval key. One run costs
+about $0.035 to $0.04:
+
+| Arm | Pages kept | Reasons retained | Cost of three runs |
+| --- | --- | --- | --- |
+| Before the change | 0 of 6 | 5 of 9 | $0.10 |
+| After the change | 6 of 6 | 9 of 9 | $0.11 |
+
 ### Cost
 
 The four intents are prompt text on a call that was already being made.
@@ -2738,6 +2969,25 @@ somebody presses the button. So the offer calls `liveZone.holdWash()` before
 the request; without it the one pass whose notes are the freshest thing on
 the page would be the only one that never tinted and never reached recent
 edits.
+
+**THE PASS IS NOT BOUND BY THE TOPIC BAR, and that is where the bar still
+misses** (2026-09-18, open). It gets the same regroup directive a tick gets,
+but computed from the outline it was HANDED — so a heading it grows from six
+notes to fourteen is never named in its own prompt, because at the moment the
+prompt was built that heading was fine. On a thirty-minute replay of EN2002d
+the last live tick left "Next steps" at 6 and the pass's 28 edits finished it
+at 14, two past the bar, with no ask anywhere having mentioned it.
+
+Adding a clause to `CLEANUP_DIRECTIVE` that names `MAX_TOPIC_NOTES` and asks
+the pass to count what will be under a heading AFTER its own edits was tried
+and NOT shipped, because it breaks the pass instead: two thirty-minute replays
+in a row came back `stop_reason: max_tokens`, and the whole pass is refused
+rather than truncated, so the reader got nothing tidied at all. Raising the
+reply ceiling to four times a tick's moved the refusal to the request
+timeout — one more replay, one more pass that did nothing. **Both budgets the
+pass runs under are a TICK'S**, sized for an edit list that grows with what
+was just said, and this one grows with the meeting; fixing the bar here means
+fixing those first, and measuring the pass rather than only the notes.
 
 ### Does it actually leave good notes alone?
 

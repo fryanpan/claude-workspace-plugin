@@ -52,13 +52,13 @@ flowchart TB
   mcp["mcp<br/>stdio MCP server"]
   subgraph srv["server — one Bun process"]
     edge["HTTP edge<br/>server.ts · routes/ · middleware/ · shells.ts<br/>request-admission · request-attribution<br/>socket-handlers · server-options<br/>connector/ (hosted MCP at /mcp)"]
-    docs["Doc store and attachments<br/>doc-store.ts · binds.ts · file-binding.ts · file-stamp.ts<br/>doc-*.ts · doc-origin-repo.ts · doc-key.ts · repo-registry.ts<br/>repo-registry-file.ts · repo-registry-checkouts.ts<br/>doc-thread-merge.ts · doc-identity-plan.ts · doc-identity-migration.ts<br/>doc-identity-renames.ts · doc-identity-journal.ts · doc-identity-check.ts<br/>attachment-backfill.ts<br/>note-list-gap-repair.ts · note-list-gap-corpus.ts<br/>mount-registry.ts · mount-registry-file.ts · mount-scan.ts<br/>mount-reconcile.ts · mount-store.ts<br/>mockup-capture.ts · mockup-versions.ts · mockup-live.ts · mockup-widget.ts<br/>mockup-linked-items.ts · mockup-frame.ts<br/>yjs-protocol.ts · sse.ts · sse-mux.ts · sse-writer.ts"]
+    docs["Doc store and attachments<br/>doc-store.ts · binds.ts · file-binding.ts · file-stamp.ts<br/>doc-*.ts · doc-origin-repo.ts · doc-key.ts · repo-registry.ts<br/>repo-registry-file.ts · repo-registry-checkouts.ts<br/>doc-thread-merge.ts · doc-identity-plan.ts · doc-identity-migration.ts<br/>doc-identity-renames.ts · doc-identity-journal.ts · doc-identity-check.ts<br/>attachment-backfill.ts<br/>note-list-gap-repair.ts · note-list-gap-corpus.ts<br/>mount-registry.ts · mount-registry-file.ts · mount-scan.ts<br/>mount-reconcile.ts · mount-store.ts · attachment-privacy.ts<br/>mockup-capture.ts · mockup-versions.ts · mockup-live.ts · mockup-widget.ts<br/>mockup-linked-items.ts · mockup-frame.ts · mockup-page-links.ts · app-proxy.ts · app-outage.ts<br/>yjs-protocol.ts · sse.ts · sse-mux.ts · sse-writer.ts"]
     board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review<br/>review-size-prefs"]
     meet["Meetings<br/>meetings.ts · meeting-*.ts · notes-*.ts<br/>notes-edit-guard.ts · notes-invented-links.ts · notes-scheme-links.ts<br/>notes-method-*.ts · transcribe-*.ts · recall*.ts"]
-    keep["Keep-moving<br/>stall-wiring · stall-gate · stall-nudge<br/>stall-escalation · waiting-unfiled-escalation<br/>waiting-unfiled-review · waiting-unfiled-sidecar<br/>unanswered-thread<br/>keep-moving · owner-ask · waiting-unfiled · blockage-lift<br/>keep-moving-verdict · ui-review-gate<br/>ready-nudge · ready-gate · ready-release · board-activity"]
-    ident["Identity and sharing<br/>auth/ · share/ · identities.ts"]
+    keep["Keep-moving<br/>stall-wiring · stall-gate · stall-nudge<br/>stall-escalation · waiting-unfiled-escalation<br/>waiting-unfiled-review · waiting-unfiled-sidecar<br/>waiting-unfiled-routing · waiting-unfiled-frame<br/>waiting-unfiled-filing<br/>unanswered-thread · keep-moving · owner-ask · waiting-unfiled · blockage-lift<br/>keep-moving-verdict · ui-review-gate<br/>stall-frame-news · wake-sent-sets<br/>ready-nudge · ready-gate · ready-release · board-activity"]
+    ident["Identity and sharing<br/>auth/ · share/ · identities.ts<br/>sharing-notice.ts"]
     prompts["Model prompts<br/>prompt-catalog.ts · prompt-store.ts<br/>prompt-sections.ts · routes/prompts.ts"]
-    ops["Ops<br/>deploy*.ts · dependency-install.ts · client-release.ts · plugin-release.ts<br/>sentry.ts · sentry-projects.ts · attach-mounts.ts<br/>supervisor-health.ts · supervisor-restarts.ts · server-starts.ts<br/>liveness.ts · event-loop.ts"]
+    ops["Ops<br/>deploy*.ts · dependency-install.ts · client-release.ts · plugin-release.ts<br/>sentry.ts · sentry-projects.ts · attach-mounts.ts<br/>supervisor-health.ts · supervisor-restarts.ts · server-starts.ts<br/>liveness.ts · event-loop.ts · memory-log.ts · memory-footprint.ts"]
   end
   core["core — pure shared library"]
   disk[("data dir<br/>.ydoc · JSONL · JSON")]
@@ -249,7 +249,13 @@ deployment can do for it. `schedule-output-line.ts` in `mcp` is the same shape
 one layer out — it words `set_task_schedule`'s answer about the folder a
 rule's runs write into — and joins the line modules beside
 `scheduled-line.ts`. Neither moves a boundary: both are pure wording, read by
-one caller each.
+one caller each. `review-item-line.ts` is the third and joins them: it words
+the frame for a review item filed, revised or reinstated on a TASK. Those
+events carry `taskId` and no doc, so they fell through the doc-shaped tail of
+`channel-messages.ts` and reached readers naming `doc_id: "unknown"` with no
+task and no ask; the line module holds the wording and the two-part test for
+which items are ticket-borne, and the routing decision stays in
+`emitChannelMessage`.
 
 `task-wait.ts` joins the Board group under the same `task-*.ts` glob and
 moves no boundary either. It writes one field on a task — what an agent
@@ -326,6 +332,14 @@ on-the-box callers when the project is marked local-only. Retention is the
 project's throughout: unmounting is soft and nothing under a mount is ever
 deleted.
 
+**An attachment set carries the same privacy without a project.** A folder
+bound with `attach_folder` needs no git checkout, so it has no project to be
+marked local-only. `attachment-privacy.ts` keeps the answer per set id in its
+own `attachment-privacy.json`, because a set's members are opened lazily and a
+flag copied onto each one could be missed. `server.ts` asks it once per
+request, right after admission and before the websocket upgrades, so no
+file route has to remember to.
+
 Three more modules put the documents that already exist onto that identity,
 and none of them runs on the server's own clock. `doc-identity-plan.ts` is a
 pure planner — it takes the corpus as an io parameter and says which key each
@@ -384,6 +398,12 @@ what re-inserting the round's own `<script>` elements does — including the
 redeclaration a second round used to die on, which browsers report two
 different ways. It joins no subsystem; it is the swap's other half, split for
 size.
+`mockup-page-links.ts` reads the HTML at bind time for root-relative `<a
+href>` and `<form action>` links, which resolve against the workspaces host
+inside a mockup, and the bind answers with a warning naming them and the
+board's app address when one exists. `attach_app` runs the same detector on
+the app's root page, fetched once, and warns about links outside
+`/workspaces/<ws>/apps/<doc>/`: a dev server started without that base path.
 
 `mockup-capture.ts`
 still keeps the single fallback copy that lets a link outlive its scratch
@@ -416,6 +436,33 @@ comment or answer it writes, and agents read it as "sent from inside the mock
 page". Nothing else changes in the data flow: the calls are the same routes
 and sockets, made from a different page. The rule and its limits are in
 [security.md](security.md).
+
+**An attached dev server is served like a mock, from the board's own
+address.** An agent runs a site's dev server on a loopback port and binds it
+with the `attach_app` MCP verb, which posts to `/workspaces/<ws>/apps`. That
+makes a doc of type `app` whose `sourceUrl` is the origin, filed on the board.
+`routes/apps.ts` then answers `/workspaces/<ws>/apps/<id>/<path>` by fetching
+`<origin>/<path>`. A document gets the mock's host page and sandboxed frame,
+with the widget and bridge written into the frame. Everything else is relayed
+as a stream, so the dev server's reload event stream reaches the page, and the
+bridge relays the page's own fetches and event streams under the app's prefix
+(`mock-relay-policy.ts`). `app-proxy.ts` is the pure half: the loopback rule,
+the path check and which headers cross. Nothing inside the page is rewritten,
+so the site builds its links under the prefix. The page's query reaches the dev
+server byte for byte minus the frame flag, and the host page hands its
+fragment to the frame. What this does not carry
+behind a sign-in is in [security.md](security.md).
+
+**A dev server that stops answering is news for whoever can start it.** When
+the proxy's fetch throws, the reader gets "The app is not running" as a 503,
+not a 502: Cloudflare replaces an origin 502 with its own "Bad gateway" page,
+which is what the owner read on 24 September while this server was up.
+`app-outage.ts` (beside `app-proxy.ts` in the doc-store group) turns the first
+failure into one addressed `workspace.app_unreachable` frame on the board
+stream and one `[apps]` log line, and stays quiet until a request the app
+answers re-arms it. The frame goes to the agent the attach recorded as
+`producedBy.agentId`, else the board's lead; `app-unreachable-line.ts` in
+`mcp` words it, beside the other line modules.
 
 **A review item raised on a mockup is answerable on the mockup.** The ask used
 to live only on the ticket, so a reader opened the mock, looked at it, and
@@ -524,11 +571,25 @@ settles through the ordinary thread routes, `voice-ui.ts` draws the live
 comment and the settled cards (its styles in `voice-css.ts`, the column
 layout in `voice-column.ts`), and `voice-mode.ts` glues them to the page (a
 tap sends the next words to an element, or back into that element's earlier
-note). The board imports it directly
-(`board/board-feedback-mic.ts`); a mock page gets the mic from
-`mockup-live.js` and fetches the rest as the lazy chunk `voice.js` on the
-first tap (`voice/voice-loader.ts`), so none of it is in `widget.iife.js`,
-which mock pages load against a hard size budget. Inside a served mock's frame the browser
+note). Three kinds of page reach it, and none of them puts any of it in the
+budgeted bundle. The board imports it directly
+(`board/board-feedback-mic.ts`). A mock page gets the mic from
+`mockup-live.js`. **An ordinary embed — a tag and a script on somebody else's
+dev server — fetches it**: `widget-mic-inject.ts` is the few bytes in
+`widget.iife.js` that append `<script src="<serverUrl>/widget/mic.js">` at
+DOMContentLoaded, and `mic-entry.ts` is that chunk's entry, mounting the
+button through the same `voice/voice-loader.ts` a mock goes through. Both are
+top-level modules of the widget package; only the first is on the budget, and
+it is reached from `widget-iife.ts` alone, so `widget.esm.js` and the board
+pay nothing and the board's own mount is not doubled. `window.cwMic`, set at
+module scope by `voice-loader.ts`, is how a page carrying `mockup-live.js`
+tells the injector to stand down before either mount runs. Either way the
+first tap fetches the lazy chunk `voice.js` (`voice/voice-loader.ts`), so a
+page that never speaks pays for the button and nothing behind it. On the
+tailnet name all of it goes through the widget door
+(`middleware/widget-door.ts`), which admits the mic and the chunk without a
+token and the socket, the thread verbs `edit-comment` and `reanchor`, and the
+recordings with one. Inside a served mock's frame the browser
 refuses the microphone to an opaque origin, so there the host page holds it
 instead: `mock-host-mic.ts` (widget, a top-level module the host asset
 bundles) opens the capture when the frame asks over its voice socket, streams
@@ -545,9 +606,47 @@ ceiling for talk that never pauses; `voice-feedback-turns.ts` tracks which
 heard words a note holds yet, and `voice-feedback-session.ts` holds the
 relay's per-recording state types. `voice-feedback-store.ts` keeps each
 recording's WAV and a timestamped raw transcript beside the doc
-(`routes/doc-voice-feedback.ts` serves both). No new write path: a spoken
+(`routes/doc-voice-feedback.ts` serves both). A comment's ▶ asks
+`clipAudio` (`widget/src/widget-auth.ts`) for the audio: with no token held
+that is the `<audio>` fetching the clip itself, with its byte ranges and its
+`#t=` seek; with one it is a fetch carrying the Bearer header an `<audio>`
+cannot set, played from a blob, which costs the whole recording rather than
+the stretch the clip names. No new write path: a spoken
 comment is the thread POST the typed composer already makes, carrying a
 `voice` note (clip and raw words).
+
+**Editing the words on a page.** The reader can change a page's text in
+place, and the agent is told what changed; the widget never writes the page's
+source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and
+`mockup-live.ts` right after the mic, so like the mic it costs the budgeted
+bundle nothing. Its first tap fetches the lazy chunk `edit.js`
+(`edit/edit-entry.ts`), as does a page whose doc already holds an edit that
+has not been applied, so its marks paint on load. `edit/edit-mode.ts` makes
+the tapped element editable as plain text, keeps the reader's unsent edits
+(`edit/edit-model.ts`), and draws every mark in a fixed layer of its own
+rather than restyling the page. Send is the ordinary thread POST with a
+`pageEdits` list on the first comment: each entry is the element's anchor, a
+short CSS selector, and the words before and after. `core/src/page-edits.ts`
+reads and caps that list and writes the comment's text from it, and
+`routes/doc-threads-routes.ts` refuses a malformed one outright. It rides
+`thread.created`, so there is no new event: the MCP channel line
+(`mcp/src/channel-messages.ts`) carries the list as `page_edits` and tells the
+agent to apply each edit to the source and resolve the thread. An edit counts
+as applied once its thread is resolved, or once the element's words match the
+edit's after-text without the reader having typed them in this visit. On the
+tailnet name the door admits `edit.js` without a token, as it does the other
+scripts.
+
+**Unsent words across a reload.** A comment half-typed and edits not yet sent
+come back when the page reloads under the reader. `draft-store.ts`, a
+top-level module of the widget package, keys both in `sessionStorage` by doc
+and page; the composer (`widget-picker.ts`, in the budgeted bundle) writes on
+every keystroke, `widget-restore.ts` reopens it at load, and `edit/edit-mode.ts` does the same
+for edits, the pencil loading `edit.js` when a draft waits. Inside a mock's or
+an app's sandboxed frame there is no browser storage, so `mock-bridge.ts`
+sends draft keys to the host page, which files them under its own doc in its
+`sessionStorage` (`mock-host.ts`) and hands them back when the frame asks on
+load. No server route and no event: the drafts never leave the browser.
 
 **Which channel carries what.** *Yjs*, one WebSocket per document, carries what
 two people watch change under each other's cursors: text, threads, replies,
@@ -566,6 +665,46 @@ address on 2026-09-05 to get them: a bare `events` segment under a board path
 is the activity feed's name, and a workspace id sitting outside `/workspaces`
 could not be read by the guard that reads every other board path. The address
 it moved off is recorded once, in [glossary.md](glossary.md).
+
+**An agent gets no wake for an event it cannot act on.** Three rules give that,
+and none of them hides state.
+
+*Its own action.* The MCP child drops a frame whose actor is this session, so
+an agent's own comment, review item or task move costs it no turn. Every other
+reader still gets the frame, and one whose actor the child cannot identify is
+always delivered, because an agent cannot detect silence. Rules in
+`packages/mcp/src/self-authored.ts`.
+
+*An analytics event.* `review_item.viewed` records that a person opened a card
+and changes nothing, so the server keeps it off the fan-out while the audit log
+still gets the row. `review_item.answered` stays on the stream, because an
+answer is the wake an agent waits for. The list is in
+`packages/server/src/review-items/analytics.ts`.
+
+*An act with no words.* A resolve is a status flip and carries no text, so the
+MCP child drops the frame before it becomes a wake. It drops it for every
+reader, not only the session that resolved the thread, which is what separates
+this rule from the self-echo one. A resolve retires each review item on its
+thread, so a resolve that closed an unanswered ask still wakes: it is the only
+report that reaches the agent who asked. Rule in
+`packages/mcp/src/bookkeeping-events.ts`.
+
+*An act with one reader.* A review item WITHDRAWN or ANSWERED on a ticket does
+carry a request, but only for the agent that RAISED the ask: its question went
+away, or the answer it stopped for arrived. Nobody else on the board has
+anything to do, and everybody else is the common case — any agent may retire a
+stale ask, and the server's own auto-withdrawals fire as a board actor that the
+self-echo rule suppresses for no one. So the store stamps the filer's id on
+those two events and the child delivers to that session alone
+(`readsThisReviewItemEvent` in `packages/mcp/src/review-item-line.ts`). A
+filing and a revision are not addressed this way: those are news to the board.
+The id is stripped from a visitor's copy with every other id
+(`packages/server/src/share/redact-board-events.ts`).
+
+Which rule runs where depends on what it reads. The server drops by event name,
+which reaches every attached session at the next prod restart. The child drops
+by what the frame carries, because that is where the frame is — and the third
+rule needs the reader's own identity, which only the child has.
 
 **Board state is server-owned, and Yjs only mirrors it.** The tasks live in the
 sidecar-backed `TaskStore` (`tasks.ts`, JSON on disk). The `ws:<workspaceId>`
@@ -659,7 +798,7 @@ debounced snapshot of it.
 | Layer | Where it lives | Why it is its own layer |
 | --- | --- | --- |
 | **HTTP** | `server.ts`, `routes/**`, `middleware/**`, `shells.ts`, `request-admission.ts`, `request-attribution.ts`, `socket-handlers.ts` | The only code that knows about HTTP. Parse, admit, call one service, format. |
-| **Services / stores** | `doc-store.ts`, `tasks.ts` and the `task-*` stores, `review-items/**`, `home-pane.ts`, `share/**`, `auth/**`, the `meeting-*` and `notes-*` families, `sse.ts`, `activity.ts` | Owns durable state and orchestrates one change across stores and adapters. |
+| **Services / stores** | `doc-store.ts`, `tasks.ts` and the `task-*` stores, `review-items/**`, `home-pane.ts`, `share/**`, `sharing-notice.ts`, `auth/**`, the `meeting-*` and `notes-*` families, `sse.ts`, `activity.ts` | Owns durable state and orchestrates one change across stores and adapters. |
 
 `event-origin.ts` joins `activity.ts` in the services tier: it is how a row
 in either analytics log (`activity.jsonl`, a board's `events.jsonl`) says
@@ -798,6 +937,17 @@ decision a test reads and a reviewer checks, not a number buried in a
 `setTimeout`. No state, no `Request`, nothing to schedule: the relay owns the
 timer, this owns only how long it runs.
 
+`race-deadline.ts` is a leaf under the services tier and changes nothing in
+the picture: one function, `raceDeadline(work, ms)`, which settles when the
+work settles or when the window runs out, and clears its own timer either way.
+It sees no `Request` and holds no state. It exists because
+`Promise.race([work, new Promise((r) => setTimeout(r, ms))])` leaves the
+deadline's timer scheduled when the work wins, and a referenced timer keeps
+the process alive — every shutdown drain in `meeting-protocol.ts` and
+`recall-meeting.ts` held one, so a server with no meetings at all sat five
+seconds past its own `stop()` before it could exit. Nothing else imports it
+yet; a third drain would.
+
 `meeting-namer.ts` and `meeting-titler.ts` join the same family and change
 nothing in the picture: a meeting starts as "Meeting" and is renamed to its
 topic from its own notes, only while nobody has named it. The namer is the
@@ -904,7 +1054,29 @@ policy: it reads the outline a tick is about to be composed against, finds the
 topics whose flat run has reached the bar `notes-quality.ts` scores, and writes
 the block ids into the prompt so the note-taker groups that topic instead of
 extending it. It counts runs the way `flatBulletRuns` does, deliberately, so
-the directive can never fire on a topic the eval calls fine.
+the directive can never fire on a topic the eval calls fine. It counts a
+SECOND thing beside the run — how many notes one heading stands over at all —
+because a heading may swallow half an hour without ever holding five bullets
+flat, and nesting cannot repair that: the reader meets the same stretch, in
+groups. `notes-regroup-ask.ts` is the other half, split off it: the scan
+decides what is wrong, the ask decides how to say it to a model, and only the
+second is paid for on every tick at full rate. It offers the three remedies
+Bryan asked for rather than one — a subtopic bullet with `nest_blocks`, a
+subheading or a topic heading placed in front of the note a new part starts at
+with `insert_before_block`, and the two composed in a single update, which is
+what takes a stretch already on the page apart.
+`notes-dictation.ts` and `notes-reason-ask.ts` join the same DOMAIN tier and
+add no box. They are two more per-tick directives beside the regroup one. The
+first notices a speaker dictating a document ("page one is…", "start with…",
+"then…") and names the page heading, the next number and the edit. The
+session keeps a small per-meeting memory of the last cue, the way it keeps the
+idea ledger, so an ordering word counts only while a dictation is running. On
+the tick after a cue it also folds a detail spoken about a page's last item
+into that item, so a dash note cannot split the numbered list. The second
+quotes any sentence of the tick that gives a reason, so the note for that
+point keeps it. `notes-inversions.ts` joins the `notes-quality-*` family: a
+pure check, run at the stop, that counts notes saying the opposite of their
+source sentence. The count is recorded, not flagged.
 `notes-unconfirmed.ts` joins the same DOMAIN tier as the half that settles the
 guesses a meeting marked "(unconfirmed)" — it finds them and names their ids to
 the cleanup pass, which counts what is left afterwards.
@@ -963,7 +1135,14 @@ owns. It is named here only because it is the answer to a question the picture
 did not previously have anywhere to ask: whether a tick's speech produced a
 note, as opposed to whether it reached the composer.
 
-| **Domain (pure)** | `task-owner.ts`, `task-fields.ts`, `task-row.ts`, `decision-shape.ts`, `safe-path.ts`, `workspace-path.ts`, `path-params.ts`, `diff-groups.ts`, `pause-ticker.ts`, `keep-moving.ts`, `owner-ask.ts`, `stall-gate.ts`, `unanswered-thread.ts`, `waiting-unfiled.ts`, `waiting-unfiled-review.ts`, `ui-review-gate.ts`, `blockage-lift.ts`, `notes-edit-parse.ts`, `notes-prompt-build.ts`, `notes-prompt-cache-shape.ts`, `notes-invented-links.ts`, `notes-scheme-links.ts`, `notes-research-placeholder.ts`, `ask-detection.ts`, `notes-link-intent.ts`, `notes-idea-coverage.ts`, `notes-edit-guard.ts`, `notes-edit-bullets.ts`, `notes-edit-correction.ts`, `notes-section-fit.ts`, `notes-heading-level.ts`, `notes-heading-rename.ts`, `notes-unconfirmed.ts`, `notes-method.ts` (core), `notes-cleanup-report.ts` (core), `model-quota.ts`, `notes-notice.ts`, `notes-edit-address.ts`, `dispatch-request-event.ts`, `agent-listening.ts`, `claude-key-source.ts` | Functions over values: no clock, filesystem or socket unless passed in, so a rule is testable without a server. |
+`notes-missed-words.ts` joins the DOMAIN tier beside it and moves no boundary
+either: a retried line and the notes so far in, the words of the line no note
+carries out. The prompt builder calls it so the retry block names what is
+absent rather than asking the note-taker to judge what is carried — the
+judgement that let the reason of an "X because Y" line go while its point
+stood.
+
+| **Domain (pure)** | `task-owner.ts`, `task-fields.ts`, `task-row.ts`, `decision-shape.ts`, `safe-path.ts`, `workspace-path.ts`, `path-params.ts`, `diff-groups.ts`, `pause-ticker.ts`, `keep-moving.ts`, `owner-ask.ts`, `stall-gate.ts`, `unanswered-thread.ts`, `waiting-unfiled.ts`, `waiting-unfiled-review.ts`, `waiting-unfiled-frame.ts`, `ui-review-gate.ts`, `blockage-lift.ts`, `notes-edit-parse.ts`, `notes-prompt-build.ts`, `notes-prompt-cache-shape.ts`, `notes-invented-links.ts`, `notes-scheme-links.ts`, `notes-research-placeholder.ts`, `ask-detection.ts`, `notes-link-intent.ts`, `notes-idea-coverage.ts`, `notes-missed-words.ts`, `notes-edit-guard.ts`, `notes-edit-bullets.ts`, `notes-edit-correction.ts`, `notes-section-fit.ts`, `notes-heading-level.ts`, `notes-heading-rename.ts`, `notes-dictation.ts`, `notes-reason-ask.ts`, `notes-inversions.ts`, `notes-unconfirmed.ts`, `notes-method.ts` (core), `notes-cleanup-report.ts` (core), `model-quota.ts`, `notes-notice.ts`, `notes-edit-address.ts`, `dispatch-request-event.ts`, `agent-listening.ts`, `claude-key-source.ts` | Functions over values: no clock, filesystem or socket unless passed in, so a rule is testable without a server. |
 | **Adapters** | `transcribe-*.ts`, `recall*.ts`, `google-oauth.ts`, `summarize.ts`, `deploy*.ts`, `client-release.ts`, `push-notify.ts`, `share/cf-api.ts`, `share/keychain.ts`, `secret-store.ts`, `git-diff.ts`, `sentry.ts` | One vendor or OS facility each, behind an injected interface, so a swap or a test double touches one file and no state. |
 | *Composition root* | `bin.ts`, `server-config.ts`, `server-deps.ts` | Reads the environment once, builds adapters, wires services. Beside the stack, not on top of it. |
 
@@ -1015,6 +1194,13 @@ outages were legible only as a 404 that took 56 seconds — the block itself was
 recorded nowhere, and whether a stall was a synchronous pass or the OS
 descheduling the process could not be told apart. A stall with nothing in
 flight is that second thing, and the line says so.
+
+`memory-log.ts` and `memory-footprint.ts` join Ops and move no boundary. They
+write the `[doc-store] mem` line: the footprint macOS counts, read every 30
+seconds through `bun:ffi`, printed on a 64 MB move or every five minutes, with
+the window's requests by route family and its busiest doc-store activator.
+`doc-store.ts` owns the sampler and `server.ts` counts each request at the
+front door; neither module imports a subsystem.
 
 `server-starts.ts` joins Ops and moves no boundary. `bin.ts` records every
 start of the process in `server-starts.json` beside the deploy log: once at
@@ -1080,6 +1266,21 @@ going in-progress and a lane starting, and nothing in between, which made the
 largest measured wait in the pipeline unattributable. `scripts/dispatch-timing.ts`
 is the reader.
 
+`dispatch-reports.ts` joins the SERVICES row beside `dispatch-registry.ts`,
+and draws no new boundary: `routes/dispatch-and-notes.ts` is its only caller
+and the task store is its only collaborator, reached through a one-method sink
+it is handed. It is named here because the two dispatch modules answer
+different questions and are deliberately not one. The registry is about a lane
+being HELD — a worktree, a watcher, a slot against the parallelism cap — and it
+closes a dispatch the moment the worktree or the task is gone. A report is
+written at the END and has to outlive the lane it describes, because the lead
+reads it after the builder has stopped. It owns one decision nothing else can
+take: a SECOND report on the same task-and-commit builds no event at all, so a
+re-sent report cannot reach the SSE fan-out for any subscriber on any bundle.
+`dispatch.reported` is the one board event of the dispatch pair that IS
+broadcast — its twin `dispatch.requested` is telemetry nobody acts on, this is
+the lead's cue to read the record.
+
 `agent-listening.ts` joins it too, and draws no new boundary — it is the one
 question the presence strip was missing. The roster has always answered *did a
 session sit down here*, which is durable and outlives the session; whether
@@ -1131,7 +1332,7 @@ for the same reason — the zone is back on the 500-line bar — and holds one
 decision that is not the zone's: a speaker pill is a rename BUTTON where
 somebody handed in a way to record a name and the plain span it always was
 where nobody did. Nothing but the zone imports it either, today; the strip's
-own pill (`meeting-feed.ts`) is the obvious second caller. `meeting-source.ts` sits beside `meeting-audio.ts` in the same family and changes none of the picture: it is where the strip's chosen source — the microphone, or the Mac's own audio through Chrome's share picker — becomes a media stream, split out because the capture module sits on the 500-line bar. `meeting-capture-set.ts` joins that family for the meeting that opens BOTH: it is the tier above one capture, opening each stream in turn and deciding what a meeting runs on when only one of the two doors was answered. It changes no layer — it is a view-tier module calling the same `startMeetingCapture` a single-source meeting always did — and it is named here because the strip now talks to it rather than to the capture directly. `meeting-reconnect.ts` joins the same family one tier below the strip and changes no layer either: it is the policy a dropped audio socket is retried under — how long to wait, when to stop waiting, and the two sentences the strip shows while it happens — with no DOM, no socket and no timer in it, so `meeting-strip.ts` owns the doing and this owns the deciding. Three modules join that family for the capture that dies while the meeting is still running, and they split noticing from deciding for the same reason: `meeting-track-watch.ts` is the noticing — it watches a capture's tracks on the audio graph's own block clock and reports the first loss once, with no DOM, no timer and no policy in it, because a `MediaStreamAudioSourceNode` downstream of a dead track keeps delivering silence and nothing else in the capture path was listening. `meeting-stream-health.ts` is the deciding: which streams can be reopened without a person (a microphone can, the Mac's audio cannot — the share picker is a modal no page may open by itself), what the strip says while one is gone, and what the button is called where only a press will do. Both are pure, so the strip owns every side effect. `meeting-room-audio.ts` changes none of the picture: it is the room-processing constants and constraint builders lifted out of `meeting-audio.ts`, which sits on the 500-line bar, and `meeting-audio.ts` re-exports them so no caller moved. `meeting-transcript-panel.ts` joins the same family in the view tier and
+own pill (`meeting-feed.ts`) is the obvious second caller. `meeting-source.ts` sits beside `meeting-audio.ts` in the same family and changes none of the picture: it is where the strip's chosen source — the microphone, or the Mac's own audio through Chrome's share picker — becomes a media stream, split out because the capture module sits on the 500-line bar. `meeting-capture-set.ts` joins that family for the meeting that opens BOTH: it is the tier above one capture, opening each stream in turn and deciding what a meeting runs on when only one of the two doors was answered. It changes no layer — it is a view-tier module calling the same `startMeetingCapture` a single-source meeting always did — and it is named here because the strip now talks to it rather than to the capture directly. `meeting-reconnect.ts` joins the same family one tier below the strip and changes no layer either: it is the policy a dropped audio socket is retried under — how long to wait, when to stop waiting, and the two sentences the strip shows while it happens — with no DOM, no socket and no timer in it, so `meeting-strip.ts` owns the doing and this owns the deciding. Three modules join that family for the capture that dies while the meeting is still running, and they split noticing from deciding for the same reason: `meeting-track-watch.ts` is the noticing — it watches a capture's tracks on the audio graph's own block clock and reports the first loss once, with no DOM, no timer and no policy in it, because a `MediaStreamAudioSourceNode` downstream of a dead track keeps delivering silence and nothing else in the capture path was listening. `meeting-stream-health.ts` is the deciding: which streams can be reopened without a person (a microphone can, the Mac's audio cannot — the share picker is a modal no page may open by itself), what the strip says while one is gone, and what the button is called where only a press will do. Both are pure, so the strip owns every side effect. `meeting-room-audio.ts` changes none of the picture: it is the room-processing constants and constraint builders lifted out of `meeting-audio.ts`, which sits on the 500-line bar, and `meeting-audio.ts` re-exports them so no caller moved. `meeting-record-face.ts` joins the same family one tier below the strip and changes no layer: it is the vocabulary the Record button wears — which word stands for each source and each voice count, what the control reads in each state, and the full list of faces the hidden sizer reserves the button's one width from. Pure, with no DOM and no state in it, because the two facts it names are the two that decide what is recorded and what is billed, and a button that got them wrong is how a paused meeting came back solo on 16 September. `meeting-transcript-panel.ts` joins the same family in the view tier and
 changes none of the picture either: it is the Transcript fold the start panel
 grows once a meeting has ended, split out of `meeting-chooser.ts` — which sits
 on the 500-line bar — because that panel is where every billed choice for the
@@ -1289,7 +1490,19 @@ insert, and a block with no words, which applies directly whoever owns it.
 `prose-nest.ts` is one of those edits given a
 module of its own: `nest_blocks` MOVES existing list items under a lead bullet
 rather than restating them, which is what lets a note-taker regroup a topic
-without retyping a point or orphaning the comment threads anchored to it. Server-side they are reached through
+without retyping a point or orphaning the comment threads anchored to it.
+`prose-split.ts` is the second, and it is the only insert in the product that
+lands anywhere but an END. Every other one appends — to the document, or to
+the end of the section it names — so a heading could be written and never
+PLACED, and a topic that had swallowed half an hour could not be broken up at
+all. `insert_before_block` opens a slot in front of a named block, splitting
+its list when the block is in the middle of one, and a heading written there
+re-parents every note below it by ARRIVING: an outline reads a block's topic
+as the nearest heading above it, so nothing is moved, nothing is retyped, and
+every note keeps its words, its id and its comment threads. What it does
+disturb is the list it splits, whose tail is carried by the same clone
+`prose-nest.ts` uses — so it asks the same ownership question before it does,
+and refuses rather than carry a line a person owns. Server-side they are reached through
 `doc-outline-ops.ts`, which sits beside `doc-edit-ops.ts` in the services tier
 for the reason that module already gives: `doc-edit-ops.ts` was at the
 500-line bar, and the outline verbs are a family of their own.
@@ -1377,6 +1590,26 @@ the client module is chrome-free measurement with no UI of its own.
 - [stall-detection.md](stall-detection.md) — gains one more top-level module, `unanswered-thread.ts`, and no new edge. It is the other DIRECTION of the same question. `review-queue.ts` walks every open thread for an agent's unanswered comment and for a declaration awaiting a person, and both of those runs end at a person — `unansweredRun` breaks at the first author who is not an agent — so a thread whose last speaker is Bryan produces no row anywhere, on a doc that may hang on no task at all. This module is the predicate for that case and the row the wake names: pure, so it joins the domain tier beside `stall-gate.ts`, reading only `classifyActor` from `actor-identity.ts`. `stall-wiring.ts` calls it once per board tick over `workspace.docIds` — the same walk `heldThreadReviewItems` already pays for — and the row rides the existing stall frame to the board's LEAD. It never reaches the board's owner: the escalation that goes past a lead anchors on `stalled`/`unfiled` rows, and a waiting thread is neither, so a question Bryan asked can never be filed back onto Bryan's own queue.
 - [unfiled-ask.md](unfiled-ask.md) — the two top-level modules `unfiled-ask.ts` and `unfiled-ask-filing.ts`, which judge whether a closing message asked the board's owner something with nothing filed. They join the services tier beside `chat-audit.ts` and move nothing in the picture: one is pure text, the other one walk of the task store, and only `routes/dispatch-and-notes.ts` calls either. The doc carries the measured false-positive and false-negative rates, because the count they feed is unreadable without them.
 - [unfiled-ask.md](unfiled-ask.md) — also gains `agent-note-log.ts`, one more top-level module in the services tier and no new edge. It is the durable half of `agent-notes.ts`'s per-agent ring: a board where one session holds several in-progress rows can place none of its end-of-turn notes, and the ring they fell back to is in-process, twenty deep and read by nothing, so every one of them was dropped. The log appends each unplaced note to `<dataDir>/workspaces/<ws>.agent-notes.jsonl` — its own file rather than a new `TaskStoreEvent`, because a store event is a change to the board and an unplaced note is a record about an agent, and because every consumer of `events.jsonl` keeps an exclusion list that a new type would have to be added to. `routes/dispatch-and-notes.ts` is its only caller, writing on the POST and merging it into the GET.
+- [stall-detection.md](stall-detection.md) — gains two top-level modules,
+  `waiting-unfiled-frame.ts` and `waiting-unfiled-filing.ts`, and no new edge.
+  The second is the per-board half of the unfiled-ask escalation — which board
+  gets an item, which board's is revised, which board's is taken back — split
+  out when the item went from one for the whole server to one per board and
+  the file reached the 500-line bar. It is NOT pure: it holds a store and
+  mutates a sidecar, so it joins the services tier beside
+  `waiting-unfiled-escalation.ts`, which remains its only importer. The split
+  is worth its file because these are the calls a person's queue actually
+  sees, and driving them needed a tick, a clock and a Team Lead until they
+  moved out. The first: It is the ONE fleet frame Team
+  Lead is woken with about unfiled waits, split out of
+  `waiting-unfiled-escalation.ts` on the seam that file's two earlier splits
+  used: rendering is a pure function of the due rows, so what a reader gets
+  can be driven without a reach to send it through. It is pure, so it joins
+  the domain tier beside `waiting-unfiled-review.ts`, and its one importer is
+  the escalation that already sat in the keep-moving box. Same PR retires
+  `stall-frame-news.ts`'s `withoutPersonBlocked` — a filter, not a module, so
+  the picture is unchanged there.
+- [stall-detection.md](stall-detection.md) — gains three top-level modules and no new edge, all three answering ONE question: does this frame tell its reader anything it does not already have? A week of the fleet's transcripts put repeat or empty reminders at 11% of all model spend, and a wake is the reader's whole turn. `wake-sent-sets.ts` is the memory — per board, per session, the tokens of the last frame actually delivered, persisted beside the armed stamps so a deploy does not re-send what the previous process sent; both nudgers own one. `stall-frame-news.ts` is the three readings the stall wake takes of a built frame: the tokens the stamp does not already carry, whether every task the frame would name moved inside the moved-within window, and the person-blocked rows that come off the board before the lead is woken at all. `waiting-unfiled-routing.ts` is which rung of the unfiled-ask ladder a row belongs on, split out of `waiting-unfiled-escalation.ts` when the two buckets stopped sharing an addressee. All three are pure — no clock, no store, no socket — so they join the domain tier beside `stall-gate.ts`, and their callers are the two nudgers and the escalation that already sat in the keep-moving box.
 - [unfiled-ask.md](unfiled-ask.md) — also gains `agent-note-placement.ts`, a pure top-level module in the services tier that adds no new edge. It turns the log's `ambiguous` flag into the state a reader is shown: `undecidable` (several tasks), `unattachable` (no task), `withheld` (the session declared it does not post) or `attached` (a newer note landed on a task). It groups the log's recent lines by agent for `GET /workspaces/<ws>/agent-notes`, which feeds Home's "Not on a task" list, and it parses the wordless withheld declaration. Its only caller is `routes/dispatch-and-notes.ts`. The client half, `board/agent-notes-model.ts`, sits inside the `board/` directory the diagram already draws.
 - [security.md](security.md) — the boundaries, and which gate decides each one.
 - [routes.md](routes.md) — every front-door path pattern and the gate it sits behind, generated from `routes/route-table-rows.ts`.

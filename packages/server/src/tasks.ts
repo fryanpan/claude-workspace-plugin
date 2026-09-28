@@ -1386,6 +1386,44 @@ export interface DispatchRequestedEvent {
   ts: number;
 }
 
+/**
+ * A builder's closing report on the build it just finished — the other end of
+ * `dispatch.requested`, and the one event of the pair that a person acts on.
+ *
+ * Broadcast, where `dispatch.requested` is not, and the difference is what
+ * each one is FOR. A request is telemetry read out of `events.jsonl` after the
+ * fact and fires once per lane started; a report is the lead's cue to read the
+ * record, fires once per build finished, and is the thing the whole feature
+ * exists to deliver. It carries counts rather than the lists themselves — a
+ * channel frame is one line in a reader's context, and `GET
+ * /workspaces/<ws>/dispatches/<taskId>/report` is where the detail is read.
+ *
+ * A SECOND report on the same build emits nothing at all: the store declines
+ * to build the event (`dispatch-reports.ts`), so a repeat cannot reach the
+ * fan-out for any subscriber on any bundle.
+ */
+export interface DispatchReportedEvent {
+  type: 'dispatch.reported';
+  workspaceId: string;
+  taskId: string;
+  /** The pull request this build is on. */
+  prNumber: number;
+  /** The commit the reported checks ran on. */
+  headCommit: string;
+  checksTotal: number;
+  checksFailed: number;
+  /** Gates the run did not execute — the browser-gated members on a
+   *  developer's machine. Neither a pass nor a failure; see
+   *  `.claude/rules/testing-standards.md`. */
+  checksHeld: number;
+  doneWhenTotal: number;
+  doneWhenMet: number;
+  /** Who reported, when the caller named itself. */
+  agentName?: string;
+  actor?: TaskActor;
+  ts: number;
+}
+
 export interface VoiceRequestEvent {
   type: 'voice.request';
   workspaceId: string;
@@ -1474,6 +1512,17 @@ export interface ReviewItemWithdrawnEvent {
   reinstated?: boolean;
   /** The asker's one line on why, when they wrote one. */
   reason?: string;
+  /**
+   * The agent that FILED the item, which is not `actor` — any agent on the
+   * board may retire somebody else's stale ask, and the server retires its
+   * own filings on a schedule. It is the one reader who can act on this
+   * frame: their ask went away and nothing else will tell them.
+   * `channel-messages.ts` delivers the wake to that agent and to nobody else.
+   * Absent on an item filed before the store began stamping `filedBy`, and
+   * stripped from a visitor's copy with every other id
+   * (`redactBoardEventForVisitor`).
+   */
+  filedById?: string;
   actor: TaskActor;
   links: Ref[];
   ts: number;
@@ -1540,6 +1589,15 @@ export interface ReviewItemAnsweredEvent {
   taskId?: string;
   /** Who answered. */
   actorId: string;
+  /**
+   * The agent that FILED the item, for the same reason the withdrawal row
+   * carries it: the answer is what that agent stopped for, and it is the one
+   * reader the frame is addressed to. Still ids only, so the measurement
+   * contract above is unchanged — a name would be the widening that comment
+   * forbids. Set on a TICKET item whose filer the store recorded; absent on a
+   * doc-thread answer, which names no task and keeps the doc rendering.
+   */
+  filedById?: string;
   isOwner: boolean;
   ts: number;
 }
@@ -1574,6 +1632,7 @@ export type TaskStoreEvent =
   | AgentDetachedEvent
   | AgentHeartbeatEvent
   | DispatchRequestedEvent
+  | DispatchReportedEvent
   | VoiceRequestEvent;
 
 /* `legacyTriageSidecarPaths` lives in `task-persistence.ts` now, next to
@@ -2610,7 +2669,14 @@ export class TaskStore {
     opts: { actor: { id: string; name: string; kind?: string }; baseUrl?: string },
   ): DoneWhenResult {
     const res = this.doneWhen.report(taskId, entries, opts.actor, opts.baseUrl);
-    return this.withOwnerItems(res, opts.actor);
+    // The lines this report hands to the owner are the only ones that may
+    // reach the reader again after their item was withdrawn — a report is the
+    // agent saying the line is ready, which is what a withdrawal took back.
+    return this.withOwnerItems(
+      res,
+      opts.actor,
+      entries.filter((e) => e.verdict === 'owner').map((e) => e.id),
+    );
   }
 
   /** The owner's word on a line only a person can judge. */
@@ -2633,9 +2699,10 @@ export class TaskStore {
   private withOwnerItems(
     res: DoneWhenResult,
     actor: { id: string; name: string; kind?: string },
+    reportedOwnerLines: readonly string[] = [],
   ): DoneWhenResult {
     if (!res.ok) return res;
-    const { toJudge } = syncOwnerItems(res.task.id, this.ownerItemDeps, actor);
+    const { toJudge } = syncOwnerItems(res.task.id, this.ownerItemDeps, actor, reportedOwnerLines);
     return toJudge.length > 0 ? { ...res, ownerItemsToJudge: toJudge } : res;
   }
 

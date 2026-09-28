@@ -36,6 +36,7 @@ import {
   type StallSnapshot,
 } from '../src/stall-nudge.ts';
 import { type Task, TaskStore } from '../src/tasks.ts';
+import { buildFleetFrame } from '../src/waiting-unfiled-frame.ts';
 
 const PERSON = { id: 'known-robin', name: 'Robin Vale', kind: 'person' };
 const AGENT = { id: 'agent-tide-runner', name: 'Tide Runner', kind: 'agent' };
@@ -182,7 +183,7 @@ describe('a dead board escalates; a live one never does', () => {
     it('a live lead with STUCK rows produces nothing either — the wake is its addressee', () => {
       const a = make('Split the parser out of the loader');
       const escalations = build();
-      const rows = { unfiled: [row(a, 'blocked-on-owner-unfiled', 9 * ESCALATE_MS)] };
+      const rows = { unfiled: [row(a, 'waiting-unfiled', 9 * ESCALATE_MS)] };
       escalations.onBoard(board(wsId, { sessionLive: true, ...rows }), now);
       escalations.onBoard(
         board(wsId, { sessionLive: false, agentActiveAt: now - ESCALATE_MS / 2, ...rows }),
@@ -231,7 +232,7 @@ describe('a dead board escalates; a live one never does', () => {
       escalations.onBoard(
         board(wsId, {
           unanswered: waiting,
-          unfiled: [row(a, 'blocked-on-owner-unfiled', 9 * ESCALATE_MS)],
+          unfiled: [row(a, 'waiting-unfiled', 9 * ESCALATE_MS)],
         }),
         now + 4 * ESCALATE_MS,
       );
@@ -294,10 +295,10 @@ describe('a dead board escalates; a live one never does', () => {
     it('a retired board escalates nothing, and takes back what it had filed', () => {
       const a = make('Archive the old importer');
       const escalations = build({ withTeamLead: false });
-      escalations.onBoard(board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] }), now);
+      escalations.onBoard(board(wsId, { unfiled: [row(a, 'waiting-unfiled')] }), now);
       expect(openItems(a.id)).toHaveLength(1);
       escalations.onBoard(
-        board(wsId, { retired: true, unfiled: [row(a, 'blocked-on-owner-unfiled')] }),
+        board(wsId, { retired: true, unfiled: [row(a, 'waiting-unfiled')] }),
         now + 60_000,
       );
       expect(openItems(a.id)).toHaveLength(0);
@@ -324,6 +325,44 @@ describe('a dead board escalates; a live one never does', () => {
           escalatedFrom: AGENT.id,
         },
       });
+    });
+
+    /**
+     * The two frames a lead can be woken with about a board it is not on are
+     * this redirect and the fleet carry of unfiled waits. They ask for
+     * different things — restart the seat, or get an ask filed — so a reader
+     * has to be able to tell them apart from the frame alone.
+     */
+    it('the redirect carries the unreachable seat and NOT the unfiled-carry marker', () => {
+      const a = make('Rank results by recency');
+      reachOn.add(wsId);
+      build().onBoard(board(wsId, { stalled: [row(a, 'in-progress')] }), now);
+      expect(sent[0]?.frame.escalatedFrom).toBe(AGENT.id);
+      expect(sent[0]?.frame.unfiledCarry).toBeUndefined();
+      expect('unfiledCarry' in sent[0]!.frame).toBe(false);
+
+      // POSITIVE CONTROL: the frame that IS the carry sets the field, so the
+      // absence above is this path's shape rather than a field nothing sets
+      // or a name misspelled in both places.
+      const carry = buildFleetFrame({
+        due: [
+          {
+            workspaceId: wsId,
+            taskId: a.id,
+            title: a.title,
+            bucket: 'waiting-unfiled',
+            quietMs: 90 * 60_000,
+            firstSeen: now - 2 * ESCALATE_MS,
+            tells: 0,
+            leadAgentId: AGENT.id,
+          },
+        ],
+        onBoard: wsId,
+        agingMs: ESCALATE_MS,
+        now,
+      });
+      expect(carry.unfiledCarry?.boards).toEqual([{ workspaceId: wsId, leadAgentId: AGENT.id }]);
+      expect(carry.escalatedFrom).toBeUndefined();
     });
 
     it('reaches Team Lead on ANOTHER board when it holds no stream on the dead one', () => {
@@ -377,7 +416,7 @@ describe('a dead board escalates; a live one never does', () => {
       build().onBoard(
         board(wsId, {
           stalled: [row(b, 'in-progress', 3 * ESCALATE_MS), row(c, 'ready-unpicked')],
-          unfiled: [row(a, 'blocked-on-owner-unfiled', 2 * ESCALATE_MS)],
+          unfiled: [row(a, 'waiting-unfiled', 2 * ESCALATE_MS)],
         }),
         now,
       );
@@ -400,10 +439,10 @@ describe('a dead board escalates; a live one never does', () => {
       const a = make('Choose the retention window');
       const b = make('Rank results by recency');
       const escalations = build({ withTeamLead: false });
-      escalations.onBoard(board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] }), now);
+      escalations.onBoard(board(wsId, { unfiled: [row(a, 'waiting-unfiled')] }), now);
       escalations.onBoard(
         board(wsId, {
-          unfiled: [row(a, 'blocked-on-owner-unfiled')],
+          unfiled: [row(a, 'waiting-unfiled')],
           stalled: [row(b, 'in-progress')],
         }),
         now + 60_000,
@@ -417,7 +456,7 @@ describe('a dead board escalates; a live one never does', () => {
     it('withdraws the item the tick a session is on the board again', () => {
       const a = make('Choose the retention window');
       const escalations = build({ withTeamLead: false });
-      const rows = { unfiled: [row(a, 'blocked-on-owner-unfiled')] };
+      const rows = { unfiled: [row(a, 'waiting-unfiled')] };
       escalations.onBoard(board(wsId, rows), now);
       expect(openItems(a.id)).toHaveLength(1);
       // The row is exactly as stuck; the only change is that somebody is here.
@@ -430,7 +469,7 @@ describe('a dead board escalates; a live one never does', () => {
     it('withdraws the item when the rows it named are no longer stuck', () => {
       const a = make('Choose the retention window');
       const escalations = build({ withTeamLead: false });
-      escalations.onBoard(board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] }), now);
+      escalations.onBoard(board(wsId, { unfiled: [row(a, 'waiting-unfiled')] }), now);
       escalations.onBoard(board(wsId), now + 60_000);
       expect(openItems(a.id)).toHaveLength(0);
       expect(queued()).toHaveLength(0);
@@ -439,7 +478,7 @@ describe('a dead board escalates; a live one never does', () => {
     it('a board that dies again files again, with no cooldown in the way', () => {
       const a = make('Choose the retention window');
       const escalations = build({ withTeamLead: false });
-      const rows = { unfiled: [row(a, 'blocked-on-owner-unfiled')] };
+      const rows = { unfiled: [row(a, 'waiting-unfiled')] };
       escalations.onBoard(board(wsId, rows), now);
       escalations.onBoard(board(wsId, { sessionLive: true, ...rows }), now + 60_000);
       expect(openItems(a.id)).toHaveLength(0);
@@ -452,20 +491,17 @@ describe('a dead board escalates; a live one never does', () => {
       const a = make('Split the parser out of the loader');
       const b = make('Write the migration');
       const escalations = build({ withTeamLead: false });
-      escalations.onBoard(board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] }), now);
+      escalations.onBoard(board(wsId, { unfiled: [row(a, 'waiting-unfiled')] }), now);
       const filed = openItems(a.id)[0]?.id ?? '';
       store.answerTaskReview(a.id, filed, 'Looking at it now', { actor: PERSON });
 
       // Still dead, still stuck; the reader has spoken about this row.
-      escalations.onBoard(
-        board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] }),
-        now + 60_000,
-      );
+      escalations.onBoard(board(wsId, { unfiled: [row(a, 'waiting-unfiled')] }), now + 60_000);
       expect(items(a.id)).toHaveLength(1);
       // A row they were NOT shown is new.
       escalations.onBoard(
         board(wsId, {
-          unfiled: [row(a, 'blocked-on-owner-unfiled')],
+          unfiled: [row(a, 'waiting-unfiled')],
           stalled: [row(b, 'in-progress')],
         }),
         now + 120_000,
@@ -480,7 +516,7 @@ describe('a dead board escalates; a live one never does', () => {
       const escalations = build({ withTeamLead: false });
       escalations.onBoard(
         board(wsId, {
-          unfiled: [row(a, 'blocked-on-owner-unfiled')],
+          unfiled: [row(a, 'waiting-unfiled')],
           stalled: [row(b, 'in-progress')],
         }),
         now,
@@ -498,7 +534,7 @@ describe('a dead board escalates; a live one never does', () => {
 
     it('a restart reads the sidecar and does not file a second item', () => {
       const a = make('Land the backfill');
-      const snapshot = board(wsId, { unfiled: [row(a, 'blocked-on-owner-unfiled')] });
+      const snapshot = board(wsId, { unfiled: [row(a, 'waiting-unfiled')] });
       build({ withTeamLead: false }).onBoard(snapshot, now);
       expect(openItems(a.id)).toHaveLength(1);
       expect(readFileSync(join(dataDir, STALL_ESCALATION_FILENAME), 'utf8')).toContain(a.id);
@@ -540,11 +576,16 @@ describe('the escalation cannot take the stall loop down with it', () => {
 });
 
 describe('the words a reader sees', () => {
+  // `waiting-unfiled` rather than `blocked-on-owner-unfiled`, which every case
+  // in this file used until 2026-09-22. The gate stopped putting that bucket on
+  // `unfiled` at all, so no board this filer reads can carry one and its entry
+  // in `BUCKET_WORDS` went with it. A renderer case standing on a row that
+  // cannot arrive proves nothing about what a reader sees.
   const rows = [
     {
       id: 't-1',
       title: 'Choose the retention window',
-      bucket: 'blocked-on-owner-unfiled',
+      bucket: 'waiting-unfiled',
       quietMs: 3 * 60 * 60_000,
     },
   ];
@@ -561,9 +602,11 @@ describe('the words a reader sees', () => {
     );
     const detail = String(review.detail);
     expect(detail).toContain('[Choose the retention window](/workspaces/ws-1?task=t-1)');
-    expect(detail).toContain('waiting on a person, with no question filed anywhere they read');
+    expect(detail).toContain(
+      'its agent said it is waiting on a person, with no question filed anywhere they read',
+    );
     expect(detail).toContain('Quiet 3h');
-    expect(detail).not.toContain('blocked-on-owner-unfiled');
+    expect(detail).not.toContain('waiting-unfiled');
   });
 
   it('says how long nobody has been here, and that Team Lead was tried', () => {

@@ -57,6 +57,7 @@ import {
   isHtmlMockupSource,
   readMockupHtml,
 } from '../mockup-capture.ts';
+import { type BoardApp, mockupLinkWarning, rootRelativePageLinks } from '../mockup-page-links.ts';
 import { recordMockupVersion } from '../mockup-versions.ts';
 import { OUT_OF_SHARE_SCOPE, firstRefOutOfScope } from '../share/ref-scope.ts';
 import {
@@ -119,6 +120,22 @@ export async function handleDocCreateListRoutes(
     fileUnderBoardWorkspace,
   } = ctx;
   const { req, url, scope } = rq;
+
+  /** The first app attached to this board, with its address. */
+  const boardApp = (): BoardApp | undefined => {
+    if (!scope) return undefined;
+    const index = boardIndexForListing();
+    const app = docStore
+      .list()
+      .find(
+        (m) =>
+          m.type === 'app' &&
+          !!m.sourceUrl &&
+          (m.workspaceId === scope.workspaceId ||
+            boardsForDocIndexed(index, m).has(scope.workspaceId)),
+      );
+    return app ? withReviewUrl(app, scope.workspaceId) : undefined;
+  };
 
   // --- REST: docs — POST /workspaces/<ws>/docs ---
   //
@@ -190,6 +207,14 @@ export async function handleDocCreateListRoutes(
     // so they don't need a file.
     // Diff docs are created only via POST /api/diffs, which resolves the
     // range and seeds content from git — a bare create can't do that.
+    // An app's origin is checked by its own route, which is the only one that
+    // knows the loopback rule. Created here, it would be bound unchecked.
+    if (type === 'app') {
+      return j(400, {
+        error: 'use POST /workspaces/{workspaceId}/apps',
+        hint: 'A dev server is attached by POST /workspaces/{workspaceId}/apps {docId, origin}, which accepts only a loopback origin.',
+      });
+    }
     if (type === 'diff') {
       return j(400, {
         error: 'use POST /workspaces/{workspaceId}/attachments',
@@ -374,7 +399,12 @@ export async function handleDocCreateListRoutes(
     if (type === 'mockup' && sourceUrl && isHtmlMockupSource(sourceUrl)) {
       docStore.attachMockupFile(canonicalId, sourceUrl);
     }
+    // Root-relative page links break inside a mockup; say so at bind time,
+    // naming the board's app when it already serves the site whole.
+    const pageLinks = mockupHtml === null ? [] : rootRelativePageLinks(mockupHtml);
+    const warning = mockupLinkWarning(pageLinks, pageLinks.length ? boardApp() : undefined);
     return j(200, {
+      ...(warning ? { warning: warning.message, linkWarning: warning } : {}),
       docId: doc.docId,
       meta: withReviewUrl(doc.meta),
       // Where the doc landed, in the same call that created it — a

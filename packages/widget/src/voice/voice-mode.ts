@@ -1,6 +1,7 @@
 import type { Anchor, ElementAnchor, VoiceTarget } from '@claude-workspaces/core';
 import { hasContext } from '@claude-workspaces/core/anchor/context';
 import { createAnchor } from '@claude-workspaces/core/anchor/element';
+import { clipAudio } from '../widget-auth.ts';
 import { SIGN_IN_NOTE, type WidgetMic } from '../widget-mic.ts';
 import type { FeedbackWidgetEl } from '../widget.ts';
 import { hostCapture, startPcmCapture } from './voice-audio.ts';
@@ -16,9 +17,9 @@ import { VoiceView } from './voice-ui.ts';
  *
  * The glue between the three halves — `VoiceSession` (the socket and the
  * threads), `VoiceView` (what is drawn) and the page itself: the catalog of
- * elements the server picks from, a tap that pins the next words to an
- * element (or adds to the note already on it), and Move's tap that re-points
- * a comment.
+ * elements the server picks from, and Move's tap that re-points a comment.
+ * Every other click and key reaches the page, so the reader keeps using it
+ * while they talk.
  *
  * Mounted on a mic `addMic` already made, so the board (which imports this)
  * and a mock page (which fetches it as `voice.js` on the first tap, see
@@ -122,7 +123,19 @@ export function mountVoiceMode(
   const session = new VoiceSession({
     url,
     openSocket: (u) => {
-      socket = opts.openSocket ? opts.openSocket(u) : (new WebSocket(u) as unknown as SocketLike);
+      socket = opts.openSocket
+        ? opts.openSocket(u)
+        : // The tailnet widget door asks every route but its two static
+          // scripts for the reviewer's board token, and a browser cannot set
+          // a header on a WebSocket — so it rides as the one subprotocol
+          // offered, which is what the door reads. Only a BOARD token, never
+          // a session one, for the reason the doc socket gives in
+          // `widget.ts`: a session token that died on a localhost socket
+          // would turn a read-only socket into a refused one.
+          (new WebSocket(
+            u,
+            widget.authToken?.startsWith('wt2.') ? widget.authToken : undefined,
+          ) as unknown as SocketLike);
       return socket;
     },
     startCapture:
@@ -144,7 +157,7 @@ export function mountVoiceMode(
     shadow: widget.shadow,
     element,
     name: (t) => nameOf(t === null ? undefined : targets.get(t), element(t)),
-    clipUrl: (clip) => `${widget.opts.serverUrl.replace(/^ws/, 'http')}${clip}`,
+    clipAudio: (clip) => clipAudio(widget, clip),
     onMove: (key) => {
       view.picking = key;
       draw();
@@ -170,7 +183,7 @@ export function mountVoiceMode(
     view.render();
   }
 
-  // --- The page, while recording: taps pin, Move re-points, changes re-describe ---
+  // --- The page, while recording: Move's tap re-points, changes re-describe ---
 
   let highlight: HTMLDivElement | null = null;
   let recatalog: ReturnType<typeof setTimeout> | null = null;
@@ -190,28 +203,25 @@ export function mountVoiceMode(
   };
   const ours = (ev: Event): boolean => ev.composedPath().includes(widget);
 
+  // Only an armed Move takes a click; any other is the page's.
   const onClick = (ev: MouseEvent): void => {
-    if (ours(ev) || widget.feedbackMode) return;
+    const key = view.picking;
+    if (!key || ours(ev) || widget.feedbackMode) return;
     ev.preventDefault();
     ev.stopPropagation();
     let target = targetAt(ev.target);
     if (target === null) {
       // An element added since the last description: the server has to hear
-      // of it before a pin names its index.
+      // of it before a move names its index.
       session.refreshTargets();
       target = targetAt(ev.target);
     }
-    if (view.picking) {
-      const key = view.picking;
-      view.picking = null;
-      session.move(key, target);
-    } else {
-      session.pointAt(target);
-    }
+    view.picking = null;
+    session.move(key, target);
     if (highlight) highlight.hidden = true;
   };
   const onHover = (ev: PointerEvent): void => {
-    if (!view.picking && session.state === 'idle') return;
+    if (!view.picking) return;
     const el = element(ours(ev) ? null : targetAt(ev.target));
     if (!highlight) {
       highlight = document.createElement('div');
@@ -228,14 +238,14 @@ export function mountVoiceMode(
       height: `${r.height + 6}px`,
     });
   };
+  // Escape cancels an armed Move. Otherwise it is the page's, and the
+  // recording goes on: the Stop button is how a recording ends.
   const onKey = (ev: KeyboardEvent): void => {
-    if (ev.key !== 'Escape') return;
-    if (view.picking) {
-      view.picking = null;
-      draw();
-    } else {
-      session.stop();
-    }
+    if (ev.key !== 'Escape' || !view.picking) return;
+    ev.preventDefault();
+    view.picking = null;
+    if (highlight) highlight.hidden = true;
+    draw();
   };
 
   function watchPage(): void {

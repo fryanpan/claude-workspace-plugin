@@ -76,6 +76,12 @@ export interface DocsToolContext {
   SHARED_IDENTITY_REASON: string;
 }
 
+/** The arguments `set_sharing_enabled` reads. Anything else is refused. */
+const SHARING_SWITCH_ARGS = new Set(['enabled', 'workspaceId', 'reason']);
+
+/** The arguments `set_board_sharing_lock` reads. Anything else is refused. */
+const BOARD_LOCK_ARGS = new Set(['locked', 'workspaceId', 'reason']);
+
 /** Answers the document tools; `undefined` means "not one of mine". */
 export async function handleDocsTool(
   name: string,
@@ -363,10 +369,35 @@ export async function handleDocsTool(
       });
       return ok(res);
     }
+    case 'attach_app': {
+      const { docId, origin, title } = a as { docId: string; origin: string; title?: string };
+      // The server owns the loopback rule and answers a refusal naming it, so
+      // nothing is checked here that could disagree with it.
+      const res = await http('POST', `${board()}/apps`, {
+        docId,
+        origin,
+        owner: CWD,
+        // Who the server tells when the dev server stops answering.
+        producedBy: { agentId: AUTHOR.id },
+        ...(title ? { title } : {}),
+      });
+      return ok(res);
+    }
     case 'bind_folder':
     case 'attach_folder': {
-      const { folderPath, setId, title, include, exclude, maxFiles, subscribe, producedBy } = a as {
+      const {
+        folderPath,
+        setId,
+        title,
+        include,
+        exclude,
+        maxFiles,
+        subscribe,
+        producedBy,
+        privacy,
+      } = a as {
         folderPath: string;
+        privacy?: string;
         setId?: string;
         workspaceId?: string;
         title?: string;
@@ -395,6 +426,10 @@ export async function handleDocsTool(
         ...(exclude ? { exclude } : {}),
         ...(maxFiles !== undefined ? { maxFiles } : {}),
         ...(producedBy ? { producedBy } : {}),
+        // Passed through unchecked: the server refuses anything but its two
+        // words, and a typo guessed into `workspace` here would be a folder
+        // shared that was meant to stay on the machine.
+        ...(privacy !== undefined ? { privacy } : {}),
       })) as { ok?: boolean; files?: Array<{ docId: string }> };
       // One workspace-level stream covers every member doc (including
       // files the reviewer opens lazily later). Opt out with subscribe:false.
@@ -944,15 +979,74 @@ export async function handleDocsTool(
       return ok(res);
     }
     case 'set_sharing_enabled': {
-      const { enabled } = a as { enabled?: boolean };
-      // No argument = read-only. GET /api/share carries the same `sharing`
+      // Every argument is read or refused. The 23 September call passed a
+      // workspaceId this handler dropped, and the master switch went off for
+      // every board while the answer said `ok`.
+      const extra = Object.keys(a).filter((k) => !SHARING_SWITCH_ARGS.has(k));
+      if (extra.length > 0) {
+        return err(
+          `set_sharing_enabled does not take ${extra.sort().join(', ')}. It takes enabled, workspaceId and reason.`,
+        );
+      }
+      const { enabled, workspaceId, reason } = a as {
+        enabled?: boolean;
+        workspaceId?: string;
+        reason?: string;
+      };
+      // No `enabled` = read-only. GET /api/share carries the same `sharing`
       // object the POST returns, so a status check costs nothing and can't
       // change anything by accident.
       if (typeof enabled !== 'boolean') {
-        const res = await http('GET', '/api/share');
-        return ok(res);
+        const res = (await http('GET', '/api/share')) as {
+          sharing?: { closedBoards?: string[] };
+        };
+        if (typeof workspaceId !== 'string') return ok(res);
+        const closed = res.sharing?.closedBoards ?? [];
+        return ok({
+          ...res,
+          workspaceId,
+          board: { workspaceId, enabled: !closed.includes(workspaceId) },
+        });
       }
-      const res = await http('POST', '/api/share/enabled', { enabled });
+      const res = await http('POST', '/api/share/enabled', {
+        enabled,
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+        actor: { id: AUTHOR.id, name: AUTHOR.name },
+      });
+      return ok(res);
+    }
+    case 'set_board_sharing_lock': {
+      const extra = Object.keys(a).filter((k) => !BOARD_LOCK_ARGS.has(k));
+      if (extra.length > 0) {
+        return err(
+          `set_board_sharing_lock does not take ${extra.sort().join(', ')}. It takes workspaceId, locked and reason.`,
+        );
+      }
+      const { locked, workspaceId, reason } = a as {
+        locked?: boolean;
+        workspaceId?: string;
+        reason?: string;
+      };
+      if (typeof workspaceId !== 'string' || workspaceId.trim() === '') {
+        return err('set_board_sharing_lock needs workspaceId: the board to lock or unlock.');
+      }
+      if (typeof locked !== 'boolean') {
+        const res = (await http('GET', '/api/share')) as {
+          sharing?: { lockedBoards?: string[] };
+        };
+        const lockedBoards = res.sharing?.lockedBoards ?? [];
+        return ok({
+          workspaceId,
+          board: { workspaceId, locked: lockedBoards.includes(workspaceId) },
+        });
+      }
+      const res = await http('POST', '/api/share/lock', {
+        workspaceId,
+        locked,
+        ...(reason !== undefined ? { reason } : {}),
+        actor: { id: AUTHOR.id, name: AUTHOR.name },
+      });
       return ok(res);
     }
   }

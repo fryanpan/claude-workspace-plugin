@@ -151,6 +151,36 @@ describe('createHttp', () => {
     expect(await http('GET', '/api/docs/d-1')).toEqual({ docId: 'd-1', threads: [] });
   });
 
+  it('retries once, re-asking for the token, when the server requires one it did not get', async () => {
+    // The session's mint failed, so the call went out bare; the server
+    // refused it before the route ran. One retry, with the header asked for
+    // again, is the whole recovery.
+    const refused = JSON.stringify({ error: 'agent-token-required', message: 'present one' });
+    const { fn, calls } = fakeFetch([
+      { status: 401, body: refused },
+      { status: 200, body: '{"watches":[]}' },
+    ]);
+    let asked = 0;
+    const http = createHttp(
+      () => 'http://localhost:8787',
+      fn,
+      async (): Promise<Record<string, string>> =>
+        ++asked === 1 ? {} : { authorization: 'Bearer at1.agent-mira.mac' },
+    );
+    expect(await http('GET', '/api/agents/agent-mira/watches')).toEqual({ watches: [] });
+    expect(calls).toHaveLength(2);
+    expect(calls[1].init?.headers).toEqual({ authorization: 'Bearer at1.agent-mira.mac' });
+  });
+
+  it('does not retry any other 401', async () => {
+    // A write that a sign-in gate refused is not the token's business, and
+    // repeating a POST is never free.
+    const { fn, calls } = fakeFetch([{ status: 401, body: '{"error":"sign-in-required"}' }]);
+    const http = createHttp(() => 'http://localhost:8787', fn);
+    await expect(http('POST', '/api/tasks', { title: 'x' })).rejects.toThrow(/401/);
+    expect(calls).toHaveLength(1);
+  });
+
   it('returns an empty object for an empty 200, rather than throwing on the parse', async () => {
     const { fn } = fakeFetch([{ status: 204, body: '' }]);
     const http = createHttp(() => 'http://localhost:8787', fn);

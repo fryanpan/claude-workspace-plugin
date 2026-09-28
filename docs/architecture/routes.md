@@ -83,6 +83,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/share/doc` | POST | `routes/auth-share.ts` | trusted-local |  |
 | `/api/share/enabled` | POST | `routes/auth-share.ts` | trusted-local |  |
 | `/api/share/link` | POST | `routes/auth-share.ts` | trusted-local |  |
+| `/api/share/lock` | POST | `routes/board-lock.ts` | loopback-only |  |
 | `/api/share/member/remove` | POST | `routes/auth-share.ts` | trusted-local |  |
 | `/api/share/workspace` | POST | `routes/auth-share.ts` | trusted-local |  |
 | `/api/summaries/backfill` | POST | `routes/ops.ts` | trusted-local |  |
@@ -132,6 +133,9 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/workspaces/:ws/agents/:agent/notes` | GET, POST | `routes/dispatch-and-notes.ts` | trusted-local |  |
 | `/workspaces/:ws/agents/:agentId` | DELETE | `routes/workspace-attachments.ts` | trusted-local |  |
 | `/workspaces/:ws/agents/:agentId/heartbeat` | POST | `routes/workspace-attachments.ts` | trusted-local |  |
+| `/workspaces/:ws/apps` | POST | `routes/apps.ts` | trusted-local |  |
+| `/workspaces/:ws/apps/:docId` | GET, HEAD | `routes/apps.ts` | share-scope |  |
+| `/workspaces/:ws/apps/:docId/*` | GET, HEAD | `routes/apps.ts` | share-scope |  |
 | `/workspaces/:ws/attachments` | GET, POST | `routes/workspaces-create-read.ts` | trusted-local |  |
 | `/workspaces/:ws/attachments/:setId` | DELETE | `routes/archive.ts` | trusted-local |  |
 | `/workspaces/:ws/attachments/:setId` | GET | `routes/shell-static.ts` | share-scope |  |
@@ -151,6 +155,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/workspaces/:ws/comment-queue/:id/ack` | POST | `routes/workspace-attachments.ts` | trusted-local |  |
 | `/workspaces/:ws/dispatches` | GET, POST | `routes/dispatch-and-notes.ts` | trusted-local |  |
 | `/workspaces/:ws/dispatches/:taskId` | DELETE | `routes/dispatch-and-notes.ts` | trusted-local |  |
+| `/workspaces/:ws/dispatches/:taskId/report` | GET, POST | `routes/dispatch-and-notes.ts` | trusted-local |  |
 | `/workspaces/:ws/docs` | GET, POST | `routes/docs.ts` | trusted-local |  |
 | `/workspaces/:ws/docs:attach` | POST | `routes/workspace-content.ts` | share-scope |  |
 | `/workspaces/:ws/docs/:docId` | DELETE | `routes/doc-resource.ts` | trusted-local |  |

@@ -557,8 +557,10 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
       ...(t.notes !== undefined ? { notes: t.notes } : {}),
       // What the row's holder declared it is waiting on, for a thing the
       // board cannot see. Not activity and not a bucket — the gate reads it
-      // only to annotate the rows it names, and the wake only to stop
-      // escalating a stalled one (`task-wait.ts`).
+      // to annotate the rows it names and to decide whether a lifted blockage
+      // has been read (a wait declared at or after the lift says it has), and
+      // the wake reads it only to stop escalating a stalled one
+      // (`task-wait.ts`).
       ...(t.externalWait !== undefined ? { externalWait: t.externalWait } : {}),
     }));
     // Every row timestamp as an activity tick. Deliberately unfiltered by
@@ -722,8 +724,19 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     // untouched since the lift, which is precisely the claim this finding
     // makes. Almost all of them are already here as stalled rows; the ones
     // that are not — a row the parallelism cap holds back, a row whose
-    // declared wait still stands — are exactly the ones with no other reason
-    // to be looked at, so leaving them out would aim the gap at them.
+    // declared wait was declared BEFORE its lift or has lapsed — are exactly
+    // the ones with no other reason to be looked at, so leaving them out
+    // would aim the gap at them. A row whose wait was declared at or after
+    // the lift and still stands is on neither list: the gate reads that
+    // declaration as the answer having been read (`stall-gate.ts`), so it
+    // leaves this set on the first pass and its linked docs are not walked.
+    //
+    // The person-owned RECORD rides along too. It wakes nobody, but the
+    // second pass is where a comment-borne ask on a doc the row LINKS is
+    // found — and finding one moves the row off this record and onto
+    // `waiting`, with the item's address. Leaving it out would not make the
+    // tick cheaper (it was in this set as an `unfiled` row until 2026-09-22)
+    // and would make the record claim nothing is filed when something is.
     //
     // DEDUPED, which the other three lists never needed: they are disjoint by
     // construction (`evaluateStalls`'s else-if chain) and this one is not, so
@@ -732,9 +745,13 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     // item arriving as two addresses on the `waiting` line.
     const suspect = [
       ...new Map(
-        [...first.stalled, ...first.unfiled, ...first.checkIn, ...first.unresumed].map(
-          (row) => [row.id, row] as const,
-        ),
+        [
+          ...first.stalled,
+          ...first.unfiled,
+          ...first.awaitingPerson,
+          ...first.checkIn,
+          ...first.unresumed,
+        ].map((row) => [row.id, row] as const),
       ).values(),
     ];
     if (suspect.length === 0) return first;
@@ -1164,6 +1181,7 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
       retired: workspace.retiredAt !== undefined,
       stalled: verdict.stalled,
       unfiled: verdict.unfiled,
+      ...(verdict.awaitingPerson.length > 0 ? { awaitingPerson: verdict.awaitingPerson } : {}),
       ...(verdict.unresumed.length > 0 ? { unresumed: verdict.unresumed } : {}),
       ...(verdict.waiting.length > 0 ? { waiting: verdict.waiting } : {}),
       ...(verdict.declaredWaits.length > 0 ? { declaredWaits: verdict.declaredWaits } : {}),
@@ -1282,10 +1300,17 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     // The lead hears of a hold at the quiet window — the window the verdict
     // above counts it under — not at the filer's shorter one.
     ...(ctx.stallNudgeQuietMs !== undefined ? { leadHeldMs: ctx.stallNudgeQuietMs } : {}),
+    // A frame whose every named task moved inside two quiet windows waits
+    // (`everyNamedTaskMoved`) — an hour at the default half hour, and the
+    // same ratio on a server run with a shorter window.
+    ...(ctx.stallNudgeQuietMs !== undefined ? { movedWithinMs: 2 * ctx.stallNudgeQuietMs } : {}),
     ...(ctx.stallNudgeRepeatMs !== undefined ? { repeatMs: ctx.stallNudgeRepeatMs } : {}),
     // One task costs the lead a check-in reminder at most once per window —
     // the same window that makes the row due, so the reminder is one per
-    // missed check-in.
+    // missed check-in. This survived the sent sets added on 2026-09-17 only
+    // because the check-in's token names the window as well as the row
+    // (`checkInTokens`); with the row alone, this knob would set how often the
+    // row falls due and nothing at all about how often the lead hears.
     ...(ctx.checkInMs !== undefined ? { checkInRepeatMs: ctx.checkInMs } : {}),
     escalate: (board, now) => escalations.onBoard(board, now),
     escalateFleet: (boards, now) => waitingUnfiled.onTick(boards, now),

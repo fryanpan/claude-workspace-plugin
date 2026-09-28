@@ -79,6 +79,12 @@ export interface ConnectorSessionDeps {
    * would put a network round trip in front of the subscription.
    */
   eventsNeedToken?: boolean;
+  /**
+   * Where this session's agent token comes from, when not the mint route.
+   * The shared server passes an in-process minter: its hosted sessions call
+   * REST from the server's own process, which the route refuses to mint for.
+   */
+  mintAgentToken?: () => Promise<string | null>;
   log: (...args: unknown[]) => void;
 }
 
@@ -121,6 +127,7 @@ export function createConnectorSession(deps: ConnectorSessionDeps): ConnectorSes
     fetch: deps.fetch,
     log,
     identityIsShared: IDENTITY_IS_SHARED,
+    ...(deps.mintAgentToken ? { mint: deps.mintAgentToken } : {}),
   });
 
   /** The REST call every tool goes through; throws on a non-2xx. */

@@ -229,6 +229,8 @@ export const SCOPED_COLLECTIONS: Readonly<Record<string, readonly string[]>> = {
    *  here before it can work. */
   docs: [],
   mockups: [],
+  /** An attached dev server, addressed by its doc id; the rest is its path. */
+  apps: [],
   attachments: [],
   /** One filed ask, read by its own id — and `viewed`, the browser's
    *  "I have seen this" beacon, which sits exactly where an item id goes and
@@ -335,8 +337,12 @@ export function resolveWorkspaceScope<TBoard>(
 
 /** What a canonical remainder addressed, when it addressed one member of a
  *  scoped collection — `undefined` for a collection root, a collection verb,
- *  or a collection nothing checks. */
-function memberAddressed(rest: string): { collection: string; memberId: string } | undefined {
+ *  or a collection nothing checks. Exported for `attachment-privacy.ts`,
+ *  which asks the same question of the same address and must not parse it a
+ *  second way. */
+export function memberAddressed(
+  rest: string,
+): { collection: string; memberId: string } | undefined {
   const cut = rest.indexOf('/');
   if (cut <= 0) return undefined;
   const collection = rest.slice(0, cut);

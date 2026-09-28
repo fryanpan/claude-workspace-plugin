@@ -177,9 +177,18 @@ await guardWidget(await build('iife', 'widget.iife.js', 'widget-iife.ts'), 'widg
 // never do. Separate also keeps it off `check:widget-size`, which measures the
 // bundle every embed loads, not this one.
 await build('iife', 'mockup-live.js', 'mockup-live.ts');
-// Voice feedback: fetched by a mock page on the mic's first tap, so it rides on
-// no page that never records — and on none of the budgeted bundle's bytes.
+// The microphone: fetched by an ordinary embed at DOMContentLoaded from the
+// few bytes of `widget-mic-inject.ts` that ARE in the budgeted bundle. The
+// button, its stylesheet and the first-tap loader are all here instead, which
+// is what keeps the budget paying for the fetch and not for the mic.
+await build('iife', 'mic.js', 'mic-entry.ts');
+// Voice feedback: fetched on the mic's first tap, so it rides on no page that
+// never records — and on none of the budgeted bundle's bytes.
 await build('iife', 'voice.js', 'voice/voice-entry.ts');
+// Edit mode: fetched on the pencil's first tap, or at load when the page has
+// edits waiting on the agent. The pencil itself rides in `mic.js` and
+// `mockup-live.js`, so neither is on the budgeted bundle.
+await build('iife', 'edit.js', 'edit/edit-entry.ts');
 // A served mock's sandbox (`server/src/mockup-frame.ts`): the bridge is written
 // into the frame's bytes, the host script is loaded by the page holding it.
 // Both only ever run on a mock, so neither is on the budgeted bundle.

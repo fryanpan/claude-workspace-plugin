@@ -36,17 +36,21 @@ import { userForIdentity } from '../identities.ts';
 import { type OriginPolicy, isAllowedBrowserOrigin } from '../middleware/browser-origin.ts';
 import { isWidgetDoorOrigin } from '../middleware/widget-door.ts';
 import { browserCannotOperateBody, isBrowserRequest } from '../middleware/write-gate.ts';
+import { boardLockedRefusal, lockedBoardNamedBy } from '../share/board-lock.ts';
 import { type BoardRole, normalizeBoardRole } from '../share/board-role.ts';
 import { collabMembershipEnded } from '../share/collab-member-key.ts';
 import { readCookie } from '../share/link-session.ts';
 import { type ShareLinks, shareMemberKey } from '../share/share-links.ts';
 import { ACCESS_NOT_CONFIGURED, type Shares } from '../share/shares.ts';
+import type { SharingFlip } from '../share/sharing-flip.ts';
 import type { SharingGate } from '../share/sharing-gate.ts';
 import { resolveTtl } from '../share/ttl.ts';
 import { DEFAULT_LINK_TTL_SECONDS } from '../share/types.ts';
 import type { SseBus } from '../sse.ts';
 import type { TaskStore } from '../tasks.ts';
 import { widgetAuthPage } from '../widget-auth-page.ts';
+import { BOARD_LOCK_PATH, handleBoardLock } from './board-lock.ts';
+import { handleShareSwitch } from './share-switch.ts';
 
 /**
  * The refusal a share route gives when handed a GROUPING id.
@@ -149,6 +153,10 @@ export interface AuthShareRoutesContext {
   collabMemberOf: (workspaceId: string, email: string) => boolean;
   /** The master switch for external access. */
   sharingGate: SharingGate;
+  /** The socket's peer address, for the line a switch flip writes. */
+  requestAddress: (req: Request) => string | undefined;
+  /** Told of every sharing-switch flip (routes/share-switch.ts). */
+  onSharingFlip: (flip: SharingFlip) => void;
   /** The email-keyed roster. */
   identities: Identities;
   /** The sign-in challenge store. */
@@ -609,11 +617,14 @@ export async function handleAuthShareRoutes(
       sharing: sharingGate.status(),
     });
   }
-  // Flip the master switch. Local-only, like the rest of /api/share*.
-  // Turning it OFF also hangs up what is already connected: a websocket
-  // and an SSE stream are authorized ONCE at open, so a visitor mid-review
-  // would otherwise keep syncing and keep receiving comments on a doc
-  // that is no longer reachable. Same lesson as share revocation.
+  // The never-shareable lock: loopback-only, see routes/board-lock.ts. Not
+  // keyed on sharing being configured — a lock taken before the first share
+  // hostname exists is the lock doing its job early.
+  if (pathname === BOARD_LOCK_PATH && req.method === 'POST') {
+    return handleBoardLock(ctx, { req, provenIdentityFor: rq.provenIdentityFor });
+  }
+  // The master switch, and the narrower switch for one board: both in
+  // routes/share-switch.ts, called from the position this block held.
   if (pathname === '/api/share/enabled' && req.method === 'POST') {
     // EITHER kind of sharing, for the same reason the GET above takes both.
     // The gate refuses `share`, `share-link`, `collab` and `proxied-local`
@@ -622,40 +633,7 @@ export async function handleAuthShareRoutes(
     // the outside door there was `CW_SHARING_DISABLED` plus a restart. That
     // one is deliberately one-way, so the way back was a restart as well.
     if (!shares && !shareLinkBaseHost) return j(404, { error: 'sharing not enabled' });
-    const body = await safeJson(req);
-    const enabled = body?.enabled;
-    if (typeof enabled !== 'boolean') {
-      return j(400, { error: 'enabled must be a boolean' });
-    }
-    const res = sharingGate.setEnabled(enabled);
-    if (!res.ok) {
-      return j(409, {
-        error: res.error,
-        hint: 'CW_SHARING_DISABLED is set in the environment. Remove it from the service definition and restart to allow runtime control.',
-      });
-    }
-    let closedSockets = 0;
-    let closedStreams = 0;
-    if (!enabled) {
-      for (const share of shares?.list() ?? []) {
-        closedSockets += docStore.closeSocketsForShare(share.shareId);
-        closedStreams += sse.closeForShare(share.shareId);
-      }
-      // And every share-link and collaboration-hostname visitor, neither of
-      // whom carries a Cloudflare shareId for the sweep above to match. Both
-      // carry a membership key, and this matches every one. Without it the
-      // switch closed the door to new requests while an already-open
-      // `/y/<doc>` kept reading AND writing, and an `/events/` stream kept
-      // delivering.
-      closedSockets += docStore.closeSocketsForShareMembers(() => true);
-      closedStreams += sse.closeForShareMembers(() => true);
-    }
-    return j(200, {
-      ok: true,
-      sharing: sharingGate.status(),
-      ...(closedSockets ? { closedSockets } : {}),
-      ...(closedStreams ? { closedStreams } : {}),
-    });
+    return handleShareSwitch(ctx, { req, provenIdentityFor: rq.provenIdentityFor });
   }
   // `POST /api/share/doc` is GONE — a workspace is the unit of sharing.
   // It is answered explicitly rather than left to the 404 fall-through
@@ -663,6 +641,23 @@ export async function handleAuthShareRoutes(
   // its own payload, and the useful reply names the replacement instead
   // of reading as "your server is broken".
   if (pathname === '/api/share/doc' && req.method === 'POST') {
+    // A doc on a LOCKED board hears the lock, not the retirement: a caller
+    // told only "use share_workspace" would try that next, and the useful
+    // answer is that this board cannot be shared by any verb.
+    const lockedBoard = lockedBoardNamedBy(await safeJson(req), {
+      isBoardLocked: (id) => sharingGate.isBoardLocked(id),
+      boardsHolding: (docId) => {
+        const canonical = docStore.resolveDocId(docId);
+        const meta = docStore.peekMeta(canonical);
+        const set = meta?.setId ?? meta?.workspaceId;
+        const ids = set === undefined ? [canonical] : [canonical, set];
+        return taskStore
+          .listWorkspaces()
+          .filter((w) => ids.some((id) => w.docIds.includes(id)))
+          .map((w) => w.id);
+      },
+    });
+    if (lockedBoard) return j(403, boardLockedRefusal(lockedBoard));
     return j(410, {
       error: 'per_doc_sharing_removed',
       hint: 'A workspace is the unit of sharing. File the doc on a workspace (attach_doc / attach_folder / create_diff_review) and call share_workspace or share_link with workspaceId.',
@@ -747,6 +742,10 @@ export async function handleAuthShareRoutes(
     // receive other agents' stray reviews.
     if (linkBoard.name === DEFAULT_BOARD_WORKSPACE_NAME) {
       return j(403, UNFILED_SHARING_REFUSED);
+    }
+    // Locked never-shareable (share/sharing-gate.ts): no mint of any kind.
+    if (sharingGate.isBoardLocked(workspaceId)) {
+      return j(403, boardLockedRefusal(workspaceId));
     }
     // A board share opens the board. There is no entry doc to choose,
     // and an older bundle sharing a board sends this key undefined,
@@ -964,6 +963,12 @@ export async function handleAuthShareRoutes(
     // any board answering that lookup receives other agents' stray reviews.
     if (board.name === DEFAULT_BOARD_WORKSPACE_NAME) {
       return j(403, UNFILED_SHARING_REFUSED);
+    }
+    // Locked never-shareable (share/sharing-gate.ts): the one refusal this
+    // route owes a board that exists and could otherwise be shared, and it
+    // names the lock so the caller knows what would have to change.
+    if (sharingGate.isBoardLocked(workspaceId)) {
+      return j(403, boardLockedRefusal(workspaceId));
     }
     // BELOW the board lookup, in the order the retired mint used: an older
     // bundle sends `entryDocId: undefined` on every board share, and a

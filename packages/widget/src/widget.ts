@@ -28,6 +28,7 @@ import {
   isInOwnChrome,
   toggleFeedbackMode,
 } from './widget-picker.ts';
+import { restoreDraft } from './widget-restore.ts';
 import { type PinPosition, positionPins, renderThreadsInto } from './widget-threads.ts';
 
 /**
@@ -259,6 +260,7 @@ export class FeedbackWidgetEl extends HTMLElement {
     this.renderShell();
     this.connect();
     this.startObserver();
+    restoreDraft(this);
     if (this.opts.authOffer) void validateStoredAuth(this);
     void askIfSignInRequired(this);
   }
@@ -712,6 +714,12 @@ export class FeedbackWidgetEl extends HTMLElement {
 declare global {
   interface Window {
     FeedbackWidget?: typeof FeedbackWidget;
+    /** A mic is mounted on this page, or a bundle that will mount one has
+     *  loaded. Set by `voice/voice-loader.ts` and by the injector in
+     *  `widget-mic-inject.ts`, which is the only reader. Declared here
+     *  because both of those reach this module and neither reaches the
+     *  other. */
+    cwMic?: boolean;
   }
 }
 

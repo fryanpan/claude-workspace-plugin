@@ -14,17 +14,29 @@ import {
 } from '@claude-workspaces/core';
 import { createAccessDeps } from './access-deps.ts';
 import { releaseActivityLock } from './activity-lock.ts';
+import { isOwnerActor } from './actor-identity.ts';
 import { AgentNoteLog } from './agent-note-log.ts';
 import { AgentNoteRing } from './agent-notes.ts';
 import { AgentWatches } from './agent-watches.ts';
 import { AllowRuleProposals } from './allow-rules.ts';
+import { AppOutages } from './app-outage.ts';
 import { ARTIFACT_CHECK_ACTOR, ArtifactChecker } from './artifact-check.ts';
 import { type AttachMountsBrief, attachMountsBrief } from './attach-mounts.ts';
 import { backfillAttachmentFiling } from './attachment-backfill.ts';
 import {
+  AttachmentPrivacyStore,
+  LOCAL_ONLY_REFUSAL,
+  addressesLocalOnlySet,
+  isOnBox,
+} from './attachment-privacy.ts';
+import { identifyCallerAgent } from './auth/agent-caller.ts';
+import {
   createLegacyAgentWarner,
+  createRefusedMintWarner,
   agentTokenKey as deriveAgentTokenKey,
+  mintAgentToken,
 } from './auth/agent-token.ts';
+import { lastBoardActivityAt } from './board-activity.ts';
 import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-membership.ts';
 import { createBoardSummaries } from './board-summary.ts';
 import { type BrowserSentryConfig } from './browser-sentry.ts';
@@ -35,6 +47,7 @@ import { hostedSessionFactory } from './connector/session-factory.ts';
 import { loadConnectorSnapshot, saveConnectorSnapshot } from './connector/snapshot.ts';
 import { createCrossReview } from './cross-review.ts';
 import { DispatchRegistry } from './dispatch-registry.ts';
+import { DispatchReportStore } from './dispatch-reports.ts';
 import { parseDocKey } from './doc-key.ts';
 import { DocStore } from './doc-store.ts';
 import { createEffortScoring } from './effort-scoring.ts';
@@ -89,6 +102,7 @@ import {
   readDocArchiveManifest,
 } from './review-archive.ts';
 import { createReviewGate } from './review-gate.ts';
+import { isAnalyticsOnlyEvent } from './review-items/analytics.ts';
 import { gateOwnerItems } from './review-items/done-when-owner.ts';
 import type { ReviewThreadItem } from './review-queue.ts';
 import { ReviewSizePrefs } from './review-size-prefs.ts';
@@ -97,6 +111,7 @@ import {
   type AgentIdentityRoutesContext,
   handleAgentIdentityRoutes,
 } from './routes/agent-identity.ts';
+import { type AppRoutesContext, handleAppRoutes } from './routes/apps.ts';
 import { type ArchiveRoutesContext, createArchiveRoutes } from './routes/archive.ts';
 import { type AuthShareRoutesContext, handleAuthShareRoutes } from './routes/auth-share.ts';
 import { type ChatAuditRoutesContext, handleChatAuditRoutes } from './routes/chat-audit-routes.ts';
@@ -130,6 +145,7 @@ import { type ReviewFileRoutesContext, handleReviewFileRoutes } from './routes/r
 import { type ReviewQueueRoutesContext, handleReviewQueueRoutes } from './routes/review-queue.ts';
 import { ROUTE_TABLE } from './routes/route-table-rows.ts';
 import { mountRouteTable } from './routes/route-table.ts';
+import { applyMasterFlip } from './routes/share-switch.ts';
 import { createShellStatic } from './routes/shell-static.ts';
 import { handleStaleClient } from './routes/stale-client.ts';
 import { handleTaskPageRoutes } from './routes/task-page.ts';
@@ -159,6 +175,7 @@ import type { ServerOptions } from './server-options.ts';
 import { collabMembershipEnded } from './share/collab-member-key.ts';
 import { Shares } from './share/shares.ts';
 import { SharingGate } from './share/sharing-gate.ts';
+import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './sharing-notice.ts';
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -182,6 +199,7 @@ import { UptimeMonitor } from './uptime.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { VoiceRouter } from './voice.ts';
 import { type WebhookLogEntry, createWebhookDispatcher } from './webhooks.ts';
+import { isRetired } from './workspace-store.ts';
 
 const DEFAULT_PORT = Number(process.env.PORT ?? 8787);
 
@@ -284,6 +302,9 @@ export interface ServerHandle {
   /** Open builder dispatches and their worktree watchers
    *  (dispatch-registry.ts). Exposed for the same reason `agentWatches` is. */
   dispatches: DispatchRegistry;
+  /** The builders' closing reports (dispatch-reports.ts). Exposed for the same
+   *  reason `dispatches` is. */
+  dispatchReports: DispatchReportStore;
   shares: Shares | null;
   /** Hang up every websocket and SSE stream whose share is no longer live,
    *  and every widget door socket whose board token is dead. Runs on a 60s
@@ -825,6 +846,21 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       `[dispatch] closed ${dispatches.prunedAtBoot.length} stale dispatch(es) at boot: ${dispatches.prunedAtBoot.join(', ')}`,
     );
   }
+  // The other end of a dispatch: the builder's one closing report, kept
+  // against the TASK so it outlives the lane. `taskStore` is the sink, so a
+  // first report rides the ordinary store fan-out and reaches the lead's
+  // attached session; a repeat builds no event at all (dispatch-reports.ts).
+  // The done-when reader is what lets a report that skips a line be refused by
+  // that line's NAME rather than by a count.
+  const dispatchReports = new DispatchReportStore({
+    dataDir,
+    sink: taskStore,
+    doneWhenLinesOf: (taskId) =>
+      (taskStore.getTask(taskId)?.doneWhen ?? []).map((line) => ({ id: line.id, text: line.text })),
+  });
+  if (dispatchReports.loadError) {
+    console.error(`[dispatch] ${dispatchReports.loadError}`);
+  }
   // The row reaching `done` or the archive IS the dispatch's terminal
   // statement — the registry hears it here, so a builder that never sent
   // `close_dispatch` (an older bundle, a crash after the merge) cannot leave
@@ -1010,8 +1046,17 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // the board every time the lead started a builder. The measurement it exists
   // for is read out of `events.jsonl` after the fact, so the stream is not a
   // path it needs.
+  //
+  // `review_item.viewed` is the third, and it is the same rule stated for
+  // measurement rather than for noise: an event that exists for analytics
+  // does not reach a listening agent. A person opening a card changes no task
+  // and no status, and no page reads the frame either — the board POSTs the
+  // beacon and never listens for it. `ANALYTICS_ONLY_EVENTS` in
+  // `review-items/analytics.ts` holds the list and says why
+  // `review_item.answered` is not on it.
   taskStore.onEvent((ev) => {
     if (ev.type === 'task.noted' || ev.type === 'dispatch.requested') return;
+    if (isAnalyticsOnlyEvent(ev.type)) return;
     const { type, ...rest } = ev;
     sse.broadcast(`ws~${ev.workspaceId}`, { event: type, ...rest });
   });
@@ -1161,6 +1206,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     fileUnderBoardWorkspace,
     unfileFromDefault,
     unlinkFromEveryBoardWorkspace,
+    defaultBoardWorkspaceId,
   } = createBoardMembership({
     docStore,
     taskStore,
@@ -1169,6 +1215,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     shareLinks,
     boardShareTarget,
     proxiedTrustedEmails,
+    boardSharingOpen: (workspaceId) => sharingGate.isBoardOpen(workspaceId),
   });
 
   // The stall / ready-work wiring — both per-board snapshots, the two
@@ -1526,8 +1573,16 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
    *
    * Unknown ids pass through unchanged, so a 404 still reads as "no such
    * doc" rather than becoming a different error on the way.
+   *
+   * A name lookup only: it must not hydrate. It used to be `get(...)?.docId`,
+   * and the agent event stream resolves every watched key through here when
+   * it opens. After a deploy every attached session reconnects at once, so
+   * one reconnect loaded each watched doc from its `.ydoc`, armed its binding
+   * and read its file — on staging, three sessions watching 330 docs took the
+   * server from 136MB to 1.4GB and blocked the loop for 2.6s with nothing in
+   * flight. The id is all any caller here wants.
    */
-  const canonicalDocId = (addressed: string): string => docStore.get(addressed)?.docId ?? addressed;
+  const canonicalDocId = (addressed: string): string => docStore.resolveDocId(addressed);
 
   /**
    * The workspace to address a doc under, or null when nothing holds it.
@@ -1598,6 +1653,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       }
       case 'docs':
       case 'mockups':
+      case 'apps':
       case 'attachments': {
         // The board-feedback doc belongs to EVERY board, and that is what it
         // is for: one place feedback about the product lands, reachable from
@@ -1965,6 +2021,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   const requireAgentToken = opts.requireAgentToken ?? false;
   /** One warning per agent id per route for the whole process life. */
   const warnLegacyAgentCaller = createLegacyAgentWarner();
+  const warnRefusedMint = createRefusedMintWarner();
+  const identifyAgentCaller = (req: Request) => {
+    const peer = server.requestIP(req);
+    if (!peer) return Promise.resolve({ ok: false as const, reason: 'no peer socket' });
+    return (opts.identifyAgentCaller ?? identifyCallerAgent)(peer, server.port ?? 0);
+  };
 
   const { serveUpgradeAndStreamRoutes } = createUpgradeStream({
     server: { upgrade: (req, options) => server.upgrade(req, options) },
@@ -2052,6 +2114,26 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
    * the repo plus the path from its root.
    */
   const mountStore = new MountStore(dataDir, docStore.repos);
+  /**
+   * Which attachment sets keep their files on this machine
+   * (`attachment-privacy.ts`). One gate reads it for every address that
+   * reaches into a set, right after admission and above the upgrades, so a
+   * local-only set's file, file list, socket and stream are refused to every
+   * caller that is not on the box by the same line.
+   */
+  const attachmentPrivacy = new AttachmentPrivacyStore(dataDir);
+  const setOfDoc = (docId: string): string | undefined => {
+    const meta = docStore.peekMeta(docStore.resolveDocId(docId));
+    return meta ? (meta.setId ?? meta.workspaceId) : undefined;
+  };
+  const localOnlyGate = {
+    isLocalOnlySet: (setId: string) => attachmentPrivacy.isLocalOnly(setId),
+    setOfDoc,
+    docOfReviewItem: (itemId: string) => parseThreadReviewItemId(itemId)?.docId,
+  };
+  const docWithheldFrom = (req: Request, docId: string): boolean =>
+    attachmentPrivacy.isLocalOnly(setOfDoc(docId)) &&
+    !isOnBox(req.headers, server.requestIP(req)?.address ?? undefined);
   const mountRoutesCtx: MountRoutesContext = {
     mounts: mountStore,
     j,
@@ -2072,6 +2154,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     unfileFromDefault,
     markdownFiles: createMarkdownLister(),
     requestAddress: (req) => server.requestIP(req)?.address,
+    isLocalOnlySet: (setId) => attachmentPrivacy.isLocalOnly(setId),
   };
   runOutputSource = () =>
     libraryRunOutputSource(libraryRoutesCtx, (id) => taskStore.getWorkspace(id));
@@ -2184,6 +2267,10 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           cursors: parseMuxCursor(lastEventId ?? undefined),
           onWatchSetChanged: (cb) => agentWatches.onChange(agentId, cb),
         }),
+      // Hosted sessions mint in-process: their REST calls come from this
+      // process, which the loopback mint refuses (auth/agent-caller.ts). The
+      // identity is the one `/mcp`'s own gate already settled.
+      mintAgentToken: (agentId) => mintAgentToken(agentId, agentTokenKeyFor()),
       log: (...args) => console.error('[connector]', ...args),
     }),
     fallbackPluginVersion: () => readReleasedPluginVersion() ?? '0.0.0',
@@ -2205,6 +2292,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agentTokenKey: agentTokenKeyFor,
     requireAgentToken,
     warnLegacyAgentCaller,
+    identifyAgentCaller,
+    warnRefusedMint,
   };
 
   /**
@@ -2225,6 +2314,25 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     j,
     isValidDocId,
     fileUnderBoardWorkspace,
+  };
+
+  /** What the attached-app routes read — see ./routes/apps.ts. */
+  const appRoutesCtx: AppRoutesContext = {
+    docStore,
+    j,
+    safeJson,
+    isValidDocId,
+    fileUnderBoardWorkspace,
+    withReviewUrl,
+    widgetDist,
+    markdownAppDist,
+    browserSentry,
+    ownPort: () => server.port ?? port,
+    appOutages: new AppOutages({
+      leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
+      send: (workspaceId, agentId, frame) =>
+        sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
+    }),
   };
 
   /**
@@ -2267,6 +2375,106 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     workspacesOfDoc: shareWorkspacesOf,
   };
 
+  // The owner's notice when the master sharing switch goes off: one decision
+  // on the catch-all board, filed by the server and judged like any other
+  // item (sharing-notice.ts). Its "Turn back on" answer flips the switch
+  // through the route's own path, below.
+  const sharingNoticeActor = {
+    id: SHARING_NOTICE_ACTOR.id,
+    name: SHARING_NOTICE_ACTOR.name,
+    kind: SHARING_NOTICE_ACTOR.kind,
+  };
+  const sharingNotice = new SharingNotice({
+    dataDir,
+    boardId: defaultBoardWorkspaceId,
+    isBoardLive: (workspaceId) => {
+      const w = taskStore.getWorkspace(workspaceId);
+      return w !== undefined && !isRetired(w);
+    },
+    fallbackBoards: () =>
+      rankFallbackBoards(
+        taskStore.listWorkspaces().map((w) => ({
+          id: w.id,
+          retired: isRetired(w),
+          shared:
+            (shareLinks?.forWorkspace(w.id).length ?? 0) > 0 ||
+            (shareLinks?.membersOf(w.id).length ?? 0) > 0 ||
+            (shares?.list() ?? []).some((sh) => sh.workspaceId === w.id),
+          activeAt: lastBoardActivityAt(w, taskStore.listTasks(w.id)),
+        })),
+      ),
+    getTask: (taskId) => taskStore.getTask(taskId),
+    createTask: (workspaceId, taskOpts) => taskStore.createTask(workspaceId, taskOpts),
+    addReviewItem: (taskId, review, o) => taskStore.addReviewItem(taskId, review, o),
+    reviseReviewItem: (taskId, itemId, patch, o) =>
+      taskStore.reviseReviewItem(taskId, itemId, patch, o),
+    withdrawReviewItem: (taskId, itemId, o) => taskStore.withdrawReviewItem(taskId, itemId, o),
+    refresh: (taskId) => {
+      const task = taskStore.getTask(taskId);
+      if (task) taskProjection.refreshTask(task);
+    },
+    gate: async (taskId, itemId) => {
+      const task = taskStore.getTask(taskId);
+      const item = taskStore.listReviewItems(taskId).find((i) => i.id === itemId);
+      if (!task || !item) return;
+      const verdict = await judgeReviewItem(task, item, sharingNoticeActor);
+      if (verdict.held) {
+        console.error(
+          `[sharing] owner notice held by the review gate item=${itemId}: ${verdict.reason}`,
+        );
+        // Filed whatever the gate says (the lead's decision, 23 September):
+        // the gate exists to hold agent-written asks, this card is a fixed
+        // template, and a security notice the owner never sees is worse than
+        // one the gate dislikes. A held item is off the owner's queue, so the
+        // hold is recorded as passed, with the gate's words kept beside it.
+        const reason = verdict.reason ?? '';
+        taskStore.recordReviewJudgement(
+          taskId,
+          itemId,
+          {
+            at: Date.now(),
+            verdict: 'ok',
+            reason: `Filed by the server whatever the gate says. The gate held it: ${reason}`,
+            heldFor: [reason],
+          },
+          { actor: sharingNoticeActor },
+        );
+        taskProjection.refreshTask(taskStore.getTask(taskId) ?? task);
+      }
+      const stored = taskStore.listReviewItems(taskId).find((i) => i.id === itemId);
+      announceTaskReview(taskStore.getTask(taskId) ?? task, stored ?? verdict.item, {
+        id: sharingNoticeActor.id,
+        name: sharingNoticeActor.name,
+        kind: 'known',
+        color: ANONYMOUS_ACTOR.color,
+      });
+    },
+    isOwner: (actor) => isOwnerActor(actor),
+    turnBackOn: (who) => {
+      const res = applyMasterFlip(
+        {
+          docStore,
+          sse,
+          shares,
+          sharingGate,
+          onSharingFlip: (flip) => void sharingNotice.onFlip(flip),
+        },
+        { enabled: true, actor: who.actor, peer: who.peer, reason: who.reason, at: Date.now() },
+      );
+      return res.ok ? { ok: true } : { ok: false, error: res.error };
+    },
+  });
+  taskStore.onEvent((ev) => {
+    if (ev.type !== 'decision.answered') return;
+    sharingNotice.onAnswered({
+      taskId: ev.taskId,
+      ...(ev.reviewItemId !== undefined ? { reviewItemId: ev.reviewItemId } : {}),
+      ...(ev.optionId !== undefined ? { optionId: ev.optionId } : {}),
+      answer: ev.answer,
+      actor: ev.actor,
+    });
+  });
+
   /**
    * What the sign-in, session and share routes read instead of this closure's
    * scope. Built once — every collaborator in it is long-lived.
@@ -2280,6 +2488,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     shareLinkBaseHost,
     collabMemberOf,
     sharingGate,
+    requestAddress: (req) => server.requestIP(req)?.address,
+    onSharingFlip: (flip) => void sharingNotice.onFlip(flip),
     identities,
     emailCodes,
     sessionRevocations,
@@ -2319,6 +2529,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     taskProjection,
     docStore,
     dispatches,
+    dispatchReports,
     agentNotes,
     agentNoteLog,
     // To the board's pages only, and with no words in the frame: Home
@@ -2406,6 +2617,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     keepMovingVerdicts: stallWiring.keepMoving,
     meetingHomeFor,
     mountsBriefFor,
+    attachmentPrivacy,
+    docWithheldFrom,
   };
 
   /**
@@ -2437,6 +2650,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   async function handleRequest(req: Request): Promise<Response | undefined> {
     const startedAt = performance.now();
     const pathname = new URL(req.url).pathname;
+    // Counted before any gate, so the memory line names refused traffic too.
+    docStore.noteRequest(req.method, pathname);
     // A stray `%` anywhere in the path is a caller's typo, and it has to
     // be answered before anything decodes it: `decodeURIComponent` throws a
     // `URIError` inside whichever matcher pulls the id out of the path, and
@@ -2552,6 +2767,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // union is what makes that a compile error rather than a review note.
       const gate = await admit(req, { pathname });
       if (!gate.admitted) return gate.response;
+      // A local-only attachment set's files stay on this machine. Here,
+      // below admission and ABOVE the upgrades, because a socket is
+      // authorized once at open and a gate below it would never see one.
+      if (
+        !isOnBox(req.headers, server.requestIP(req)?.address ?? undefined) &&
+        addressesLocalOnlySet(pathname, localOnlyGate)
+      ) {
+        return j(403, LOCAL_ONLY_REFUSAL);
+      }
       const {
         visitor,
         visitorShareId,
@@ -2770,6 +2994,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           metaFor,
           withTaskChips,
         });
+        if (handled) return handled;
+      }
+
+      // --- An attached dev server — ./routes/apps.ts ---
+      // Its attach sits beside the doc create it mirrors, and its reads claim
+      // only `apps/<id>/…`, which no route below answers.
+      {
+        const handled = await handleAppRoutes(appRoutesCtx, { req, url, scope });
         if (handled) return handled;
       }
 
@@ -3314,6 +3546,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     if (meta.type === 'mockup' && meta.sourceUrl) {
       return { ...meta, reviewUrl: `${ws}/mockups/${id}` };
     }
+    if (meta.type === 'app' && meta.sourceUrl) {
+      return { ...meta, reviewUrl: `${ws}/apps/${id}/` };
+    }
     return meta;
   }
 
@@ -3453,6 +3688,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     chatAudit,
     identities,
     dispatches,
+    dispatchReports,
     shares,
     sweepDeadShares,
     // Exactly what the interval does, exposed for the same reason

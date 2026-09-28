@@ -38,6 +38,14 @@ today's code fails is flagged.
 - **Must:** produce `stalled`, `unfiled` and `undetermined` from the
   classifier, gated on the same quiet window, and name a watched builder's
   silence as `builder-silent`.
+- **Must:** keep a task the BOARD says a person owns, with nothing on that
+  person's queue, OFF every finding list — it goes on `awaitingPerson`, a
+  record that counts toward no FAIL, reaches no frame and reaches no review
+  item. Nobody has an act to perform on such a row: an agent cannot hand it
+  back, and the person already holds it. It was on `unfiled` until
+  2026-09-22, and one row reached the owner on three review items in five
+  days that way (Bryan, 2026-09-21: *“The first one is assigned to me
+  already. Work with workspaces to stop alerting me.”*).
 - **Must never:** report as STALLED a task the parallelism cap keeps out of
   flight, report at all a task under a triage band, or report a schedule rule
   task AS WORK. The three are not one shape. A triage-band row is dropped in
@@ -50,9 +58,16 @@ today's code fails is flagged.
   is a different finding from the rule, so it is reported (#1077) — unless the
   rule's date has not arrived, which is a deferral rather than a question
   (`owner-ask.ts`, above).
+- **Consequence:** a `declare_wait` on a person-owned row now annotates
+  nothing. `declaredWaits` is built from the rows the gate reports, and such a
+  row is on neither, so there is no frame line for the declaration to change.
+  Nothing is lost — the declaration exists to say why a FINDING is quiet, and
+  this row is no longer one.
 - **Measured by:** unit tests per exclusion, including a `waiting-unfiled` row
   ranked past the cap (`waiting-unfiled-beyond-cap.test.ts`); the verdict's
-  `considered` denominator.
+  `considered` denominator; `person-owned-quiet.test.ts` for the record,
+  which drives all five surfaces with the agent-declared bucket as its
+  control on each; `task-wait.test.ts` for the declaration.
 
 ## `stall-nudge.ts` — the lead wake
 
@@ -299,12 +314,27 @@ file is what the builder did, the word is what the task claimed to be about.
   thread activity and Activity note.
 - **Must never:** read prose; add a second clock; name a task whose LAST open
   line just went met — completion is not a resumed blockage, and naming it
-  would turn the moment a ticket finishes into a wake; or name a task the
-  board has recorded any activity on since the lift. That last one is the
-  load-bearing guard, not the window: a task answered on Monday, worked all
-  week and quiet for forty minutes is not this finding, and a reading that
-  names it has rebuilt the status-age reading that called a merged, deployed
-  task parked for 44.6 hours.
+  would turn the moment a ticket finishes into a wake; name a task whose agent
+  FIRST declared a wait at or after the lift and whose declaration is still
+  standing — the finding's whole sentence is that nobody has recorded reading
+  the answer, and that declaration is the record; or name a task the board has
+  recorded any activity on since the lift. That last one is the load-bearing
+  guard, not the window: a task answered on Monday, worked all week and quiet
+  for forty minutes is not this finding, and a reading that names it has
+  rebuilt the status-age reading that called a merged, deployed task parked
+  for 44.6 hours.
+- **The declared-wait exception, exactly.** The stamp read is the wait's
+  `since`, which survives a same-words renewal, never `declaredAt`, which
+  moves on every one. Keyed on `declaredAt` an agent could re-state a wait it
+  had been rolling over all day and hide a lift that landed in the middle of
+  it — the 21-hour shape again, with the renewal doing the hiding. The
+  comparison carries `LIFT_CLOCK_EPSILON_MS` of tolerance, because a
+  declaration and a done-when report made in one agent turn are one action and
+  the order the server stamps them in must not decide the verdict. A wait
+  declared before the lift and a lapsed one both still name the task; on a
+  LAPSED one the reported `liftedAt` is the lapse rather than the lift, so the
+  age the lead reads is the time the row has been loud rather than the whole
+  span the declaration stood for.
 - **Measured by:** the wired test (`resumed-work-finding.test.ts`), which
   files an ask on a quiet in-progress task, answers it, and asserts the lead's
   frame and the verdict both name the task with the answer's own timestamp;
@@ -316,10 +346,18 @@ file is what the builder did, the word is what the task claimed to be about.
   isolates the rule from the auto-close that would carry the previous control
   on its own. Each control rides a BEACON row that is quiet and on no lift, so
   a silence assertion proves the tick ran rather than that no frame arrived.
-  The unit cases are `blockage-lift.test.ts`. And on the board itself: the
-  verdict's `unresumed` line at zero, and the finding naming a PROPER SUBSET
-  of the tasks that merely carry a met line with later lines open — naming all
-  of them is the status-age reading again.
+  The unit cases are `blockage-lift.test.ts`, and the declared-wait rule's are
+  the last describe of `stall-declared-wait.test.ts` — the wait first declared
+  after the lift (covered, and no wake at all), the one declared before it,
+  the one merely renewed after it, the one that has lapsed, the lapsed one's
+  age measured from the lapse, the one-turn boundary on both sides of
+  `LIFT_CLOCK_EPSILON_MS`, and the same row with no wait at all as the
+  control. And on the board itself: the verdict's `unresumed` line at zero,
+  and the finding naming a PROPER SUBSET of the tasks that merely carry a met
+  line with later lines open — naming all of them is the status-age reading
+  again. **An `unresumed` of zero now has two causes** — no lift went unread,
+  or every one is covered by a standing declaration — so read the verdict's
+  `declaredWaits` beside it to tell them apart.
 
 ### Why the lift is never a finding on its own
 
@@ -379,12 +417,20 @@ would be mistaken for the lift's own write.
 
 ## `waiting-unfiled-escalation.ts` — the aging half — *rebuild step 6*
 
-- **Must:** age EVERY task on the gate's `unfiled` list — both ways onto it,
-  `waiting-unfiled` and `blocked-on-owner-unfiled` — and past a second window
-  address Team Lead first as ONE fleet-wide frame, the owner only when Team
-  Lead is unreachable or the row has spent its wakes, and then as ONE review
-  item however many tasks and boards it spans. Each named task says which of
-  the two it is, in the frame's bucket and in the item's own words.
+- **Must:** age EVERY task on the gate's `unfiled` list — one bucket,
+  `waiting-unfiled`, since 2026-09-22 — and past a second window address
+  Team Lead first as ONE fleet-wide frame, the owner only when Team Lead is
+  unreachable or the row has spent its wakes, and then as ONE review item PER
+  BOARD, filed on that board and naming only that board's tasks.
+- **Must never:** name a `blocked-on-owner-unfiled` row anywhere. It is not a
+  finding (`stall-gate.ts`, above), and this module is the last gate before a
+  person's queue, so it refuses the bucket itself rather than trusting the
+  list it is handed.
+- **Must never:** put a row from one board on another board's item. One item
+  naming rows across boards gives its reader lines they cannot act on (Bryan,
+  2026-09-21: *“The second isn't even in your project”*). The WAKE is still
+  one frame for the whole fleet, because a wake is a turn and the fact is the
+  same fact; an item is a record on a queue, and a queue belongs to a board.
 - **Must:** carry any one task in at most `FLEET_TELL_CAP` fleet frames, and
   count a frame against a task only when the send actually DELIVERED. A task
   past the cap moves to the owner's standing item — a record, not a wake —
@@ -396,9 +442,11 @@ would be mistaken for the lift's own write.
   reached AND every due task still has wakes left, or spend a task's wake on a
   frame that reached nobody. A task that stops being a finding is forgotten
   and its item withdrawn on that tick.
-- **Measured by:** `waiting-unfiled-escalation.test.ts` and
-  `owner-unfiled-escalation.test.ts`, each with the one-window control beside
-  the two-window case; `waiting-unfiled-fleet-quiet.test.ts` for the cap, its
+- **Measured by:** `waiting-unfiled-escalation.test.ts`, with the one-window
+  control beside the two-window case, the two-board case asserting each
+  board's item names only its own rows, and the case where one board's item
+  is withdrawn while the other's stands; `person-owned-quiet.test.ts` for the
+  refused bucket, with its filing control; `waiting-unfiled-fleet-quiet.test.ts` for the cap, its
   `fleetTellCap: 99` control, the move to the owner's item and the
   undelivered-send case; `waiting-unfiled-sidecar.test.ts` for what a restart
   and a pre-cap file remember. The verdict's `escalated` line cannot measure

@@ -16,9 +16,21 @@ import { input } from './notes-compose-input.ts';
 
 /**
  * The shipped words are Bryan's "Simplified Technical English, short" draft
- * (2026-09-11), word for word. The fixture is a copy of that section; the only
- * differences allowed are the two numbers the code interpolates, and both
- * read as the draft's own today.
+ * (2026-09-11), plus the rules added since. The fixture is a copy of the
+ * shipped section; the only other differences allowed are the two numbers the
+ * code interpolates, and both read as the draft's own today.
+ *
+ * RULES ADDED to the draft, and the fixture carries them:
+ * - A reason stays in the note of its point ("X, because Y"). It began as "a
+ *   reason is a note of its own", after twenty-six of thirty-one misses over
+ *   four reruns were an "X because Y" line whose Y reached no note; it moved
+ *   back into the point when the synthetic dictation of
+ *   `scripts/notes-fidelity-dictation.ts` kept 5 of 9 reasons with their
+ *   point under the old wording and 9 of 9 under the new.
+ * - "Dictated layout", the ask line and the meaning rule in Accuracy, scored
+ *   by the same eval (`bun run notes:fidelity`).
+ * A further rule goes in the same way: change both copies, and say here what
+ * it was measured against.
  */
 describe('the shipped notes prompt', () => {
   it('is the Simplified Technical English draft, word for word', () => {

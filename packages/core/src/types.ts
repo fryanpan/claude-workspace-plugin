@@ -1,3 +1,4 @@
+import type { PageEdit } from './page-edits.ts';
 import type { ReviewPayload } from './review-item.ts';
 import type { VoiceNote } from './voice-feedback.ts';
 
@@ -9,12 +10,16 @@ import type { VoiceNote } from './voice-feedback.ts';
  *  - diff: one changed file of a git diff review (base..target). Content is
  *    the file at the TARGET commit — immutable, so anchors never drift; the
  *    diff itself is a client-side rendering against the base text.
+ *  - app: a dev server on a loopback port, attached to a board and served
+ *    through it under `/workspaces/<ws>/apps/<id>/` (server `routes/apps.ts`).
+ *    `sourceUrl` is its origin. No server-held content: the widget on its
+ *    pages comments on it, as on a mockup.
  *  - workspace: a board workspace's board doc (`ws:<workspaceId>`). Carries
  *    no server-held content surface of its own — its `tasks`/`workspace` maps
  *    are a server-written projection of the task store (see the server's
  *    task-projection module), never edited through a content editor.
  */
-export type DocType = 'markdown' | 'mockup' | 'code' | 'diff' | 'workspace';
+export type DocType = 'markdown' | 'mockup' | 'code' | 'diff' | 'workspace' | 'app';
 
 /**
  * Which Yjs content surface a doc kind uses — THE derived concept most
@@ -580,6 +585,13 @@ export interface Comment {
    * from and the words as heard, before tidying (`voice-feedback.ts`).
    */
   voice?: VoiceNote;
+  /**
+   * Present on a comment that carries words the reader changed on the page
+   * in place — the element, the words before and the words after — for the
+   * agent to apply to its source (`page-edits.ts`). An open thread is an edit
+   * still waiting; a resolved one is applied.
+   */
+  pageEdits?: PageEdit[];
   /**
    * Every previous version of `text`, oldest first — present only on a
    * comment somebody has edited. See `CommentEdit`.

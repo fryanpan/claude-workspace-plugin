@@ -15,7 +15,7 @@ import { ticketOpenParts } from '../answer-coverage.ts';
  */
 import { matchRest } from '../middleware/workspace-scope.ts';
 import { writeViaOf } from '../mockup-frame.ts';
-import { reviewItemAnsweredEvent } from '../review-items/analytics.ts';
+import { reviewItemAnsweredEvent, reviewItemFilerId } from '../review-items/analytics.ts';
 import {
   SECRET_ANSWER_DENIAL,
   SECRET_FILING_DENIAL,
@@ -107,7 +107,9 @@ export async function handleTaskReviewItems(
     taskProjection.refreshTask(res.task);
     // The gate, BEFORE the announcement: a held item is not on anybody's
     // queue, so nothing may say it is.
-    const gate = await judgeReviewItem(res.task, res.item, author);
+    // The hold is in this route's own reply, so no second copy is pushed at
+    // the author (`GateRunOpts.heldInReply`).
+    const gate = await judgeReviewItem(res.task, res.item, author, { heldInReply: true });
     if (!gate.held) announceTaskReview(res.task, res.item, author);
     // `reviewAdvice`, the same key a comment-borne declaration answers
     // with. The divergent `shapeGaps` vocabulary stays exactly where it
@@ -229,6 +231,11 @@ export async function handleTaskReviewItems(
         taskId,
         actorId: author.id,
         isOwner: roleFor(workspaceId) === 'owner',
+        // Who the wake is addressed to: the agent that filed the ask is the
+        // one that stopped for the answer. See `ReviewItemAnsweredEvent`.
+        ...(reviewItemFilerId(res.task, reviewItemId) !== undefined
+          ? { filedById: reviewItemFilerId(res.task, reviewItemId) }
+          : {}),
         ts: Date.now(),
       }),
     );
@@ -404,7 +411,10 @@ export async function handleTaskReviewItems(
       taskProjection.refreshTask(revised.task);
       // Judged again, on the new words — the promise the hold's message
       // makes. A revision that still misses comes back held.
-      const gate = await judgeTaskDecision(revised.task, author, gateOpts);
+      const gate = await judgeTaskDecision(revised.task, author, {
+        ...gateOpts,
+        heldInReply: true,
+      });
       if (wasHeldDecision && gate && !gate.held) {
         announceTaskReview(revised.task, gate.item, author);
       }
@@ -438,7 +448,10 @@ export async function handleTaskReviewItems(
     if (!res.ok) return j(res.error === 'not-found' ? 404 : 400, res);
     taskProjection.refreshTask(res.task);
     // Re-judged on every revision: the verdict was about the old words.
-    const gate = await judgeReviewItem(res.task, res.item, author, gateOpts);
+    const gate = await judgeReviewItem(res.task, res.item, author, {
+      ...gateOpts,
+      heldInReply: true,
+    });
     if (wasHeld && !gate.held) announceTaskReview(res.task, gate.item, author);
     let thread: Thread | null = null;
     if (reply !== undefined && res.threadId) {

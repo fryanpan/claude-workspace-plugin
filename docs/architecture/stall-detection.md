@@ -143,7 +143,9 @@ Home queue's own predicate (`isReviewItemOnQueue` for ticket items,
 `pendingDeclaration` minus a gated payload for comment-borne ones), so an
 answered, withdrawn, held or reader-asked-back item excuses nothing. A task
 whose status says the owner is waiting with nothing filed is
-`blocked-on-owner-unfiled`. Between 2026-09-04 and 2026-09-08 a prose reader (`note-ask.ts`, a
+`blocked-on-owner-unfiled` — a RECORD on the verdict's `awaitingPerson` line
+since 2026-09-22 and a finding for nobody, because neither an agent nor the
+person who already holds the row has an act to perform on it. Between 2026-09-04 and 2026-09-08 a prose reader (`note-ask.ts`, a
 prefilter plus a Haiku confirmation) tried to recover the unfiled ask from
 the note itself; it was removed because a wait that has to be guessed from
 prose is a wait nobody filed, and the fix for that is to file it.
@@ -200,6 +202,17 @@ nothing with either. So `FLEET_TELL_CAP` counts the wakes each row has been
 carried in, beside its `firstSeen` in the same sidecar, and a row past the cap
 is dropped from the FRAME.
 
+**The frame says which rung it is.** It carries `unfiledCarry` — how long the
+rows have stood unfiled, and every board it names with the seat that board
+holds now — and the plugin renders that as the wake's first line, ahead of the
+findings. Without it the carry is a `workspace.stalled` tagged with a board
+Team Lead is not on, which is also what the dead-board redirect looks like,
+and that one's line says the board's seat is unreachable. Six carries fired
+between 20 and 22 September 2026 and the receiver had to work out which it
+had. The line claims the rows' AGE and never a delivery: the seat it names is
+read fresh each tick, so it can have changed hands, or stood empty, for the
+whole window a row aged.
+
 **It stops waking people; it does not stop existing.** A row past the cap
 moves onto the owner's standing item — the same one item the
 unreachable-Team-Lead branch files, revised in place and withdrawn when the
@@ -243,7 +256,18 @@ put a task on the reader's queue passes a quality gate: a Haiku judge reads the 
 or `PUT /workspaces/:id/settings`) and the item, and answers
 `{ok, reason}`. Not ok → the item is HELD: it stays on the ticket with the
 reason, leaves the Home queue and the answerable count, and the filer is
-told in the tool result and on the channel (`workspace.review_item_held`).
+told. **In the tool result OR on the channel, never both** (2026-09-17):
+every filing door — the two review-item routes, the batch and list creates,
+a comment-borne declaration, a done-when owner report — returns `held`, the
+reason and the paste-ready `revise_review_item(…)` call in its own reply, so
+no `workspace.review_item_held` frame is pushed at the caller as well. A
+wake is the reader's whole turn, and a turn spent re-reading the reply it
+just got was part of the 11% of fleet model spend repeat reminders were
+measured at. The frame still goes to a filer who has no reply to read: the
+boot sweep, and an item whose recorded filer is some OTHER session than the
+one whose call re-gated it (`heldInReply`, `review-gate-types.ts`). The
+overdue nudge below is a different telling — nobody asked for it — and is
+untouched.
 A judge that has no key, times out, errors, or answers unparseably PASSES
 the item — the gate is a nudge toward better asks, never a door that
 closes when the API does (`decisions.md`, 2026-08-29). Held state is
@@ -389,6 +413,52 @@ wakes correctly:
   unchanged board is re-said at most once per window. The default repeat
   floor across a 9-board fleet prices at roughly 43M tokens/day — the knob
   exists because that floor has to be tunable faster than a release.
+  **Since 2026-09-17 the window no longer re-says an UNCHANGED SET.** A week
+  of the fleet's transcripts put repeat or empty reminders at 11% of all model
+  spend — 265M of 2,417M tokens — and `stalled` frames naming exactly the set
+  the previous frame named were 5.4% of it on their own. So the repeat window
+  still moves the stamp, and a frame naming nothing the reader was not last
+  handed is dropped at the door (`wake-sent-sets.ts`). This RETIRES the
+  standing instruction to "report again in half an hour if still stalled"
+  (Bryan, 2026-09-11) for a set that has not changed; the window still carries
+  a set that gained a task, a row that changed bucket, a new hold, a new
+  question asked back, a person's new comment and a newly unreadable row,
+  because each of those is its own token in the set being compared. The memory
+  is per board AND per session — a stand-in woken in an unreachable lead's
+  place is compared against what IT was handed — and it persists beside the
+  stamps, so a deploy does not re-send what the previous process sent. It
+  forgets a token that has been off the board for a whole repeat window, which
+  is what makes a recurrence news.
+  **A DUE CHECK-IN survives too, and its token had to carry the WINDOW to do
+  it.** It is the one finding whose repeat is its own event: a holder who has
+  still not said a word an hour later is a new fact, not the old one twice. A
+  bare `checkin:<id>` is contributed on every tick for as long as the row sits
+  there, so the first window's ask would swallow every later one — measured
+  over 400 simulated minutes on a board whose only finding is one due
+  check-in, the row alone gives 1 frame where the row-and-window gives 14. The
+  token is therefore `checkin:<id>@<when the reader was last told>`, which
+  makes a tick inside a window a subset (it names no check-in at all, since
+  `dueCheckIns` has filtered the row out) and the next window a new telling.
+  `stall-check/README.md` carries the same measurement.
+- **A frame about work that moved inside the hour waits.** The quiet window
+  makes a ROW a finding; this makes a FRAME worth a turn. While every task a
+  frame would name has moved inside `movedWithinMs` — the wiring derives it as
+  twice the quiet window, so one hour on the defaults — the frame is not sent,
+  and it goes on the first tick a named task crosses. The frame is OWED, never
+  dropped. Consequences worth knowing before tuning it: the first wake about
+  an ordinary in-progress row now arrives at an hour rather than at thirty
+  minutes, which is also the builder-silent window, so at frame level the two
+  clocks have converged — the BUCKET on the frame is what still tells them
+  apart. Anything that is not a silence reading is exempt and goes at once: a
+  held item, a question asked back, an unanswered thread, a row past the UI
+  gate, a row the pass could not read, and a DUE CHECK-IN — whose whole window
+  lives inside this one, so deferring it would delete it rather than delay it.
+  The check-in's exemption earns its place on one shape of board, and it is
+  worth naming because it reads as dead code: a board whose stall rows are all
+  moving and whose check-in is due. Driven both ways, the lead is woken once
+  with the exemption and never without it. On a board carrying nothing but the
+  check-in the exemption changes nothing, because there is no silence reading
+  to be movement.
 - **The repeat bucket is HELD, never lowered by a flicker**: a
   remembered task that drops off the findings for one pass used to take the
   armed bucket down with it, so its return read as another window crossed and

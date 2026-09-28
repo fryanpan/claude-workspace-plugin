@@ -23,6 +23,7 @@ import {
   isValidAgentId,
   isValidWatchKey,
 } from '../agent-watches.ts';
+import type { CallerAgent } from '../auth/agent-caller.ts';
 import { authorizeAgentCaller, mintAgentToken } from '../auth/agent-token.ts';
 import type { Identities } from '../identities.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
@@ -69,6 +70,11 @@ export interface AgentIdentityRoutesContext {
   requireAgentToken: boolean;
   /** Logs that warning, at most once per agent id per route. */
   warnLegacyAgentCaller: (agentId: string, route: string) => void;
+  /** Which agent the process on the other end of this request's socket
+   *  belongs to. See auth/agent-caller.ts. */
+  identifyAgentCaller: (req: Request) => Promise<CallerAgent>;
+  /** Logs a refused mint, at most once per agent id and reason. */
+  warnRefusedMint: (agentId: string, reason: string) => void;
 }
 
 /** What only this request knows. */
@@ -99,17 +105,21 @@ export async function handleAgentIdentityRoutes(
     agentTokenKey,
     requireAgentToken,
     warnLegacyAgentCaller,
+    identifyAgentCaller,
+    warnRefusedMint,
   } = ctx;
   const { req, pathname, visitor, authorFor } = rq;
 
   // --- REST: mint this agent's stream bearer ---
   //
   // The one place an `at1` token comes from. Behind the SAME shape gate as
-  // the routes it unlocks (loopback peer, no `cf-ray`, not a browser), which
-  // is the honest boundary this machine has: an agent's own MCP child can
-  // ask for its token without a secret it was never given, and nothing off
-  // the box or inside a page can ask at all. auth/agent-token.ts spells out
-  // what that is worth and what it is not.
+  // the routes it unlocks (loopback peer, no `cf-ray`, not a browser), so
+  // nothing off the box or inside a page can ask at all — and then behind a
+  // second check the other two routes do not need, because they take the
+  // token this one hands out: the process that opened the socket must belong
+  // to a Claude Code session launched as this agent (auth/agent-caller.ts).
+  // An agent's own MCP child passes without a secret it was never given;
+  // another session asking for this agent's token does not.
   //
   // Stateless and idempotent: the token is an HMAC over the id, so this
   // route stores nothing, a re-mint returns the same bytes, and rotating the
@@ -137,6 +147,17 @@ export async function handleAgentIdentityRoutes(
       requireToken: false,
     });
     if (!allowed.ok) return j(allowed.status, allowed.body);
+    const caller = await identifyAgentCaller(req);
+    if (!caller.ok || caller.agentId !== agentId) {
+      const reason = caller.ok
+        ? `the calling process belongs to ${caller.agentId ?? 'no named agent'}`
+        : caller.reason;
+      warnRefusedMint(agentId, reason);
+      return j(403, {
+        error: 'agent-token-not-yours',
+        message: `Only ${agentId}'s own session can mint its token: ${reason}.`,
+      });
+    }
     return j(200, { agentId, token: mintAgentToken(agentId, agentTokenKey()) });
   }
 

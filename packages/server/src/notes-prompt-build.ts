@@ -64,10 +64,13 @@
  */
 
 import type { NotesComposeInput, NotesTick, NotesTurn } from './meeting-notes.ts';
+import { dictationDirective, dictationTickOf } from './notes-dictation.ts';
 import { NOTES_AUTHOR_ID } from './notes-doc-access.ts';
 import { topicHeadingLine, topicRoutingLines } from './notes-heading-level.ts';
+import { missedBlock } from './notes-missed-words.ts';
 import { DEFAULT_NOTES_INSTRUCTIONS, withoutSpeakerAttribution } from './notes-prompt-store.ts';
-import { regroupDirective } from './notes-regroup.ts';
+import { reasonDirective } from './notes-reason-ask.ts';
+import { regroupDirective } from './notes-regroup-ask.ts';
 
 /**
  * How many blocks at the live end of the doc stay OUT of the cached half.
@@ -241,6 +244,14 @@ export function buildNotesPrompt(
     notesHeadingId: input.notesHeadingId,
   });
   if (regroup) parts.push(regroup);
+  // A dictated page or item, named per tick for the reason regrouping is.
+  const dictation = dictationDirective(
+    input.outline,
+    input.dictation ?? dictationTickOf(input.tick.turns),
+  );
+  if (dictation) parts.push(dictation);
+  const reason = reasonDirective(input.tick.turns);
+  if (reason) parts.push(reason);
 
   if (input.taskLinks?.length) {
     parts.push(
@@ -282,15 +293,7 @@ export function buildNotesPrompt(
 
   if (input.missed?.length) {
     parts.push(
-      [
-        'SAID EARLIER AND STILL IN NO NOTE. Each of these went past without',
-        'producing anything. Read them again with the notes above in front of',
-        'you: write the note each one should have produced, under the heading',
-        'it belongs to. Leave one out only if it is genuinely packaging — a',
-        'greeting, a false start, or a point the notes already carry in other',
-        'words. This is their last offer; nothing asks again.',
-        ...input.missed.map((t) => `- ${speakerPrefix(t)}${t.text}`),
-      ].join('\n'),
+      missedBlock(input.missed, input.outline.map((e) => e.text).join('\n'), speakerPrefix),
     );
   }
 
@@ -401,7 +404,9 @@ function renderOutline(input: NotesComposeInput): { chunks: string[]; tail: stri
             // to stop acting on. `sub-bullet` is the whole difference.
             (entry.depth ?? 0) > 0
             ? 'sub-bullet'
-            : 'bullet'
+            : entry.ordered
+              ? 'numbered'
+              : 'bullet'
           : 'para';
     // `claimed` is the caller overriding the doc's marks — see
     // `NotesComposeInput.claimed`. Nothing sets it on a tick.

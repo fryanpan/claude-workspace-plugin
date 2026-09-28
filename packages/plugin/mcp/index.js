@@ -13875,16 +13875,18 @@ function pathNeedsAgentToken(path) {
 function createAgentTokenStore(deps) {
   let token = null;
   let minting = null;
-  let unsupported = false;
-  const mint = async () => {
+  let said404 = false;
+  const mintOverHttp = async () => {
     try {
       const res = await deps.fetch(`${deps.resolveBaseUrl()}${agentTokenPath(deps.agentId)}`, {
         headers: { accept: "application/json" }
       });
       if (res.status === 404) {
-        unsupported = true;
         await res.text().catch(() => "");
-        deps.log("[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)");
+        if (!said404) {
+          said404 = true;
+          deps.log("[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)");
+        }
         return null;
       }
       const text = await res.text();
@@ -13899,6 +13901,7 @@ function createAgentTokenStore(deps) {
       return null;
     }
   };
+  const mint = deps.mint ?? mintOverHttp;
   const store = {
     hasToken: () => token !== null,
     forget: () => {
@@ -13906,7 +13909,7 @@ function createAgentTokenStore(deps) {
     },
     headersFor: (path) => pathNeedsAgentToken(path) ? store.headers() : Promise.resolve({}),
     async headers() {
-      if (deps.identityIsShared || unsupported)
+      if (deps.identityIsShared)
         return {};
       if (token !== null)
         return { authorization: `Bearer ${token}` };
@@ -14084,6 +14087,40 @@ function createCallToolHandler(deps) {
       endToolCall();
     }
   };
+}
+
+// packages/mcp/src/app-unreachable-line.ts
+function appUnreachableLine(p) {
+  const app = p.title ? `"${p.title}" (${p.docId ?? "?"})` : p.docId ?? "an attached app";
+  const why = p.reason ? ` (${p.reason})` : "";
+  const whose = p.addressedAs === "lead" ? " You are told as the board lead: the attach recorded no agent, so pass this to whoever runs it." : "";
+  return `[workspace.app_unreachable] ${app} is not answering at ${p.origin ?? "its origin"}${why}; readers opening ${p.prefix ?? "it"} see "The app is not running". Start its dev server on that origin.${whose} This notice fires once per outage and re-arms after the app next answers.`;
+}
+
+// packages/mcp/src/bookkeeping-events.ts
+function mayCarryAnOpenAsk(thread) {
+  if (!thread || typeof thread !== "object")
+    return;
+  const comments = thread.comments;
+  if (!Array.isArray(comments))
+    return;
+  return comments.some((c) => {
+    const review = c?.review;
+    if (!review || typeof review !== "object")
+      return false;
+    return review.answeredAt === undefined && review.answeredWith === undefined && review.withdrawnAt === undefined;
+  });
+}
+var BOOKKEEPING_EVENTS = new Set(["comment.delivered", "agent.listening", "replay.gap"]);
+function isBookkeepingEvent(event, payload) {
+  if (BOOKKEEPING_EVENTS.has(event))
+    return true;
+  if (event === "thread.resolved") {
+    if (!payload || typeof payload !== "object")
+      return false;
+    return mayCarryAnOpenAsk(payload.thread) === false;
+  }
+  return false;
 }
 
 // packages/mcp/src/decision-line.ts
@@ -14299,6 +14336,7 @@ var STALL_PAYLOAD_KEYS = {
   declaredWaits: true,
   changed: true,
   escalatedFrom: true,
+  unfiledCarry: true,
   ts: true
 };
 var STALL_ENVELOPE_KEYS = [
@@ -14329,6 +14367,19 @@ function unrenderableBody(unknown3) {
     return "the board reported a stall with no tasks on it — treat this as a bug in the wake, not as a clear board.";
   }
   return `the board reported findings this plugin cannot read — the frame carries ${unknown3.join(", ")}, ` + "which this bundle does not know. Your plugin is OLDER than this server, which is the likely " + "cause rather than a broken wake. The board is NOT clear: update the plugin " + "(command claude plugin update claude-workspaces@claude-workspaces), restart this session, and " + "read the board with next_tasks / list_tasks meanwhile.";
+}
+function unfiledCarryLine(carry) {
+  const listed = Array.isArray(carry.boards) ? carry.boards : [];
+  const boards = listed.filter((b) => typeof b === "object" && b !== null && typeof b.workspaceId === "string" && b.workspaceId !== "").map((b) => `${b.workspaceId} (${b.leadAgentId ? `lead ${b.leadAgentId}` : "no lead named"})`);
+  const age = typeof carry.agedAtLeastMs === "number" ? `for over ${humanDuration2(carry.agedAtLeastMs)}` : "for a full window";
+  let seats;
+  if (boards.length === 0)
+    seats = "Tell each board’s lead";
+  else if (boards.length === 1)
+    seats = `The seat on that board now: ${boards[0]} — tell that lead`;
+  else
+    seats = `The seats on those boards now: ${boards.join(", ")} — tell each of those leads`;
+  return "You were woken as Team Lead, not as this board’s lead: every row below has stood on its own " + `board’s unfiled list ${age} with nothing filed. ` + `${seats} to file the ask with add_review_item, or file it yourself.`;
 }
 function stalledLine(p, frameBoard) {
   const parts = [];
@@ -14418,6 +14469,9 @@ function stalledLine(p, frameBoard) {
   if (p.escalatedFrom !== undefined && p.escalatedFrom !== "") {
     return `[workspace.stalled] You are not this board's lead — ${p.escalatedFrom} holds the seat and ` + "is not reachable, so this came to you instead. Nothing addressed to that seat is arriving: " + "take it (attach_agent) or hand it to a session that is here. Then, on the board itself: " + body;
   }
+  if (typeof p.unfiledCarry === "object" && p.unfiledCarry !== null) {
+    return `[workspace.stalled] ${unfiledCarryLine(p.unfiledCarry)} ${body}`;
+  }
   return `[workspace.stalled] ${body}`;
 }
 function judgeReasonClauseLocal(reason) {
@@ -14500,6 +14554,58 @@ function reviewItemHeldLine(p) {
   return `[workspace.review_item_held] your review item ${ask}${on}${ids} was held off the queue by the quality gate${why}.${stood} ${fix}`;
 }
 
+// packages/mcp/src/review-item-line.ts
+var TASK_REVIEW_ITEM_EVENTS = new Set([
+  "review_item.added",
+  "review_item.revised",
+  "review_item.withdrawn",
+  "review_item.answered"
+]);
+var FILER_ADDRESSED_EVENTS = new Set(["review_item.withdrawn", "review_item.answered"]);
+function isTaskReviewItemEvent(event, payload) {
+  if (!TASK_REVIEW_ITEM_EVENTS.has(event))
+    return false;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return false;
+  const p = payload;
+  if (typeof p.docId === "string" && p.docId.trim() !== "")
+    return false;
+  return typeof p.taskId === "string" && p.taskId.trim() !== "";
+}
+function readsThisReviewItemEvent(event, p, selfId) {
+  if (!FILER_ADDRESSED_EVENTS.has(event))
+    return true;
+  const filer = p.filedById?.trim();
+  if (filer === undefined || filer === "")
+    return false;
+  return filer.toLowerCase() === selfId.trim().toLowerCase();
+}
+var HEADLINE_MAX = 100;
+function truncate5(s, n) {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+function reviewItemTaskLine(event, p) {
+  const item = p.reviewItemId ?? "?";
+  const where = `item ${item} on task ${p.taskId ?? "?"}`;
+  const by = p.actor?.name ? ` by ${p.actor.name}` : "";
+  if (event === "review_item.added") {
+    const ask = p.headline ? `"${truncate5(p.headline, HEADLINE_MAX)}" — ` : "";
+    return `[review item filed] ${ask}${where}${by}`;
+  }
+  if (event === "review_item.revised") {
+    const after = p.threadId ? ` — after a question on thread ${p.threadId}` : "";
+    return `[review item revised] ${where}${by}${after}`;
+  }
+  if (event === "review_item.answered") {
+    return `[review item answered] ${where} — the ask you filed has an answer`;
+  }
+  if (p.reinstated === true) {
+    return `[review item reinstated] ${where}${by} — the ask is back on the ticket`;
+  }
+  const why = p.reason ? ` — ${truncate5(p.reason, 80)}` : "";
+  return `[review item withdrawn] ${where}${by}${why}`;
+}
+
 // packages/mcp/src/scheduled-line.ts
 var quoted = (title, id) => title ? `"${title}" (${id ?? "?"})` : id ?? "a scheduled run";
 function scheduledRunLine(p) {
@@ -14514,6 +14620,9 @@ function spawnRequestedLine(p) {
 // packages/mcp/src/self-authored.ts
 var COMMENT_EVENTS = new Set(["thread.created", "thread.replied"]);
 var STATUS_EVENTS = new Set(["thread.resolved", "thread.reopened"]);
+var ACTOR_ID_EVENTS = new Set(["review_item.viewed", "review_item.answered"]);
+var ACTOR_FAMILY_RE = /^(task|decision|workspace|voice|review_item|dispatch)\./;
+var AGENT_FAMILY_RE = /^agent\./;
 function identifiesOneSession(selfId) {
   const id = selfId.trim();
   return id.length > 0 && !id.startsWith("known-");
@@ -14524,11 +14633,22 @@ function idOf(who) {
   const id = who.id;
   return typeof id === "string" && id.trim() !== "" ? id.trim() : undefined;
 }
-function frameAuthorId(event, payload) {
+function stringOf(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+function frameActorId(event, payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload))
     return;
   const p = payload;
   if (STATUS_EVENTS.has(event))
+    return idOf(p.actor);
+  if (ACTOR_ID_EVENTS.has(event))
+    return stringOf(p.actorId);
+  if (event === "suggestion.created")
+    return idOf(p.suggestion?.author);
+  if (AGENT_FAMILY_RE.test(event))
+    return stringOf(p.agentId);
+  if (ACTOR_FAMILY_RE.test(event))
     return idOf(p.actor);
   if (!COMMENT_EVENTS.has(event))
     return;
@@ -14545,12 +14665,12 @@ function frameAuthorId(event, payload) {
 function isSelfAuthoredEvent(event, payload, selfId) {
   if (!identifiesOneSession(selfId))
     return false;
-  const author = frameAuthorId(event, payload);
-  return author !== undefined && author.toLowerCase() === selfId.trim().toLowerCase();
+  const actor = frameActorId(event, payload);
+  return actor !== undefined && actor.toLowerCase() === selfId.trim().toLowerCase();
 }
 
 // packages/mcp/src/voice-line.ts
-function truncate5(s, n) {
+function truncate6(s, n) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 function where(p) {
@@ -14564,7 +14684,7 @@ function voiceRequestLine(p) {
     return null;
   const by = p.actor?.name ? ` by ${p.actor.name}` : "";
   const said = `[voice.request]${by}${where(p)}: "${p.transcript ?? ""}"`;
-  const told = truncate5(p.ack ?? "", 120);
+  const told = truncate6(p.ack ?? "", 120);
   if (p.route === "fast-path-action") {
     return `${said} — the fast path ALREADY applied this to the board on the speaker's behalf; ` + `they were told: "${told}". Do NOT redo it — reconcile your own picture of the board ` + "with what changed, and pick up only whatever the utterance asked for beyond it.";
   }
@@ -14584,23 +14704,35 @@ function nowMs(deps) {
 function nowIso(deps) {
   return new Date(nowMs(deps)).toISOString();
 }
-var BOARD_EVENT_RE = /^(task|decision|workspace|agent|voice)\./;
+var BOARD_EVENT_RE = /^(task|decision|workspace|agent|voice|dispatch)\./;
+function dispatchReportedLine(p) {
+  const who = p.agentName ?? p.actor?.name ?? "a builder";
+  const commit = (p.headCommit ?? "").slice(0, 7);
+  const failed = p.checksFailed ?? 0;
+  const held = p.checksHeld ?? 0;
+  const gates = failed > 0 ? `${failed} of ${p.checksTotal ?? 0} gates FAILED` : `${p.checksTotal ?? 0} gates passed${held > 0 ? ` (${held} held)` : ""}`;
+  const met = p.doneWhenMet ?? 0;
+  const total = p.doneWhenTotal ?? 0;
+  return `[dispatch.reported] ${who} finished ${p.taskId ?? "a task"}: PR #${p.prNumber ?? "?"} at ${commit} — ${gates}, ${met}/${total} done-when met. Read it with the task.`;
+}
 async function emitBoardChannelMessage(deps, event, rawPayload) {
   const p = rawPayload ?? {};
   if (event === "agent.heartbeat")
     return;
   if (event === "task.noted")
     return;
-  if (p.actor?.id === deps.authorId)
+  if (event === "dispatch.requested")
+    return;
+  if (isSelfAuthoredEvent(event, rawPayload, deps.authorId))
     return;
   const by = p.actor?.name ? ` by ${p.actor.name}` : "";
   let body;
   switch (event) {
     case "task.created":
-      body = `[task.created] "${truncate6(p.task?.title ?? p.taskId ?? "", 60)}" → ${p.goal ?? "?"}${p.assignee ? ` (assignee ${p.assignee})` : ""}`;
+      body = `[task.created] "${truncate7(p.task?.title ?? p.taskId ?? "", 60)}" → ${p.goal ?? "?"}${p.assignee ? ` (assignee ${p.assignee})` : ""}`;
       break;
     case "task.transitioned":
-      body = `[task.transitioned] ${p.taskId}: ${p.from} → ${p.to}${by}${p.note ? ` — ${truncate6(p.note, 80)}` : ""}`;
+      body = `[task.transitioned] ${p.taskId}: ${p.from} → ${p.to}${by}${p.note ? ` — ${truncate7(p.note, 80)}` : ""}`;
       break;
     case "task.assigned":
       body = `[task.assigned] ${p.taskId}: ${p.from} → ${p.to}${by}`;
@@ -14609,10 +14741,10 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       body = `[task.regrouped] ${p.taskId}: ${p.fromGoal} → ${p.toGoal}${by}`;
       break;
     case "task.retitled":
-      body = `[task.retitled] "${truncate6(p.titleFrom ?? "", 60)}" → "${truncate6(p.titleTo ?? "", 60)}"${by}${p.reason ? ` — ${truncate6(p.reason, 80)}` : ""}`;
+      body = `[task.retitled] "${truncate7(p.titleFrom ?? "", 60)}" → "${truncate7(p.titleTo ?? "", 60)}"${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}`;
       break;
     case "task.body_edited":
-      body = p.titleFrom && p.titleTo ? `[task.body_edited] reshaped "${truncate6(p.titleFrom, 60)}" → "${truncate6(p.titleTo, 60)}"${by}${p.reason ? ` — ${truncate6(p.reason, 80)}` : ""}` : `[task.body_edited] ${p.taskId}${by}${p.reason ? ` — ${truncate6(p.reason, 80)}` : ""}`;
+      body = p.titleFrom && p.titleTo ? `[task.body_edited] reshaped "${truncate7(p.titleFrom, 60)}" → "${truncate7(p.titleTo, 60)}"${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}` : `[task.body_edited] ${p.taskId}${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}`;
       break;
     case "task.scheduled_run":
       body = scheduledRunLine(p);
@@ -14648,6 +14780,12 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       break;
     case "workspace.done_when_ready":
       body = doneWhenReadyLine(p);
+      break;
+    case "workspace.app_unreachable":
+      body = appUnreachableLine(rawPayload);
+      break;
+    case "dispatch.reported":
+      body = dispatchReportedLine(p);
       break;
     case "agent.attached":
     case "agent.detached":
@@ -14685,12 +14823,36 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
   }
 }
 async function emitChannelMessage(deps, event, rawPayload) {
+  if (isBookkeepingEvent(event, rawPayload))
+    return;
   if (BOARD_EVENT_RE.test(event)) {
     await emitBoardChannelMessage(deps, event, rawPayload);
     return;
   }
   if (isSelfAuthoredEvent(event, rawPayload, deps.authorId))
     return;
+  if (isTaskReviewItemEvent(event, rawPayload)) {
+    const r = rawPayload;
+    if (!readsThisReviewItemEvent(event, r, deps.authorId))
+      return;
+    await deps.notify({
+      method: "notifications/claude/channel",
+      params: {
+        source: "claude-workspaces",
+        sent_at: nowIso(deps),
+        content: reviewItemTaskLine(event, r),
+        meta: {
+          workspace_id: r.workspaceId ?? "unknown",
+          ...r.taskId ? { task_id: r.taskId } : {},
+          ...r.reviewItemId ? { review_item_id: r.reviewItemId } : {},
+          ...r.shape ? { shape: r.shape } : {},
+          event,
+          ...r.actor?.name ? { author: r.actor.name } : {}
+        }
+      }
+    });
+    return;
+  }
   const p = rawPayload ?? {};
   const docId = p.docId ?? "unknown";
   if (event === "doc.sync_error") {
@@ -14718,7 +14880,7 @@ async function emitChannelMessage(deps, event, rawPayload) {
     const author2 = p.suggestion?.author?.name ?? "";
     const snippet2 = p.suggestion?.snippet ?? "";
     const kind = p.suggestion?.kind ?? "";
-    const header2 = snippet2 ? `"${truncate6(snippet2, 60)}"` : sid;
+    const header2 = snippet2 ? `"${truncate7(snippet2, 60)}"` : sid;
     const body2 = `[suggestion ${action2}] ${author2 ? `${author2}: ` : ""}${kind} ${header2}`.trim();
     await deps.notify({
       method: "notifications/claude/channel",
@@ -14745,10 +14907,17 @@ async function emitChannelMessage(deps, event, rawPayload) {
   const text = statusChange ? "" : p.comment?.text ?? p.thread?.comments?.at(-1)?.text ?? "";
   const fromMock = fromMockNote(statusChange ? p.via : (p.comment ?? p.thread?.comments?.at(-1))?.via);
   const sentAt = new Date(p.comment?.ts ?? nowMs(deps)).toISOString();
+  const pageEdits = statusChange ? undefined : (p.comment ?? p.thread?.comments?.at(-1))?.pageEdits?.map(({ selector, before, after }) => ({
+    selector,
+    before,
+    after
+  }));
+  const editHint = pageEdits?.length ? `
+(Apply each edit to the page source, then resolve_thread. The full text is in page_edits.)` : "";
   const action = event.startsWith("thread.") ? event.slice("thread.".length) : event;
-  const header = snippet ? `on "${truncate6(snippet, 60)}"` : "";
-  const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate6(snippet, 60)}"` : ""} —` : "";
-  const body = text ? `[${action}]${onItem} ${author ? `${author}${fromMock}: ` : fromMock ? `${fromMock.trim()}: ` : ""}${text}${openPartsClause(p.openParts)}` : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
+  const header = snippet ? `on "${truncate7(snippet, 60)}"` : "";
+  const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate7(snippet, 60)}"` : ""} —` : "";
+  const body = text ? `[${action}]${onItem} ${author ? `${author}${fromMock}: ` : fromMock ? `${fromMock.trim()}: ` : ""}${text}${openPartsClause(p.openParts)}${editHint}` : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
   await deps.notify({
     method: "notifications/claude/channel",
     params: {
@@ -14761,12 +14930,13 @@ async function emitChannelMessage(deps, event, rawPayload) {
         ...reviewItemId ? { review_item_id: reviewItemId } : {},
         event,
         author,
-        anchor_text: snippet
+        anchor_text: snippet,
+        ...pageEdits?.length ? { page_edits: JSON.stringify(pageEdits) } : {}
       }
     }
   });
 }
-function truncate6(s, n) {
+function truncate7(s, n) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
@@ -14910,6 +15080,8 @@ async function handleFrame(deps, raw) {
     return;
   }
   if (ev === "replay.gap") {
+    if (isBookkeepingEvent(ev, payload))
+      return;
     const p = payload ?? {};
     await outsideToolCall(deps, () => deps.notify({
       method: "notifications/claude/channel",
@@ -14976,9 +15148,8 @@ function staleClientMessage(text) {
   }
 }
 function createHttp(resolve, fetchFn = fetch, authHeaders = async () => ({})) {
-  return async (method, path, body) => {
-    const baseUrl = resolve();
-    const res = await fetchFn(`${baseUrl}${path}`, {
+  const send = async (method, path, body) => {
+    const res = await fetchFn(`${resolve()}${path}`, {
       method,
       headers: {
         ...body ? { "content-type": "application/json" } : {},
@@ -14986,7 +15157,13 @@ function createHttp(resolve, fetchFn = fetch, authHeaders = async () => ({})) {
       },
       body: body ? JSON.stringify(body) : undefined
     });
-    const text = await res.text();
+    return { res, text: await res.text() };
+  };
+  return async (method, path, body) => {
+    let { res, text } = await send(method, path, body);
+    if (res.status === 401 && text.includes('"agent-token-required"')) {
+      ({ res, text } = await send(method, path, body));
+    }
     if (!res.ok) {
       throw new Error(`${method} ${path} → ${res.status}: ${staleClientMessage(text) ?? text}`);
     }
@@ -15850,6 +16027,29 @@ var TOOL_LIST = {
       }
     },
     {
+      name: "attach_app",
+      description: "Attach a running dev server to a board so members open it at /workspaces/<workspaceId>/apps/<docId>/ and comment on it with the widget, as on a mockup. origin must be http://127.0.0.1:<port> or http://localhost:<port>; anything else is refused. The server proxies <prefix><path> to <origin>/<path>, including the reload event stream, and rewrites nothing in the pages, so the site must build every link under the returned prefix. Reusing a docId repoints that app. Hand reviewUrl to a person.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workspaceId: {
+            type: "string",
+            description: "The board this resource is on. get_workspace lists the boards you are attached to."
+          },
+          docId: {
+            type: "string",
+            description: "A readable name for the app, not its address. The server mints the real id, returns it, and keeps this name as an alias."
+          },
+          origin: {
+            type: "string",
+            description: "The dev server, e.g. http://127.0.0.1:4321. Loopback only, no path."
+          },
+          title: { type: "string" }
+        },
+        required: ["workspaceId", "docId", "origin"]
+      }
+    },
+    {
       name: "attach_folder",
       description: "Attach a folder or worktree as a browsable review. The reviewer picks files from the menu under the filename in the topbar, and a markdown file opens editable. Prefer create_diff_review, which adds the changed-files diff on top of browsing.",
       inputSchema: {
@@ -15860,6 +16060,11 @@ var TOOL_LIST = {
             description: "The board this resource is on. get_workspace lists the boards you are attached to."
           },
           folderPath: { type: "string" },
+          privacy: {
+            type: "string",
+            enum: ["workspace", "local-only"],
+            description: "Who may open the folder's files. 'local-only' serves them, and their names, on this machine alone: every share link, collaboration visitor, tunnel and tailnet caller is refused. 'workspace' (the default for a new folder) lets anyone a share link on the board admits open them. Omit it to keep the set's current privacy; the answer always names it."
+          },
           exclude: {
             type: "array",
             items: { type: "string" },
@@ -16631,15 +16836,39 @@ var TOOL_LIST = {
     },
     {
       name: "set_sharing_enabled",
-      description: "Master switch for all external access. Off makes every share and link answer 403, and hangs up the open connections of share visitors and share-link members. Existing shares are preserved and resume when it is on again. The local and tailnet surface is unaffected. Call it with no argument to read the current state.",
+      description: "Turn outside access off or on, for ONE board or for everything. With workspaceId it closes or reopens that board only: its share, share-link and collaboration visitors are refused and its open connections hang up, while the owner and every other board are untouched, and the answer echoes the id back. This is the precaution to use before putting sensitive material on a board (set_project_privacy keeps a project's bytes on this machine as well). Without workspaceId it is the MASTER switch: off refuses every share and link on every board, AND the owner's own public hostname, until someone turns it back on from this machine. Every flip is logged with who, from where and the reason, and the owner is told on their queue when the master switch goes off, with a choice to turn it back on. Call it without enabled to read the current state. Any other argument is refused.",
       inputSchema: {
         type: "object",
         properties: {
           enabled: {
             type: "boolean",
             description: "Omit to read the current state without changing it."
+          },
+          workspaceId: {
+            type: "string",
+            description: "The one board to close or reopen. Omit it only when you mean every board and the owner's own hostname."
+          },
+          reason: {
+            type: "string",
+            description: "Why, in a sentence. Written to the log line and the owner's notice."
           }
         }
+      }
+    },
+    {
+      name: "set_board_sharing_lock",
+      description: "Lock ONE board never-shareable, or unlock it. A locked board refuses share_workspace and every other share-link mint, naming the lock, and is closed to its share and collaboration visitors, whose open connections hang up. It is stronger than set_sharing_enabled's per-board close, which refuses visitors but still lets a link be minted. Only a call from the owner's machine can set or clear it; through the tunnel or the network it is refused. Call it without locked to read the board's current lock. Any other argument is refused.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workspaceId: { type: "string", description: "The board to lock or unlock." },
+          locked: {
+            type: "boolean",
+            description: "true locks, false unlocks. Omit to read the current state."
+          },
+          reason: { type: "string", description: "Why, in a sentence. Written to the log line." }
+        },
+        required: ["workspaceId"]
       }
     },
     {
@@ -17609,6 +17838,67 @@ var TOOL_LIST = {
       }
     },
     {
+      name: "report_dispatch",
+      description: "End your dispatch with ONE report on the build you just finished, so the lead reads a board record instead of your closing message. Send it once, after the gates have run: the PR number, the commit those gates ran on, what each gate did, and a verdict on every done-when line the task carries. A report missing any of those is refused with a message naming the part. Reporting the SAME commit again is recorded but wakes nobody, so a nudge you already answered costs the lead nothing; a report on a NEW commit is a new build and does wake them.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workspaceId: {
+            type: "string",
+            description: "The board this resource is on. get_workspace lists the boards you are attached to."
+          },
+          taskId: { type: "string", description: "The task you were dispatched on." },
+          prNumber: {
+            type: "integer",
+            description: "The pull request this build is on."
+          },
+          headCommit: {
+            type: "string",
+            description: "The commit the reported checks actually ran on — `git rev-parse HEAD`. Seven characters or more."
+          },
+          checks: {
+            type: "array",
+            description: "One entry per gate you ran. `held` is for a gate the run did not execute, such as a browser-gated member on a machine that opts out — neither a pass nor a failure.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                status: { type: "string", enum: ["pass", "fail", "held"] },
+                detail: {
+                  type: "string",
+                  description: "The line a reader would otherwise open the log for."
+                }
+              },
+              required: ["name", "status"]
+            }
+          },
+          doneWhen: {
+            type: "array",
+            description: "A verdict on EVERY done-when line the task carries — list_tasks and next_tasks give you the ids. Leave one out and the report is refused naming that line. The verdict words are the board's own: met, not-met, unchecked, owner.",
+            items: {
+              type: "object",
+              properties: {
+                id: {
+                  type: "string",
+                  description: "The id of the `doneWhen` line this verdict answers (`d-…`)."
+                },
+                verdict: {
+                  type: "string",
+                  enum: ["met", "not-met", "unchecked", "owner"]
+                },
+                note: {
+                  type: "string",
+                  description: "What you measured, or why you could not. Required — a bare `unchecked` is the empty report this refuses."
+                }
+              },
+              required: ["id", "verdict", "note"]
+            }
+          }
+        },
+        required: ["workspaceId", "taskId", "prNumber", "headCommit", "checks", "doneWhen"]
+      }
+    },
+    {
       name: "set_parallelism_cap",
       description: "Set how many builders a board may have dispatched at once. Every board starts on the default of 4. Lower it to keep this board from starving higher-priority projects. The change takes effect on the next dispatch, so nothing running is touched and register_dispatch refuses past the new number. The reply carries the cap, the slots in use, the free slots and lastChange. The floor is one.",
       inputSchema: {
@@ -17965,6 +18255,8 @@ function threadCreateRequest(input, author, board) {
 }
 
 // packages/mcp/src/tools/docs.ts
+var SHARING_SWITCH_ARGS = new Set(["enabled", "workspaceId", "reason"]);
+var BOARD_LOCK_ARGS = new Set(["locked", "workspaceId", "reason"]);
 async function handleDocsTool(name, a, ctx) {
   const {
     http,
@@ -18139,9 +18431,30 @@ async function handleDocsTool(name, a, ctx) {
       });
       return ok2(res);
     }
+    case "attach_app": {
+      const { docId, origin, title } = a;
+      const res = await http("POST", `${board()}/apps`, {
+        docId,
+        origin,
+        owner: CWD,
+        producedBy: { agentId: AUTHOR.id },
+        ...title ? { title } : {}
+      });
+      return ok2(res);
+    }
     case "bind_folder":
     case "attach_folder": {
-      const { folderPath, setId, title, include, exclude, maxFiles, subscribe, producedBy } = a;
+      const {
+        folderPath,
+        setId,
+        title,
+        include,
+        exclude,
+        maxFiles,
+        subscribe,
+        producedBy,
+        privacy
+      } = a;
       const res = await http("POST", "/workspaces", {
         folderPath,
         owner: CWD,
@@ -18151,7 +18464,8 @@ async function handleDocsTool(name, a, ctx) {
         ...include ? { include } : {},
         ...exclude ? { exclude } : {},
         ...maxFiles !== undefined ? { maxFiles } : {},
-        ...producedBy ? { producedBy } : {}
+        ...producedBy ? { producedBy } : {},
+        ...privacy !== undefined ? { privacy } : {}
       });
       if (subscribe !== false && res?.workspaceId) {
         await watchWorkspace(res.workspaceId);
@@ -18491,12 +18805,53 @@ async function handleDocsTool(name, a, ctx) {
       return ok2(res);
     }
     case "set_sharing_enabled": {
-      const { enabled } = a;
+      const extra = Object.keys(a).filter((k) => !SHARING_SWITCH_ARGS.has(k));
+      if (extra.length > 0) {
+        return err2(`set_sharing_enabled does not take ${extra.sort().join(", ")}. It takes enabled, workspaceId and reason.`);
+      }
+      const { enabled, workspaceId, reason } = a;
       if (typeof enabled !== "boolean") {
         const res2 = await http("GET", "/api/share");
-        return ok2(res2);
+        if (typeof workspaceId !== "string")
+          return ok2(res2);
+        const closed = res2.sharing?.closedBoards ?? [];
+        return ok2({
+          ...res2,
+          workspaceId,
+          board: { workspaceId, enabled: !closed.includes(workspaceId) }
+        });
       }
-      const res = await http("POST", "/api/share/enabled", { enabled });
+      const res = await http("POST", "/api/share/enabled", {
+        enabled,
+        ...workspaceId !== undefined ? { workspaceId } : {},
+        ...reason !== undefined ? { reason } : {},
+        actor: { id: AUTHOR.id, name: AUTHOR.name }
+      });
+      return ok2(res);
+    }
+    case "set_board_sharing_lock": {
+      const extra = Object.keys(a).filter((k) => !BOARD_LOCK_ARGS.has(k));
+      if (extra.length > 0) {
+        return err2(`set_board_sharing_lock does not take ${extra.sort().join(", ")}. It takes workspaceId, locked and reason.`);
+      }
+      const { locked, workspaceId, reason } = a;
+      if (typeof workspaceId !== "string" || workspaceId.trim() === "") {
+        return err2("set_board_sharing_lock needs workspaceId: the board to lock or unlock.");
+      }
+      if (typeof locked !== "boolean") {
+        const res2 = await http("GET", "/api/share");
+        const lockedBoards = res2.sharing?.lockedBoards ?? [];
+        return ok2({
+          workspaceId,
+          board: { workspaceId, locked: lockedBoards.includes(workspaceId) }
+        });
+      }
+      const res = await http("POST", "/api/share/lock", {
+        workspaceId,
+        locked,
+        ...reason !== undefined ? { reason } : {},
+        actor: { id: AUTHOR.id, name: AUTHOR.name }
+      });
       return ok2(res);
     }
   }
@@ -19810,6 +20165,17 @@ async function handleWorkspaceTool(name, a, ctx) {
       const { taskId } = a;
       return ok2(await http("DELETE", `${board()}/dispatches/${encodeURIComponent(taskId)}`));
     }
+    case "report_dispatch": {
+      const { taskId, prNumber, headCommit, checks: checks3, doneWhen } = a;
+      return ok2(await http("POST", `${board()}/dispatches/${encodeURIComponent(taskId)}/report`, {
+        prNumber,
+        headCommit,
+        checks: checks3,
+        doneWhen,
+        agentName: AUTHOR.name,
+        author: AUTHOR
+      }));
+    }
     case "set_parallelism_cap": {
       const { workspaceId, cap: rawCap } = a;
       const parsed = parseCapArg(rawCap);
@@ -20257,7 +20623,8 @@ function createConnectorSession(deps) {
     resolveBaseUrl: deps.resolveBaseUrl,
     fetch: deps.fetch,
     log,
-    identityIsShared: IDENTITY_IS_SHARED
+    identityIsShared: IDENTITY_IS_SHARED,
+    ...deps.mintAgentToken ? { mint: deps.mintAgentToken } : {}
   });
   const http = createHttp(deps.resolveBaseUrl, deps.fetch, (path) => agentTokens.headersFor(path));
   const deferredEmits = createDeferredEmitter();
@@ -20380,7 +20747,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.251";
+var PLUGIN_VERSION = "0.1.267";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

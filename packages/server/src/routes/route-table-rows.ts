@@ -121,6 +121,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/s/:slug', 'GET'],
   ]),
 
+  ...family('routes/board-lock.ts', [['loopback-only', '/api/share/lock', 'POST']]),
+
   ...family('routes/ops.ts', [
     ['trusted-local', '/api/metrics', 'GET'],
     ['trusted-local', '/api/summaries/backfill', 'POST'],
@@ -320,6 +322,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ...family('routes/dispatch-and-notes.ts', [
     ['trusted-local', '/workspaces/:ws/dispatches', 'GET POST'],
     ['trusted-local', '/workspaces/:ws/dispatches/:taskId', 'DELETE'],
+    ['trusted-local', '/workspaces/:ws/dispatches/:taskId/report', 'GET POST'],
     ['trusted-local', '/workspaces/:ws/tasks/:taskId/notes', 'GET POST'],
     ['trusted-local', '/workspaces/:ws/agents/:agent/notes', 'GET POST'],
     ['trusted-local', '/workspaces/:ws/agent-notes', 'GET'],
@@ -483,6 +486,15 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     // sensitive folder stays on the machine.
     ['trusted-local', '/mounts/:fileId', 'GET HEAD'],
     ['trusted-local', '/mounts/:fileId/raw', 'GET HEAD'],
+  ]),
+
+  // An attached dev server. The attach is an agent's bind; every path under
+  // an app is a member's read, which the host guard admits for an app filed
+  // on the board in the path.
+  ...family('routes/apps.ts', [
+    ['trusted-local', '/workspaces/:ws/apps', 'POST'],
+    ['share-scope', '/workspaces/:ws/apps/:docId', 'GET HEAD'],
+    ['share-scope', '/workspaces/:ws/apps/:docId/*', 'GET HEAD'],
   ]),
 
   ...family('routes/shell-static.ts', [

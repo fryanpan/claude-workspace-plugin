@@ -26,8 +26,10 @@ const AGENT = 'agent-mira';
 
 type Frame = { event: string; data: Record<string, unknown> };
 
-function listen(res: Response): { frames: Frame[]; stop: () => void } {
+function listen(res: Response): { frames: Frame[]; opened: () => boolean; stop: () => void } {
   const frames: Frame[] = [];
+  // Set by the first bytes, which the route writes before it registers.
+  let opened = false;
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let stopped = false;
@@ -37,6 +39,7 @@ function listen(res: Response): { frames: Frame[]; stop: () => void } {
       while (!stopped) {
         const { done, value } = await reader.read();
         if (done) return;
+        opened = true;
         buf += decoder.decode(value, { stream: true });
         let sep = buf.indexOf('\n\n');
         while (sep >= 0) {
@@ -58,6 +61,7 @@ function listen(res: Response): { frames: Frame[]; stop: () => void } {
   })();
   return {
     frames,
+    opened: () => opened,
     stop: () => {
       stopped = true;
       void reader.cancel();
@@ -185,6 +189,50 @@ describe('GET /events/agent/<agentId>', () => {
 
     expect(feed.frames.some((f) => f.data.watchKey === two)).toBe(false);
     feed.stop();
+  });
+
+  it('opens after a restart without loading the docs it watches', async () => {
+    // A deploy: every attached session reconnects this stream at once, into
+    // a server that has loaded nothing. Resolving a watched key to its
+    // channel must not hydrate the doc — on staging, three sessions watching
+    // 330 docs made one reconnect load all of them, arm every binding and
+    // block the loop for 2.6s.
+    await post(`/api/agents/${AGENT}/watches`, {
+      add: ['doc-one', 'doc-two'],
+      name: 'Harborlight',
+    });
+    await handle.stop();
+    handle = createServer({ port: 0, dataDir });
+    base = `http://127.0.0.1:${handle.port}`;
+    expect(handle.docStore.peek(two)).toBeUndefined();
+
+    const feed = listen(await get(`/events/agent/${AGENT}`));
+    // The route registers every key in the same turn it writes its first
+    // bytes, so once they arrive the keys have been resolved.
+    await waitFor(() => feed.opened());
+    expect(handle.docStore.peek(one)).toBeUndefined();
+    expect(handle.docStore.peek(two)).toBeUndefined();
+
+    // Positive control on the same stream: a watched doc still delivers,
+    // under its canonical key, so the registrations were made.
+    await comment('doc-one', 'After the restart.');
+    await waitFor(() => feed.frames.some((f) => f.data.watchKey === one));
+    feed.stop();
+  });
+
+  it('stores a watch added by readable name under the canonical id, without loading it', async () => {
+    await handle.stop();
+    handle = createServer({ port: 0, dataDir });
+    base = `http://127.0.0.1:${handle.port}`;
+
+    const res = await post(`/api/agents/${AGENT}/watches`, {
+      add: ['doc-two'],
+      name: 'Harborlight',
+    });
+    const keys = ((await res.json()) as { watches: { key: string }[] }).watches.map((w) => w.key);
+
+    expect(keys).toEqual([two]);
+    expect(handle.docStore.peek(two)).toBeUndefined();
   });
 
   it('leaves the per-key routes exactly as they were', async () => {

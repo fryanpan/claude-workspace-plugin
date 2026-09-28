@@ -93,7 +93,7 @@ export function createBoardLoads(deps: BoardLoadDeps): BoardLoads {
     renderDetail();
   };
 
-  async function loadReviewItems(): Promise<void> {
+  async function fetchReviewItems(): Promise<void> {
     await refreshReviewItems(state, () =>
       fetchJson<{ items: ReviewThreadItem[] }>(
         `/workspaces/${encodeURIComponent(workspaceId)}/review-items`,
@@ -105,7 +105,7 @@ export function createBoardLoads(deps: BoardLoadDeps): BoardLoads {
     schedule(repaintQueueRegions);
   }
 
-  async function loadAgents(): Promise<void> {
+  async function fetchAgents(): Promise<void> {
     const res = await fetchJson<{
       attachments: Array<{
         agentId: string;
@@ -206,5 +206,44 @@ export function createBoardLoads(deps: BoardLoadDeps): BoardLoads {
     if (state.detailTaskId || state.detailGoalId) renderDetail();
   };
 
-  return { loadReviewItems, loadAgents, loadEvents, repaintQueueRegions };
+  return {
+    loadReviewItems: coalesced(fetchReviewItems),
+    loadAgents: coalesced(fetchAgents),
+    loadEvents,
+    repaintQueueRegions,
+  };
+}
+
+/**
+ * One request in flight per read, however many events ask for it.
+ *
+ * Every attached agent's heartbeat, attach and stream change arrives as an
+ * SSE event that calls `loadAgents`, and every thread event calls
+ * `loadReviewItems`. Uncoalesced, six heartbeats landing together were six
+ * `/agents` reads on staging, each one a full roster, seat and release read on
+ * the server. A call made while a read is out marks it stale instead, and the
+ * read runs once more after it lands, so the last event still gets an answer
+ * that postdates it. Every caller waiting on either run gets the promise of
+ * the run that answers it.
+ */
+export function coalesced(run: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null;
+  let again = false;
+  return () => {
+    if (inFlight) {
+      again = true;
+      return inFlight;
+    }
+    inFlight = (async () => {
+      try {
+        do {
+          again = false;
+          await run();
+        } while (again);
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
+  };
 }

@@ -117,13 +117,48 @@ describe('thread.resolved / thread.reopened — an actor, not a comment', () => 
   });
 });
 
+/**
+ * The ticket review-item family, which this module's own header names as the
+ * events that took the doc path and were never tested against the rule. They
+ * match `ACTOR_FAMILY_RE` and carry a `TaskActor`, so the rule already covers
+ * them — asserted here rather than assumed, now that they render through a
+ * branch of their own.
+ */
+describe('review_item.added / .revised / .withdrawn — a ticket actor', () => {
+  const frame = (id: string) => ({
+    workspaceId: 'w-1',
+    taskId: 't-1',
+    reviewItemId: 'ri-1',
+    headline: 'Which cadence?',
+    actor: { id, name: 'Harborlight' },
+  });
+
+  it('suppresses an item this session filed, revised or took back', () => {
+    for (const event of ['review_item.added', 'review_item.revised', 'review_item.withdrawn']) {
+      expect(isSelfAuthoredEvent(event, frame(SELF), SELF)).toBe(true);
+    }
+  });
+
+  // The positive control: the same three frames from anybody else are news.
+  it('delivers the same three when somebody else filed them', () => {
+    for (const event of ['review_item.added', 'review_item.revised', 'review_item.withdrawn']) {
+      expect(isSelfAuthoredEvent(event, frame(OTHER), SELF)).toBe(false);
+    }
+  });
+
+  it('delivers one from a server that stamps no actor at all', () => {
+    const { actor: _actor, ...noActor } = frame(SELF);
+    expect(isSelfAuthoredEvent('review_item.added', noActor, SELF)).toBe(false);
+  });
+});
+
 describe('events this must never touch', () => {
   // The suggesting agent has to hear the VERDICT on its own suggestion —
   // `suggestion.accepted` / `.rejected` carry the SUGGESTER as author, so
   // matching on it would swallow exactly the outcome the agent is waiting
   // for. doc-store.ts's fireSuggestionEvent exists to deliver it.
   it('delivers every suggestion verdict, including on its own suggestion', () => {
-    for (const event of ['suggestion.created', 'suggestion.accepted', 'suggestion.rejected']) {
+    for (const event of ['suggestion.accepted', 'suggestion.rejected']) {
       expect(
         isSelfAuthoredEvent(
           event,
@@ -132,6 +167,26 @@ describe('events this must never touch', () => {
         ),
       ).toBe(false);
     }
+  });
+
+  // The PROPOSAL is the other half, and it is the one this session made:
+  // `suggestionAuthor()` in connector-session.ts is `AUTHOR.id`, so the
+  // author on the frame is this session by construction.
+  it('suppresses a suggestion this session proposed, and nobody else’s', () => {
+    expect(
+      isSelfAuthoredEvent(
+        'suggestion.created',
+        { docId: 'd', sid: 's', suggestion: { author: { id: SELF } } },
+        SELF,
+      ),
+    ).toBe(true);
+    expect(
+      isSelfAuthoredEvent(
+        'suggestion.created',
+        { docId: 'd', sid: 's', suggestion: { author: { id: OTHER } } },
+        SELF,
+      ),
+    ).toBe(false);
   });
 
   it('delivers doc.sync_error and anything else it has no rule for', () => {

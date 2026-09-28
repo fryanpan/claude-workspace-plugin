@@ -15,38 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { type ChannelNotification, createChannelMessages } from '../src/channel-messages.ts';
-
-/** A frozen clock, so `sent_at` is an assertion rather than a race. */
-const FIXED_MS = Date.UTC(2026, 8, 3, 12, 0, 0);
-const FIXED_ISO = new Date(FIXED_MS).toISOString();
-
-const SELF = 'agent-workspaces';
-
-type Sent = { method: string; path: string; body: unknown };
-
-function harness(opts: { authorId?: string } = {}) {
-  const frames: ChannelNotification['params'][] = [];
-  const sent: Sent[] = [];
-  const messages = createChannelMessages({
-    notify: async (n) => {
-      expect(n.method).toBe('notifications/claude/channel');
-      frames.push(n.params);
-    },
-    http: async (method, path, body) => {
-      sent.push({ method, path, body });
-      return {};
-    },
-    authorId: opts.authorId ?? SELF,
-    now: () => FIXED_MS,
-  });
-  return { frames, sent, messages };
-}
-
-/** The one frame a call produced — fails loudly on zero or two. */
-function only(frames: ChannelNotification['params'][]): ChannelNotification['params'] {
-  expect(frames).toHaveLength(1);
-  return frames[0] as ChannelNotification['params'];
-}
+import { FIXED_ISO, FIXED_MS, SELF, type Sent, harness, only } from './channel-harness.ts';
 
 describe('a doc-shaped frame becomes one readable line', () => {
   it('renders a comment with its author, its text and its anchor', async () => {
@@ -83,29 +52,11 @@ describe('a doc-shaped frame becomes one readable line', () => {
     expect(only(frames).meta.anchor_text).toBe('a line that moved');
   });
 
-  it('attributes a resolve to the actor, never to a comment author', async () => {
-    const { frames, messages } = harness();
-    await messages.emitChannelMessage('thread.resolved', {
-      docId: 'plan',
-      threadId: 't3',
-      actor: { name: 'Bryan' },
-      thread: { comments: [{ author: { name: 'Someone Else' }, text: 'not my words' }] },
-    });
-    const f = only(frames);
-    expect(f.content).toContain('by Bryan');
-    expect(f.content).not.toContain('Someone Else');
-    expect(f.content).not.toContain('not my words');
-  });
-
-  it('leaves the author blank when an older server sends no actor', async () => {
-    const { frames, messages } = harness();
-    await messages.emitChannelMessage('thread.resolved', {
-      docId: 'plan',
-      threadId: 't4',
-      thread: { comments: [{ author: { name: 'Someone Else' }, text: 'x' }] },
-    });
-    expect(only(frames).meta.author).toBe('');
-  });
+  // The two resolve-attribution cases that used to sit here moved to
+  // `quiet-resolve.test.ts`. A resolve now reaches a session only
+  // when it closed an ask nobody answered, so the fixture that renders one has
+  // to be built there — and building it twice is how the two files disagree
+  // about what a resolve looks like.
 
   it('names the review item a comment landed on', async () => {
     const { frames, messages } = harness();
