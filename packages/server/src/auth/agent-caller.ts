@@ -50,6 +50,12 @@
  * Both are spawned by absolute path, never looked up on PATH: prod's launchd
  * job has no `/usr/sbin` on its PATH, and macOS keeps `lsof` only there, so a
  * bare `lsof` failed to spawn and every mint was refused.
+ *
+ * A command that fails is run once more after `PROBE_RETRY_DELAY_MS`. Prod
+ * refused two mints in one day with "lsof could not run" while every other
+ * mint succeeded, and under `CW_REQUIRE_AGENT_TOKEN=1` such a refusal cuts a
+ * real agent off its stream. A refusal names how each attempt failed — the
+ * exit code, or that the spawn threw — and never the command's output.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolveAgentAuthor } from '../../../mcp/src/author.ts';
@@ -66,10 +72,14 @@ export type CallerAgent =
   | { ok: true; agentId: string | null; via: 'session' | 'process' }
   | { ok: false; reason: string };
 
+/** A command's stdout, or how it failed: `exited 2`, `spawn threw EAGAIN`,
+ *  `not installed`. The failure never carries output. */
+export type ProbeResult = { ok: true; out: string } | { ok: false; cause: string };
+
 /** The operating-system reads, injectable so the parsing is testable. */
 export interface ProcessProbe {
-  /** Runs a command; its stdout, or null if it could not run or failed. */
-  run(argv: string[]): Promise<string | null>;
+  /** Runs a command. */
+  run(argv: string[]): Promise<ProbeResult>;
   /** Reads a file; null when it cannot be read. */
   readFile(path: string): string | null;
   platform: NodeJS.Platform;
@@ -96,14 +106,23 @@ export const systemProbe: ProcessProbe = {
   async run(argv) {
     const [name = '', ...args] = argv;
     const bin = resolveProbeBinary(name, process.platform);
-    if (bin === null) return null;
+    if (bin === null) return { ok: false, cause: 'not installed' };
     try {
       const proc = Bun.spawn([bin, ...args], { stdout: 'pipe', stderr: 'ignore' });
       const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       // lsof exits 1 when it matched nothing, which is an answer, not a failure.
-      return code === 0 || (code === 1 && name === 'lsof') ? out : null;
-    } catch {
-      return null;
+      if (code === 0 || (code === 1 && name === 'lsof')) return { ok: true, out };
+      return { ok: false, cause: `exited ${code}` };
+    } catch (err) {
+      // Only an errno-style code, never the message, which can quote paths.
+      const code = (err as { code?: unknown } | null)?.code;
+      return {
+        ok: false,
+        cause:
+          typeof code === 'string' && /^E[A-Z]+$/.test(code)
+            ? `spawn threw ${code}`
+            : 'spawn threw',
+      };
     }
   },
   readFile(path) {
@@ -174,14 +193,45 @@ export function parseProcEnviron(raw: string): Record<string, string> {
   return env;
 }
 
-async function envOf(pid: number, probe: ProcessProbe): Promise<Record<string, string> | null> {
+/** How long a failed probe command waits before its one retry. */
+export const PROBE_RETRY_DELAY_MS = 100;
+
+/** Runs a probe command, and once more after `delayMs` if it fails. A double
+ *  failure's cause names both attempts: `exited 2, then exited 2`. */
+async function runWithRetry(
+  probe: ProcessProbe,
+  argv: string[],
+  delayMs: number,
+): Promise<ProbeResult> {
+  const first = await probe.run(argv);
+  if (first.ok) return first;
+  await Bun.sleep(delayMs);
+  const second = await probe.run(argv);
+  return second.ok ? second : { ok: false, cause: `${first.cause}, then ${second.cause}` };
+}
+
+async function envOf(
+  pid: number,
+  probe: ProcessProbe,
+  delayMs: number,
+): Promise<{ env: Record<string, string> } | { cause: string }> {
   if (probe.platform === 'linux') {
     const raw = probe.readFile(`/proc/${pid}/environ`);
-    return raw === null ? null : parseProcEnviron(raw);
+    return raw === null ? { cause: 'environ unreadable' } : { env: parseProcEnviron(raw) };
   }
-  const args = await probe.run(['ps', '-ww', '-o', 'command=', '-p', String(pid)]);
-  const full = await probe.run(['ps', '-wwE', '-o', 'command=', '-p', String(pid)]);
-  return args === null || full === null ? null : parsePsEnv(args, full);
+  const args = await runWithRetry(
+    probe,
+    ['ps', '-ww', '-o', 'command=', '-p', String(pid)],
+    delayMs,
+  );
+  if (!args.ok) return { cause: `ps ${args.cause}` };
+  const full = await runWithRetry(
+    probe,
+    ['ps', '-wwE', '-o', 'command=', '-p', String(pid)],
+    delayMs,
+  );
+  if (!full.ok) return { cause: `ps ${full.cause}` };
+  return { env: parsePsEnv(args.out, full.out) };
 }
 
 /** The agent an environment names, or null for none (the shared identity). */
@@ -215,25 +265,32 @@ export async function identifyCallerAgent(
   peer: PeerSocket,
   serverPort: number,
   probe: ProcessProbe = systemProbe,
+  retryDelayMs: number = PROBE_RETRY_DELAY_MS,
 ): Promise<CallerAgent> {
-  const lsof = await probe.run(['lsof', '-nP', `-iTCP:${peer.port}`, '-sTCP:ESTABLISHED', '-Fpn']);
-  if (lsof === null) return { ok: false, reason: 'lsof could not run' };
-  const pid = parseLsofPeer(lsof, peer.port, serverPort);
+  const lsof = await runWithRetry(
+    probe,
+    ['lsof', '-nP', `-iTCP:${peer.port}`, '-sTCP:ESTABLISHED', '-Fpn'],
+    retryDelayMs,
+  );
+  if (!lsof.ok) return { ok: false, reason: `lsof could not run (${lsof.cause})` };
+  const pid = parseLsofPeer(lsof.out, peer.port, serverPort);
   if (pid === null) return { ok: false, reason: 'no process holds the client end of this socket' };
   if (pid === probe.selfPid) {
     // The server calling itself. Its hosted sessions mint in-process
     // (connector/session-factory.ts), so a loopback mint from here is nobody.
     return { ok: false, reason: 'the server process does not mint over loopback' };
   }
-  const ps = await probe.run(['ps', '-Ao', 'pid=,ppid=,comm=']);
-  if (ps === null) return { ok: false, reason: 'ps could not run' };
-  const table = parseProcessTable(ps);
+  const ps = await runWithRetry(probe, ['ps', '-Ao', 'pid=,ppid=,comm='], retryDelayMs);
+  if (!ps.ok) return { ok: false, reason: `ps could not run (${ps.cause})` };
+  const table = parseProcessTable(ps.out);
   const session = nearestSession(pid, table);
   if (session === null)
     return { ok: false, reason: 'the caller runs under no Claude Code session' };
-  const sessionEnv = await envOf(session, probe);
-  if (sessionEnv === null) return { ok: false, reason: "the session's environment is unreadable" };
-  const named = agentIdOfEnv(sessionEnv);
+  const sessionEnv = await envOf(session, probe, retryDelayMs);
+  if (!('env' in sessionEnv)) {
+    return { ok: false, reason: `the session's environment is unreadable (${sessionEnv.cause})` };
+  }
+  const named = agentIdOfEnv(sessionEnv.env);
   if (named !== null) return { ok: true, agentId: named, via: 'session' };
   if (table.get(pid)?.ppid !== session) {
     return {
@@ -241,7 +298,9 @@ export async function identifyCallerAgent(
       reason: 'the session names no agent and the caller is not its direct child',
     };
   }
-  const ownEnv = await envOf(pid, probe);
-  if (ownEnv === null) return { ok: false, reason: "the caller's environment is unreadable" };
-  return { ok: true, agentId: agentIdOfEnv(ownEnv), via: 'process' };
+  const ownEnv = await envOf(pid, probe, retryDelayMs);
+  if (!('env' in ownEnv)) {
+    return { ok: false, reason: `the caller's environment is unreadable (${ownEnv.cause})` };
+  }
+  return { ok: true, agentId: agentIdOfEnv(ownEnv.env), via: 'process' };
 }
