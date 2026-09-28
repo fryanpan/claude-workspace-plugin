@@ -221,11 +221,11 @@ describe('a chart block on the doc page', () => {
     ).toEqual(['A', 'B']);
     const bar = bars?.querySelector('svg.mdx-chart[data-chart="bar"]');
     expect(texts(bar, '.mdx-bar-label')).toEqual(['North', 'South']);
-    expect(
-      [...(bar?.querySelectorAll('rect.mdx-bar') ?? [])].map((r) =>
-        r.getAttribute('data-highlight'),
-      ),
-    ).toEqual([null, 'true']);
+    // The site's Chart reads no highlightIndex, so neither does its preview,
+    // and the preview says so.
+    expect(texts(bars, '.mdx-chart-site-ignores')).toEqual([
+      'The site draws nothing for: highlightIndex',
+    ]);
   });
 
   it('includes zero on the y axis by default', () => {
@@ -233,101 +233,58 @@ describe('a chart block on the doc page', () => {
     expect(texts(views()[0], '.mdx-grid text')).toContain('0');
   });
 
-  for (const orientation of ['horizontal', 'vertical']) {
-    it(`draws ${orientation} bars with labels, values and the highlighted bar`, () => {
-      mount(`${BARS(orientation)}\n`);
-      const svg = views()[0]?.querySelector(`svg.mdx-chart[data-chart="bar"]`);
-      const bars = [...(svg?.querySelectorAll('rect.mdx-bar') ?? [])];
-      expect(bars).toHaveLength(3);
-      expect(texts(svg, '.mdx-bar-label')).toEqual(['North pier', 'South pier', 'Ferry slip']);
-      expect(texts(svg, '.mdx-bar-value')).toEqual(['42%', '31%', '17%']);
-      expect(bars.map((b) => b.getAttribute('data-highlight'))).toEqual([null, 'true', null]);
-      expect(texts(svg, '.mdx-bar-value.is-highlight')).toEqual(['31%']);
-      // The highlighted bar keeps its own colour; the others step back alike.
-      const fills = bars.map((b) => b.getAttribute('fill'));
-      expect(fills[1]).toBe('#0b7285');
-      expect(fills[0]).toBe(fills[2]);
-      expect(fills[0]).not.toBe(fills[1]);
-      // ...and step back from the colour they wear with nothing highlighted.
-      mount(`${BARS(orientation).replace('  highlightIndex={1}\n', '')}\n`);
-      const plain = views()[1]?.querySelector('rect.mdx-bar')?.getAttribute('fill');
-      expect(plain).toBeTruthy();
-      expect(fills[0]).not.toBe(plain);
-      // Longer bars for larger values, along the chart's own axis.
-      const size = orientation === 'horizontal' ? 'width' : 'height';
-      const lengths = bars.map((b) => Number(b.getAttribute(size)));
-      expect(lengths[0]).toBeGreaterThan(lengths[1] ?? 0);
-      expect(lengths[1]).toBeGreaterThan(lengths[2] ?? 0);
-    });
-  }
-
-  it("keeps a negative bar's value clear of its label", () => {
-    mount('<Chart data={[{ label: "Up", value: 5 }, { label: "Down", value: -4 }]} />\n');
-    const svg = views()[0]?.querySelector('svg.mdx-chart');
-    const value = svg?.querySelectorAll('.mdx-bar-value')[1];
-    const label = svg?.querySelectorAll('.mdx-bar-label')[1];
-    expect(value?.textContent).toBe('-4');
-    // Baselines at least one 12px line apart.
-    expect(
-      Number(label?.getAttribute('y')) - Number(value?.getAttribute('y')),
-    ).toBeGreaterThanOrEqual(14);
-  });
-
-  it("puts a negative horizontal bar's value beside its negative end, clear of its label", () => {
-    mount(
-      '<Chart orientation="horizontal" data={[{ label: "Riverbend", value: 6 }, { label: "Saltmarsh", value: -4 }]} />\n',
+  it('draws each event as a rule over the plot with its label above, on a second row only where two collide', () => {
+    const src = (events: string) =>
+      `<LineChart events={${events}} series={[{ label: "Harborlight", values: [{ x: 0, y: 1 }, { x: 10, y: 5 }] }, { label: "Saltmarsh", values: [{ x: 0, y: 2 }, { x: 10, y: 3 }] }]} />\n`;
+    const host = document.createElement('div');
+    renderMdxSummary(
+      host,
+      summarizeMdx(src('[{ x: 2, label: "Ferry added" }, { x: 8, label: "Pier reopened" }]')),
+      640,
     );
-    const svg = views()[0]?.querySelector('svg.mdx-chart[data-chart="bar"]');
-    const num = (e: Element | undefined, a: string) => Number(e?.getAttribute(a));
-    const [upBar, downBar] = [...(svg?.querySelectorAll('rect.mdx-bar') ?? [])];
-    const [upValue, downValue] = [...(svg?.querySelectorAll('.mdx-bar-value') ?? [])];
-    const downLabel = svg?.querySelectorAll('.mdx-bar-label')[1];
-    expect(downValue?.textContent).toBe('-4');
-    // The positive value starts past its bar's right end...
-    expect(upValue?.getAttribute('text-anchor') ?? 'start').toBe('start');
-    expect(num(upValue, 'x')).toBeGreaterThan(num(upBar, 'x') + num(upBar, 'width'));
-    // ...and the negative one ends before its bar's left end, where the bar stops.
-    expect(downValue?.getAttribute('text-anchor')).toBe('end');
-    expect(num(downValue, 'x')).toBeLessThan(num(downBar, 'x'));
-    expect(num(downValue, 'x')).toBeGreaterThan(num(downBar, 'x') - 12);
-    // Its two glyphs (about 7px each) still end right of the row's label.
-    expect(num(downValue, 'x') - 2 * 7).toBeGreaterThan(num(downLabel, 'x'));
-  });
-
-  it('keeps every bar of a narrow horizontal chart inside it, and an all-negative one uses its width', () => {
-    const row = (label: string, value: number) => `{ label: "${label}", value: ${value} }`;
-    const chart = (unit: string, ...rows: string[]) =>
-      `<Chart orientation="horizontal" unit="${unit}" data={[${rows.join(', ')}]} />`;
-    const allNegative = chart('crossings', row('Saltmarsh landing', -12000), row('Kiln wharf', -3));
-    // Value labels too long for a gutter on each side of a 240px chart.
-    const mixed = chart(
-      'passenger crossings',
-      row('Saltmarsh landing', -12000),
-      row('Riverbend pier', 18000),
-    );
-    for (const [src, width] of [240, 300, 430].flatMap((w) => [
-      [allNegative, w] as const,
-      [mixed, w] as const,
-    ])) {
-      const host = document.createElement('div');
-      renderMdxSummary(host, summarizeMdx(src), width);
-      const bars = [...host.querySelectorAll('rect.mdx-bar')].map((r) => {
-        const x = Number(r.getAttribute('x'));
-        return { left: x, right: x + Number(r.getAttribute('width')) };
-      });
-      expect(bars).toHaveLength(2);
-      for (const bar of bars) {
-        expect(bar.left).toBeGreaterThanOrEqual(0);
-        expect(bar.right).toBeLessThanOrEqual(width);
-      }
-      // ...and the bars still span enough room to tell a long one from a short one.
-      const span = Math.max(...bars.map((b) => b.right)) - Math.min(...bars.map((b) => b.left));
-      expect(span).toBeGreaterThanOrEqual(40);
-      // No value sits right of an all-negative chart, so its bars reach the edge.
-      if (src === allNegative) {
-        expect(Math.max(...bars.map((b) => b.right))).toBeGreaterThan(width - 8);
-      }
+    const svg = host.querySelector('svg.mdx-chart[data-chart="line"]');
+    const rules = [...(svg?.querySelectorAll('.mdx-events line') ?? [])];
+    const labels = [...(svg?.querySelectorAll('.mdx-event-label') ?? [])];
+    expect(labels.map((l) => l.textContent)).toEqual(['Ferry added', 'Pier reopened']);
+    expect(rules).toHaveLength(2);
+    // The rule spans the plot from its top edge to the x axis.
+    const axisY = Number(svg?.querySelector('.mdx-x-axis line')?.getAttribute('y1'));
+    for (const r of rules) {
+      expect(r.getAttribute('x1')).toBe(r.getAttribute('x2'));
+      expect(Number(r.getAttribute('y2'))).toBe(axisY);
     }
+    // Each label starts just right of its rule, above the plot, and both share a row.
+    labels.forEach((l, i) => {
+      expect(Number(l.getAttribute('x'))).toBe(Number(rules[i]?.getAttribute('x1')) + 6);
+      expect(Number(l.getAttribute('y'))).toBeLessThan(Number(rules[i]?.getAttribute('y1')));
+    });
+    expect(labels[0]?.getAttribute('y')).toBe(labels[1]?.getAttribute('y'));
+    // Series still draw, over the rules.
+    const order = [...(svg?.children ?? [])].map((c) => c.getAttribute('class'));
+    expect(order.indexOf('mdx-events')).toBeLessThan(order.indexOf('mdx-series'));
+
+    // Two events a step apart would overlap, so the second drops a row.
+    const crowded = document.createElement('div');
+    renderMdxSummary(
+      crowded,
+      summarizeMdx(src('[{ x: 2, label: "Ferry added" }, { x: 3, label: "Pier reopened" }]')),
+      640,
+    );
+    const ys = [...crowded.querySelectorAll('.mdx-event-label')].map((l) =>
+      Number(l.getAttribute('y')),
+    );
+    expect(ys[1]).toBeGreaterThan(ys[0] ?? 0);
+  });
+
+  it('leaves the value off a line whose series says showValue={false}', () => {
+    mount(
+      '<LineChart series={[{ label: "Weekly", values: [{ x: 1, y: 3 }, { x: 2, y: 5 }] }, { label: "Target", showValue: false, dashed: true, values: [{ x: 1, y: 4 }, { x: 2, y: 4 }] }]} />\n',
+    );
+    const labels = [...(views()[0]?.querySelectorAll('.mdx-end-label') ?? [])];
+    expect(labels.map((l) => [...l.querySelectorAll('tspan')].map((t) => t.textContent))).toEqual([
+      ['Weekly', '5'],
+      ['Target'],
+    ]);
   });
 
   it('draws a visible dot for each series that has only one point', () => {
@@ -354,9 +311,13 @@ describe('a chart block on the doc page', () => {
     const cx = Number(views()[1]?.querySelector('circle.mdx-marker')?.getAttribute('cx'));
     const mid = (Number(axis?.getAttribute('x1')) + Number(axis?.getAttribute('x2'))) / 2;
     expect(Math.abs(cx - mid)).toBeLessThan(1);
-    // A series with a line to draw keeps its line and gets no dot.
+    // A series with a line to draw gets a dot at each end, as the site's does.
     mount(`${LINE}\n`);
-    expect(views()[2]?.querySelectorAll('circle.mdx-marker')).toHaveLength(0);
+    const ends = [...(views()[2]?.querySelectorAll('.mdx-series') ?? [])].map((g) =>
+      [...g.querySelectorAll('circle.mdx-marker')].map((c) => Number(c.getAttribute('cx'))),
+    );
+    expect(ends).toHaveLength(2);
+    for (const [first, last] of ends) expect(last).toBeGreaterThan(first ?? 0);
   });
 
   it('shows a component that is not a chart as before, and an unreadable chart by name', () => {

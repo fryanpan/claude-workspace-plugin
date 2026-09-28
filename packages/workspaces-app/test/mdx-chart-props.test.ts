@@ -17,6 +17,7 @@ describe('reading a chart written the way posts write it', () => {
         {
           label: 'Harborlight route',
           dashed: false,
+          showValue: true,
           points: [
             { x: 1, y: 1200 },
             { x: 2, y: 1350 },
@@ -27,6 +28,7 @@ describe('reading a chart written the way posts write it', () => {
         {
           label: 'Saltmarsh route',
           dashed: true,
+          showValue: true,
           points: [
             { x: 1, y: 800 },
             { x: 2, y: 950 },
@@ -45,6 +47,8 @@ describe('reading a chart written the way posts write it', () => {
         { x: 3, label: 'Mar' },
         { x: 4, label: 'Apr' },
       ],
+      ignored: [],
+      siteIgnores: [],
     });
   });
 
@@ -59,18 +63,45 @@ describe('reading a chart written the way posts write it', () => {
     ]);
   });
 
-  it("reads a bar chart's rows, orientation and highlight, and keeps only a plain colour", () => {
+  it("reads a bar chart's rows and orientation, keeps only a plain colour, and names what it drops", () => {
     expect(summarizeMdx(BARS('horizontal')).chart).toEqual({
       type: 'bar',
       orientation: 'horizontal',
       unit: '%',
-      highlightIndex: 1,
       bars: [
         { label: 'North pier', value: 42 },
         { label: 'South pier', value: 31, color: '#0b7285' },
         { label: 'Ferry slip', value: 17 },
       ],
+      ignored: ['data[].color'],
+      siteIgnores: ['highlightIndex'],
     });
+  });
+
+  it("takes the site's defaults: horizontal bars in percent, and any other orientation word is vertical", () => {
+    const chart = (attrs: string) =>
+      summarizeMdx(`<Chart ${attrs} data={[{ label: "Riverbend", value: 3 }]} />`).chart;
+    expect(chart('')).toMatchObject({ orientation: 'horizontal', unit: '%' });
+    expect(chart('orientation="vertical" unit=""')).toMatchObject({
+      orientation: 'vertical',
+      unit: '',
+    });
+    expect(chart('orientation="sideways"')).toMatchObject({ orientation: 'vertical' });
+    expect(chart('orientation={dir}')).toMatchObject({
+      orientation: 'horizontal',
+      ignored: ['orientation'],
+    });
+  });
+
+  it("reads a line chart's events in x order, and a series that hides its value", () => {
+    const s = summarizeMdx(
+      '<LineChart events={[{ x: 5, label: "Pier reopened" }, { x: 2, label: "Ferry added" }, { label: "no x" }]} series={[{ label: "Riverbend", showValue: false, values: [{ x: 1, y: 2 }, { x: 6, y: 4 }] }]} />',
+    );
+    expect(s.chart?.type === 'line' && s.chart.events).toEqual([
+      { x: 2, label: 'Ferry added' },
+      { x: 5, label: 'Pier reopened' },
+    ]);
+    expect(s.chart?.type === 'line' && s.chart.series[0]?.showValue).toBe(false);
   });
 
   it('reads no chart from props that are not literals of a chart shape', () => {

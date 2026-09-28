@@ -1468,7 +1468,12 @@ text node. The two were one file until the drawing had to follow the published
 site's chart: a band shades a stretch of x over the whole plot rather than a
 y range, each line carries its name and last value at its own end instead of a
 legend below, an indexed chart's reference line is drawn and labelled, and the
-component's own `width` decides the drawing's width.
+component's own `width` decides the drawing's width. The drawing is now three
+files: `mdx-chart.ts` draws lines, `mdx-chart-bars.ts` draws bars, and
+`mdx-chart-svg.ts` holds the SVG helpers both use. None of the three changes the
+picture above. `mdx-chart-props.ts` also uses the site's defaults (horizontal
+bars, percent) and lists every prop the preview does not draw, or that the site
+itself ignores, so `mdx-preview.ts` can print them under the chart.
 
 `prose-identity.ts`, `prose-outline.ts` and `prose-batch.ts` join that same
 document-model tier, and together they are how an agent addresses a block
