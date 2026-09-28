@@ -29,9 +29,12 @@ import {
   addressesLocalOnlySet,
   isOnBox,
 } from './attachment-privacy.ts';
+import { identifyCallerAgent } from './auth/agent-caller.ts';
 import {
   createLegacyAgentWarner,
+  createRefusedMintWarner,
   agentTokenKey as deriveAgentTokenKey,
+  mintAgentToken,
 } from './auth/agent-token.ts';
 import { lastBoardActivityAt } from './board-activity.ts';
 import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-membership.ts';
@@ -2010,6 +2013,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   const requireAgentToken = opts.requireAgentToken ?? false;
   /** One warning per agent id per route for the whole process life. */
   const warnLegacyAgentCaller = createLegacyAgentWarner();
+  const warnRefusedMint = createRefusedMintWarner();
+  const identifyAgentCaller = (req: Request) => {
+    const peer = server.requestIP(req);
+    if (!peer) return Promise.resolve({ ok: false as const, reason: 'no peer socket' });
+    return (opts.identifyAgentCaller ?? identifyCallerAgent)(peer, server.port ?? 0);
+  };
 
   const { serveUpgradeAndStreamRoutes } = createUpgradeStream({
     server: { upgrade: (req, options) => server.upgrade(req, options) },
@@ -2250,6 +2259,10 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           cursors: parseMuxCursor(lastEventId ?? undefined),
           onWatchSetChanged: (cb) => agentWatches.onChange(agentId, cb),
         }),
+      // Hosted sessions mint in-process: their REST calls come from this
+      // process, which the loopback mint refuses (auth/agent-caller.ts). The
+      // identity is the one `/mcp`'s own gate already settled.
+      mintAgentToken: (agentId) => mintAgentToken(agentId, agentTokenKeyFor()),
       log: (...args) => console.error('[connector]', ...args),
     }),
     fallbackPluginVersion: () => readReleasedPluginVersion() ?? '0.0.0',
@@ -2271,6 +2284,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agentTokenKey: agentTokenKeyFor,
     requireAgentToken,
     warnLegacyAgentCaller,
+    identifyAgentCaller,
+    warnRefusedMint,
   };
 
   /**

@@ -56,8 +56,13 @@ describe('an agent feed is readable only by that agent', () => {
   const get = (path: string, headers: Record<string, string> = {}) =>
     fetch(`${base}${path}`, { headers: { host: `localhost:${handle.port}`, ...headers } });
 
+  /** Which agent the (injected) process check says the caller is. The real
+   *  check reads the operating system; agent-token-mint.test.ts drives it. */
+  let callerIs: string | null = null;
+
   /** The token this server would hand MIRA's own process. */
   const tokenFor = async (agentId: string): Promise<string> => {
+    callerIs = agentId;
     const res = await get(`/api/agents/${agentId}/token`);
     expect(res.status, await res.clone().text()).toBe(200);
     return ((await res.json()) as { token: string }).token;
@@ -70,7 +75,12 @@ describe('an agent feed is readable only by that agent', () => {
   };
 
   const start = (opts: { requireAgentToken?: boolean } = {}): void => {
-    handle = createServer({ port: 0, dataDir, ...opts });
+    handle = createServer({
+      port: 0,
+      dataDir,
+      identifyAgentCaller: async () => ({ ok: true, agentId: callerIs, via: 'session' }),
+      ...opts,
+    });
     base = `http://127.0.0.1:${handle.port}`;
   };
 
