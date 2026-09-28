@@ -35,6 +35,7 @@
  */
 import type { WebSocketHandler } from 'bun';
 import { type DocStore, type FeedbackWs } from './doc-store.ts';
+import type { SocketEditor } from './edit-sessions.ts';
 import type { MeetingRelay } from './meeting-protocol.ts';
 import type { RecallMeetingRelay } from './recall-meeting.ts';
 import type { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
@@ -84,6 +85,7 @@ export type UpgradeData = {
   shareMember?: string;
   readOnly?: boolean;
   widgetDoorGrant?: { token: string; origin: string };
+  editor?: SocketEditor;
 };
 
 /**

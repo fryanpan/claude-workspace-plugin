@@ -126,11 +126,17 @@ export function isReviewItemMeasurementEvent(event: unknown): boolean {
  * it. An answer is the thing an agent waits for, and the wake is the point.
  * The test for this list is "who acts on it", not "which file wrote it".
  *
+ * `edit_session` says somebody edited a doc's body for a while. It is an
+ * `activity.jsonl` row (`edit-sessions.ts`), written by `appendActivity`,
+ * which has no fan-out at all; it is named here so that a later change
+ * routing it through the board bus still keeps it off every stream. The
+ * edits themselves already reach agents as the doc changing.
+ *
  * The audit log is unaffected. `TaskEventBus.emit` appends the row before it
  * calls any listener, so Weekly Review reads the same `events.jsonl` it read
  * before.
  */
-export const ANALYTICS_ONLY_EVENTS = ['review_item.viewed'];
+export const ANALYTICS_ONLY_EVENTS = ['review_item.viewed', 'edit_session'];
 
 /** Does this event exist for measurement alone? */
 export function isAnalyticsOnlyEvent(event: unknown): boolean {

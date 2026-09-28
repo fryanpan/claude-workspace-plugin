@@ -11,6 +11,7 @@ import { describe, expect, it } from 'bun:test';
 import type { DocMeta, Thread, User, WebhookPayload } from '@claude-workspaces/core';
 import * as Y from 'yjs';
 import type { FeedbackWs, LiveDoc } from '../src/doc-store.ts';
+import { EditSessionTracker } from '../src/edit-sessions.ts';
 import {
   CONTENT_REVISION_ORIGIN,
   LiveDocFanout,
@@ -93,8 +94,10 @@ function makeHost(
     revisionBumps: [],
     rebinds: [],
   };
+  const editSessions = new EditSessionTracker({ emit: () => {} });
   const host: LiveDocFanoutHost = {
     residentDocs: () => resident,
+    editSessions: () => editSessions,
     sse: () => sse,
     webhooks: () => ({
       send: async (url, payload) => {
