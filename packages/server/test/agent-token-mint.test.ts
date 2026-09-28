@@ -57,11 +57,17 @@ async function mintFromSession(
   agentId: string,
   sessionEnv: Record<string, string>,
   callerEnv: Record<string, string> = {},
+  opts: { viaShell?: boolean } = {},
 ): Promise<number> {
   const fetcher = `const r = await fetch(${JSON.stringify(
     `http://127.0.0.1:${handle.port}/api/agents/${agentId}/token`,
   )}); console.log(r.status);`;
-  const session = `const p = Bun.spawn([process.execPath, '-e', ${JSON.stringify(fetcher)}], {
+  // Directly, as the session spawns an MCP server; or through `sh -c`, as
+  // it runs a command. The shell stays as the fetcher's parent.
+  const argv = opts.viaShell
+    ? `['sh', '-c', '"$0" -e "$1"; true', process.execPath, ${JSON.stringify(fetcher)}]`
+    : `[process.execPath, '-e', ${JSON.stringify(fetcher)}]`;
+  const session = `const p = Bun.spawn(${argv}, {
     env: { ...process.env, ...${JSON.stringify(callerEnv)} }, stdout: 'pipe' });
   process.stdout.write(await new Response(p.stdout).text()); await p.exited;`;
   const proc = Bun.spawn([join(binDir, 'claude'), '-e', session], {
@@ -96,9 +102,23 @@ describe('the agent-token mint', () => {
     ).toBe(403);
   }, 20_000);
 
-  it('reads the caller itself when its session names no agent', async () => {
+  it("reads an unnamed session's direct child, as it would an MCP server", async () => {
     // A name set in MCP-server config rather than the launch environment.
     expect(await mintFromSession(HARBORLIGHT, {}, { CW_AGENT_NAME: 'Harborlight' })).toBe(200);
+  }, 20_000);
+
+  it('refuses a command an unnamed session ran that names itself another agent', async () => {
+    // The unnamed session's shell running `CW_AGENT_NAME=Harborlight curl …`.
+    expect(
+      await mintFromSession(HARBORLIGHT, {}, { CW_AGENT_NAME: 'Harborlight' }, { viaShell: true }),
+    ).toBe(403);
+  }, 20_000);
+
+  it('still serves a named session through its shell', async () => {
+    // The control for the case above: the shell alone is not what refuses.
+    expect(
+      await mintFromSession(HARBORLIGHT, { CW_AGENT_NAME: 'Harborlight' }, {}, { viaShell: true }),
+    ).toBe(200);
   }, 20_000);
 
   it('refuses a process that detached from every session', async () => {

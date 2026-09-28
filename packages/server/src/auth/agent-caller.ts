@@ -18,10 +18,13 @@
  * it: `CW_AGENT_NAME=<someone else> curl …` run from one session's shell
  * changes the curl's environment and nothing above it.
  *
- * One fallback, to the calling process's own environment,
- * when the session names no agent — its name came from MCP-server config
- * rather than from the launch environment, or the session is the desktop
- * app, whose process names start with `Claude`.
+ * One fallback, to the calling process's own environment, when the session
+ * names no agent — its name came from MCP-server config rather than from the
+ * launch environment, or the session is the desktop app, whose process names
+ * start with `Claude`. It applies only to the session's DIRECT child, which
+ * is what an MCP server is. A command the session runs goes through a shell,
+ * so it is a grandchild at least, and an unnamed session's
+ * `CW_AGENT_NAME=<someone> curl …` is refused rather than believed.
  *
  * A caller with no `claude` ancestor at all is refused. The MCP child always
  * has one; a process that detached from its session (reparented to launchd or
@@ -31,7 +34,9 @@
  *
  * Every session on this machine runs as one OS user, so a process that wants
  * agent X's token badly enough can read the server's key file and compute it,
- * or launch a new Claude Code session under X's name. No check on a route can
+ * or launch a new Claude Code session under X's name, or — from a session
+ * launched with no name — `exec` itself in place of the session's shell so it
+ * becomes the session's direct child. No check on a route can
  * stop either. What this stops is one session, or anything it runs, asking
  * the server for a different agent's token.
  *
@@ -199,13 +204,20 @@ export async function identifyCallerAgent(
   }
   const ps = await probe.run(['ps', '-Ao', 'pid=,ppid=,comm=']);
   if (ps === null) return { ok: false, reason: 'ps could not run' };
-  const session = nearestSession(pid, parseProcessTable(ps));
+  const table = parseProcessTable(ps);
+  const session = nearestSession(pid, table);
   if (session === null)
     return { ok: false, reason: 'the caller runs under no Claude Code session' };
   const sessionEnv = await envOf(session, probe);
   if (sessionEnv === null) return { ok: false, reason: "the session's environment is unreadable" };
   const named = agentIdOfEnv(sessionEnv);
   if (named !== null) return { ok: true, agentId: named, via: 'session' };
+  if (table.get(pid)?.ppid !== session) {
+    return {
+      ok: false,
+      reason: 'the session names no agent and the caller is not its direct child',
+    };
+  }
   const ownEnv = await envOf(pid, probe);
   if (ownEnv === null) return { ok: false, reason: "the caller's environment is unreadable" };
   return { ok: true, agentId: agentIdOfEnv(ownEnv), via: 'process' };

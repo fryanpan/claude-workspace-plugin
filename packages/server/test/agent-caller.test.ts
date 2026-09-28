@@ -114,6 +114,19 @@ describe('identifyCallerAgent', () => {
     });
   });
 
+  it("does not read a grandchild's own environment when the session names no agent", async () => {
+    // Session 10 -> shell 12 -> caller 11: a command the session ran, which
+    // named itself. Only an MCP server, the session's direct child, may.
+    const p = probe({
+      environ: { 10: 'HOME=/x\0', 11: 'CW_AGENT_NAME=Harborlight\0' },
+      async run(argv) {
+        if (argv[0] === 'lsof') return 'p11\nn127.0.0.1:50123->127.0.0.1:8787\n';
+        return '10 1 claude\n12 10 sh\n11 12 curl\n';
+      },
+    });
+    expect((await identifyCallerAgent(peer, 8787, p)).ok).toBe(false);
+  });
+
   it('refuses a caller with no session above it', async () => {
     const p = probe({
       async run(argv) {
