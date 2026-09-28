@@ -133,6 +133,13 @@ function parseLine(line: string): LoggedAgentNote | undefined {
   };
 }
 
+/** `readBoard`'s answer: the kept lines, and per agent how many notes the
+ *  per-agent cap left out. */
+export interface BoardNotesRead {
+  lines: LoggedAgentNote[];
+  skipped: ReadonlyMap<string, number>;
+}
+
 /**
  * Per-board, append-only storage for notes no row would take.
  *
@@ -141,13 +148,6 @@ function parseLine(line: string): LoggedAgentNote | undefined {
  * nothing here enumerates them. Enumerating a server's boards is how a sweep
  * once hydrated every dormant doc on this machine.
  */
-/** `readBoard`'s answer: the kept lines, and per agent how many notes the
- *  per-agent cap left out. */
-export interface BoardNotesRead {
-  lines: LoggedAgentNote[];
-  skipped: ReadonlyMap<string, number>;
-}
-
 export class AgentNoteLog {
   private readonly bytesCap: number;
 
