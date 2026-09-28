@@ -3,13 +3,15 @@
  * the decision it makes from a process tree. agent-token-mint.test.ts drives
  * the same code against the real operating system; this file pins the cases
  * that are awkward to build there: IPv6 sockets, the macOS `ps -E` layout, an
- * argument that mentions the variable, and each refusal.
+ * argument that mentions the variable, each refusal, and the one retry a
+ * failed command gets.
  *
  * All names are house fixtures.
  */
 import { describe, expect, it } from 'bun:test';
 import { agentIdForName } from '@claude-workspaces/core/identity';
 import {
+  type ProbeResult,
   type ProcessProbe,
   identifyCallerAgent,
   parseLsofPeer,
@@ -98,6 +100,9 @@ describe('resolveProbeBinary', () => {
   });
 });
 
+const out = (text: string): ProbeResult => ({ ok: true, out: text });
+const LSOF_OUT = out('p11\nn127.0.0.1:50123->127.0.0.1:8787\n');
+
 describe('identifyCallerAgent', () => {
   /** A Linux process tree: 1 -> 10 (a session) -> 11 (the caller). */
   function probe(over: Partial<ProcessProbe> & { environ?: Record<number, string> } = {}) {
@@ -110,9 +115,9 @@ describe('identifyCallerAgent', () => {
       selfPid: 1234,
       readFile: (path) => environ[Number(path.split('/')[2])] ?? null,
       async run(argv) {
-        if (argv[0] === 'lsof') return 'p11\nn127.0.0.1:50123->127.0.0.1:8787\n';
-        if (argv[0] === 'ps') return '10 1 claude\n11 10 node\n';
-        return null;
+        if (argv[0] === 'lsof') return LSOF_OUT;
+        if (argv[0] === 'ps') return out('10 1 claude\n11 10 node\n');
+        return { ok: false, cause: 'not installed' };
       },
       ...over,
     };
@@ -143,33 +148,88 @@ describe('identifyCallerAgent', () => {
     const p = probe({
       environ: { 10: 'HOME=/x\0', 11: 'CW_AGENT_NAME=Harborlight\0' },
       async run(argv) {
-        if (argv[0] === 'lsof') return 'p11\nn127.0.0.1:50123->127.0.0.1:8787\n';
-        return '10 1 claude\n12 10 sh\n11 12 curl\n';
+        if (argv[0] === 'lsof') return LSOF_OUT;
+        return out('10 1 claude\n12 10 sh\n11 12 curl\n');
       },
     });
-    expect((await identifyCallerAgent(peer, 8787, p)).ok).toBe(false);
+    expect((await identifyCallerAgent(peer, 8787, p, 0)).ok).toBe(false);
   });
 
   it('refuses a caller with no session above it', async () => {
     const p = probe({
       async run(argv) {
-        if (argv[0] === 'lsof') return 'p11\nn127.0.0.1:50123->127.0.0.1:8787\n';
-        return '11 1 node\n';
+        if (argv[0] === 'lsof') return LSOF_OUT;
+        return out('11 1 node\n');
       },
     });
-    expect((await identifyCallerAgent(peer, 8787, p)).ok).toBe(false);
+    expect((await identifyCallerAgent(peer, 8787, p, 0)).ok).toBe(false);
   });
 
-  it('refuses when lsof cannot run, rather than guessing', async () => {
-    const p = probe({ run: async () => null });
-    expect(await identifyCallerAgent(peer, 8787, p)).toEqual({
+  /** `probe()` with `name` failing the first `failures` times it runs. */
+  function flaky(name: string, failures: number, cause: string) {
+    const calls: string[] = [];
+    const base = probe();
+    const p = probe({
+      async run(argv) {
+        calls.push(argv[0] ?? '');
+        const seen = calls.filter((c) => c === name).length;
+        if (argv[0] === name && seen <= failures) return { ok: false, cause };
+        return base.run(argv);
+      },
+    });
+    return { p, calls };
+  }
+
+  it('mints when lsof fails once and then succeeds', async () => {
+    const { p, calls } = flaky('lsof', 1, 'exited 2');
+    expect(await identifyCallerAgent(peer, 8787, p, 0)).toEqual({
+      ok: true,
+      agentId: HARBORLIGHT,
+      via: 'session',
+    });
+    expect(calls.filter((c) => c === 'lsof')).toHaveLength(2);
+  });
+
+  it('mints when ps fails once and then succeeds', async () => {
+    const { p } = flaky('ps', 1, 'spawn threw EAGAIN');
+    expect((await identifyCallerAgent(peer, 8787, p, 0)).ok).toBe(true);
+  });
+
+  it('refuses when lsof fails twice, naming both exit codes and no output', async () => {
+    const { p, calls } = flaky('lsof', 2, 'exited 2');
+    expect(await identifyCallerAgent(peer, 8787, p, 0)).toEqual({
       ok: false,
-      reason: 'lsof could not run',
+      reason: 'lsof could not run (exited 2, then exited 2)',
+    });
+    expect(calls).toEqual(['lsof', 'lsof']);
+  });
+
+  it('refuses when ps fails twice, saying the spawn threw', async () => {
+    const { p } = flaky('ps', 2, 'spawn threw');
+    expect(await identifyCallerAgent(peer, 8787, p, 0)).toEqual({
+      ok: false,
+      reason: 'ps could not run (spawn threw, then spawn threw)',
+    });
+  });
+
+  it("names the ps failure when a macOS session's environment cannot be read", async () => {
+    const base = probe();
+    const p = probe({
+      platform: 'darwin',
+      async run(argv) {
+        if (argv[0] === 'ps' && argv.includes('-wwE')) return { ok: false, cause: 'exited 1' };
+        if (argv[0] === 'ps' && argv.includes('-ww')) return out('claude\n');
+        return base.run(argv);
+      },
+    });
+    expect(await identifyCallerAgent(peer, 8787, p, 0)).toEqual({
+      ok: false,
+      reason: "the session's environment is unreadable (ps exited 1, then exited 1)",
     });
   });
 
   it('refuses the server itself', async () => {
     const p = probe({ selfPid: 11 });
-    expect((await identifyCallerAgent(peer, 8787, p)).ok).toBe(false);
+    expect((await identifyCallerAgent(peer, 8787, p, 0)).ok).toBe(false);
   });
 });
