@@ -3,99 +3,43 @@
  * `mdx-chart-props.ts` read. What it draws follows the published site's own
  * chart component: a band is a shaded x-range spanning the plot's full height,
  * each line carries its name and last value at its own end inside the plot
- * rather than in a legend below, and an indexed chart's reference line is
- * drawn and labelled on the plot.
+ * rather than in a legend below, an indexed chart's reference line is drawn
+ * and labelled on the plot, and each dated event is a dashed rule labelled
+ * above the plot. Bars are `mdx-chart-bars.ts`.
  *
- * Every string reaches the page as an SVG text node or `textContent`, and a
- * bar's `color` was already narrowed to a plain colour.
+ * Every string reaches the page as an SVG text node or `textContent`.
  */
 
-import type { BarChart, ChartPoint, LineChart, MdxChart } from './mdx-chart-props.ts';
+import { drawBars } from './mdx-chart-bars.ts';
+import type { ChartPoint, LineChart, MdxChart } from './mdx-chart-props.ts';
+import {
+  CH,
+  clip,
+  el,
+  fmt,
+  frame,
+  isSymbolUnit,
+  niceTicks,
+  seriesColor,
+  text,
+  tip,
+} from './mdx-chart-svg.ts';
 
 export type { ChartPoint, LineSeries, LineChart, BarChart, MdxChart } from './mdx-chart-props.ts';
 export { chartOf } from './mdx-chart-props.ts';
+export { niceTicks, seriesColor } from './mdx-chart-svg.ts';
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-/** The reference categorical palette, in its fixed order (light surface). */
-const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7'];
-const MUTED_BAR = '#adb5bd';
-/** Rough width of a 12px sans glyph; no layout is read, so jsdom draws alike. */
-const CH = 6.6;
 const MAX_TIPS = 400;
-/** A horizontal bar chart's narrowest plot, and narrowest row-label column. */
-const MIN_PLOT_W = 40;
-const MIN_LABEL_W = 24;
-
-export const seriesColor = (i: number): string => SERIES[i % SERIES.length] ?? '#2a78d6';
-
-function el<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string | number>,
-  parent?: Element,
-): SVGElementTagNameMap[K] {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-  parent?.appendChild(node);
-  return node;
-}
-
-function text(
-  parent: Element,
-  words: string,
-  attrs: Record<string, string | number>,
-): SVGTextElement {
-  const t = el('text', attrs, parent);
-  t.textContent = words;
-  return t;
-}
-
-function tip(parent: Element, words: string): void {
-  el('title', {}, parent).textContent = words;
-}
-
-/** About `count` round ticks covering [lo, hi]. */
-export function niceTicks(lo: number, hi: number, count = 5): number[] {
-  if (hi === lo) return [lo];
-  const raw = (hi - lo) / count;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = ([1, 2, 2.5, 5, 10].find((m) => m * mag >= raw) ?? 10) * mag;
-  const out: number[] = [];
-  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) {
-    out.push(Number(v.toFixed(10)));
-  }
-  return out;
-}
-
-function fmt(v: number, style: 'plain' | 'thousands', unit?: string): string {
-  let s: string;
-  if (style === 'thousands' && Math.abs(v) >= 1000) {
-    s = `${Number((v / 1000).toFixed(1))}k`;
-  } else {
-    s = Number(v.toFixed(2)).toLocaleString('en-US');
-  }
-  // A symbol unit rides the number; a word unit captions the axis instead.
-  return unit && isSymbolUnit(unit) ? `${s}${unit}` : s;
-}
-
-const isSymbolUnit = (unit: string): boolean => unit.length <= 2;
+/** Rough width of an 11px event label's glyph, as the site measures it. */
+const EVENT_CH = 5.9;
+/** The height of one row of event labels above the plot. */
+const EVENT_ROW = 14;
 
 /** The chart as an SVG, one user unit per CSS pixel: the width the chart's own
  *  `width` prop asked for, else `width`. */
 export function drawChart(chart: MdxChart, width: number): SVGSVGElement {
   const w = Math.max(240, Math.round(chart.width ?? width));
   return chart.type === 'line' ? drawLines(chart, w) : drawBars(chart, w);
-}
-
-function frame(w: number, h: number, type: string): SVGSVGElement {
-  const svg = el('svg', {
-    class: 'mdx-chart',
-    'data-chart': type,
-    viewBox: `0 0 ${w} ${h}`,
-    width: w,
-    height: h,
-  });
-  svg.setAttribute('aria-hidden', 'true');
-  return svg;
 }
 
 /** The name and last value each labelled line carries at its own end. Two that
@@ -129,13 +73,13 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
   const unitCaption = chart.unit && !isSymbolUnit(chart.unit) ? chart.unit : undefined;
   const yLabels = yTicks.map((v) => fmt(v, chart.yTickFormat, chart.unit));
   const left = Math.ceil(Math.max(...yLabels.map((l) => l.length)) * CH) + 10;
-  // A band's label captions the plot from above, so it takes its own strip.
-  const top = (unitCaption ? 22 : 8) + (chart.band?.label ? 14 : 0);
   const ends = chart.series
     .map((s, i) => {
       const last = [...s.points].sort((a, b) => a.x - b.x).at(-1);
       if (!s.label || !last) return undefined;
-      return { label: s.label, value: fmt(last.y, chart.yTickFormat, chart.unit), point: last, i };
+      // `showValue={false}` leaves the name alone, as the site does.
+      const value = s.showValue ? fmt(last.y, chart.yTickFormat, chart.unit) : '';
+      return { label: s.label, value, point: last, i };
     })
     .filter((e): e is { label: string; value: string; point: ChartPoint; i: number } => !!e);
   // Room at the right for those labels, never more than a third of the chart.
@@ -144,6 +88,11 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
   const right = ends.length > 0 ? Math.max(12, Math.min(Math.round(w * 0.34), wanted)) : 12;
   const bottom = 24;
   const pw = w - left - right;
+  const events = layoutEvents(chart, pw, x0, x1);
+  const eventRows = Math.max(0, ...events.map((e) => e.row + 1));
+  // A band's label and the events' labels caption the plot from above, so
+  // each takes its own strip.
+  const top = (unitCaption ? 22 : 8) + (chart.band?.label ? 14 : 0) + eventRows * EVENT_ROW;
   const ph = h - top - bottom;
   const sx = (x: number) => left + ((x - x0) / (x1 - x0)) * pw;
   const sy = (y: number) => top + ph - ((y - y0) / (y1 - y0)) * ph;
@@ -192,6 +141,22 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
 
   drawBaseline(svg, chart, { sx, sy, x0, x1 });
 
+  // Under the lines, so the data draws over the rules.
+  if (events.length > 0) {
+    const g = el('g', { class: 'mdx-events' }, svg);
+    for (const e of events) {
+      const x = sx(e.x);
+      el('line', { x1: x, x2: x, y1: top, y2: top + ph }, g);
+      // A dot where the rule meets its label ties the label to the rule.
+      el('circle', { cx: x, cy: top, r: 3 }, g);
+      text(g, e.label, {
+        x: x + 6,
+        y: top - 4 - (eventRows - 1 - e.row) * EVENT_ROW,
+        class: 'mdx-event-label',
+      });
+    }
+  }
+
   let tips = 0;
   chart.series.forEach((s, i) => {
     const g = el('g', { class: 'mdx-series', 'data-series': i }, svg);
@@ -209,12 +174,13 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
       g,
     );
     if (s.dashed) line.setAttribute('stroke-dasharray', '6 4');
-    // One point draws no line, so it shows as a dot in the series' colour.
-    if (pts.length === 1 && pts[0]) {
-      const p = pts[0];
+    // A dot at each end, as the site marks them; one point draws no line, so
+    // its dot is all the series shows.
+    for (const p of new Set([pts[0], pts.at(-1)])) {
+      if (!p) continue;
       el(
         'circle',
-        { cx: sx(p.x), cy: sy(p.y), r: 4, fill: seriesColor(i), class: 'mdx-marker' },
+        { cx: sx(p.x), cy: sy(p.y), r: 4.5, fill: seriesColor(i), class: 'mdx-marker' },
         g,
       );
     }
@@ -246,7 +212,7 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
     const x = Math.min(sx(e.point.x) + 8, w - 2);
     const t = text(g, '', { x, y: e.y, class: 'mdx-end-label', fill: seriesColor(e.i) });
     el('tspan', { x, dy: -2 }, t).textContent = clip(e.label, right - 12);
-    el('tspan', { x, dy: 13 }, t).textContent = e.value;
+    if (e.value) el('tspan', { x, dy: 13 }, t).textContent = e.value;
   }
 
   // Over the lines, so its halo keeps it legible where a line crosses it.
@@ -254,12 +220,32 @@ function drawLines(chart: LineChart, w: number): SVGSVGElement {
     const mid = Math.max(left, Math.min(left + pw, sx((chart.band.from + chart.band.to) / 2)));
     text(el('g', { class: 'mdx-band' }, svg), chart.band.label, {
       x: mid,
-      y: top - 4,
+      y: top - 4 - eventRows * EVENT_ROW,
       'text-anchor': 'middle',
       class: 'mdx-band-label',
     });
   }
   return svg;
+}
+
+/** The events inside the x range, each on the first of two label rows where it
+ *  clears the label before it, as the site lays them out. */
+function layoutEvents(
+  chart: LineChart,
+  pw: number,
+  x0: number,
+  x1: number,
+): Array<{ x: number; label: string; row: number }> {
+  const pxPerX = pw / Math.max(1, x1 - x0);
+  const rowEnds = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  return (chart.events ?? [])
+    .filter((e) => e.x >= x0 && e.x <= x1)
+    .map((e) => {
+      const start = (e.x - x0) * pxPerX + 6;
+      const row = start >= (rowEnds[0] ?? 0) ? 0 : 1;
+      rowEnds[row] = start + e.label.length * EVENT_CH;
+      return { ...e, row };
+    });
 }
 
 /** The reference line an indexed chart is read against, labelled at whichever
@@ -291,109 +277,4 @@ function startRoom(sorted: ChartPoint[][], baseline: number): boolean {
   const room = (pick: (p: ChartPoint[]) => ChartPoint | undefined) =>
     Math.min(...sorted.map((p) => Math.abs((pick(p)?.y ?? baseline) - baseline)));
   return room((p) => p[0]) >= room((p) => p.at(-1));
-}
-
-function drawBars(chart: BarChart, w: number): SVGSVGElement {
-  const values = chart.bars.map((b) => b.value);
-  const lo = Math.min(0, ...values);
-  const hi = Math.max(0, ...values) === lo ? lo + 1 : Math.max(0, ...values);
-  const valueLabels = chart.bars.map((b) =>
-    chart.unit && !isSymbolUnit(chart.unit)
-      ? `${fmt(b.value, 'plain')} ${chart.unit}`
-      : fmt(b.value, 'plain', chart.unit),
-  );
-  const valueW = Math.max(...valueLabels.map((l) => l.length)) * CH + 8;
-  const fill = (i: number) => {
-    const own = chart.bars[i]?.color;
-    if (chart.highlightIndex === undefined) return own ?? seriesColor(0);
-    return i === chart.highlightIndex ? (own ?? seriesColor(0)) : MUTED_BAR;
-  };
-  const mark = (g: Element, i: number, attrs: Record<string, number>) => {
-    const r = el('rect', { ...attrs, rx: 3, fill: fill(i), class: 'mdx-bar' }, g);
-    if (i === chart.highlightIndex) r.setAttribute('data-highlight', 'true');
-    tip(r, `${chart.bars[i]?.label ?? ''}: ${valueLabels[i] ?? ''}`);
-  };
-
-  if (chart.orientation === 'horizontal') {
-    const row = 30;
-    const h = chart.bars.length * row + 8;
-    // A value sits beside its bar's far end: left of a negative bar, right of
-    // any other, so each side keeps a gutter only when some bar needs it (the
-    // right keeps a hair so an all-negative chart's bars stop short of the edge).
-    const wantLeft = lo < 0 ? valueW : 0;
-    const wantRight = values.some((v) => v >= 0) ? valueW : 4;
-    // Too narrow for both gutters whole, they shrink alike; then row labels
-    // give way. The plot keeps its floor, so no bar runs past the edge.
-    const fit = Math.min(1, (w - MIN_LABEL_W - MIN_PLOT_W) / (wantLeft + wantRight));
-    const leftValueW = wantLeft * fit;
-    const rightValueW = wantRight * fit;
-    const labelW = Math.max(
-      MIN_LABEL_W,
-      Math.min(
-        Math.round(w * 0.38),
-        Math.ceil(Math.max(...chart.bars.map((b) => b.label.length)) * CH) + 12,
-        w - leftValueW - rightValueW - MIN_PLOT_W,
-      ),
-    );
-    const pw = w - labelW - leftValueW - rightValueW;
-    const sx = (v: number) => labelW + leftValueW + ((v - lo) / (hi - lo)) * pw;
-    const svg = frame(w, h, 'bar');
-    chart.bars.forEach((b, i) => {
-      const g = el('g', { class: 'mdx-bar-row' }, svg);
-      const y = 4 + i * row;
-      text(g, clip(b.label, labelW - 12), {
-        x: labelW - 10,
-        y: y + row / 2 + 4,
-        'text-anchor': 'end',
-        class: 'mdx-bar-label',
-      });
-      const a = sx(Math.min(0, b.value));
-      const z = sx(Math.max(0, b.value));
-      mark(g, i, { x: a, y: y + 5, width: Math.max(1, z - a), height: row - 10 });
-      text(g, valueLabels[i] ?? '', {
-        x: b.value < 0 ? a - 6 : z + 6,
-        y: y + row / 2 + 4,
-        'text-anchor': b.value < 0 ? 'end' : 'start',
-        class: i === chart.highlightIndex ? 'mdx-bar-value is-highlight' : 'mdx-bar-value',
-      });
-    });
-    return svg;
-  }
-
-  const h = w < 520 ? 220 : 260;
-  const top = 20;
-  // A value under a negative bar sits below the plot, clear of the day labels.
-  const bottom = lo < 0 ? 40 : 24;
-  const ph = h - top - bottom;
-  const slot = (w - 8) / chart.bars.length;
-  const sy = (v: number) => top + ph - ((v - lo) / (hi - lo)) * ph;
-  const svg = frame(w, h, 'bar');
-  el('line', { x1: 4, x2: w - 4, y1: sy(0), y2: sy(0), class: 'mdx-baseline' }, svg);
-  chart.bars.forEach((b, i) => {
-    const g = el('g', { class: 'mdx-bar-row' }, svg);
-    const cx = 4 + slot * (i + 0.5);
-    const bw = Math.max(4, Math.min(56, slot * 0.64));
-    const a = sy(Math.max(0, b.value));
-    const z = sy(Math.min(0, b.value));
-    mark(g, i, { x: cx - bw / 2, y: a, width: bw, height: Math.max(1, z - a) });
-    text(g, valueLabels[i] ?? '', {
-      x: cx,
-      y: b.value < 0 ? z + 14 : a - 6,
-      'text-anchor': 'middle',
-      class: i === chart.highlightIndex ? 'mdx-bar-value is-highlight' : 'mdx-bar-value',
-    });
-    text(g, clip(b.label, slot - 4), {
-      x: cx,
-      y: h - 6,
-      'text-anchor': 'middle',
-      class: 'mdx-bar-label',
-    });
-  });
-  return svg;
-}
-
-/** `s` cut with an ellipsis to fit about `px` pixels. */
-function clip(s: string, px: number): string {
-  const n = Math.max(1, Math.floor(px / CH));
-  return s.length <= n ? s : `${s.slice(0, Math.max(1, n - 1))}…`;
 }

@@ -1011,7 +1011,7 @@ body.has-set .doc-switcher-caret {
   stroke-dasharray: 2 3;
 }
 #editor > .ProseMirror .mdx-x-axis line,
-#editor > .ProseMirror line.mdx-baseline {
+#editor > .ProseMirror line.mdx-zero {
   stroke: var(--border-strong);
   stroke-width: 1;
 }
@@ -1035,12 +1035,46 @@ body.has-set .doc-switcher-caret {
 #editor > .ProseMirror .mdx-hit {
   fill: transparent;
 }
+/* The site's bar chart sets its names and values at 13px, the values bold;
+   with sublabels both step up so the eye reaches them before the period. */
+#editor > .ProseMirror .mdx-chart[data-chart="bar"] text {
+  font-size: 13px;
+}
 #editor > .ProseMirror .mdx-chart .mdx-bar-label {
   fill: var(--fg);
 }
-#editor > .ProseMirror .mdx-chart .mdx-bar-value.is-highlight {
+#editor > .ProseMirror .mdx-chart .mdx-bar-value {
   fill: var(--fg);
-  font-weight: 600;
+  font-weight: 700;
+}
+#editor > .ProseMirror .mdx-chart[data-sublabels] .mdx-bar-label {
+  font-size: 15px;
+  font-weight: 700;
+}
+#editor > .ProseMirror .mdx-chart[data-sublabels] .mdx-bar-value {
+  font-size: 16px;
+}
+#editor > .ProseMirror .mdx-chart .mdx-bar-sublabel {
+  font-size: 11px;
+}
+/* A dated event: a dashed rule, a dot where it meets its label above the plot. */
+#editor > .ProseMirror .mdx-events line {
+  stroke: var(--fg-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+#editor > .ProseMirror .mdx-events circle {
+  fill: var(--fg-muted);
+}
+#editor > .ProseMirror .mdx-chart .mdx-event-label {
+  font-size: 11px;
+  fill: var(--fg);
+}
+/* Under a chart: a prop the preview or the site draws nothing for. */
+#editor > .ProseMirror .mdx-chart-note {
+  margin-top: 4px;
+  font: 12px / 1.4 var(--sans);
+  color: var(--fg-muted);
 }
 /* Each line's own name and last value, at its end inside the plot: the site's
    chart labels its lines there instead of carrying a legend. */

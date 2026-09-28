@@ -10,6 +10,7 @@
  * call, a spread. Every string reaches the DOM through `textContent`.
  */
 
+import { UNREADABLE } from './mdx-chart-props.ts';
 import { type MdxChart, chartOf, drawChart } from './mdx-chart.ts';
 
 export type MdxKind = 'esm' | 'expr' | 'jsx';
@@ -98,7 +99,11 @@ function readProps(s: string): Map<string, unknown> {
     const key = r.ident();
     if (!key) break;
     r.ws();
-    if (s[r.i] !== '=') continue;
+    // A bare attribute is JSX's `true`.
+    if (s[r.i] !== '=') {
+      props.set(key, true);
+      continue;
+    }
     r.i++;
     r.ws();
     if (s[r.i] === '"' || s[r.i] === "'") {
@@ -114,6 +119,8 @@ function readProps(s: string): Map<string, unknown> {
         props.set(key, v);
         r.i++;
       } else {
+        // Kept as unreadable, so a chart can say which prop it could not draw.
+        props.set(key, UNREADABLE);
         r.i = start;
         if (!r.skipBraces()) break;
       }
@@ -295,11 +302,25 @@ export function renderMdxSummary(host: HTMLElement, summary: MdxSummary, width?:
   const { chart } = summary;
   // No legend: each line carries its own name at its end, inside the plot,
   // exactly as the published chart does.
-  if (chart) host.appendChild(drawChart(chart, width || host.clientWidth || DEFAULT_WIDTH));
+  if (chart) {
+    host.appendChild(drawChart(chart, width || host.clientWidth || DEFAULT_WIDTH));
+    // A prop the drawing leaves out is named, so the reader never takes the
+    // preview for the page when the two differ.
+    note(host, 'mdx-chart-ignored', 'Preview ignores', chart.ignored);
+    note(host, 'mdx-chart-site-ignores', 'The site draws nothing for', chart.siteIgnores);
+  }
   if (summary.children) {
     const kids = document.createElement('div');
     kids.className = 'mdx-children';
     kids.textContent = summary.children;
     host.appendChild(kids);
   }
+}
+
+function note(host: HTMLElement, className: string, lead: string, props: string[]): void {
+  if (props.length === 0) return;
+  const line = document.createElement('div');
+  line.className = `mdx-chart-note ${className}`;
+  line.textContent = `${lead}: ${props.join(', ')}`;
+  host.appendChild(line);
 }
