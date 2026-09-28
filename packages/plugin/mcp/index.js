@@ -13875,16 +13875,18 @@ function pathNeedsAgentToken(path) {
 function createAgentTokenStore(deps) {
   let token = null;
   let minting = null;
-  let unsupported = false;
-  const mint = async () => {
+  let said404 = false;
+  const mintOverHttp = async () => {
     try {
       const res = await deps.fetch(`${deps.resolveBaseUrl()}${agentTokenPath(deps.agentId)}`, {
         headers: { accept: "application/json" }
       });
       if (res.status === 404) {
-        unsupported = true;
         await res.text().catch(() => "");
-        deps.log("[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)");
+        if (!said404) {
+          said404 = true;
+          deps.log("[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)");
+        }
         return null;
       }
       const text = await res.text();
@@ -13899,6 +13901,7 @@ function createAgentTokenStore(deps) {
       return null;
     }
   };
+  const mint = deps.mint ?? mintOverHttp;
   const store = {
     hasToken: () => token !== null,
     forget: () => {
@@ -13906,7 +13909,7 @@ function createAgentTokenStore(deps) {
     },
     headersFor: (path) => pathNeedsAgentToken(path) ? store.headers() : Promise.resolve({}),
     async headers() {
-      if (deps.identityIsShared || unsupported)
+      if (deps.identityIsShared)
         return {};
       if (token !== null)
         return { authorization: `Bearer ${token}` };
@@ -15145,9 +15148,8 @@ function staleClientMessage(text) {
   }
 }
 function createHttp(resolve, fetchFn = fetch, authHeaders = async () => ({})) {
-  return async (method, path, body) => {
-    const baseUrl = resolve();
-    const res = await fetchFn(`${baseUrl}${path}`, {
+  const send = async (method, path, body) => {
+    const res = await fetchFn(`${resolve()}${path}`, {
       method,
       headers: {
         ...body ? { "content-type": "application/json" } : {},
@@ -15155,7 +15157,13 @@ function createHttp(resolve, fetchFn = fetch, authHeaders = async () => ({})) {
       },
       body: body ? JSON.stringify(body) : undefined
     });
-    const text = await res.text();
+    return { res, text: await res.text() };
+  };
+  return async (method, path, body) => {
+    let { res, text } = await send(method, path, body);
+    if (res.status === 401 && text.includes('"agent-token-required"')) {
+      ({ res, text } = await send(method, path, body));
+    }
     if (!res.ok) {
       throw new Error(`${method} ${path} → ${res.status}: ${staleClientMessage(text) ?? text}`);
     }
@@ -20615,7 +20623,8 @@ function createConnectorSession(deps) {
     resolveBaseUrl: deps.resolveBaseUrl,
     fetch: deps.fetch,
     log,
-    identityIsShared: IDENTITY_IS_SHARED
+    identityIsShared: IDENTITY_IS_SHARED,
+    ...deps.mintAgentToken ? { mint: deps.mintAgentToken } : {}
   });
   const http = createHttp(deps.resolveBaseUrl, deps.fetch, (path) => agentTokens.headersFor(path));
   const deferredEmits = createDeferredEmitter();
@@ -20738,7 +20747,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.265";
+var PLUGIN_VERSION = "0.1.266";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

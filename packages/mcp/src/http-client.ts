@@ -102,9 +102,8 @@ export function createHttp(
   fetchFn: (url: string, init?: RequestInit) => Promise<Response> = fetch,
   authHeaders: (path: string) => Promise<Record<string, string>> = async () => ({}),
 ): Http {
-  return async (method, path, body) => {
-    const baseUrl = resolve();
-    const res = await fetchFn(`${baseUrl}${path}`, {
+  const send = async (method: string, path: string, body: unknown) => {
+    const res = await fetchFn(`${resolve()}${path}`, {
       method,
       headers: {
         ...(body ? { 'content-type': 'application/json' } : {}),
@@ -112,7 +111,16 @@ export function createHttp(
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    const text = await res.text();
+    return { res, text: await res.text() };
+  };
+  return async (method, path, body) => {
+    let { res, text } = await send(method, path, body);
+    if (res.status === 401 && text.includes('"agent-token-required"')) {
+      // The call went out bare because this session's mint failed, and the
+      // server requires the token. The refusal came before the route did
+      // anything, so one retry is safe, and it re-asks for the token.
+      ({ res, text } = await send(method, path, body));
+    }
     // Check status before parsing — see the header.
     if (!res.ok) {
       // The stale-client verdict replaces the body it came in, and keeps the

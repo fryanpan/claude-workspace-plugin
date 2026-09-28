@@ -10,12 +10,14 @@
  *
  * Three properties worth stating, because each one is a failure this avoids.
  *
- * 1. **Never fatal.** A server that predates the mint route answers 404, and
- *    a server on the far side of a restart may answer anything at all. Every
- *    failure here resolves to "no header", which is exactly what this client
- *    sent before -- and the server serves an un-tokened caller through its
- *    deprecation window. A token that could not be fetched must never be the
- *    reason a tool call fails.
+ * 1. **Never fatal, never final.** A server that predates the mint route
+ *    answers 404, and a server on the far side of a restart may answer
+ *    anything at all. Every failure resolves to "no header" for THAT call,
+ *    and the next call asks again. It used to remember a 404 for the life of
+ *    the process, which on a current server meant one bad answer -- a restart
+ *    window, a request that reached the wrong listener -- left the session
+ *    tokenless until it restarted. With `CW_REQUIRE_AGENT_TOKEN` on, that is
+ *    a session locked out of its own feed.
  * 2. **Single-flight.** The first watch, the restore, and the stream open
  *    within milliseconds of each other at session start. Without this they
  *    are three mint calls racing; with it they await one.
@@ -43,6 +45,9 @@ export interface AgentTokenDeps {
   /** True when this process runs under the shared identity, which mints no
    *  token. Passed rather than re-derived so one module owns that rule. */
   identityIsShared: boolean;
+  /** Replaces the mint route: the shared server mints its hosted sessions'
+   *  tokens in-process. */
+  mint?: () => Promise<string | null>;
 }
 
 export interface AgentTokenStore {
@@ -88,22 +93,23 @@ export function createAgentTokenStore(deps: AgentTokenDeps): AgentTokenStore {
   let token: string | null = null;
   /** In-flight mint, so N concurrent callers make ONE request. */
   let minting: Promise<string | null> | null = null;
-  /** Set once the server has told us it has no such route. Not retried: a
-   *  404 here is a server version, not a blip, and re-asking on every tool
-   *  call would spend a round trip per call forever. */
-  let unsupported = false;
+  /** Whether the 404 line has been logged. Only the LOG is once: the mint
+   *  itself is asked again on the next call (see the header). */
+  let said404 = false;
 
-  const mint = async (): Promise<string | null> => {
+  const mintOverHttp = async (): Promise<string | null> => {
     try {
       const res = await deps.fetch(`${deps.resolveBaseUrl()}${agentTokenPath(deps.agentId)}`, {
         headers: { accept: 'application/json' },
       });
       if (res.status === 404) {
-        unsupported = true;
         await res.text().catch(() => '');
-        deps.log(
-          '[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)',
-        );
+        if (!said404) {
+          said404 = true;
+          deps.log(
+            '[claude-workspaces-mcp] server has no agent-token route — continuing unauthenticated (it accepts that during the rollout)',
+          );
+        }
         return null;
       }
       const text = await res.text();
@@ -120,6 +126,7 @@ export function createAgentTokenStore(deps: AgentTokenDeps): AgentTokenStore {
       return null;
     }
   };
+  const mint = deps.mint ?? mintOverHttp;
 
   const store: AgentTokenStore = {
     hasToken: () => token !== null,
@@ -128,7 +135,7 @@ export function createAgentTokenStore(deps: AgentTokenDeps): AgentTokenStore {
     },
     headersFor: (path) => (pathNeedsAgentToken(path) ? store.headers() : Promise.resolve({})),
     async headers(): Promise<Record<string, string>> {
-      if (deps.identityIsShared || unsupported) return {};
+      if (deps.identityIsShared) return {};
       if (token !== null) return { authorization: `Bearer ${token}` };
       // Single-flight: the second caller awaits the first caller's request.
       // The cache is filled INSIDE the chain, before `finally` releases it,
