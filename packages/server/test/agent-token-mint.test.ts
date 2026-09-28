@@ -11,7 +11,7 @@
  * All names are house fixtures; port 0; no production server is touched.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { agentIdForName } from '@claude-workspaces/core/identity';
@@ -57,10 +57,10 @@ async function mintFromSession(
   agentId: string,
   sessionEnv: Record<string, string>,
   callerEnv: Record<string, string> = {},
-  opts: { viaShell?: boolean } = {},
+  opts: { viaShell?: boolean; port?: number } = {},
 ): Promise<number> {
   const fetcher = `const r = await fetch(${JSON.stringify(
-    `http://127.0.0.1:${handle.port}/api/agents/${agentId}/token`,
+    `http://127.0.0.1:${opts.port ?? handle.port}/api/agents/${agentId}/token`,
   )}); console.log(r.status);`;
   // Directly, as the session spawns an MCP server; or through `sh -c`, as
   // it runs a command. The shell stays as the fetcher's parent.
@@ -144,4 +144,61 @@ describe('the agent-token mint', () => {
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: string }).error).toBe('agent-token-not-yours');
   });
+});
+
+describe('a server launched with no /usr/sbin on its PATH', () => {
+  // Prod's launchd PATH, less the bun directories. macOS keeps lsof only in
+  // /usr/sbin, so a probe that looked it up on PATH refused every mint here.
+  const PATH = '/usr/local/bin:/usr/bin:/bin';
+  let server: ReturnType<typeof Bun.spawn> | undefined;
+  let port = 0;
+  let serverData: string;
+
+  beforeAll(async () => {
+    serverData = mkdtempSync(join(tmpdir(), 'agent-token-mint-path-'));
+    const script = join(binDir, 'serve.ts');
+    writeFileSync(
+      script,
+      `import { createServer } from ${JSON.stringify(join(import.meta.dir, '../src/server.ts'))};
+      const h = createServer({ port: 0, dataDir: ${JSON.stringify(serverData)} });
+      console.log('PORT=' + h.port);`,
+    );
+    server = Bun.spawn([process.execPath, script], {
+      env: { ...envWith({}), PATH },
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const reader = (server.stdout as ReadableStream<Uint8Array>).getReader();
+    let seen = '';
+    while (!/PORT=\d+\n/.test(seen)) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`server exited before listening: ${seen}`);
+      seen += new TextDecoder().decode(value);
+    }
+    port = Number(seen.match(/PORT=(\d+)/)?.[1]);
+    // Keep reading, so a server that logs to stdout never fills the pipe.
+    void (async () => {
+      while (!(await reader.read()).done);
+    })();
+  }, 30_000);
+
+  afterAll(async () => {
+    server?.kill();
+    await server?.exited;
+    rmSync(serverData, { recursive: true, force: true });
+  });
+
+  it("still identifies a session's child and hands it that session's token", async () => {
+    expect(await mintFromSession(HARBORLIGHT, { CW_AGENT_NAME: 'Harborlight' }, {}, { port })).toBe(
+      200,
+    );
+  }, 20_000);
+
+  it("still refuses that child another agent's token", async () => {
+    // The probe still decides who the caller is here. A server that could not
+    // run it would refuse this too, so it is the 200 above that shows it ran.
+    expect(await mintFromSession(RIVERBEND, { CW_AGENT_NAME: 'Harborlight' }, {}, { port })).toBe(
+      403,
+    );
+  }, 20_000);
 });
