@@ -811,6 +811,13 @@ once per device, `core/event-origin.ts` is the cookie format both sides share.
 Location is stripped from a share visitor's Activity tab and is never on the
 live stream.
 
+`edit-sessions.ts` joins them: it turns edits to a doc's body into
+`edit_session` rows in `activity.jsonl`, one per author per sitting, closed
+after 60s without an edit. It reads the transaction's origin to tell a person
+on the doc's editing socket (stamped at the upgrade with the proven identity
+and device) from an agent's REST edit tool, keeps the two in separate
+sessions, and records counts and times only — never the edited text.
+
 `library.ts` joins the Board box in the services tier: it builds a board's
 Library — the meetings and files a person opens it to find — from the board's
 docs, its project repo's markdown files (`fs-scan.ts`) and its mounts. It owns

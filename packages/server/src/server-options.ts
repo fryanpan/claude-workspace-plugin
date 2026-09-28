@@ -212,6 +212,10 @@ export interface ServerOptions {
    * the routes that read it.
    */
   heartbeatFreshMs?: number;
+  /** How long a doc's body must go unedited before an edit session is
+   *  written to the activity log (default 60s, `EDIT_SESSION_IDLE_MS`). A test
+   *  seam, like `heartbeatFreshMs`: a test cannot wait a minute per session. */
+  editSessionIdleMs?: number;
   /**
    * How recently the server must have OBSERVED an agent for a delivery to
    * count as reaching it (default `OBSERVED_LIVE_MS`, fifteen minutes). The

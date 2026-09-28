@@ -110,6 +110,12 @@ import { docKeyForPath } from './doc-key.ts';
 import { type LiveCopyResult, type ResolveOpts, resolveLiveCopy } from './doc-live-copy.ts';
 import { resolveOriginRepoCheckout } from './doc-origin-repo.ts';
 import { DOC_STORE_TIMINGS } from './doc-store-timings.ts';
+import {
+  type ClosedEditSession,
+  EditSessionTracker,
+  type SocketEditor,
+  editSessionEvent,
+} from './edit-sessions.ts';
 import { type TimeSlice, timeSlice } from './event-loop.ts';
 import {
   CONTENT_REVISION_ORIGIN,
@@ -196,6 +202,13 @@ export type WsCtx = {
    * its identity's archiving. Absent on every other socket.
    */
   widgetDoorGrant?: { token: string; origin: string };
+  /**
+   * Who the upgrade proved is behind this editing socket, and on what
+   * device — so an edit arriving over it can be attributed long after the
+   * request that opened it was answered (`edit-sessions.ts`). Set on the
+   * doc editing socket only; absent elsewhere.
+   */
+  editor?: SocketEditor;
 };
 
 export type FeedbackWs = ServerWebSocket<WsCtx>;
@@ -389,6 +402,9 @@ export interface DocStoreConfig {
    * absent (a bare store, a test) nothing is recording.
    */
   isRecording?: (docId: string) => boolean;
+  /** How long a doc's body must go unedited before an author's edit session
+   *  is written (`edit-sessions.ts`). Injectable for tests; 60s otherwise. */
+  editSessionIdleMs?: number;
 }
 
 /** How long a doc must go quiet before an authoring burst commits one
@@ -513,6 +529,7 @@ export class DocStore {
       schedulePersist: (doc) => this.saveToDisk(doc),
       scheduleRevisionBump: (doc) => this.scheduleRevisionBump(doc),
       maybeRebindHome: (doc) => this.bindings.maybeRebindHome(doc),
+      editSessions: () => this.editSessions,
     };
   }
 
@@ -748,6 +765,7 @@ export class DocStore {
     // The row written above carries the marker now, so the in-memory copy has
     // done its job; a doc that comes back re-derives it from its own binding.
     this.bindings.forgetFailedWrite(docId);
+    this.editSessions.closeDoc(docId);
     this.fanout.forgetDoc(doc);
     doc.disposeAuthorship?.();
     doc.disposeAuthorship = null;
@@ -849,6 +867,8 @@ export class DocStore {
     this.disarmParkRetry();
     this.bindings.stopPolling();
     this.fanout.stop();
+    // Written, not dropped: the sessions are rows nothing else can rebuild.
+    this.editSessions.closeAll();
   }
 
   /**
@@ -912,9 +932,17 @@ export class DocStore {
    */
   readonly repos: RepoRegistry;
 
+  /** Open edit sessions, one per (doc, author); each closes into an
+   *  `edit_session` activity row (`edit-sessions.ts`). */
+  readonly editSessions: EditSessionTracker;
+
   constructor(private cfg: DocStoreConfig) {
     if (!existsSync(cfg.dataDir)) mkdirSync(cfg.dataDir, { recursive: true });
     this.repos = new RepoRegistry(cfg.dataDir);
+    this.editSessions = new EditSessionTracker({
+      ...(cfg.editSessionIdleMs !== undefined ? { idleMs: cfg.editSessionIdleMs } : {}),
+      emit: (session) => this.recordEditSession(session),
+    });
     // The index IS the boot. Nothing is hydrated here: a start now costs one
     // read per doc of a small JSON row instead of decoding every CRDT ever
     // written, and a doc enters memory when somebody reaches for it.
@@ -1312,6 +1340,7 @@ export class DocStore {
     this.saveTimers.delete(docId);
     this.bindings.discard(docId);
     this.fanout.closeSockets(doc, closeReason);
+    this.editSessions.closeDoc(docId);
     this.docs.delete(docId);
     this.activityMtime.delete(docId);
     this.lastTouchedAt.delete(docId);
@@ -4080,6 +4109,14 @@ export class DocStore {
       console.error('[doc-store] recordReadEvent failed:', err);
       return { ok: false, error: 'append-failed' };
     }
+  }
+
+  /** Append one closed edit session. The doc may have left memory by the
+   *  time a session closes, so its meta comes from the index when it has. */
+  private recordEditSession(session: ClosedEditSession): void {
+    const meta = this.docs.get(session.docId)?.meta ?? this.docIndex.get(session.docId)?.meta;
+    if (!meta) return;
+    appendActivity(this.cfg.dataDir, editSessionEvent(session, meta));
   }
 
   /**

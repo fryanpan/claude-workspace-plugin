@@ -41,6 +41,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { DOC_STORE_TIMINGS } from './doc-store-timings.ts';
 import type { FeedbackWs, LiveDoc, ShareAuthorizedSocket } from './doc-store.ts';
+import { type EditSessionTracker, noteEditTransaction } from './edit-sessions.ts';
 import { newEventId } from './event-id.ts';
 import { isPrivateMetaKey } from './private-meta.ts';
 import type { SseBus } from './sse.ts';
@@ -194,6 +195,8 @@ export interface LiveDocFanoutHost {
   schedulePersist(doc: LiveDoc): void;
   scheduleRevisionBump(doc: LiveDoc): void;
   maybeRebindHome(doc: LiveDoc): void;
+  /** Where a body edit is folded into its author's edit session. */
+  editSessions(): EditSessionTracker;
 }
 
 /**
@@ -679,6 +682,11 @@ export class LiveDocFanout {
         this.host.maybeRebindHome(doc);
       }
       this.host.schedulePersist(doc);
+    });
+    // After the transaction's observers, so its delete set is merged and its
+    // state vector final — the two things the edit counts are read from.
+    doc.ydoc.on('afterTransaction', (tr: Y.Transaction) => {
+      noteEditTransaction(this.host.editSessions(), doc, tr);
     });
     this.guardPrivateMeta(doc);
     this.guardServerMeta(doc);

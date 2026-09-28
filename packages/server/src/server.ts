@@ -699,6 +699,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // A doc being recorded into stays resident: the notes reach it by a door
     // no other eviction hold can see. See `DocStoreConfig.isRecording`.
     isRecording: (docId) => meetingStore.active(docId) !== undefined,
+    ...(opts.editSessionIdleMs !== undefined ? { editSessionIdleMs: opts.editSessionIdleMs } : {}),
     ...(summarizer ? { summarizer } : {}),
   });
   // Materialize the shared board-feedback doc at startup rather than letting
@@ -2806,6 +2807,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         refuseCategoryAuthor,
         withTaskChips,
         browserProvedNobody,
+        provenAuthor,
       } = attribution;
 
       // --- Sign-in write gate ---
@@ -2877,6 +2879,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         visitorShareId,
         visitorMemberKey,
         browserProvedNobody,
+        provenAuthor,
         widgetDoorGrant,
       });
       if (streamed) {

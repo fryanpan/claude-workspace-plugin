@@ -41,7 +41,7 @@
  * it still returns a `Response`, or `undefined` for an upgrade, inside the
  * wrapper below.
  */
-import type { DocType } from '@claude-workspaces/core';
+import type { DocType, User } from '@claude-workspaces/core';
 import {
   type AgentWatches,
   SHARED_AGENT_IDS,
@@ -51,6 +51,8 @@ import {
 } from '../agent-watches.ts';
 import { authorizeAgentCaller } from '../auth/agent-token.ts';
 import type { DocStore } from '../doc-store.ts';
+import type { SocketEditor } from '../edit-sessions.ts';
+import { currentEventOrigin } from '../event-origin.ts';
 import type { OriginPolicy } from '../middleware/browser-origin.ts';
 import { isAllowedBrowserOrigin } from '../middleware/browser-origin.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
@@ -159,6 +161,9 @@ export interface UpgradeStreamRequest {
    *  Passed rather than hoisted: it closes over the request being decided,
    *  and the widget-token identity it reads is resolved per request. */
   browserProvedNobody: () => boolean;
+  /** The identity this request PROVED, or null — never a body's claim. What
+   *  a doc editing socket is stamped with so its edits can be attributed. */
+  provenAuthor: () => User | null;
   /** The board token and origin admission let this request in through the
    *  tailnet widget door with, or null. A door socket opens read-only and
    *  carries the pair, so the sweep can hang up once the token is dead. */
@@ -177,6 +182,14 @@ export type StreamOutcome = null | { kind: 'response'; response: Response } | { 
 
 export interface UpgradeStream {
   serveUpgradeAndStreamRoutes: (addressed: UpgradeStreamRequest) => StreamOutcome;
+}
+
+/** What a writable editing socket carries about the browser behind it: the
+ *  proven identity, and the device this request's origin context read. */
+function editorOf(user: User | null): SocketEditor | null {
+  const { device } = currentEventOrigin();
+  if (!user && !device) return null;
+  return { ...(user ? { user } : {}), ...(device ? { device } : {}) };
 }
 
 export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
@@ -252,6 +265,7 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
     visitorShareId,
     visitorMemberKey,
     browserProvedNobody,
+    provenAuthor,
     widgetDoorGrant,
   }: UpgradeStreamRequest): StreamOutcome => {
     // The run itself, unchanged from the position it held in `route()`:
@@ -481,6 +495,10 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
         // the browser fails a handshake that does not echo it. Bun's upgrade
         // echoes the offered protocol itself — measured: removing an explicit
         // echo here left the 101's header intact (widget-door-http.test.ts).
+        // Who is behind a WRITABLE socket, read now because the request is
+        // the only place it can be: an edit over the socket arrives long
+        // after this handshake was answered (edit-sessions.ts).
+        const editor = readOnly ? null : editorOf(provenAuthor());
         const upgraded = server.upgrade(req, {
           data: {
             docId,
@@ -488,6 +506,7 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
             ...(visitorMemberKey ? { shareMember: visitorMemberKey } : {}),
             ...(readOnly ? { readOnly: true } : {}),
             ...(widgetDoorGrant ? { widgetDoorGrant } : {}),
+            ...(editor ? { editor } : {}),
           },
         });
         if (!upgraded) return new Response('upgrade required', { status: 426 });

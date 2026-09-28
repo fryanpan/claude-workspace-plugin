@@ -110,6 +110,9 @@ export type Attribution =
       withTaskChips: <T extends { id: string }>(docId: string, t: T) => T;
       /** True when this request comes from a browser that has proven nobody. */
       browserProvedNobody: () => boolean;
+      /** The author a PROVEN identity names, ranked as `authorFor` ranks the
+       *  proofs, or null — never what a body claimed. */
+      provenAuthor: () => User | null;
     };
 
 export interface RequestAttribution {
@@ -337,10 +340,23 @@ export function createRequestAttribution(ctx: RequestAttributionContext): Reques
     const browserProvedNobody = (): boolean =>
       isBrowserRequest(req.headers) && widgetIdentity === null && provenIdentityFor() === null;
 
+    /**
+     * `authorFor`'s proven rungs and nothing below them. The editing socket
+     * has no body to claim an author in, and an unproven socket is left
+     * unattributed here rather than given a guest or anonymous id.
+     */
+    const provenAuthor = (): User | null => {
+      const proven = visitor
+        ? (provenIdentityFor() ?? widgetIdentity)
+        : (widgetIdentity ?? provenIdentityFor());
+      return proven ? userForIdentity(proven) : null;
+    };
+
     return {
       attributed: true,
       widgetIdentity,
       provenIdentityFor,
+      provenAuthor,
       accessIdentityFor,
       authorFor,
       refuseCategoryAuthor,

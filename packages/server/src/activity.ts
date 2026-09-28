@@ -27,6 +27,11 @@ import { type EventDevice, stampEventOrigin } from './event-origin.ts';
  * reconstructs events from ydoc contents, and nothing in a moved file records
  * who moved it. A consumer that buckets by type should expect them the same
  * way it expects the read-family rows.
+ *
+ * `edit_session` is one person's (or one agent's) run of edits to one doc's
+ * body, closed after a quiet window — `edit-sessions.ts` writes it. Also
+ * live-capture only: the `.ydoc` keeps the edits, not who typed them when.
+ * It carries sizes and times, never the edited text.
  */
 export type ActivityType =
   | 'comment'
@@ -36,7 +41,8 @@ export type ActivityType =
   | 'read_session'
   | 'doc_open'
   | 'archive'
-  | 'unarchive';
+  | 'unarchive'
+  | 'edit_session';
 
 /** Re-exported so `Event`'s own shape stays readable from one import. */
 export type { ActorKind };
@@ -80,6 +86,19 @@ export interface EventPayload {
   memberCount?: number;
   /** archive: why, in the operator's words. */
   reason?: string;
+  /** edit_session: `editor` is a person typing over the doc's live socket;
+   *  `mcp` is an agent's edit tool, over REST. Never mixed in one session. */
+  source?: 'editor' | 'mcp';
+  /** edit_session: how many transactions the session coalesced. */
+  editCount?: number;
+  /** edit_session: Yjs struct units inserted and deleted — characters, for
+   *  text; a block or a formatting mark counts one. */
+  charsInserted?: number;
+  charsDeleted?: number;
+  /** edit_session: distinct top-level blocks whose existing content changed.
+   *  A block created inside the session counts once something is typed into
+   *  it in a later transaction. Absent for code docs, which have no blocks. */
+  blocksTouched?: number;
 }
 
 export interface Event {

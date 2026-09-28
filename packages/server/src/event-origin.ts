@@ -123,6 +123,18 @@ export function currentEventOrigin(): EventOrigin {
 }
 
 /**
+ * Is this code running inside a request that has not been answered yet?
+ *
+ * The one fact an edit's origin string cannot carry: `'agent'` is stamped by
+ * the MCP edit tools and by the meeting assistant alike, and only the first
+ * of those arrives as a request. A timer that inherited a request's context
+ * reads false once the request is answered, like every other read here.
+ */
+export function inOpenRequest(): boolean {
+  return store.getStore()?.open === true;
+}
+
+/**
  * `row` plus `device` / `location` from the in-flight request, when it has
  * them. A row that already carries either keeps its own.
  */

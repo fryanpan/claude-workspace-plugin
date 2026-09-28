@@ -63,6 +63,21 @@ function state(ws: FeedbackWs): WsState {
 }
 
 /**
+ * The name this connection's presence announces (`user.name` in its
+ * awareness state), or undefined. Unverified: it is whatever the page set.
+ * Read by `edit-sessions.ts` for a socket that proved no identity.
+ */
+export function announcedNameOf(doc: LiveDoc, ws: FeedbackWs): string | undefined {
+  const states = doc.peekAwareness()?.getStates();
+  if (!states) return undefined;
+  for (const id of state(ws).knownClientIds) {
+    const user = (states.get(id) as { user?: { name?: unknown } } | undefined)?.user;
+    if (typeof user?.name === 'string' && user.name.trim() !== '') return user.name.trim();
+  }
+  return undefined;
+}
+
+/**
  * One broadcaster per doc (not per connection). When the doc's Y.Doc
  * or Awareness emits an update, send it to every connection *except*
  * the origin connection. Registering N handlers with per-ws closures
