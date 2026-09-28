@@ -20747,7 +20747,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.266";
+var PLUGIN_VERSION = "0.1.267";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

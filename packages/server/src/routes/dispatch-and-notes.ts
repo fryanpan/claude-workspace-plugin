@@ -1,4 +1,5 @@
 import { classifyActor } from '../actor-identity.ts';
+import { WithheldDeclarations, parseWithheld, placementOfTarget } from '../agent-note-placement.ts';
 import {
   AGENT_NOTE_RING_CAP,
   type AgentNoteInput,
@@ -18,6 +19,7 @@ import { recordDispatchRequested } from '../dispatch-request-event.ts';
 import { matchRest, restIs } from '../middleware/workspace-scope.ts';
 import { filingStateFor } from '../unfiled-ask-filing.ts';
 import { judgeTurnNote } from '../unfiled-ask.ts';
+import { handleBoardAgentNotesRead } from './board-agent-notes.ts';
 import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.ts';
 
 /**
@@ -27,6 +29,11 @@ import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.
  * yesterday's filing does not excuse today's ask.
  */
 const FIRST_TURN_WINDOW_MS = 2 * 60 * 60_000;
+
+/** Which withheld declarations were written lately, so a session declaring
+ *  every turn writes one line an hour. Keyed by board, so one process
+ *  serving several test servers cannot cross them. */
+const declarations = new WithheldDeclarations();
 
 /**
  * Judge a turn note as it arrives, and record the verdict.
@@ -94,6 +101,8 @@ export async function handleDispatchAndNoteRoutes(
     proposeAllowRule,
   } = ctx;
   const { req, scope, visitor, authorFor } = rq;
+  const boardRead = handleBoardAgentNotesRead(ctx, rq);
+  if (boardRead !== undefined) return boardRead;
   // --- REST: builder dispatches ---
   // The lead's statement that a builder is working a task in a private
   // worktree, so the stall loop can read worktree churn as the row
@@ -355,6 +364,35 @@ export async function handleDispatchAndNoteRoutes(
     }
     if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
     const raw = await safeJson(req);
+    // A session that DECLARED it does not post its turns (CW_TURN_NOTES=
+    // withheld) sends this instead of its words: one line in the board's log
+    // with no text, so a blank Activity tab reads as a choice the board was
+    // told about rather than as a fault. No task, no ring, no judgement —
+    // there is nothing to judge.
+    if (
+      raw !== null &&
+      typeof raw === 'object' &&
+      (raw as { withheld?: unknown }).withheld === true
+    ) {
+      const decl = parseWithheld(raw as Record<string, unknown>, Date.now());
+      if (!decl.ok) return j(400, { error: decl.error, message: decl.message });
+      // A repeat inside the hour is already on record: no line, no push.
+      if (!declarations.shouldWrite(boardId, agent, Date.now())) {
+        return j(202, { ok: true, workspaceId: boardId, placement: 'withheld', repeat: true });
+      }
+      const logged = agentNoteLog.append({
+        agent,
+        kind: 'turn',
+        text: '',
+        at: decl.at,
+        workspaceId: boardId,
+        ambiguous: false,
+        withheld: true,
+        ...(decl.sessionId !== undefined ? { sessionId: decl.sessionId } : {}),
+      });
+      if (logged) ctx.announceAgentNote?.(boardId);
+      return j(202, { ok: true, workspaceId: boardId, placement: 'withheld', logged });
+    }
     // The URL names the agent; a body `agent` is overwritten rather than
     // compared — the hook route accepted the name in the body before the
     // address carried it, and a stale hook must not be refused for
@@ -429,6 +467,7 @@ export async function handleDispatchAndNoteRoutes(
         ambiguous: target.ambiguous,
         ...(note.sessionId !== undefined ? { sessionId: note.sessionId } : {}),
       });
+      if (logged) ctx.announceAgentNote?.(boardId);
     }
     agentNotes.record({
       ...note,
@@ -441,6 +480,7 @@ export async function handleDispatchAndNoteRoutes(
       workspaceId: boardId,
       ...(task ? { taskId: task.id } : {}),
       ...(target.ambiguous ? { needsFiling: true } : {}),
+      placement: placementOfTarget(target),
       ...(logged !== undefined ? { logged } : {}),
       ...(nudge ? { unfiledAsk: nudge } : {}),
     });

@@ -2532,6 +2532,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     dispatchReports,
     agentNotes,
     agentNoteLog,
+    // To the board's pages only, and with no words in the frame: Home
+    // re-reads its "Not on a task" list, and an agent has no use for it.
+    announceAgentNote: (workspaceId) => {
+      const frame = { event: 'agent.noted', workspaceId };
+      sse.broadcastTransient(`ws~${workspaceId}`, frame, { skipAgentStreams: true });
+    },
     chatAudit,
     readyNudger,
     j,
