@@ -24,6 +24,7 @@ import type { User } from '@claude-workspaces/core';
 import { asksOf } from './activity-model.ts';
 import { type AgentNotesWire, parseAgentNotes } from './agent-notes-model.ts';
 import { type BoardState, fetchJson, send, showToast } from './board-actions.ts';
+import { coalesced } from './board-data-loads.ts';
 import type { BoardTask } from './board-model.ts';
 import { type HomePayload, shouldPollHome } from './board-presence-model.ts';
 import { renderHomeBrief } from './board-render.ts';
@@ -122,13 +123,15 @@ export function createBoardHomeRegion(deps: BoardHomeDeps): BoardHomeRegion {
     };
   }
 
-  async function loadAgentNotes(): Promise<void> {
+  // Single-flight like /agents: a chatty agent's burst of `agent.noted`
+  // pushes is one read in flight and one after it, not one per note.
+  const loadAgentNotes = coalesced(async (): Promise<void> => {
     const res = await fetchJson<unknown>(
       `/workspaces/${encodeURIComponent(workspaceId)}/agent-notes`,
     );
     if (res) agentNotes = parseAgentNotes(res);
     schedule(renderHomeRegion);
-  }
+  });
 
   let homePollTimer: ReturnType<typeof setTimeout> | null = null;
   async function loadHome(): Promise<void> {
