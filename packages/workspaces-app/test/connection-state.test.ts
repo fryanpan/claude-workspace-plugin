@@ -285,6 +285,27 @@ describe('watchLiveSync', () => {
     expect(resync).not.toHaveBeenCalled();
   });
 
+  it('does not refetch when the tab reports visible while it is still booting', () => {
+    // Boot fetched these endpoints a moment ago. On staging one "visible" or
+    // "online" inside the first second doubled /agents and /review-items.
+    const stream = fakeStream();
+    const vis = fakeVisible();
+    const resync = vi.fn();
+    const c = clock(50_000);
+    watchLiveSync({ onStatus: stream.onStatus, onVisible: vis.onVisible, resync, now: c.now });
+
+    stream.set('open');
+    c.advance(300);
+    vis.show();
+    expect(resync).not.toHaveBeenCalled();
+
+    // Positive control: the same trigger once the window has passed is a
+    // reader coming back, and it refetches.
+    c.advance(30_000);
+    vis.show();
+    expect(resync).toHaveBeenCalledTimes(1);
+  });
+
   it('refetches when the stream comes BACK — the missed-events window', () => {
     // The regression itself. Events that fired while the stream was down are
     // unrecoverable (no replay), so reopening the stream is the only moment

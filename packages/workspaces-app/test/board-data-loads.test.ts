@@ -152,4 +152,78 @@ describe('createBoardLoads', () => {
     expect(l.scheduled).toHaveLength(2);
     expect(l.scheduled[0]).toBe(l.scheduled[1]);
   });
+
+  /**
+   * A server that answers only when told to, so a burst of calls can land
+   * while one read is still out. Each answer names the request it answers.
+   */
+  function heldServer(bodyFor: (n: number) => unknown) {
+    const pending: Array<() => void> = [];
+    let requests = 0;
+    vi.stubGlobal('fetch', () => {
+      const n = ++requests;
+      return new Promise<Response>((resolve) => {
+        pending.push(() =>
+          resolve(
+            new Response(JSON.stringify(bodyFor(n)), {
+              headers: { 'content-type': 'application/json' },
+            }),
+          ),
+        );
+      });
+    });
+    return {
+      requests: () => requests,
+      /** Answer everything out now, and let the reads that follow start. */
+      async answer() {
+        for (const next of pending.splice(0)) next();
+        await new Promise((r) => setTimeout(r, 0));
+      },
+    };
+  }
+
+  for (const burst of [6, 60]) {
+    it(`makes two /agents reads for a burst of ${burst} events, not ${burst + 1}`, async () => {
+      // Six heartbeats landing together were six reads on staging. The count
+      // must not grow with the burst: one read out, one more after it.
+      const l = loads();
+      const server = heldServer((n) => ({
+        attachments: [{ agentId: `a-${n}`, lastToolCallAt: n }],
+      }));
+      const first = l.loadAgents();
+      const waits = Array.from({ length: burst }, () => l.loadAgents());
+      expect(server.requests()).toBe(1);
+      await server.answer();
+      await server.answer();
+      await Promise.all([first, ...waits]);
+      expect(server.requests()).toBe(2);
+      // The trailing read is the one on screen, so the last event's answer
+      // postdates it.
+      expect(l.state.agents.map((a) => a.agentId)).toEqual(['a-2']);
+    });
+  }
+
+  it('reads /review-items once more, not once per event, when a burst lands mid-read', async () => {
+    const l = loads();
+    const server = heldServer(() => ({ items: [] }));
+    const calls = [l.loadReviewItems(), l.loadReviewItems(), l.loadReviewItems()];
+    await server.answer();
+    await server.answer();
+    await Promise.all(calls);
+    expect(server.requests()).toBe(2);
+  });
+
+  it('reads again for a call made after the last read landed', async () => {
+    // Positive control: coalescing joins calls that overlap a read. It is
+    // not a cache, and a later event still reaches the server.
+    const l = loads();
+    const server = heldServer(() => ({ attachments: [] }));
+    const one = l.loadAgents();
+    await server.answer();
+    await one;
+    const two = l.loadAgents();
+    await server.answer();
+    await two;
+    expect(server.requests()).toBe(2);
+  });
 });
