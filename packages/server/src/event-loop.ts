@@ -41,7 +41,7 @@
  * this module writes separates them.
  */
 
-import { heapSize } from 'bun:jsc';
+import { createRequire } from 'node:module';
 
 /** A request the front door has admitted and not yet answered. */
 export interface InflightRequest {
@@ -155,14 +155,29 @@ export interface ProcessSample {
   heapMb: number;
 }
 
+/**
+ * The live heap size. `bun:jsc`, not `memoryUsage().heapUsed`: that one is not
+ * refreshed by a collection, so it cannot show the drop a GC leaves. Resolved
+ * lazily and only under Bun, because the client suites import this module on
+ * Node, where `bun:jsc` does not exist.
+ */
+let heapBytes: (() => number) | undefined;
+function readHeap(): number {
+  if (!heapBytes) {
+    heapBytes =
+      typeof (globalThis as { Bun?: unknown }).Bun === 'undefined'
+        ? () => process.memoryUsage().heapUsed
+        : (createRequire(import.meta.url)('bun:jsc') as { heapSize: () => number }).heapSize;
+  }
+  return heapBytes();
+}
+
 function processSample(): ProcessSample {
   const r = process.resourceUsage();
   return {
     cpuMs: (r.userCPUTime + r.systemCPUTime) / 1000,
     majorFaults: r.majorPageFault,
-    // `bun:jsc`, not `memoryUsage().heapUsed`: that one is not refreshed by
-    // a collection, so it cannot show the drop a GC leaves.
-    heapMb: heapSize() / 1024 / 1024,
+    heapMb: readHeap() / 1024 / 1024,
   };
 }
 
