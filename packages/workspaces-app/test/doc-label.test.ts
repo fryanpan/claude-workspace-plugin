@@ -77,8 +77,8 @@ describe('docLabel', () => {
   it('falls back to the hint for a diff doc that somehow has no relPath', () => {
     // Degenerate, but it's what the pre-change order did (sourceUrl next), and
     // a path beats an opaque id.
-    expect(
-      docLabel({ type: 'diff', labelHint: '/path/to/repo/src/a.ts', title: 'a.ts' }),
-    ).toBe('/path/to/repo/src/a.ts');
+    expect(docLabel({ type: 'diff', labelHint: '/path/to/repo/src/a.ts', title: 'a.ts' })).toBe(
+      '/path/to/repo/src/a.ts',
+    );
   });
 });
