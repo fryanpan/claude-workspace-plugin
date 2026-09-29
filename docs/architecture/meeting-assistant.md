@@ -1027,7 +1027,8 @@ line-by-line diff. A live engine bills for the audio's length; the mock is
 free and is what `scripts/replay-meeting-lib.test.ts` runs.
 
 **Never pushed — and what enforces it.** Prod's data dir is outside any
-checkout (`CW_DATA_DIR`, "Where prod lives" in CLAUDE.md), and a dev
+checkout (`CW_DATA_DIR`, "Where prod lives" in the owner's gitignored
+`CLAUDE.local.md`), and a dev
 server's `data/` is gitignored. Belt and braces: `*-raw-transcript.md`,
 `*-raw-transcript-replay-*.md` and `*.pcm` are in `.gitignore`, and
 `scripts/scrub-check.py` refuses them by NAME and audio/video by extension

@@ -6,7 +6,7 @@
   row each time the state changes (see scripts/socket-watch-alert.py).
 
   The job runs a COPY on the boot disk, not the checkout: the same rule the
-  rest of the fleet's launchd jobs follow (CLAUDE.md, "Where prod lives"), and
+  rest of the fleet's launchd jobs follow (CLAUDE.local.md, "Where prod lives"), and
   it keeps the watcher alive across a worktree being pruned or a branch being
   checked out underneath it. Two files now, because the alerter sits beside
   the sampler and the sampler finds it by its own directory.

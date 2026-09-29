@@ -389,6 +389,6 @@ serious of the two faults the invisible one.
 | Cases | `packages/server/test/supervisor-*.test.ts` |
 
 Where prod's data directory, checkout and launchd job live is in
-[CLAUDE.md](../../CLAUDE.md) under "Where prod lives"; the deploy verb that
+the owner's gitignored `CLAUDE.local.md` under "Where prod lives"; the deploy verb that
 schedules a restart is in
 [docs/process/delivery.md](../process/delivery.md).
