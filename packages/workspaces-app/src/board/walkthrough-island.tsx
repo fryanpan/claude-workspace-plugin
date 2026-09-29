@@ -75,6 +75,7 @@ import {
 } from './board-review-model.ts';
 import { requireText } from './board-review-render.ts';
 import { GateHoldLine, GateLessSpecificNote } from './review-gate-note.tsx';
+import { ReviewGrantBlock } from './review-grant-block.tsx';
 import { markPhrase, unmarkPhrase } from './review-item-phrase.ts';
 import { useReviewItemSeen } from './review-item-seen-hook.ts';
 import { ReviewSecretBlock } from './review-secret-form.tsx';
@@ -118,6 +119,9 @@ export interface WalkthroughHandlers {
     item: ReviewItem,
     values: ReadonlyArray<{ service: string; value: string }>,
   ) => Promise<boolean>;
+  /** Approve or decline a GRANT item's allow lines, through its own route.
+   *  Absent is a refusal: the card lists the lines with no buttons. */
+  onGrant?: (item: ReviewItem, decision: 'approve' | 'decline') => Promise<boolean>;
   /** Go to the exact place instead of answering here — the task's discussion at
    *  that thread, the doc anchored on that comment. */
   onOpenItem: (item: ReviewItem) => void;
@@ -221,6 +225,7 @@ const IDLE_HANDLERS: WalkthroughHandlers = {
   onQuestionOnItem: () => Promise.resolve(false),
   onReply: () => Promise.resolve(false),
   onSaveSecrets: () => Promise.resolve(false),
+  onGrant: () => Promise.resolve(false),
   onOpenItem: () => {},
   onOpenThread: () => {},
   onStep: () => {},
@@ -837,6 +842,10 @@ function WalkCard(props: {
     review?.shape === 'secret' && review.secrets && review.secrets.length > 0
       ? review.secrets
       : null;
+  const allowRules =
+    review?.shape === 'grant' && review.allowRules && review.allowRules.length > 0
+      ? review.allowRules
+      : null;
   const skip = (
     <button
       type="button"
@@ -1006,7 +1015,16 @@ function WalkCard(props: {
             )}
             {questionBox}
             <div class={answering}>
-              {secrets ? (
+              {allowRules ? (
+                // A GRANT item: Approve or Decline, never the composer.
+                <ReviewGrantBlock
+                  rules={allowRules}
+                  gate={handlers.onGrant ? secretsGate : 'off-machine'}
+                  onAnswer={(decision) =>
+                    handlers.onGrant?.(item, decision) ?? Promise.resolve(false)
+                  }
+                />
+              ) : secrets ? (
                 // A SECRET item, and the composer is deliberately absent. A
                 // value typed into a free-text box would travel the ordinary
                 // answer path — recorded on the item, echoed into the feed,

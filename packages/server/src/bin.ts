@@ -17,6 +17,7 @@ import { resolveServerConfig } from './server-config.ts';
 import { createServerDeps } from './server-deps.ts';
 import { markServerServing, recordThisServerStart, serverStartsPath } from './server-starts.ts';
 import { createServer } from './server.ts';
+import { defaultUserSettingsPath } from './settings-allow-file.ts';
 
 // Before anything else, because it only governs opens that come after it and
 // the first bound-file read is not far behind. Under launchd the default is
@@ -194,6 +195,10 @@ if (walkPorts) {
   }
 }
 
+const permissionSettingsPath =
+  process.env.CW_PERMISSION_SETTINGS_PATH?.trim() ||
+  (walkPorts ? undefined : defaultUserSettingsPath(process.env));
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => {
     setTimeout(r, ms);
@@ -291,6 +296,11 @@ while (!handle) {
       // any other platform there is nowhere to put a value and the door
       // should say so (503) rather than run a command that cannot exist.
       ...(process.platform === 'darwin' ? { secretWriter: storeSecret } : {}),
+      // The one naming of the settings file a grant card's Approve edits.
+      // Prod only (`--no-port-walk`), or wherever CW_PERMISSION_SETTINGS_PATH
+      // points: a dev or staging start writes nobody's real settings unless
+      // it was told a file to use. See permission-grants.ts.
+      ...(permissionSettingsPath ? { permissionSettingsPath } : {}),
     });
   } catch (err) {
     const kind = classifyBindError(err);

@@ -85,6 +85,7 @@ import {
 } from './park-migration.ts';
 import { parkNoteText } from './park-note.ts';
 import { malformedPathSegment } from './path-params.ts';
+import { PermissionGrants, wirePermissionGrantRelease } from './permission-grants.ts';
 import { readReleasedPluginVersion } from './plugin-release.ts';
 import { createPromptStore } from './prompt-store.ts';
 import { publicBaseUrl, tailnetHostname } from './public-host.ts';
@@ -787,6 +788,18 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // reads the task notes the routes below append and writes nothing but its
   // own sidecar — never a settings file.
   const allowRules = new AllowRuleProposals(dataDir);
+  // The grant card's writer (permission-grants.ts): the ONE path on this
+  // server that edits a settings file, built only when bin.ts named one.
+  // Its lines come back out when their task closes, and at boot for any
+  // close this process missed.
+  const permissionGrants = opts.permissionSettingsPath
+    ? new PermissionGrants(dataDir, opts.permissionSettingsPath)
+    : undefined;
+  if (permissionGrants) {
+    wirePermissionGrantRelease(taskStore, permissionGrants, (taskId, message) =>
+      console.warn(`[feedback] permission grant for ${taskId} not released: ${message}`),
+    );
+  }
   /**
    * The board's docs as a lookup ask sees them — the three narrow questions
    * `boardLookupDocs` asks, answered from this server's own stores. The
@@ -2548,6 +2561,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // answers 503 for both, but leaving the key out keeps "nothing wired one"
     // legible in a debugger.
     ...(opts.secretWriter ? { secretWriter: opts.secretWriter } : {}),
+    ...(permissionGrants ? { permissionGrants } : {}),
     ...(opts.answerCoverage ? { answerCoverage: opts.answerCoverage } : {}),
     taskStore,
     taskProjection,
@@ -3070,6 +3084,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           refuseCategoryAuthor,
           roleFor,
           requireOwner,
+          provenIdentityFor,
         });
         if (handled) return handled;
       }

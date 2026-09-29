@@ -32,7 +32,7 @@
  * reachable" in docs/process/learnings.md). If a mockup later needs its own
  * embed, that is an additive field on `review`, not a third shape.
  */
-export type ReviewShape = 'decision' | 'review' | 'secret';
+export type ReviewShape = 'decision' | 'review' | 'secret' | 'grant';
 
 /**
  * One secret a `secret` item asks for: what to call it, and the name it is
@@ -117,6 +117,17 @@ export interface ReviewPayload {
    * over; the ask has to say what for.
    */
   secrets?: ReviewSecretField[];
+  /**
+   * `grant` only, one to twenty — the exact `permissions.allow` lines the
+   * owner is asked to allow until the task closes, each like
+   * `Bash(git push --force-with-lease:*)`. Approving the card in the browser
+   * writes these lines and no others into the owner's user settings; closing
+   * the task removes them. What a line may be is `permission-rule.ts`.
+   *
+   * Like a secret ask, a grant card is never answered in words: the answer
+   * route refuses it, and ownerOnly is forced true on read.
+   */
+  allowRules?: string[];
   /**
    * Only the BOARD'S OWNER may answer this one. Absent — which is every item
    * filed so far — means anybody on the board may.

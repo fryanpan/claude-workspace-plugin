@@ -17,8 +17,11 @@ import { matchRest } from '../middleware/workspace-scope.ts';
 import { writeViaOf } from '../mockup-frame.ts';
 import { reviewItemAnsweredEvent, reviewItemFilerId } from '../review-items/analytics.ts';
 import {
+  GRANT_ANSWER_DENIAL,
+  GRANT_FILING_DENIAL,
   SECRET_ANSWER_DENIAL,
   SECRET_FILING_DENIAL,
+  asksForGrant,
   asksForSecret,
   refuseOwnerOnlyWrite,
 } from '../share/board-role.ts';
@@ -94,6 +97,7 @@ export async function handleTaskReviewItems(
     // Before the store, so nothing is written and no judge runs on an ask
     // that is not going to exist.
     if (visitor && asksForSecret(body?.review)) return j(403, SECRET_FILING_DENIAL);
+    if (visitor && asksForGrant(body?.review)) return j(403, GRANT_FILING_DENIAL);
     // Unvalidated on purpose: `addReviewItem` runs `checkReviewPayload`,
     // and that IS the gate. A pre-check here would be a second copy of
     // the limits, free to drift from the one the card renders against.
@@ -151,6 +155,11 @@ export async function handleTaskReviewItems(
     {
       const item = taskStore.listReviewItems(taskId).find((r) => r.id === reviewItemId);
       if (asksForSecret(item?.review)) return j(400, SECRET_ANSWER_DENIAL);
+      // A GRANT card likewise, for a stronger reason: its approval writes the
+      // owner's settings, so no recorded words — an agent's through
+      // answer_review_item, or anyone's — may stand in for the owner's own
+      // press of Approve. See `routes/task-grants.ts`.
+      if (asksForGrant(item?.review)) return j(400, GRANT_ANSWER_DENIAL);
     }
     // Checked HERE, before any write and before the ask-back conversion below,
     // because the conversion is itself a write on the item: a Regular User's

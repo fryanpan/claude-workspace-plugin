@@ -141,3 +141,31 @@ export const SECRET_ANSWER_DENIAL = {
   message:
     "a 'secret' ask is answered by handing the values to its own route (POST …/review-items/<id>/secrets), not by recording words — an answer recorded here is stored, echoed to the feed and read back by the agent",
 } as const;
+
+/** Does this body file a GRANT card? Read the way the store will read it —
+ *  the same reasoning as `asksForSecret`. */
+export function asksForGrant(review: unknown): boolean {
+  if (typeof review !== 'object' || review === null) return false;
+  const r = review as Record<string, unknown>;
+  return normalizeReviewType(r.review_type ?? r.shape) === 'grant';
+}
+
+/** What a share visitor is told when they file a grant card: approving one
+ *  writes the owner's own settings, so only the board's own side files it. */
+export const GRANT_FILING_DENIAL = {
+  error: 'share-visitor',
+  message:
+    "a 'grant' card is filed from the board's own side, not through a share link — ask a member of the board to file it",
+} as const;
+
+/**
+ * What every free-text answer door says to a grant card. Approving one
+ * writes allow rules into the owner's user settings, so it is answered only
+ * by the owner's own Approve in the browser, through its own route — never by
+ * words an agent or anyone else records on the owner's behalf.
+ */
+export const GRANT_ANSWER_DENIAL = {
+  error: 'grant-item',
+  message:
+    "a 'grant' card is answered only by the board's owner pressing Approve or Decline on the card in the browser (POST …/review-items/<id>/grant) — an answer recorded here cannot approve it",
+} as const;

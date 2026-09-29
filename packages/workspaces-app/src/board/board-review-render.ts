@@ -255,6 +255,7 @@ export function panelReviewQueue(
         // had the shape but not the fields, so it fell through to the
         // ordinary answer furniture and offered a verbatim box for a value.
         ...(r.secrets ? { secrets: r.secrets } : {}),
+        ...(r.allowRules ? { allowRules: r.allowRules } : {}),
         askedBy: a.askedBy,
         since: a.askedAt ?? a.since,
         ...(a.direct !== undefined ? { direct: a.direct } : {}),
