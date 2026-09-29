@@ -69,8 +69,9 @@ Two different reads, and only one of them goes anywhere near the file on disk.
 
 **Bounded, not free — so read with a reason, never by enumeration.** A threads
 read on a doc that is not already in memory still loads its whole `.ydoc`
-synchronously and leaves it resident for two days — `IDLE_EVICT_MS` is what
-releases it, and nothing shorter does. Walking one board's docs or one task's
+synchronously and leaves it resident for thirty minutes; a doc a person's
+editor left stays up to a week, for at most 500 docs. The windows are
+`packages/server/src/doc-residency.ts`. Walking one board's docs or one task's
 threads costs that and nothing else: do it without asking.
 Sweeping every doc on the server is a different animal and stays banned. On
 2026-09-16 ~7,000 threads GETs took prod from 2,246 resident docs to 7,114 and
