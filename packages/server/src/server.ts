@@ -178,6 +178,8 @@ import { SharingGate } from './share/sharing-gate.ts';
 import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './sharing-notice.ts';
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
+import { SpokenReplyRelay } from './spoken-reply/relay.ts';
+import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
 import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
@@ -197,7 +199,7 @@ import { ThreadRequestDedup } from './thread-request-dedup.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
-import { VoiceRouter } from './voice.ts';
+import { VoiceRouter, parseVoiceContext } from './voice.ts';
 import { type WebhookLogEntry, createWebhookDispatcher } from './webhooks.ts';
 import { isRetired } from './workspace-store.ts';
 
@@ -1516,6 +1518,23 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       return task ? taskProjection.ensureBodyDoc(task) : undefined;
     },
   });
+  // The board mic's spoken reply: the same router's answer, heard and said
+  // by the engines `server-deps.ts` built (none here unless injected).
+  const spokenTimings = new SpokenTimings(join(dataDir, SPOKEN_TIMINGS_FILE));
+  const spokenRelay = new SpokenReplyRelay({
+    engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
+    board: {
+      handle: (workspaceId, req) => voiceRouter.handle(workspaceId, req),
+      goalStatus: (workspaceId, goalId) => voiceRouter.goalStatus(workspaceId, goalId),
+      goals: (workspaceId) =>
+        (taskStore.getWorkspace(workspaceId)?.goals ?? []).map((g) => ({
+          id: g.id,
+          title: g.title,
+        })),
+    },
+    timings: spokenTimings,
+    parseContext: parseVoiceContext,
+  });
 
   /** A path segment, decoded, answering itself rather than throwing on `%`. */
   const safeDecodeSegment = (s: string): string => {
@@ -1960,6 +1979,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     meetingRelay,
     recallRelay,
     voiceRelay,
+    spokenRelay,
   });
 
   /**
@@ -2609,6 +2629,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     homeBriefs,
     agentWatches,
     voiceRouter,
+    spokenRelay,
+    spokenTimings,
     dataDir,
     clientReleaseRootDir,
     opts,

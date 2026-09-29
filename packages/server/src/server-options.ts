@@ -35,6 +35,7 @@ import type { ReviewJudge } from './review-judge.ts';
 import type { SecretWriter } from './secret-store.ts';
 import type { CfApi } from './share/cf-api.ts';
 import type { ShareConfig } from './share/types.ts';
+import type { SpokenEngines } from './spoken-reply/session.ts';
 import type { ThreadSummarizer } from './summarize.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import type { TidyComplete } from './voice-feedback-tidy.ts';
@@ -658,6 +659,15 @@ export interface ServerOptions {
    * session still transcribes and its words land as said.
    */
   voiceFeedbackTidy?: TidyComplete;
+  /**
+   * The board mic's spoken reply: the listener and the two voices setups 1
+   * and 2 use, and Gemini Live for setup 3 (`spoken-reply/session.ts`).
+   * **No default**, the same seam rule as `transcription`: each one is a
+   * metered vendor, and only `server-deps.ts` builds real ones, from the
+   * Soniox key and the board's secret cards. Absent, the spoken-reply socket
+   * offers no setup and the board keeps its plain mic.
+   */
+  spokenReply?: SpokenEngines;
   /** How long after a voice page goes before the server writes its notes
    *  (`VOICE_KEEP_GRACE_MS`). Tests pass 0. */
   voiceKeepGraceMs?: number;

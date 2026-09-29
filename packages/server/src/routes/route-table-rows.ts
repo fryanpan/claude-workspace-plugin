@@ -95,6 +95,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['share-scope', '/workspaces/:ws/docs/:docId/events:stream', 'GET'],
     ['share-scope', '/workspaces/:ws/docs/:docId/audio', 'GET'],
     ['trusted-local', '/workspaces/:ws/docs/:docId/voice', 'GET'],
+    ['trusted-local', '/workspaces/:ws/voice/converse', 'GET'],
     ['share-scope', '/workspaces/:ws/docs/:docId/y', 'GET'],
     ['collab-scope', '/workspaces/:ws/y', 'GET'],
   ]),
@@ -213,6 +214,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/workspaces/:ws/rename', 'POST'],
     ['trusted-local', '/workspaces/:ws/lead', 'PUT'],
     ['trusted-local', '/workspaces/:ws/voice', 'POST'],
+    ['trusted-local', '/workspaces/:ws/voice/timings', 'GET'],
   ]),
 
   // Who has access, and at what level. The LIST is a member's — everything in

@@ -13,6 +13,8 @@ import type { ReviewItemRow } from '../review-queue.ts';
 import type { BoardRole } from '../share/board-role.ts';
 import type { ShareLinks } from '../share/share-links.ts';
 import type { SlowLoadAlarm } from '../slow-load-alarm.ts';
+import type { SpokenReplyRelay } from '../spoken-reply/relay.ts';
+import type { SpokenTimings } from '../spoken-reply/timings.ts';
 import type { SseBus } from '../sse.ts';
 import type { TaskProjection } from '../task-projection.ts';
 import type { BoardWorkspace, TaskStore } from '../tasks.ts';
@@ -47,6 +49,10 @@ export interface WorkspaceRoutesContext {
   shareLinks: ShareLinks;
   /** Where a spoken request is routed and how its answer comes back. */
   voiceRouter: VoiceRouter;
+  /** The board mic's spoken reply: which setups run, and how long each
+   *  made a person wait. */
+  spokenRelay: SpokenReplyRelay;
+  spokenTimings: SpokenTimings;
 
   /** The data dir — load reports, the event log and huddle files hang off it. */
   dataDir: string;

@@ -389,6 +389,34 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
         return undefined;
       }
 
+      // `/workspaces/<ws>/voice/converse` — the board mic's spoken reply
+      // (`spoken-reply/relay.ts`). The doc voice socket's guards, for the
+      // same reason: a session spends Soniox, ElevenLabs or Gemini on the
+      // owner's keys, so share visitors are refused outright and a browser
+      // origin is checked because CORS does not apply to websockets.
+      // Trusted-local in the route table.
+      const converse = pathname.match(/^\/workspaces\/([^/]+)\/voice\/converse$/);
+      if (converse) {
+        if (visitor) return j(403, { error: 'not available to share visitors' });
+        if (!isAllowedBrowserOrigin(req.headers.get('origin'), policyFor(req))) {
+          return j(403, { error: 'origin_not_allowed' });
+        }
+        const workspaceId = safeDecodeSegment(converse[1] ?? '');
+        if (!taskStore.getWorkspace(workspaceId)) return j(404, { error: 'not-found' });
+        const upgraded = server.upgrade(req, {
+          data: {
+            docId: '',
+            workspaceId,
+            kind: 'spoken' as const,
+            ...(requireSignInToWrite && browserProvedNobody() ? { readOnly: true } : {}),
+            ...(widgetDoorGrant ? { widgetDoorGrant } : {}),
+            author: provenAuthor(),
+          },
+        });
+        if (!upgraded) return new Response('upgrade required', { status: 426 });
+        return undefined;
+      }
+
       // --- WebSocket upgrade: the BOARD's own room ---
       // `/workspaces/<ws>/y`, which was `/y/ws:<workspaceId>`.
       //

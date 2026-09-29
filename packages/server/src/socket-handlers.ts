@@ -39,6 +39,7 @@ import { type DocStore, type FeedbackWs } from './doc-store.ts';
 import type { SocketEditor } from './edit-sessions.ts';
 import type { MeetingRelay } from './meeting-protocol.ts';
 import type { RecallMeetingRelay } from './recall-meeting.ts';
+import type { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import type { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { onClose, onMessage, onOpen } from './yjs-protocol.ts';
 
@@ -53,6 +54,8 @@ export interface SocketHandlersContext {
   recallRelay: RecallMeetingRelay;
   /** Voice feedback sessions, keyed by socket. */
   voiceRelay: VoiceFeedbackRelay;
+  /** The board mic's spoken-reply sessions, keyed by socket. */
+  spokenRelay: SpokenReplyRelay;
 }
 
 /**
@@ -78,7 +81,7 @@ export interface SocketHandlersContext {
  */
 export type UpgradeData = {
   docId: string;
-  kind?: 'yjs' | 'audio' | 'recall' | 'voice';
+  kind?: 'yjs' | 'audio' | 'recall' | 'voice' | 'spoken';
   /** The board a voice socket was addressed under — its clips' URLs need it. */
   workspaceId?: string;
   token?: string;
@@ -103,7 +106,7 @@ export type UpgradeData = {
  * measurement is about the very frame `open` sends first.
  */
 export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandler<UpgradeData> {
-  const { docStore, meetingRelay, recallRelay, voiceRelay } = ctx;
+  const { docStore, meetingRelay, recallRelay, voiceRelay, spokenRelay } = ctx;
 
   return {
     // Yjs sync step 2 hands a fresh tab the WHOLE doc state in one binary
@@ -122,6 +125,13 @@ export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandl
     perMessageDeflate: true,
     open(ws) {
       if (ws.data.kind === 'recall') return;
+      if (ws.data.kind === 'spoken') {
+        // Tracked for the reason the voice socket is: it spends an engine
+        // while open and joins no doc's `conns`.
+        docStore.trackShareSocket(ws);
+        spokenRelay.onOpen(ws);
+        return;
+      }
       if (ws.data.kind === 'voice') {
         // In no doc's `conns`, so the sweeps can only reach it if it is
         // handed to them here — the same reason the audio socket is tracked
@@ -153,6 +163,18 @@ export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandl
         // is not ours to interpret.
         if (typeof message === 'string' && ws.data.token) {
           recallRelay.onSocketText(ws.data.token, message);
+        }
+        return;
+      }
+      if (ws.data.kind === 'spoken') {
+        if (typeof message === 'string') spokenRelay.onText(ws, message);
+        else {
+          // Copied: the session may hold it while its listener connects.
+          const buf = message as unknown as ArrayBufferView;
+          spokenRelay.onAudio(
+            ws,
+            new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)),
+          );
         }
         return;
       }
@@ -200,6 +222,11 @@ export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandl
       if (ws.data.kind === 'recall') {
         // NOT the end of the meeting — see RecallMeetingRelay.onSocketClose.
         if (ws.data.token) recallRelay.onSocketClose(ws.data.token);
+        return;
+      }
+      if (ws.data.kind === 'spoken') {
+        docStore.untrackShareSocket(ws);
+        spokenRelay.onClose(ws);
         return;
       }
       if (ws.data.kind === 'voice') {

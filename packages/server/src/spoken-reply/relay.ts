@@ -1,0 +1,90 @@
+/**
+ * The spoken-reply sockets, one `SpokenSession` each: what the websocket
+ * handler hands a `kind: 'spoken'` socket's frames to.
+ *
+ * Built once per server from the engines `server-deps.ts` constructed (none,
+ * in a test server that injects none — every setup then reads as not set up
+ * and the page keeps the plain mic).
+ */
+import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import { isCategoryAuthor } from '../task-owner.ts';
+import type { VoiceActor } from '../voice-action.ts';
+import type { VoiceContext } from '../voice-prompt.ts';
+import { SpokenAnswerer, type SpokenBoard } from './answer.ts';
+import { type SpokenEngines, SpokenSession, availableSetups } from './session.ts';
+import type { SpokenTimings } from './timings.ts';
+
+export interface SpokenWs {
+  data: {
+    workspaceId?: string;
+    readOnly?: boolean;
+    /** The identity the upgrade proved, if any. */
+    author?: { id: string; name: string; kind?: string } | null;
+  };
+  send(payload: string | Uint8Array): unknown;
+}
+
+export interface SpokenReplyRelayDeps {
+  engines: SpokenEngines;
+  board: SpokenBoard;
+  timings: SpokenTimings;
+  parseContext(raw: unknown): VoiceContext | undefined;
+}
+
+export class SpokenReplyRelay {
+  private readonly sessions = new WeakMap<SpokenWs, SpokenSession>();
+
+  constructor(private readonly deps: SpokenReplyRelayDeps) {}
+
+  /** Which setups this server can run — none unless the engines were built. */
+  setups() {
+    return availableSetups(this.deps.engines);
+  }
+
+  onOpen(ws: SpokenWs): void {
+    const workspaceId = ws.data.workspaceId ?? '';
+    const proven = ws.data.author;
+    const provenActor: VoiceActor | null =
+      proven && !isCategoryAuthor(proven)
+        ? { id: proven.id, name: proven.name, ...(proven.kind ? { kind: proven.kind } : {}) }
+        : null;
+    const send = (msg: SpokenServerMessage): void => {
+      try {
+        ws.send(JSON.stringify(msg));
+      } catch {
+        // The page went; the close handler tidies up.
+      }
+    };
+    const session = new SpokenSession({
+      engines: this.deps.engines,
+      answerer: new SpokenAnswerer(this.deps.board, workspaceId),
+      timings: this.deps.timings,
+      provenActor,
+      readOnly: ws.data.readOnly === true,
+      parseContext: this.deps.parseContext,
+      sendJson: send,
+      sendAudio: (pcm) => {
+        try {
+          ws.send(pcm);
+        } catch {
+          // As above.
+        }
+      },
+    });
+    this.sessions.set(ws, session);
+    session.open();
+  }
+
+  onText(ws: SpokenWs, text: string): void {
+    this.sessions.get(ws)?.onText(text);
+  }
+
+  onAudio(ws: SpokenWs, pcm: Uint8Array): void {
+    this.sessions.get(ws)?.onAudio(pcm);
+  }
+
+  onClose(ws: SpokenWs): void {
+    this.sessions.get(ws)?.close();
+    this.sessions.delete(ws);
+  }
+}
