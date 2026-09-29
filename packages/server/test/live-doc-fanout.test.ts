@@ -109,6 +109,7 @@ function makeHost(
     emitDocEvent: (docId, payload) => {
       rec.docEvents.push({ docId, payload });
     },
+    titleOf: (doc) => doc.meta.title,
     summarizer: () => opts.summarizer,
     thread: () => null,
     memberOfCompanion: (docId) => opts.companionOf?.[docId],

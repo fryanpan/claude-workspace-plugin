@@ -376,6 +376,13 @@ export interface DocStoreConfig {
    */
   onDocEvent?: (docId: string, payload: WebhookPayload) => void;
   /**
+   * A name for a doc whose own meta has none worth giving — a task's comment
+   * doc is named by its task. Stamped on thread frames as `docTitle`; the
+   * doc's own title answers when this returns undefined. Same seam as
+   * `onDocEvent`: DocStore does not know what a `task:` docId means.
+   */
+  docTitle?: (docId: string) => string | undefined;
+  /**
    * The clock the RESIDENCY policy reads — the idle/eviction window and the
    * file poll's fast lane, both of which are keyed on `lastTouchedAt`.
    *
@@ -511,6 +518,7 @@ export class DocStore {
       webhooks: () => this.cfg.webhooks,
       decorate: (meta) => this.cfg.decorateDocMeta?.(meta) ?? meta,
       emitDocEvent: (docId, payload) => this.cfg.onDocEvent?.(docId, payload),
+      titleOf: (doc) => this.cfg.docTitle?.(doc.docId) ?? doc.meta.title,
       summarizer: () => this.cfg.summarizer,
       thread: (docId, threadId) => this.getThread(docId, threadId),
       memberOfCompanion: (docId) => this.memberOfCompanion(docId),
