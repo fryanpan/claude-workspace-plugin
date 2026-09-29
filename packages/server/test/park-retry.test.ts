@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SHORT_KEEP_MS } from '../src/doc-residency.ts';
 import { DOC_STORE_TIMINGS } from '../src/doc-store-timings.ts';
 import { DocStore } from '../src/doc-store.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
@@ -156,8 +157,8 @@ describe('a resident doc parked on a file that stopped answering', () => {
 });
 
 describe('a parked doc whose file never comes back', () => {
-  /** `IDLE_EVICT_MS` in doc-store.ts: two days untouched. */
-  const IDLE_MS = 2 * 24 * 60 * 60 * 1000;
+  /** Past the window a doc nobody opened gets (`doc-residency.ts`). */
+  const IDLE_MS = SHORT_KEEP_MS;
   let dataDir: string;
   let boundPath: string;
   let store: DocStore | undefined;
@@ -209,7 +210,7 @@ describe('a parked doc whose file never comes back', () => {
       { describe: 'the first read to be written off' },
     );
 
-    // Nobody touches the doc for two days, and meanwhile the backoff expires
+    // Nobody touches the doc for its window, and meanwhile the backoff expires
     // and the store retries the file — which is still a pipe, so the retry
     // is written off and the doc parks again.
     storeNow += IDLE_MS + 1;
