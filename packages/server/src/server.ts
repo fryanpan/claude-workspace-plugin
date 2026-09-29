@@ -1989,8 +1989,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     isValidDocId,
     redirectTo,
     withReviewUrl,
-    landingReview: () => {
-      const q = crossReview.queue();
+    // The retired boards' task docs too: the page's own activity reading
+    // walks every board, and it runs after this in the same stretch.
+    landingReview: async () => {
+      await crossReview.prepare({ includeRetired: true });
+      const q = await crossReview.queue();
       // Fire and forget: the page shows what is stored, and a sentence that
       // arrives now is on the next load. Each refresh declines unless due.
       for (const p of q.projects) void boardSummaries.refresh({ id: p.workspaceId, name: p.name });
@@ -3337,7 +3340,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // own file, or a redirect to the address that has one. Null means no
       // block there claimed this address, which is the same fall-through
       // the run did in place, and it lands on the 404 below.
-      const shell = serveShellRoutes({ req, url, pathname, visitor, visitorHome });
+      const shell = await serveShellRoutes({ req, url, pathname, visitor, visitorHome });
       if (shell) return shell;
 
       // ── The task address ── see routes/task-page.ts. Below the shell

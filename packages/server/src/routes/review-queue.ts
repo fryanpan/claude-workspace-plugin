@@ -84,7 +84,7 @@ export async function handleReviewQueueRoutes(
 
   if (req.method !== 'GET') return j(405, { error: 'method not allowed' });
   if (pathname === '/review') return new Response(ctx.renderPage(), { headers: ctx.pageHeaders });
-  if (pathname === '/api/review-queue') return j(200, crossReview.queue());
+  if (pathname === '/api/review-queue') return j(200, await crossReview.queue());
 
   const since = parseSince(url.searchParams.get('since'));
   if (since === null) return j(400, { error: 'since must be epoch milliseconds' });
