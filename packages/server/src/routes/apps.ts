@@ -32,7 +32,8 @@
  * already refused an app that is not on this board. The ask-again POST is
  * the one write a member may make here, admitted by the same case in the
  * host guard; it sends a fixed notice and `AppOutages.askAgain` holds it to
- * one per two minutes. So nothing here reads the visitor.
+ * one per two minutes. So nothing here reads the visitor to decide access;
+ * it is read once, to draw the host page's link back to the board.
  */
 import type { DocMeta, DocType } from '@claude-workspaces/core';
 import type { AppOutages } from '../app-outage.ts';
@@ -87,6 +88,9 @@ export interface AppRouteRequest {
   req: Request;
   url: URL;
   scope: WorkspaceScope | undefined;
+  /** A share visitor, admitted above; read only to draw the host page's
+   *  link back to the board, never to decide access. */
+  visitor: boolean;
 }
 
 /** `apps/<id>` and whatever follows it, off the scope's remainder. */
@@ -337,7 +341,14 @@ async function serveApp(
     // inside the app (a partial, relayed through the host) gets the bytes.
     if (dest === null || dest === 'document') {
       const host = injectSentryHead(
-        renderMockHost({ workspaceId, docId: meta.docId, html: page, url, items: [] }),
+        renderMockHost({
+          workspaceId,
+          docId: meta.docId,
+          html: page,
+          url,
+          items: [],
+          visitor: rq.visitor,
+        }),
         ctx.browserSentry,
         'mockup',
         readAppAssetManifest(ctx.markdownAppDist),

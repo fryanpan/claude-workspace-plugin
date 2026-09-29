@@ -169,8 +169,9 @@ describe('attaching and serving a dev server', () => {
       const html = await r.text();
       expect(html).toContain('data-src="?v=1&amp;cw-frame=1"');
       expect(html).toContain('/widget/mock-host.js');
-      // One tap back to the board, for a reader who landed here from a link.
-      expect(html).toContain(`href="/workspaces/${ws}"`);
+      // The owner's host page draws nothing over the app: the link back to
+      // the board is a share visitor's (share-link-landing.test.ts).
+      expect(html).not.toContain('cw-board-link');
       expect(html).not.toContain('<h1 id="title">');
       expect(r.headers.get('set-cookie')).toBeNull();
     });

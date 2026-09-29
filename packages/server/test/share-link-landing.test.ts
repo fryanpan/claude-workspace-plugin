@@ -62,6 +62,9 @@ describe('share link landing and the shared library', () => {
   let docId: string;
   let mockId: string;
   let appId: string;
+  /** An app whose dev server IS running, so its host page is drawn. */
+  let liveAppId: string;
+  let devServer: ReturnType<typeof Bun.serve>;
   let taskId: string;
   let otherTaskId: string;
   let otherDocId: string;
@@ -150,11 +153,27 @@ describe('share link landing and the shared library', () => {
     });
     expect(app.status, await app.clone().text()).toBe(200);
     appId = ((await app.json()) as { docId: string }).docId;
+    devServer = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () =>
+        new Response('<!doctype html><title>Harborlight site</title><p>Running</p>', {
+          headers: { 'content-type': 'text/html' },
+        }),
+    });
+    const live = await postLocal(`/workspaces/${board}/apps`, {
+      docId: 'harborlight-live',
+      origin: `http://127.0.0.1:${devServer.port}/`,
+      title: 'Harborlight live',
+    });
+    expect(live.status, await live.clone().text()).toBe(200);
+    liveAppId = ((await live.json()) as { docId: string }).docId;
     taskId = await fileTask(board, 'Review the launch plan');
     otherTaskId = await fileTask(otherBoard, 'Private row');
   });
 
   afterAll(async () => {
+    devServer.stop(true);
     await handle.stop();
     rmSync(dataDir, { recursive: true, force: true });
   });
@@ -311,19 +330,30 @@ describe('share link landing and the shared library', () => {
       expect(body.backTo).toEqual({ workspaceId: board, name: 'Harborlight launch' });
     });
 
-    it('a mock and a dev server page carry a link to the board', async () => {
-      const link = `href="/workspaces/${board}"`;
-      const mock = await onShareHost(
+    it('a mock and a dev server page carry a link to the board for a member, not the owner', async () => {
+      const pill = `<a class="cw-board-link" href="/workspaces/${board}"`;
+      const pages = [
         `/workspaces/${board}/mockups/${encodeURIComponent(mockId)}`,
-        MEMBER,
-      );
-      expect(mock.status).toBe(200);
-      expect(await mock.text()).toContain(link);
-      const app = await onShareHost(
+        `/workspaces/${board}/apps/${encodeURIComponent(liveAppId)}/`,
+      ];
+      for (const path of pages) {
+        const member = await onShareHost(path, MEMBER);
+        expect(member.status).toBe(200);
+        expect(await member.text()).toContain(pill);
+        // The same host page on the owner's own host: drawn, and nothing over it.
+        const owner = await req(path, `localhost:${handle.port}`);
+        expect(owner.status).toBe(200);
+        const ownerHtml = await owner.text();
+        expect(ownerHtml).toContain('data-cw-mock-frame');
+        expect(ownerHtml).not.toContain('cw-board-link');
+      }
+      // A dev server that is down answers its waiting page, which names the
+      // board for every reader already.
+      const waiting = await onShareHost(
         `/workspaces/${board}/apps/${encodeURIComponent(appId)}/`,
         MEMBER,
       );
-      expect(await app.text()).toContain(link);
+      expect(await waiting.text()).toContain(`href="/workspaces/${board}"`);
     });
   });
 });

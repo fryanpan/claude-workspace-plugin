@@ -154,13 +154,26 @@ export interface HostItem {
   reviewItemId: string;
 }
 
+/** The visitor's way back to the board: a fixed pill over the frame. */
+const BOARD_LINK = (workspaceId: string): { style: string; anchor: string } => ({
+  style:
+    '.cw-board-link{position:fixed;top:8px;left:8px;z-index:2147483646;padding:4px 10px;' +
+    'border-radius:999px;border:1px solid rgba(0,0,0,.14);background:rgba(255,255,255,.94);' +
+    'color:#1f2328;font:500 13px/18px system-ui,-apple-system,sans-serif;text-decoration:none;' +
+    'box-shadow:0 1px 3px rgba(0,0,0,.12)}',
+  anchor:
+    `<a class="cw-board-link" href="/workspaces/${escapeAttr(encodeURIComponent(workspaceId))}"` +
+    ' aria-label="Back to the board">← Board</a>',
+});
+
 /**
- * The host page. It draws one frame the size of the window and one link over
- * it, back to the board the mock is filed on — without it, a reader who
- * arrived on a mock or a dev server from a share link had no way to the
- * board but the address bar. Its script builds the frame, so it can hand the
- * frame the reader's display name before the widget inside reads it (see
- * `mock-host.ts`).
+ * The host page. It draws one frame the size of the window — and, for a
+ * share visitor only, one link over it back to the board the mock is filed
+ * on: a reader who arrived on a mock or a dev server from a share link had no
+ * way to the board but the address bar. The owner's page draws nothing of
+ * its own, so the link never sits over the owner's mock. Its script builds
+ * the frame, so it can hand the frame the reader's display name before the
+ * widget inside reads it (see `mock-host.ts`).
  */
 export function renderMockHost(args: {
   workspaceId: string;
@@ -169,21 +182,19 @@ export function renderMockHost(args: {
   html: string;
   url: URL;
   items: HostItem[];
+  /** A share visitor, admitted by the gate; draws the link to the board. */
+  visitor: boolean;
 }): string {
   const title = TITLE.exec(args.html)?.[1]?.trim() ?? '';
+  const boardLink = args.visitor ? BOARD_LINK(args.workspaceId) : { style: '', anchor: '' };
   const items = JSON.stringify(args.items.map((i) => [i.taskId, i.reviewItemId]));
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<title>${title}</title>` +
     '<style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}' +
-    'iframe{border:0;width:100%;height:100%;display:block}' +
-    '.cw-board-link{position:fixed;top:8px;left:8px;z-index:2147483646;padding:4px 10px;' +
-    'border-radius:999px;border:1px solid rgba(0,0,0,.14);background:rgba(255,255,255,.94);' +
-    'color:#1f2328;font:500 13px/18px system-ui,-apple-system,sans-serif;text-decoration:none;' +
-    'box-shadow:0 1px 3px rgba(0,0,0,.12)}</style></head><body>' +
-    `<a class="cw-board-link" href="/workspaces/${escapeAttr(encodeURIComponent(args.workspaceId))}"` +
-    ' aria-label="Back to the board">← Board</a>' +
+    `iframe{border:0;width:100%;height:100%;display:block}${boardLink.style}</style></head><body>` +
+    boardLink.anchor +
     `<iframe data-cw-mock-frame sandbox="${MOCK_FRAME_SANDBOX}" allow="microphone"` +
     ` title="${escapeAttr(title || 'Mock')}" data-src="${escapeAttr(frameSrcFor(args.url))}"></iframe>` +
     `<script src="/widget/mock-host.js" data-workspace-id="${escapeAttr(args.workspaceId)}"` +

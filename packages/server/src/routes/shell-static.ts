@@ -366,6 +366,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
           html,
           url,
           items: linked.map((i) => ({ taskId: i.taskId, reviewItemId: i.reviewItemId })),
+          visitor: Boolean(visitor),
         }),
         browserSentry,
         'mockup',
