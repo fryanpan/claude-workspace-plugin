@@ -395,13 +395,15 @@ describe('share links over HTTP', () => {
       expect((await onOwnerHost(`/workspaces/${board}/docs`, OWNER_EMAIL)).status).toBe(200);
     });
 
-    it('a share-host member is still nobody at the owner door', async () => {
-      // Membership grants a board on the share hostname. It is not a grant to
-      // the operator's address, whose allowlist is a different record.
+    it('a share-host member is a visitor at the owner door, never the operator', async () => {
+      // Membership grants a board, on this hostname or the owner's address
+      // (member-home.test.ts). It is not a grant of the operator's verbs,
+      // whose allowlist is a different record: the doc list stays refused.
       const { linkId } = await mintLink(board);
       await onShareHost(`/s/${linkId}`, REVIEWER);
       const r = await onOwnerHost(`/workspaces/${board}/docs`, REVIEWER);
       expect(r.status).toBe(403);
+      expect(await r.json()).toEqual({ error: 'out_of_share_scope' });
     });
   });
 
