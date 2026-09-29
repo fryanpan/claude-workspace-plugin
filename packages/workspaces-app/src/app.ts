@@ -3,7 +3,7 @@ import type { BootLocation, BootStorage, BootWindow } from './boot-env.ts';
 import { mountCode } from './code/code-app.ts';
 import { browserDeviceEnv, syncDeviceContext } from './device-context.ts';
 import { fetchDocMeta } from './doc-meta.ts';
-import { docSocketUrl, workspaceIdFromPath } from './doc-path.ts';
+import { currentWorkspaceId, docSocketUrl, workspaceIdFromPath } from './doc-path.ts';
 import { el, showToast } from './doc/chrome-dom.ts';
 import { wireThreadRangeClicks } from './doc/chrome-panels.ts';
 import { marginComposerSlot } from './doc/composer-slot.ts';
@@ -18,6 +18,7 @@ import { wireDocReady } from './doc/doc-ready.ts';
 import { mountDocSaveState } from './doc/doc-save-state.ts';
 import { mountDocSetNav } from './doc/doc-set-nav.ts';
 import { mountDocSpeakerMenu } from './doc/doc-speaker-menu.ts';
+import { mountDocVoice } from './doc/doc-voice.ts';
 import { createNotesLinkRefs } from './doc/notes-link-refs.ts';
 import { wireEditViewport } from './edit-viewport.ts';
 import { type EditorHandle, createEditor } from './editor.ts';
@@ -374,6 +375,9 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       whenSynced: (cb) => client.onReady(cb),
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
+    // The voice mic, for a writer on a board (the address's, not `ctx.workspaceId`).
+    const board = canWrite ? currentWorkspaceId() : null;
+    if (board) mountDocVoice({ docId, user, editor, editorMount, scope });
   }
 
   mountDocSpeakerMenu({
@@ -413,11 +417,6 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
   // Two modules, wired in the order they depend on each other: the pointer
   // pill a huddle doc grows over a range (doc-pointer-pill), and the round
   // comment pill that owns the cached selection it reads (doc-comment-pill).
-  //
-  // There was a third — `createSpinoffRunner`, which turned a selection into
-  // a board row or a research section. Nothing calls it from here as of
-  // 2026-09-04: the pill offers only Comment, and the ask is made in the
-  // comment. `doc/doc-spinoff.ts` and the routes behind it are untouched.
   const pointer = mountPointerPillLayer({
     huddle,
     editor,
