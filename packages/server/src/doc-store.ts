@@ -570,6 +570,8 @@ export class DocStore {
   /** The `[doc-store] mem` sampler; see memory-log.ts. */
   private readonly memoryLog = new MemoryLog({ stats: () => this.stats() });
   private evictTicker: ReturnType<typeof setInterval> | null = null;
+  /** An idle sweep is part-way through, handing the loop back between docs. */
+  private sweeping = false;
   /**
    * When each resident doc entered memory. The eviction clock reads
    * `lastTouchedAt` first — a real reach — and falls back to this, so a doc
@@ -813,25 +815,46 @@ export class DocStore {
    * Public because the sweep timer and the tests must exercise the same
    * pass — a test that reimplemented the policy would prove only that the
    * test agrees with itself.
+   *
+   * Yields on `slice` between docs. One pass can evict thousands at once —
+   * every doc a boot's fan-out read, thirty minutes later — and 2,700 bound
+   * docs took 92ms in one synchronous run on an idle machine, which a
+   * swapping one multiplies. So the holds are asked again after every yield,
+   * and a doc anybody reached while the pass was handed back is skipped: its
+   * clock moved, so the window the snapshot judged it by no longer applies.
    */
-  evictIdleDocs(): string[] {
+  async evictIdleDocs(slice: TimeSlice = timeSlice()): Promise<string[]> {
     const now = this.now();
     const entries: ResidencyEntry[] = [];
-    for (const docId of this.docs.keys()) {
-      entries.push({
-        docId,
-        lastReachedAt: this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now,
-        lastPersonAt: this.lastPersonAt.get(docId),
-      });
-    }
+    for (const docId of this.docs.keys()) entries.push(this.residencyEntry(docId, now));
+    const judged = new Map(entries.map((e) => [e.docId, e]));
     const evicted: string[] = [];
     // `evictDoc` mutates the map; `entries` is the snapshot walked.
     for (const docId of pastWindow(entries, now)) {
+      await slice.yieldIfDue();
       const doc = this.docs.get(docId);
-      if (!doc || this.evictionHold(docId, doc, now) !== null) continue;
+      if (!doc || this.stopped) continue;
+      const then = judged.get(docId);
+      const current = this.residencyEntry(docId, now);
+      if (
+        then?.lastReachedAt !== current.lastReachedAt ||
+        then.lastPersonAt !== current.lastPersonAt
+      ) {
+        continue;
+      }
+      if (this.evictionHold(docId, doc, this.now()) !== null) continue;
       if (this.evictDoc(docId)) evicted.push(docId);
     }
     return evicted;
+  }
+
+  /** One resident doc's clocks, as `pastWindow` judges them. */
+  private residencyEntry(docId: string, now: number): ResidencyEntry {
+    return {
+      docId,
+      lastReachedAt: this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now,
+      lastPersonAt: this.lastPersonAt.get(docId),
+    };
   }
 
   /**
@@ -848,12 +871,17 @@ export class DocStore {
   private startEvictionSweep(): void {
     if (this.evictTicker) return;
     const timer = setInterval(() => {
-      try {
-        const gone = this.evictIdleDocs();
-        if (gone.length > 0) console.error(`[doc-store] evicted ${gone.length} idle doc(s)`);
-      } catch (err) {
-        console.error('[doc-store] eviction sweep failed:', err);
-      }
+      // A pass still yielding its way through a big sweep owns the next one.
+      if (this.sweeping) return;
+      this.sweeping = true;
+      this.evictIdleDocs()
+        .then((gone) => {
+          if (gone.length > 0) console.error(`[doc-store] evicted ${gone.length} idle doc(s)`);
+        })
+        .catch((err) => console.error('[doc-store] eviction sweep failed:', err))
+        .finally(() => {
+          this.sweeping = false;
+        });
     }, EVICT_SWEEP_MS);
     timer.unref?.();
     this.evictTicker = timer;
@@ -2878,8 +2906,50 @@ export class DocStore {
     // And it costs no BINDING either: the read-only resolve leaves the file
     // alone entirely, so a walk over a board's docs can no longer wake every
     // dormant binding on it (2026-09-16 — see `getForRead`).
+    //
+    // A doc that is not in memory and whose index row says it has no threads
+    // of the kind asked for answers empty without being loaded. The stall
+    // scan asks this of every task body and board doc every ten minutes; at
+    // 3,000 tasks the loads held the loop for about a second and added
+    // ~130MB of heap, nearly all of it for docs with nothing to return. The
+    // row is exact outside a pending write (see `threadCounts`).
+    if (!this.docs.has(docId) && this.indexSaysNoThreads(docId, filter?.status)) return [];
     this.resolveDocForRead(docId);
     return this.docThreads.listThreads(docId, filter);
+  }
+
+  /**
+   * Load, ahead of a synchronous walk, the docs that walk will read threads
+   * from, handing the loop back between loads.
+   *
+   * Each value is the filter the walk will pass to `listThreads`, so a doc
+   * the walk would answer empty from the index is not loaded here either.
+   * The stall tick reads every task body and board doc in one synchronous
+   * pass; without this, the first tick after a boot or an idle sweep loaded
+   * every cold doc with a thread inside that pass. Resolves to how many docs
+   * it loaded.
+   */
+  async warmForThreadReads(
+    targets: ReadonlyMap<string, 'open' | undefined>,
+    slice: TimeSlice = timeSlice(),
+  ): Promise<number> {
+    let loaded = 0;
+    for (const [docId, status] of targets) {
+      await slice.yieldIfDue();
+      if (this.stopped) break;
+      if (this.docs.has(docId) || this.indexSaysNoThreads(docId, status)) continue;
+      if (this.resolveDocForRead(docId)) loaded++;
+    }
+    return loaded;
+  }
+
+  private indexSaysNoThreads(docId: string, status?: 'open' | 'resolved'): boolean {
+    if (this.saveTimers.has(docId)) return false;
+    const counts = this.docIndex.get(docId)?.threads;
+    if (!counts) return false;
+    if (status === 'open') return counts.open === 0;
+    if (status === 'resolved') return counts.total - counts.open === 0;
+    return counts.total === 0;
   }
 
   getThread(docId: string, threadId: string): Thread | null {

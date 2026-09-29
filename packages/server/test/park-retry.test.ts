@@ -230,6 +230,6 @@ describe('a parked doc whose file never comes back', () => {
     );
 
     // Parked is no eviction hold, and a retry is no reach: the doc goes.
-    expect(store.evictIdleDocs()).toContain(DOC_ID);
+    expect(await store.evictIdleDocs()).toContain(DOC_ID);
   });
 });

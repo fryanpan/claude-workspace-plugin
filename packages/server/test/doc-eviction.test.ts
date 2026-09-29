@@ -183,7 +183,7 @@ describe('evicting an idle doc', () => {
     return { close: () => handlers.close?.(ws, 1000, '') };
   }
 
-  it('drops a doc only an agent reached after thirty minutes, not two days', () => {
+  it('drops a doc only an agent reached after thirty minutes, not two days', async () => {
     bound('agent-edited');
     bound('agent-read');
     docStore.flush();
@@ -196,31 +196,31 @@ describe('evicting an idle doc', () => {
     // The threads read reset nothing, so that doc goes thirty minutes after
     // it was last REACHED...
     clock += 11 * MINUTE;
-    expect(docStore.evictIdleDocs()).toEqual(['agent-read']);
+    expect(await docStore.evictIdleDocs()).toEqual(['agent-read']);
     // ...and the content read holds its doc for thirty minutes, not two days.
     clock += 20 * MINUTE;
-    expect(docStore.evictIdleDocs()).toEqual(['agent-edited']);
+    expect(await docStore.evictIdleDocs()).toEqual(['agent-edited']);
   });
 
-  it('keeps a doc a person opened for a week after they left it', () => {
+  it('keeps a doc a person opened for a week after they left it', async () => {
     bound('opened');
     bound('only-agent');
     docStore.flush();
     const editor = openEditor('opened');
     // Connected is a hold of its own; the week counts from leaving.
     clock += 3 * DAY;
-    expect(docStore.evictIdleDocs()).toEqual(['only-agent']);
+    expect(await docStore.evictIdleDocs()).toEqual(['only-agent']);
     editor.close();
 
     clock += 6 * DAY;
-    expect(docStore.evictIdleDocs()).toEqual([]);
+    expect(await docStore.evictIdleDocs()).toEqual([]);
     expect(resident('opened')).toBe(true);
     // Control: a week and a day after they left, it goes.
     clock += 2 * DAY;
-    expect(docStore.evictIdleDocs()).toEqual(['opened']);
+    expect(await docStore.evictIdleDocs()).toEqual(['opened']);
   });
 
-  it('an interaction resets the clock, so a doc opened today survives', () => {
+  it('an interaction resets the clock, so a doc opened today survives', async () => {
     bound('reopened');
     docStore.flush();
 
@@ -229,22 +229,22 @@ describe('evicting an idle doc', () => {
     // clock" — `get` is that open.
     expect(docStore.get('reopened')).toBeDefined();
 
-    expect(docStore.evictIdleDocs()).toEqual([]);
+    expect(await docStore.evictIdleDocs()).toEqual([]);
     expect(resident('reopened')).toBe(true);
 
     // Control: the clock really is what is holding it — three more days with
     // nobody touching it and the same doc goes.
     clock += 3 * DAY;
-    expect(docStore.evictIdleDocs()).toEqual(['reopened']);
+    expect(await docStore.evictIdleDocs()).toEqual(['reopened']);
   });
 
-  it('still resolves every docId after eviction, by id and by alias', () => {
+  it('still resolves every docId after eviction, by id and by alias', async () => {
     const doc = docStore.getOrCreate('minted-id', { type: 'markdown', alias: 'readable-name' });
     expect(doc.meta.alias).toBe('readable-name');
     docStore.flush();
 
     clock += 3 * DAY;
-    expect(docStore.evictIdleDocs()).toEqual(['minted-id']);
+    expect(await docStore.evictIdleDocs()).toEqual(['minted-id']);
     // Control: it really is gone from memory, so the lookups below are doing
     // work rather than reading a doc that never left.
     expect(resident('minted-id')).toBe(false);
@@ -256,7 +256,7 @@ describe('evicting an idle doc', () => {
     expect(docStore.list().some((m) => m.docId === 'minted-id')).toBe(true);
   });
 
-  it('refuses to evict a doc that is connected, mid-write, just edited, or wedged', () => {
+  it('refuses to evict a doc that is connected, mid-write, just edited, or wedged', async () => {
     // 1. A live connection.
     bound('connected');
     (docStore.peek('connected') as { conns: Set<unknown> }).conns.add({ data: {} });
@@ -287,7 +287,7 @@ describe('evicting an idle doc', () => {
     expect(docStore.reconcileNow('wedged')).toBe('conflict');
     expect(docStore.getDoc('wedged')?.syncError).toBeDefined();
 
-    expect(docStore.evictIdleDocs()).toEqual([]);
+    expect(await docStore.evictIdleDocs()).toEqual([]);
 
     // POSITIVE CONTROL: with every hold released, the same four DO evict — so
     // the empty list above is the guards, not a sweep that never ran.
@@ -305,7 +305,7 @@ describe('evicting an idle doc', () => {
     // between this call and the one above.
     clock += 3 * DAY;
 
-    expect(docStore.evictIdleDocs().sort()).toEqual([
+    expect((await docStore.evictIdleDocs()).sort()).toEqual([
       'connected',
       'just-edited',
       'mid-write',
@@ -315,7 +315,7 @@ describe('evicting an idle doc', () => {
     expect(onDisk(midPath)).toContain('typed, not yet flushed');
   });
 
-  it('holds a doc a meeting is being recorded into, and lets it go when the meeting ends', () => {
+  it('holds a doc a meeting is being recorded into, and lets it go when the meeting ends', async () => {
     // The notes of a live meeting reach their doc through `applyNotesUpdate`,
     // which neither opens a connection nor counts as a human edit — so every
     // hold above is blind to it. A long meeting on a doc nobody has opened
@@ -329,17 +329,17 @@ describe('evicting an idle doc', () => {
 
     clock += 3 * DAY;
     // The quiet doc goes; the one being recorded into stays.
-    expect(docStore.evictIdleDocs()).toEqual(['quiet']);
+    expect(await docStore.evictIdleDocs()).toEqual(['quiet']);
     expect(resident('in-a-meeting')).toBe(true);
 
     // POSITIVE CONTROL: the meeting is the only thing holding it. End the
     // meeting and the same idle doc, on the same clock, evicts.
     recording.delete('in-a-meeting');
-    expect(docStore.evictIdleDocs()).toEqual(['in-a-meeting']);
+    expect(await docStore.evictIdleDocs()).toEqual(['in-a-meeting']);
     expect(resident('in-a-meeting')).toBe(false);
   });
 
-  it('holds a doc when the recording check itself throws', () => {
+  it('holds a doc when the recording check itself throws', async () => {
     // A hold that fails open would evict exactly the doc it exists to keep,
     // and the failure mode is silent. Erring towards resident costs memory;
     // erring the other way costs the meeting.
@@ -356,7 +356,7 @@ describe('evicting an idle doc', () => {
       throwing.getOrCreate('unknowable', { type: 'markdown', title: 'unknowable' });
       throwing.flush();
       clock += 3 * DAY;
-      expect(throwing.evictIdleDocs()).toEqual([]);
+      expect(await throwing.evictIdleDocs()).toEqual([]);
       expect(throwing.peek('unknowable')).toBeDefined();
     } finally {
       throwing.stop();
