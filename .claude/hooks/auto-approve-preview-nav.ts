@@ -9,11 +9,11 @@
  * pre-rename live-feedback.json):
  *
  *   {
- *     "trustedPreviewDomains": ["tunnel.fryanpan.com"]
+ *     "trustedPreviewDomains": ["tunnel.example.com"]
  *   }
  *
- * An entry like "tunnel.fryanpan.com" matches the domain itself and any
- * subdomain under it (e.g. `abc.tunnel.fryanpan.com`). No wildcards over
+ * An entry like "tunnel.example.com" matches the domain itself and any
+ * subdomain under it (e.g. `abc.tunnel.example.com`). No wildcards over
  * paths — the host is the only gate. If the file is missing or the list
  * is empty, the hook is a no-op and Claude Code's normal approval prompt
  * fires.

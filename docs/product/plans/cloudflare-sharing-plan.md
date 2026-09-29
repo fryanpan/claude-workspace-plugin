@@ -15,17 +15,17 @@ See docs/product/sharing.md for the design + runbook.
 - ✅ launchd service `live-feedback.cloudflared`
   (`~/Library/LaunchAgents/live-feedback.cloudflared.plist`, mirrors the
   notion/sentry bridge pattern) — running, edge connections registered.
-- ✅ Wildcard DNS `*.tunnel.fryanpan.com` resolves to Cloudflare.
+- ✅ Wildcard DNS `*.tunnel.example.com` resolves to Cloudflare.
 
 ## Blockers
 
 1. **TLS decision (Bryan).** Universal SSL covers only one subdomain
-   level, so `share-<slug>.tunnel.fryanpan.com` fails TLS handshake at
+   level, so `share-<slug>.tunnel.example.com` fails TLS handshake at
    the edge (confirmed by probe — this is why the working bridges are
-   single-level, e.g. `notion-bridge.fryanpan.com`). Options:
-   - Advanced Certificate Manager (~$10/mo) for `*.tunnel.fryanpan.com`
+   single-level, e.g. `notion-bridge.example.com`). Options:
+   - Advanced Certificate Manager (~$10/mo) for `*.tunnel.example.com`
      — zero code changes.
-   - Switch to single-level `share-<slug>.fryanpan.com` + extend the
+   - Switch to single-level `share-<slug>.example.com` + extend the
      share code to create/delete a real DNS record per share (hostname
      exists only while the share lives — better security posture; token
      then also needs Zone-DNS-edit; moderate code change).

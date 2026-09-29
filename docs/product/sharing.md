@@ -54,7 +54,7 @@ flowchart LR
 
 1. **Enable Cloudflare Access.** Dashboard → Zero Trust → Access. On
    first visit you pick a team subdomain (e.g.
-   `fryanpan.cloudflareaccess.com`). **Permanent** — choose carefully.
+   `<team>.cloudflareaccess.com`). **Permanent** — choose carefully.
    Accept ToS, pick the default email-OTP IdP. ~3 min.
 
 2. **Note your Account ID.** Right sidebar of any zone page in the
@@ -82,9 +82,9 @@ flowchart LR
    points at the Workspaces server port (default `8787`):
    ```yaml
    tunnel: live-feedback
-   credentials-file: /Users/bryanchan/.cloudflared/<tunnel-uuid>.json
+   credentials-file: ~/.cloudflared/<tunnel-uuid>.json
    ingress:
-     - hostname: "*.tunnel.fryanpan.com"
+     - hostname: "*.tunnel.example.com"
        service: http://localhost:8787
      - service: http_status:404
    ```
@@ -92,15 +92,15 @@ flowchart LR
 7. **Set server env** (in your shell rc, launchd plist, or wherever
    `bun run dev` reads its env):
    ```sh
-   export CF_ACCESS_TEAM_DOMAIN="fryanpan.cloudflareaccess.com"
+   export CF_ACCESS_TEAM_DOMAIN="<team>.cloudflareaccess.com"
    export CF_ACCOUNT_ID="<your-account-id>"
-   export CF_SHARE_BASE_HOSTNAME="tunnel.fryanpan.com"
+   export CF_SHARE_BASE_HOSTNAME="tunnel.example.com"
    ```
    Then restart the Workspaces server. Look for these lines in startup
    logs to confirm it's wired:
    ```
-   [feedback]   cf-access:  team=fryanpan.cloudflareaccess.com aud=auto-from-shares
-   [feedback]   share:      base=tunnel.fryanpan.com account=abc12345…
+   [feedback]   cf-access:  team=<team>.cloudflareaccess.com aud=auto-from-shares
+   [feedback]   share:      base=tunnel.example.com account=abc12345…
    ```
 
 ## A standing collaboration hostname (no share link needed)
@@ -111,7 +111,7 @@ rather than per-review — a collaborator you have already admitted to
 Cloudflare Access, who should be able to open any board you send them the URL
 of, from outside the tailnet.
 
-Bryan set the boundary (2026-08-18): *"workspaces.fryanpan.com is meant to be
+Bryan set the boundary (2026-08-18): *"workspaces.example.com is meant to be
 the Cloudflare tunnel for collaboration that's reachable outside tailnet. But
 not used for the privileged access that inside-tailnet traffic gets."*
 

@@ -33,7 +33,7 @@ export function tabTitle(...parts: Array<string | null | undefined>): string {
  *
  * A file-backed attachment labels itself with the full path on the host, which
  * is the one shape a tab handles worst: truncation eats from the right, so
- * `/Volumes/Data/Users/…` would fill the title and the filename — the only
+ * `/path/to/…` would fill the title and the filename — the only
  * part that differs between two open docs — would never appear. An absolute
  * path is therefore reduced to its basename. A repo-relative path is left
  * whole: `src/a.ts` and `test/a.ts` are two files in one diff review, and the

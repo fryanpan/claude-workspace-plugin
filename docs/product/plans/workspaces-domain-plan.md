@@ -1,9 +1,9 @@
-# Plan: `workspaces.fryanpan.com`, and renaming the repo
+# Plan: `workspaces.example.com`, and renaming the repo
 
 Two independent pieces of the Workspaces rename that are **not** in the copy PR
 because neither is a code change:
 
-1. serving the existing server at `workspaces.fryanpan.com`, and
+1. serving the existing server at `workspaces.example.com`, and
 2. renaming the GitHub repo to `claude-workspaces-plugin`.
 
 Plan only. Nothing here touches DNS, Cloudflare, or the repo settings — those
@@ -16,7 +16,7 @@ are steps for the parent session and for Bryan.
 
 ---
 
-## Part 1 — `workspaces.fryanpan.com`
+## Part 1 — `workspaces.example.com`
 
 ### Where the product is served today
 
@@ -38,7 +38,7 @@ does not terminate TLS and still will not after this.
 
 The tailnet hostname `mac-mini.<tailnet>.ts.net` **stays** — Bryan cancelled
 the rename of the machine ("looks like I can't change mac-mini. That's fine.
-Keep it as mac-mini"). `workspaces.fryanpan.com` is an addition, not a
+Keep it as mac-mini"). `workspaces.example.com` is an addition, not a
 replacement.
 
 ### The constraint that decides the design
@@ -68,7 +68,7 @@ That is deliberate and the comment says why: cloudflared forwards the visitor's
 route learned — a gate on the `Host` header is spoofable by exactly the callers
 it exists to exclude.
 
-**So putting `workspaces.fryanpan.com` behind the Cloudflare tunnel does not
+**So putting `workspaces.example.com` behind the Cloudflare tunnel does not
 give Bryan the product at a nicer name.** Every request through the tunnel
 carries `cf-ray`, is therefore never `local`, and lands in one of three places:
 
@@ -77,7 +77,7 @@ carries `cf-ray`, is therefore never `local`, and lands in one of three places:
   until a `/s/<token>` link is redeemed, and then still scoped: `shareScopeAllows`
   is an allowlist that does **not** include `/` (the landing page), `/api/docs`
   (the doc list), or any workspace other than the shared one. Opening
-  `https://workspaces.fryanpan.com/` would 403 even with a valid session.
+  `https://workspaces.example.com/` would 403 even with a valid session.
 - **`share`** if it matches `share-<slug>.<base>` — a per-share hostname, not a
   product address.
 
@@ -89,12 +89,12 @@ silently.
 
 | | how | works today? | what it costs |
 |---|---|---|---|
-| **A. Tunnel it as a share host** | cloudflared ingress → `:8787`, set `CF_SHARE_PUBLIC_HOSTNAME=workspaces.fryanpan.com` | yes, no code change | It is not the product. It is the external-reviewer surface: one workspace per redeemed link, no landing page, no doc list. Good for *sharing*, wrong for *being the address Bryan opens*. |
-| **B. DNS-only CNAME to the tailnet name** | grey-cloud `workspaces.fryanpan.com` → `mac-mini.<tailnet>.ts.net`, plus `TRUSTED_HOSTS=workspaces.fryanpan.com` | no | No `cf-ray`, so it *would* classify local — but the tailnet cert is issued for `*.ts.net`, so `https://workspaces.fryanpan.com` presents a cert for the wrong name and every browser refuses. The name would also resolve only for devices already on the tailnet, which is the reachability the tailnet name already has. |
-| **C. Tunnel + Cloudflare Access on the whole hostname + a small code change** | cloudflared ingress → `:8787`; an Access application covering `workspaces.fryanpan.com`; a new opt-in list of hostnames that may classify `local` **despite** being proxied | needs a ~30-line change | Real TLS on a real public name, reachable off the tailnet. The code change is a deliberate narrowing of a security property and must not ship without the Access application in front — see below. |
+| **A. Tunnel it as a share host** | cloudflared ingress → `:8787`, set `CF_SHARE_PUBLIC_HOSTNAME=workspaces.example.com` | yes, no code change | It is not the product. It is the external-reviewer surface: one workspace per redeemed link, no landing page, no doc list. Good for *sharing*, wrong for *being the address Bryan opens*. |
+| **B. DNS-only CNAME to the tailnet name** | grey-cloud `workspaces.example.com` → `mac-mini.<tailnet>.ts.net`, plus `TRUSTED_HOSTS=workspaces.example.com` | no | No `cf-ray`, so it *would* classify local — but the tailnet cert is issued for `*.ts.net`, so `https://workspaces.example.com` presents a cert for the wrong name and every browser refuses. The name would also resolve only for devices already on the tailnet, which is the reachability the tailnet name already has. |
+| **C. Tunnel + Cloudflare Access on the whole hostname + a small code change** | cloudflared ingress → `:8787`; an Access application covering `workspaces.example.com`; a new opt-in list of hostnames that may classify `local` **despite** being proxied | needs a ~30-line change | Real TLS on a real public name, reachable off the tailnet. The code change is a deliberate narrowing of a security property and must not ship without the Access application in front — see below. |
 
 **Recommendation: C, and do not start it until Bryan has answered one
-question** — is `workspaces.fryanpan.com` meant to be reachable from outside
+question** — is `workspaces.example.com` meant to be reachable from outside
 the tailnet at all? If the honest answer is "no, I just want a nicer name on my
 own devices", then the whole problem is TLS for a custom name on a tailnet host,
 and B's blocker is the thing to solve (or the answer is to keep the ts.net name
@@ -114,7 +114,7 @@ exposure:
 2. **Refuse to honour it unless Access is configured.** If
    `CF_ACCESS_TEAM_DOMAIN` is unset, the list must be ignored with a loud
    startup log — otherwise anyone who can reach the tunnel and send
-   `Host: workspaces.fryanpan.com` has the full API, which is precisely the
+   `Host: workspaces.example.com` has the full API, which is precisely the
    hole the `viaProxy` veto was added to close (security review 2026-08-05, per
    the header comment in `host-guard.ts`).
 3. **The existing legacy whole-server Access branch then does the work.**
@@ -140,7 +140,7 @@ Everything that would need to know about a new host, from a full sweep:
 | `CW_PUBLIC_BASE_URL` → `normalizePublicBaseUrl` (`public-host.ts`) | the single source of every `reviewUrl` / `entryUrl` / `hubUrl` an agent pastes to Bryan | **yes, and this is the step that is invisible if skipped** — see the trap below |
 | `scripts/launchd/com.fryanpan.live-feedback.plist.template` | carries only `HOME`, `PATH`, `CW_PUBLIC_BASE_URL` today | yes, if any new env var must survive a reinstall |
 | `scripts/launchd/install.sh` | regenerates the plist from that template on every run | yes, to pass the new variable through |
-| `.claude/live-feedback.json` → `trustedPreviewDomains` | gates which hosts an agent may `navigate` to via the Chrome hook | yes — add `fryanpan.com`, or agents cannot open the new URL |
+| `.claude/live-feedback.json` → `trustedPreviewDomains` | gates which hosts an agent may `navigate` to via the Chrome hook | yes — add `example.com`, or agents cannot open the new URL |
 | `CF_SHARE_PUBLIC_HOSTNAME` / `CF_SHARE_BASE_HOSTNAME` | link-mode and Access-mode share hostnames | only if option A |
 | `publicHost()` / `lanHostnames()` / `tailscaleHost()` (`public-host.ts`) | discovers this machine's own names, 60s TTL | no — discovery, not configuration |
 | `packages/server/test/host-guard.test.ts` and friends | use `mac-mini.<tailnet>.ts.net` as a fixture | no — fixtures, and the tailnet name is staying anyway |
@@ -173,11 +173,11 @@ it. Steps 1–3 are reversible; step 6 is the one that changes what agents paste
 
 1. **Decide the question above** — off-tailnet access, yes or no. If no, stop
    and re-scope.
-2. **DNS + tunnel.** Add a `workspaces.fryanpan.com` public hostname to the
+2. **DNS + tunnel.** Add a `workspaces.example.com` public hostname to the
    existing cloudflared tunnel, pointing at `http://127.0.0.1:8787`.
    `docs/product/sharing.md` §6 has the ingress shape; the wildcard entry for
    shares stays alongside it.
-   *Verify:* `curl -sS -o /dev/null -w '%{http_code}' https://workspaces.fryanpan.com/`
+   *Verify:* `curl -sS -o /dev/null -w '%{http_code}' https://workspaces.example.com/`
    returns **403** with body `{"error":"unknown_host"}`. A 403 here is the
    **success** condition — it proves the tunnel reaches the server and the gate
    is doing its job. A `000` means the tunnel is not wired; a `200` means
@@ -190,8 +190,8 @@ it. Steps 1–3 are reversible; step 6 is the one that changes what agents paste
 5. **Reinstall the launchd job** with the new environment, after pulling:
    ```bash
    git pull --ff-only origin main            # in the PRIMARY checkout
-   CW_PUBLIC_BASE_URL=https://workspaces.fryanpan.com \
-   CW_PROXIED_TRUSTED_HOSTS=workspaces.fryanpan.com \
+   CW_PUBLIC_BASE_URL=https://workspaces.example.com \
+   CW_PROXIED_TRUSTED_HOSTS=workspaces.example.com \
    CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com \
      ./scripts/launchd/install.sh
    cat ~/.local/state/live-feedback/client/current/release.json
@@ -202,11 +202,11 @@ it. Steps 1–3 are reversible; step 6 is the one that changes what agents paste
    must keep working — if it stops, the change has replaced rather than added:
    | check | expect |
    |---|---|
-   | `https://workspaces.fryanpan.com/` after Access | 200, landing page |
+   | `https://workspaces.example.com/` after Access | 200, landing page |
    | `https://mac-mini.<tailnet>.ts.net/` | 200, unchanged — **this is the control** |
    | `http://localhost:8787/` | 200, unchanged |
-   | a `reviewUrl` from a fresh `attach_markdown` | starts `https://workspaces.fryanpan.com` |
-7. **Add `fryanpan.com` to `trustedPreviewDomains`** in
+   | a `reviewUrl` from a fresh `attach_markdown` | starts `https://workspaces.example.com` |
+7. **Add `example.com` to `trustedPreviewDomains`** in
    `.claude/live-feedback.json` so agents can navigate to the new URL.
 8. **Roll back** by reinstalling with the previous `CW_PUBLIC_BASE_URL` and
    removing the Cloudflare hostname. The DNS record and the Access application
@@ -240,7 +240,7 @@ Read off this machine on 2026-08-18, because the whole risk turns on it:
 ```json
 "claude-live-feedback": {
   "source": { "source": "github", "repo": "fryanpan/claude-live-feedback-plugin" },
-  "installLocation": "/Users/bryanchan/.claude/plugins/marketplaces/claude-live-feedback",
+  "installLocation": "~/.claude/plugins/marketplaces/claude-live-feedback",
   "lastUpdated": "2026-08-18T18:37:34.869Z"
 }
 ```

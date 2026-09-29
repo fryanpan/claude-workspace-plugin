@@ -7,7 +7,7 @@ import type { DocMeta } from '@claude-workspaces/core';
  * `GET /api/docs/<id>` is in a share visitor's scope — they have to read it
  * to render the doc — but the full DocMeta is a description of Bryan's
  * machine, not of the document: an absolute `sourceUrl`
- * (`/Volumes/Data/Users/bryanchan/dev/<private-repo>/…`), an `owner` that is
+ * (`/path/to/<private-repo>/…`), an `owner` that is
  * an agent's project directory, a `workspaceRoot`, and a `reviewUrl` on the
  * tailnet hostname. None of it is needed to render a review, and together it
  * maps out a filesystem and a private network for someone who was handed one

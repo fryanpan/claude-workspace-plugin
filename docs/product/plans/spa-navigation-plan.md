@@ -15,7 +15,7 @@
 - Lint/format: `bun run lint` (biome). Typecheck: `bun run typecheck`.
 - **Verify with real exit codes**, never `cmd | tail` (a pipe hides the exit code — this bit twice in the prior feature). Use `cmd && echo OK || echo FAIL`, or `set -e`.
 - Mobile is load-bearing — verify at 430px per `docs/product/design-mobile.md`. On mobile the sidebar is an overlay; a file click must also close the drawer.
-- Work in a git worktree so the prod checkout at `/Volumes/Data/Users/bryanchan/dev/claude-live-feedback-plugin` stays clean on `main`. Do NOT touch the uncommitted `.claude/rules/security-posture.md` or the untracked `demos/` files there.
+- Work in a git worktree so the prod checkout at `/path/to/repo` stays clean on `main`. Do NOT touch the uncommitted `.claude/rules/security-posture.md` or the untracked `demos/` files there.
 - Do NOT develop against the fleet-shared prod server on `:8787`. Use an isolated dev instance (`bun run packages/server/src/bin.ts --port 8796`).
 - The three boot paths (`app.ts` markdown, `code/code-app.ts`, `redline/redline-app.ts`) must all become teardown-safe. A partial conversion leaks listeners on the paths left behind.
 

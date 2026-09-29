@@ -30,14 +30,14 @@ describe('createBoardChromeRegion', () => {
   it('draws you as your own initials, and says whose chip it is', () => {
     const chrome = createBoardChromeRegion({
       state: boardState(),
-      user: { name: 'Bryan Chan', color: '#123456' },
+      user: { name: 'Alice Saltmarsh', color: '#123456' },
       el,
       location: fakeLocation('https://board.test/workspaces/w-1/tasks'),
       awareness: fakeAwareness([]),
     });
     chrome.renderMe();
-    expect(el('board-me').textContent).toBe('BC');
-    expect(el('board-me').getAttribute('aria-label')).toBe('You: Bryan Chan');
+    expect(el('board-me').textContent).toBe('AS');
+    expect(el('board-me').getAttribute('aria-label')).toBe('You: Alice Saltmarsh');
   });
 
   it('drops a nameless awareness entry rather than drawing a blank chip', () => {

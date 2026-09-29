@@ -1191,12 +1191,12 @@ kernel-wide socket CREATION failing, and its cause is still unknown.**
   Terminal's TCC scope and don't hit this — only launchd does.
 - **The grant is per BINARY, and probing with the wrong one sends you after
   the wrong bug** (2026-09-01). The bullet above is right, and it was still
-  misread as "launchd cannot read `/Volumes/Data`" — a volume-wide claim that
+  misread as "launchd cannot read `/Volumes/<data-volume>`" — a volume-wide claim that
   a whole prod migration was then justified by. What actually happened: the
   probe was `launchctl submit` of `/bin/cat`, which holds no grant and duly
   returned `Operation not permitted`, while the prod bun on the boot disk read
   the same file fine. A full launchd server with `WorkingDirectory` on
-  `/Volumes/Data` booted, built both bundles and served. **Probe with the same
+  `/Volumes/<data-volume>` booted, built both bundles and served. **Probe with the same
   binary the service runs, and pair it with a positive control** — a system
   binary is not a proxy. The board that day was down because the job was
   **booted out**, which bootstrapping fixed on its own.
@@ -1210,7 +1210,7 @@ kernel-wide socket CREATION failing, and its cause is still unknown.**
 - **Moving the service to the boot disk reduces the dependency; it does not
   remove it.** Prod now runs from `~/Library/Application Support/claude-workspaces/`
   and would boot and serve without the grant. But `~/.local`, `~/.claude` and
-  `~/.bun` are symlinks onto `/Volumes/Data`, so the discovery file every MCP
+  `~/.bun` are symlinks onto `/Volumes/<data-volume>`, so the discovery file every MCP
   client resolves prod through is still a Data path, as are bound docs in Data
   repos and the plugin cache. The durable reason to move was decoupling prod
   from a working checkout the deploy fast-forwards — not TCC.
@@ -3641,7 +3641,7 @@ write-once in practice, and the repair verb for a moved file cannot repair it.
 - **The trap.** Migrating prod's client releases to the boot disk, `rsync -a`
   faithfully copied `current` — an absolute symlink into
   `~/.local/state/claude-workspaces/...`, itself a symlink onto
-  `/Volumes/Data`. The copy looked complete, the server started, the board
+  `/Volumes/<data-volume>`. The copy looked complete, the server started, the board
   served. It was serving from the **old volume**, which is precisely what the
   migration existed to stop. Caught by `readlink`, not by any status check.
 - **Nothing downstream can notice.** A release root that resolves onto the
@@ -3672,7 +3672,7 @@ write-once in practice, and the repair verb for a moved file cannot repair it.
   two characters.
 - **The tell was available before the grep ran, and it is the useful part.**
   The corrected file quotes the false claim on purpose, inside a prohibition —
-  "Do not write, or repeat, `launchd cannot read /Volumes/Data`". So the
+  "Do not write, or repeat, `launchd cannot read /Volumes/<data-volume>`". So the
   expected count was never 0. **When a fix works by naming the thing it
   forbids, absence is the wrong assertion entirely** — a 0 there is proof the
   probe broke, not that the fix landed.
