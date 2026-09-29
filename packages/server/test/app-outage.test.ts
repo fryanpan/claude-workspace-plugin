@@ -1,6 +1,11 @@
 /** Who is told when an attached app stops answering, and how often (`app-outage.ts`). */
 import { describe, expect, it } from 'bun:test';
-import { APP_UNREACHABLE_EVENT, type AppFailure, AppOutages } from '../src/app-outage.ts';
+import {
+  APP_UNREACHABLE_EVENT,
+  ASK_AGAIN_MS,
+  type AppFailure,
+  AppOutages,
+} from '../src/app-outage.ts';
 
 const FAILURE: AppFailure = {
   workspaceId: 'w-harbor',
@@ -85,5 +90,83 @@ describe('AppOutages', () => {
     const h = harness();
     h.outages.answered('d-harbor');
     expect(h.lines).toHaveLength(0);
+  });
+
+  it('asks again only once two minutes have passed since the last notice', () => {
+    const h = harness();
+    h.outages.failed(FAILURE);
+    h.advance(ASK_AGAIN_MS - 1);
+    expect(h.outages.askAgain('d-harbor')).toEqual({
+      ok: false,
+      reason: 'too_soon',
+      retryAt: 1_000 + ASK_AGAIN_MS,
+    });
+    expect(h.sent).toHaveLength(1);
+    h.advance(1);
+    const asked = h.outages.askAgain('d-harbor');
+    expect(asked).toEqual({
+      ok: true,
+      askedAt: 1_000 + ASK_AGAIN_MS,
+      to: 'agent-harborlight',
+      addressedAs: 'attacher',
+    });
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1]?.agentId).toBe('agent-harborlight');
+    expect(h.sent[1]?.frame).toMatchObject({
+      event: APP_UNREACHABLE_EVENT,
+      askedAgain: true,
+      downSince: 1_000,
+      ts: 1_000 + ASK_AGAIN_MS,
+    });
+    // A held-down button: every press inside the next window is refused.
+    for (let i = 0; i < 5; i++) expect(h.outages.askAgain('d-harbor').ok).toBe(false);
+    expect(h.sent).toHaveLength(2);
+    h.advance(ASK_AGAIN_MS);
+    expect(h.outages.askAgain('d-harbor').ok).toBe(true);
+    expect(h.sent).toHaveLength(3);
+  });
+
+  it('reports the outage as the waiting page reads it', () => {
+    const h = harness();
+    expect(h.outages.outage('d-harbor')).toBeUndefined();
+    h.outages.failed(FAILURE);
+    expect(h.outages.outage('d-harbor')).toEqual({
+      since: 1_000,
+      askedAt: 1_000,
+      to: 'agent-harborlight',
+      addressedAs: 'attacher',
+    });
+    h.advance(ASK_AGAIN_MS);
+    h.outages.askAgain('d-harbor');
+    expect(h.outages.outage('d-harbor')).toMatchObject({
+      since: 1_000,
+      askedAt: 1_000 + ASK_AGAIN_MS,
+      askedAgainAt: 1_000 + ASK_AGAIN_MS,
+    });
+    h.outages.answered('d-harbor');
+    expect(h.outages.outage('d-harbor')).toBeUndefined();
+  });
+
+  it('asks the lead again when the lead was the one told', () => {
+    const h = harness({ lead: 'agent-riverbend' });
+    const { attachedBy: _, ...unrecorded } = FAILURE;
+    h.outages.failed(unrecorded);
+    h.advance(ASK_AGAIN_MS);
+    expect(h.outages.askAgain('d-harbor')).toMatchObject({
+      ok: true,
+      to: 'agent-riverbend',
+      addressedAs: 'lead',
+    });
+    expect(h.sent[1]?.frame.addressedAs).toBe('lead');
+  });
+
+  it('refuses to ask again when nobody was told, or the app is not down', () => {
+    const h = harness();
+    expect(h.outages.askAgain('d-harbor')).toEqual({ ok: false, reason: 'not_down' });
+    const { attachedBy: _, ...unrecorded } = FAILURE;
+    h.outages.failed(unrecorded);
+    h.advance(ASK_AGAIN_MS);
+    expect(h.outages.askAgain('d-harbor')).toEqual({ ok: false, reason: 'nobody' });
+    expect(h.sent).toHaveLength(0);
   });
 });

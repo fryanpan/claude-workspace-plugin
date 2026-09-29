@@ -5,6 +5,11 @@
  *
  *   POST /workspaces/<ws>/apps            attach a loopback dev server
  *   GET  /workspaces/<ws>/apps/<id>/<p>   the app's page or file at <p>
+ *   POST /workspaces/<ws>/apps/<id>       ask the agent again to start it
+ *
+ * The last is the waiting page's "Ask again" (`app-waiting-page.ts`). It is
+ * the bare address, with no slash after the id, because every address below
+ * the slash is the app's own path and a verb there would shadow one.
  *
  * The attach is an agent's act, like every other bind: a browser is refused
  * whatever its origin, and the origin must be loopback (`app-proxy.ts` has
@@ -24,8 +29,10 @@
  * Access is decided above this module and nowhere in it. The host guard
  * admits a share or collab visitor to `apps/<id>/…` only for an app filed on
  * the board in the path, and GET only; the workspace-scope middleware has
- * already refused an app that is not on this board. So nothing here reads
- * the visitor.
+ * already refused an app that is not on this board. The ask-again POST is
+ * the one write a member may make here, admitted by the same case in the
+ * host guard; it sends a fixed notice and `AppOutages.askAgain` holds it to
+ * one per two minutes. So nothing here reads the visitor.
  */
 import type { DocMeta, DocType } from '@claude-workspaces/core';
 import type { AppOutages } from '../app-outage.ts';
@@ -37,6 +44,7 @@ import {
   upstreamRequestHeaders,
   upstreamUrl,
 } from '../app-proxy.ts';
+import { APP_DOWN_HEADER, renderAppWaiting } from '../app-waiting-page.ts';
 import type { BrowserSentryConfig } from '../browser-sentry.ts';
 import { injectSentryHead } from '../browser-sentry.ts';
 import type { DocStore } from '../doc-store.ts';
@@ -51,7 +59,7 @@ import {
 } from '../mockup-frame.ts';
 import { appLinkWarning, linksOutsidePrefix, rootRelativePageLinks } from '../mockup-page-links.ts';
 import { injectWidget } from '../mockup-widget.ts';
-import { readAppAssetManifest, renderAppNotFound, renderAppUnreachable } from '../shells.ts';
+import { readAppAssetManifest, renderAppNotFound } from '../shells.ts';
 import { safeDecodeSegment } from '../workspace-path.ts';
 
 /** What the app routes read. Every member is long-lived. */
@@ -71,6 +79,8 @@ export interface AppRoutesContext {
   ownPort: () => number | undefined;
   /** Who is told when an app's dev server stops answering (`app-outage.ts`). */
   appOutages: AppOutages;
+  /** An agent's display name off the identity roster, when it has one. */
+  agentName: (agentId: string) => string | undefined;
 }
 
 export interface AppRouteRequest {
@@ -116,6 +126,7 @@ export async function handleAppRoutes(
   if (restIs(scope, 'apps') && req.method === 'POST') return attachApp(ctx, rq, scope.workspaceId);
   const m = scope?.rest.match(APP_ADDRESS);
   if (!scope || !m) return undefined;
+  if (req.method === 'POST' && m[2] === undefined) return askAgain(ctx, m[1] ?? '');
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return ctx.j(405, { error: 'method_not_allowed', allowed: ['GET', 'HEAD'] });
   }
@@ -175,6 +186,66 @@ async function attachApp(
     reachable: root.reachable,
     reviewUrl: meta.reviewUrl,
     meta,
+  });
+}
+
+/**
+ * "Ask again" from the waiting page: a fresh notice for the outage in
+ * progress. No body is read — the app, the agent and the words all come from
+ * the records — so the only input is the doc id in the path.
+ */
+function askAgain(ctx: AppRoutesContext, rawId: string): Response {
+  const { docStore, j } = ctx;
+  const id = safeDecodeSegment(rawId);
+  if (!ctx.isValidDocId(id)) return j(400, { error: 'bad docId' });
+  const meta = docStore.peekMeta(docStore.resolveDocId(id));
+  if (meta?.type !== 'app') return j(404, { error: 'app_not_found' });
+  const asked = ctx.appOutages.askAgain(meta.docId);
+  if (asked.ok) {
+    return j(200, {
+      askedAt: asked.askedAt,
+      to: ctx.agentName(asked.to) ?? asked.to,
+      addressedAs: asked.addressedAs,
+    });
+  }
+  if (asked.reason === 'too_soon') {
+    const r = j(429, { error: 'asked_recently', retryAt: asked.retryAt });
+    r.headers.set(
+      'retry-after',
+      String(Math.max(1, Math.ceil((asked.retryAt - Date.now()) / 1000))),
+    );
+    return r;
+  }
+  return j(409, { error: asked.reason === 'nobody' ? 'nobody_to_ask' : 'app_answering' });
+}
+
+/** The page a reader gets while the app is down, uncached and marked. */
+function waitingResponse(
+  ctx: AppRoutesContext,
+  workspaceId: string,
+  meta: DocMeta,
+  prefix: string,
+): Response {
+  const now = Date.now();
+  // `failed` has just recorded the outage; the fallback is for the page, never
+  // for a state that should exist.
+  const outage = ctx.appOutages.outage(meta.docId) ?? { since: now, askedAt: now };
+  const body = renderAppWaiting({
+    app: meta.title || meta.docId,
+    boardHref: `/workspaces/${encodeURIComponent(workspaceId)}`,
+    askUrl: prefix.replace(/\/$/, ''),
+    outage,
+    ...(outage.to ? { askedName: ctx.agentName(outage.to) ?? outage.to } : {}),
+    now,
+  });
+  return new Response(body, {
+    status: APP_DOWN_STATUS,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      // The edge must not keep the error page once the app is back.
+      'cache-control': 'no-store',
+      [APP_DOWN_HEADER]: '1',
+    },
   });
 }
 
@@ -243,7 +314,7 @@ async function serveApp(
     });
   } catch (err) {
     // A reader who closed the page aborts the fetch; that is not an outage.
-    if (req.signal.aborted) return html(renderAppUnreachable(), APP_DOWN_STATUS);
+    if (req.signal.aborted) return new Response(null, { status: APP_DOWN_STATUS });
     ctx.appOutages.failed({
       workspaceId,
       docId: meta.docId,
@@ -253,10 +324,7 @@ async function serveApp(
       reason: err instanceof Error ? err.message : String(err),
       ...(meta.producedBy?.agentId ? { attachedBy: meta.producedBy.agentId } : {}),
     });
-    const down = html(renderAppUnreachable(), APP_DOWN_STATUS);
-    // The edge must not keep the error page once the app is back.
-    down.headers.set('cache-control', 'no-store');
-    return down;
+    return waitingResponse(ctx, workspaceId, meta, prefix);
   }
   ctx.appOutages.answered(meta.docId);
   const headers = relayedResponseHeaders(up.headers, origin, prefix);

@@ -240,20 +240,6 @@ export function renderAppNotFound(docId: string): string {
 }
 
 /**
- * An attached app whose dev server is not answering. The loopback address is
- * not shown: it is a fact about this machine, and the reader cannot use it.
- */
-export function renderAppUnreachable(): string {
-  return renderNotFoundPage({
-    title: 'App not running',
-    heading: 'The app is not running',
-    body: `<p>The server is running, and this app is attached, but its dev
-      server is not answering. Ask the agent that attached it to start it,
-      then refresh this page.</p>`,
-  });
-}
-
-/**
  * The board page shell (§3.9). Tab title is `<workspace> · Workspaces` — the
  * browser tab is a workspace switcher, so the WORKSPACE leads and the product
  * name trails, where truncation can take it. (`board-app.ts` extends the same
@@ -529,13 +515,16 @@ export function renderReviewsShell(
  * The plain asset names are deliberate: an unhashed `/app/styles.css` is
  * still emitted by the build, and a not-found page has no manifest to read.
  */
-function renderNotFoundPage(opts: {
+export function renderNotFoundPage(opts: {
   /** The `<title>`, without the product suffix. */
   title: string;
   /** The `<h1>`. */
   heading: string;
   /** The body, already escaped. */
   body: string;
+  /** More of the `<head>` after the base block — a page's own style or
+   *  script. Trusted markup, never built from a request. */
+  head?: string;
 }): string {
   return `<!doctype html>
 <html lang="en">
@@ -569,7 +558,7 @@ function renderNotFoundPage(opts: {
         word-break: break-all;
       }
       .notfound-body .quiet { color: var(--fg-muted, #6e7781); font-size: 13px; }
-    </style>
+    </style>${opts.head ?? ''}
   </head>
   <body class="notfound-body">
     <main>
@@ -1216,7 +1205,7 @@ export function renderDeviceFrame(presetName: string, url: URL): string {
 </body></html>`;
 }
 
-function escape(s: string): string {
+export function escape(s: string): string {
   return s.replace(/[&<>"']/g, (c) => {
     const map: Record<string, string> = {
       '&': '&amp;',

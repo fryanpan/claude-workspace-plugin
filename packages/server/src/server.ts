@@ -2334,6 +2334,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       send: (workspaceId, agentId, frame) =>
         sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
     }),
+    agentName: (agentId) => identities.displayNameFor(agentId) ?? undefined,
   };
 
   /**

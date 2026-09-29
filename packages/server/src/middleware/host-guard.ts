@@ -1029,9 +1029,19 @@ export function shareScopeAllows(
            * leave it (`app-proxy.ts`), so what a member reaches is that one
            * dev server and nothing else on the machine. The attach itself,
            * `POST …/apps`, is not under this case and stays refused.
+           *
+           * One write: `POST …/apps/<id>`, the bare address with no slash
+           * after the id, is the waiting page's "Ask again". A member who
+           * finds the app down is the reader that page is for; the POST
+           * carries no input, sends a fixed notice to the agent already told,
+           * and is held to one per outage per two minutes
+           * (`AppOutages.askAgain`). Nothing under the slash is writable.
            */
           case 'apps':
-            return insideSharedWorkspace(memberId) && (method === 'GET' || method === 'HEAD');
+            return (
+              insideSharedWorkspace(memberId) &&
+              (method === 'GET' || method === 'HEAD' || (method === 'POST' && idEnd === -1))
+            );
           /**
            * A task row. Resolved as `task:<rowId>` — the id a board holds a
            * task body under — through the SAME `insideSharedWorkspace` every
