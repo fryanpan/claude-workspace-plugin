@@ -1274,7 +1274,33 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     ...(ctx.stallNudgeQuietMs !== undefined ? { agingMs: ctx.stallNudgeQuietMs } : {}),
     ...(teamLeadReach !== undefined ? { teamLead: teamLeadReach } : {}),
   });
+  /**
+   * The docs the snapshot below reads threads from, each with the filter it
+   * reads them under: every row's body (`stallVerdict` reads all threads),
+   * every goal body and every board doc (open threads only). A doc two walks
+   * read is loaded for the wider one. Links are left to the snapshot — it
+   * reads them only for the handful of rows it already called stuck.
+   */
+  const stallReadTargets = (): Map<string, 'open' | undefined> => {
+    const targets = new Map<string, 'open' | undefined>();
+    const add = (docId: string, status: 'open' | undefined) => {
+      if (!targets.has(docId) || status === undefined) targets.set(docId, status);
+    };
+    for (const workspace of taskStore.listWorkspaces()) {
+      for (const task of taskStore.listTasks(workspace.id)) add(taskBodyDocId(task.id), undefined);
+      for (const goal of taskStore.listGoalRows(workspace.id)) {
+        if (goal.status !== 'done') add(taskBodyDocId(goal.id), 'open');
+      }
+      for (const docId of workspace.docIds) add(docId, 'open');
+    }
+    return targets;
+  };
   const stallNudger = new StallNudger({
+    // On the timer, the cold docs the snapshot reads are loaded first, a
+    // slice at a time. The snapshot itself is one synchronous pass over every
+    // board, and at 3,000 rows it spent about half a second loading the docs
+    // an idle sweep had released.
+    prepare: () => docStore.warmForThreadReads(stallReadTargets()),
     snapshot: () => {
       const snapshots = taskStore.listWorkspaces().map(stallSnapshot);
       keepMoving.observe(snapshots, Date.now());

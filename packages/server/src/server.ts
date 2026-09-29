@@ -326,6 +326,9 @@ export interface ServerHandle {
   /** One pass of the stall wake (stall-nudge.ts). Runs on a 60s interval;
    *  exposed so tests exercise the real pass. */
   nudgeStalls: () => void;
+  /** The same pass as the timer runs it: the cold docs it reads are loaded
+   *  first, in slices, then the pass itself. */
+  nudgeStallsTimed: () => Promise<void>;
   /** One pass of the scheduled-task loop (task-scheduler.ts), returning the
    *  occurrences it fired. Runs on a 30s interval; exposed for the same
    *  reason the two wakes are — a test drives the real pass. */
@@ -3714,6 +3717,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // Same contract as `nudgeReadyWork`: a test drives the real loop rather
     // than a re-implementation of what it is believed to do.
     nudgeStalls: () => stallNudger.tick(),
+    nudgeStallsTimed: () => stallNudger.timedTick(),
     // Same contract again: a test drives the real scheduler pass and reads
     // back what it fired, rather than re-implementing the loop.
     runScheduler: () => taskScheduler.tick(),

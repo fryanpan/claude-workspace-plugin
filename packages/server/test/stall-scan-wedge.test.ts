@@ -98,6 +98,18 @@ describe('the stall scan over a board holding an unreadable doc', () => {
     expect((await post(`/workspaces/${workspaceId}/docs:attach`, { docId: DOC_ID })).status).toBe(
       200,
     );
+    // An open thread, so the scan has something to read here: a cold doc
+    // whose index row says it has none is answered from the row, unloaded.
+    expect(
+      (
+        await first.docStore.createThreadByFind(
+          DOC_ID,
+          { find: 'readable first version' },
+          { id: 'u-harborlight', name: 'Harborlight', kind: 'known', color: '#000' },
+          'Is this still current?',
+        )
+      ).ok,
+    ).toBe(true);
     await first.stop();
 
     // The folder goes bad. Everything else about the path is unchanged — it

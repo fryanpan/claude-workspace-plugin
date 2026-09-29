@@ -2906,8 +2906,50 @@ export class DocStore {
     // And it costs no BINDING either: the read-only resolve leaves the file
     // alone entirely, so a walk over a board's docs can no longer wake every
     // dormant binding on it (2026-09-16 — see `getForRead`).
+    //
+    // A doc that is not in memory and whose index row says it has no threads
+    // of the kind asked for answers empty without being loaded. The stall
+    // scan asks this of every task body and board doc every ten minutes; at
+    // 3,000 tasks the loads held the loop for about a second and added
+    // ~130MB of heap, nearly all of it for docs with nothing to return. The
+    // row is exact outside a pending write (see `threadCounts`).
+    if (!this.docs.has(docId) && this.indexSaysNoThreads(docId, filter?.status)) return [];
     this.resolveDocForRead(docId);
     return this.docThreads.listThreads(docId, filter);
+  }
+
+  /**
+   * Load, ahead of a synchronous walk, the docs that walk will read threads
+   * from, handing the loop back between loads.
+   *
+   * Each value is the filter the walk will pass to `listThreads`, so a doc
+   * the walk would answer empty from the index is not loaded here either.
+   * The stall tick reads every task body and board doc in one synchronous
+   * pass; without this, the first tick after a boot or an idle sweep loaded
+   * every cold doc with a thread inside that pass. Resolves to how many docs
+   * it loaded.
+   */
+  async warmForThreadReads(
+    targets: ReadonlyMap<string, 'open' | undefined>,
+    slice: TimeSlice = timeSlice(),
+  ): Promise<number> {
+    let loaded = 0;
+    for (const [docId, status] of targets) {
+      await slice.yieldIfDue();
+      if (this.stopped) break;
+      if (this.docs.has(docId) || this.indexSaysNoThreads(docId, status)) continue;
+      if (this.resolveDocForRead(docId)) loaded++;
+    }
+    return loaded;
+  }
+
+  private indexSaysNoThreads(docId: string, status?: 'open' | 'resolved'): boolean {
+    if (this.saveTimers.has(docId)) return false;
+    const counts = this.docIndex.get(docId)?.threads;
+    if (!counts) return false;
+    if (status === 'open') return counts.open === 0;
+    if (status === 'resolved') return counts.total - counts.open === 0;
+    return counts.total === 0;
   }
 
   getThread(docId: string, threadId: string): Thread | null {

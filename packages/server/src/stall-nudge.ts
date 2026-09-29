@@ -573,6 +573,12 @@ export interface UnfiledCarry {
 export interface StallNudgerOptions {
   /** Every live board, rebuilt each tick. */
   snapshot: () => readonly StallSnapshot[];
+  /**
+   * Run before each TIMED tick, and awaited: the place to load, in slices,
+   * what `snapshot` would otherwise load inside one synchronous pass. A
+   * direct `tick()` skips it. Omitted → the timer calls `tick` alone.
+   */
+  prepare?: () => Promise<unknown>;
   /** Is this agent holding a stream we could actually wake? */
   canReach: (workspaceId: string, agentId: string) => boolean;
   /**
@@ -908,6 +914,11 @@ export class StallNudger {
    */
   private readonly checkInTold = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** A timed tick is still preparing; the next interval skips rather than
+   *  stacking a second pass behind it. */
+  private preparing = false;
+  /** Set by `stop`, so a pass still preparing at shutdown does not tick. */
+  private stopped = false;
   private readonly stampFile: string | null;
   /** What the file already holds, so an unchanged map costs no write. `tick`
    *  runs once a minute forever; rewriting a byte-identical file each time
@@ -988,12 +999,36 @@ export class StallNudger {
   /** Arm the timer. Unref'd, so it can never hold a dying process open. */
   start(tickMs: number = STALL_TICK_DEFAULT_MS): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), tickMs);
+    this.timer = setInterval(() => this.timedTick(), tickMs);
     this.timer.unref?.();
+  }
+
+  /** The timer's pass: `prepare`, then `tick`. Never throws, like `tick`. */
+  timedTick(): Promise<void> {
+    const prepare = this.opts.prepare;
+    if (!prepare) {
+      this.tick();
+      return Promise.resolve();
+    }
+    if (this.preparing) return Promise.resolve();
+    this.preparing = true;
+    return prepare()
+      .catch((err) => {
+        this.report(
+          `[stall-nudge] prepare failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      })
+      .then(() => {
+        if (!this.stopped) this.tick();
+      })
+      .finally(() => {
+        this.preparing = false;
+      });
   }
 
   /** Idempotent: a shutdown path that already stopped must not throw. */
   stop(): void {
+    this.stopped = true;
     if (!this.timer) return;
     clearInterval(this.timer);
     this.timer = null;
