@@ -28,11 +28,68 @@ describe('which lines a grant card may carry', () => {
   });
 
   it('refuses a specifier that covers the whole tool', () => {
-    for (const whole of ['Bash(*)', 'Bash(:*)', 'Bash(*:*)', 'Read(~/**)', 'Read(//**)']) {
+    for (const whole of ['Bash(*)', 'Bash(:*)', 'Bash(*:*)']) {
       expect(permissionRuleProblem(whole)).toMatch(/whole tool/);
     }
     expect(permissionRuleProblem('WebFetch(domain:*)')).toMatch(/whole tool/);
     expect(permissionRuleProblem('Bash()')).toMatch(/bare tool name/);
+  });
+
+  it('refuses a specifier that starts with a wildcard', () => {
+    for (const wild of ['Bash(*a*)', 'Bash(*git push:*)', 'Edit(*/src/**)']) {
+      expect(permissionRuleProblem(wild)).toMatch(/starts with a wildcard/);
+    }
+    // Control: a wildcard after the command is how a prefix rule is spelt.
+    expect(permissionRuleProblem('Bash(git push:*)')).toBeUndefined();
+  });
+
+  it('refuses a Bash rule that starts with a shell, interpreter or runner', () => {
+    const runners = [
+      'Bash(sh:*)',
+      'Bash(bash -c:*)',
+      'Bash(zsh:*)',
+      'Bash(fish:*)',
+      'Bash(env:*)',
+      'Bash(eval:*)',
+      'Bash(exec:*)',
+      'Bash(sudo:*)',
+      'Bash(su:*)',
+      'Bash(xargs:*)',
+      'Bash(nohup:*)',
+      'Bash(time git push:*)',
+      'Bash(command:*)',
+      'Bash(python:*)',
+      'Bash(python3 -c:*)',
+      'Bash(node -e:*)',
+      'Bash(bun:*)',
+      'Bash(deno run:*)',
+      'Bash(ruby -e:*)',
+      'Bash(perl -e:*)',
+      'Bash(osascript:*)',
+      'Bash(/bin/sh -c:*)',
+    ];
+    for (const rule of runners) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/runs any command/);
+    }
+    // Controls: a command that merely contains a runner's name is admitted,
+    // and a runner's name on another tool is not a command.
+    expect(permissionRuleProblem('Bash(git push --force-with-lease:*)')).toBeUndefined();
+    expect(permissionRuleProblem('Bash(shellcheck:*)')).toBeUndefined();
+    expect(permissionRuleProblem('Bash(bunx biome check:*)')).toBeUndefined();
+    expect(permissionRuleProblem('Edit(bun/**)')).toBeUndefined();
+  });
+
+  it('refuses a file-tool rule on the disk root or the home directory', () => {
+    for (const tool of ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+      for (const root of ['/', '~', '/**', '~/**', '**', '//**']) {
+        expect(permissionRuleProblem(`${tool}(${root})`), `${tool}(${root})`).toMatch(
+          /opens every file/,
+        );
+      }
+    }
+    // Control: a directory inside a project is admitted.
+    expect(permissionRuleProblem('Edit(src/**)')).toBeUndefined();
+    expect(permissionRuleProblem('Write(~/harborlight/notes/**)')).toBeUndefined();
   });
 
   it('refuses a line break, padding and an over-long line', () => {

@@ -17,6 +17,13 @@
  *    `Read(~/**)`, `WebFetch(domain:*)`. The test is that the specifier names
  *    something: it must hold a letter or digit once a `domain:` prefix is set
  *    aside. Wildcards and path separators alone name everything.
+ *  - A specifier that starts with a wildcard — `Bash(*a*)` holds a letter but
+ *    still matches nearly every command.
+ *  - A Bash rule whose first word is a shell, interpreter or command runner —
+ *    `Bash(sh:*)`, `Bash(python3 -c:*)`, `Bash(sudo:*)`. Each runs whatever
+ *    follows it, so the rule is the whole tool.
+ *  - A file-tool rule on the disk root or home directory — `Write(/**)`,
+ *    `Edit(~/**)`.
  *  - Anything that is not one line of printable text, or that runs past
  *    `GRANT_LIMITS.ruleMaxChars`. The card shows the line verbatim; a line
  *    break would let the card show one thing and the file receive another.
@@ -55,12 +62,60 @@ export function permissionRuleProblem(rule: unknown): string | undefined {
   if (!m) {
     return 'must name a tool AND what it may do, like `Bash(git push:*)` — a bare tool name allows the whole tool';
   }
-  const spec = (m[2] ?? '').replace(/^domain:/, '');
+  const tool = m[1] ?? '';
+  const raw = m[2] ?? '';
+  if (FILE_TOOLS.has(tool) && FILE_ROOTS.has(raw.replace(/^\/\//, '/'))) {
+    return 'opens every file — the path has to name a directory inside a project, like `Edit(src/**)`';
+  }
+  const spec = raw.replace(/^domain:/, '');
   if (!/[A-Za-z0-9]/.test(spec)) {
     return 'covers the whole tool — the part in parentheses has to name a command, path or domain';
   }
+  if (raw.startsWith('*')) {
+    return 'starts with a wildcard, which matches nearly anything — start with the command, path or domain itself';
+  }
+  if (tool === 'Bash') {
+    const first = (raw.split(/[ :]/, 1)[0] ?? '').split('/').pop() ?? '';
+    if (COMMAND_RUNNERS.has(first)) {
+      return `starts with \`${first}\`, which runs any command it is given — name the command itself`;
+    }
+  }
   return undefined;
 }
+
+/** Tools whose specifier is a path. */
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+/** Paths that name the whole disk or the whole home directory. */
+const FILE_ROOTS = new Set(['/', '~', '/**', '~/**', '**']);
+
+/**
+ * Shells, interpreters and command runners: a prefix rule on any of them
+ * allows whatever command follows, so `Bash(sh:*)` is `Bash` by another name.
+ */
+const COMMAND_RUNNERS = new Set([
+  'sh',
+  'bash',
+  'zsh',
+  'fish',
+  'env',
+  'eval',
+  'exec',
+  'sudo',
+  'su',
+  'xargs',
+  'nohup',
+  'time',
+  'command',
+  'python',
+  'python3',
+  'node',
+  'bun',
+  'deno',
+  'ruby',
+  'perl',
+  'osascript',
+]);
 
 /** True when `rule` is a line a grant card may carry. */
 export function isGrantableRule(rule: unknown): rule is string {

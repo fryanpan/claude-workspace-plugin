@@ -15662,7 +15662,7 @@ var SECRET_PROPERTIES = {
   allowRules: {
     type: "array",
     items: { type: "string" },
-    description: "For 'grant' only, and required there. Every Claude Code allow rule the task needs, exactly as it will be written into the owner's settings, e.g. `Bash(git push --force-with-lease:*)`. 1 to 20 rules, each naming a tool AND a specifier: bare `Bash`, a rule covering a whole tool, and any mention of deny or ask rules are refused. The owner approves them in the browser; you cannot answer this card. They are removed when the task moves to done or is archived."
+    description: "For 'grant' only, and required there. Every Claude Code allow rule the task needs, exactly as it will be written into the owner's settings, e.g. `Bash(git push --force-with-lease:*)`. 1 to 20 rules, each naming a tool AND a specifier: bare `Bash`, a rule covering a whole tool, a specifier starting with `*`, a Bash rule starting with a shell, interpreter or runner (`sh`, `bash -c`, `env`, `sudo`, `xargs`, `python3 -c`, `node`, ...), a file rule on `/`, `~` or `**`, and any mention of deny or ask rules are refused. The owner approves them in the browser; you cannot answer this card. They are removed when the task moves to done or is archived."
   },
   secrets: {
     type: "array",
