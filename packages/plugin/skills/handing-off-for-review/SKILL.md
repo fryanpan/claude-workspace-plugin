@@ -21,7 +21,7 @@ Call `list_threads(docId: "task:<taskId>")`, and `list_threads` on the doc or mo
 **Open each one headless,** on the board's local address, for example `http://127.0.0.1:8787`:
 
 - **A mock:** run `check-mock-render.mjs` from `claude-workspaces:building-a-mock`. It must exit 0.
-- **Any other link (manual):** open it in a throwaway headless Chrome. The page must show what the link text names, not a sign-in, a 404 or an empty app shell. A status code proves nothing, because every board route returns 200 with the shell. An external link, such as a screenshot or a PR, must load the named content.
+- **Any other link (manual):** open it in a throwaway headless Chrome. The page must show what the link text names, not a sign-in, a 404 or an empty app shell. A status code proves nothing: a board page can answer 200 with an empty app shell. An external link, such as a screenshot or a PR, must load the named content.
 
 **Don't file while a link is dead.** Fix the link, or take it out of the text first.
 
@@ -36,7 +36,7 @@ Call `report_done_when` for each line. Each proof's `url` is a link you opened i
 | Thought | Reality |
 | --- | --- |
 | "The lead said file it and move on" | The checks take minutes. A dead link or a repeated question costs a whole round. |
-| "curl returned 200" | Every board route returns 200 with the app shell. |
+| "curl returned 200" | A board page can answer 200 with an empty app shell. |
 | "I'll use this repo's screenshot script" | The next repo may not have it. Use the shipped check, or a throwaway headless Chrome. |
 | "The screenshot link probably works" | If you haven't opened it, treat it as dead. |
 | "I'll type the mock's path" | Copy it from the tool response. |

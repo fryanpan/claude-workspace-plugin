@@ -38,5 +38,5 @@ A mock exists so a person can act on it and comment on it. Each step leaves a pr
 | Thought | Reality |
 | --- | --- |
 | "No time for the render check" | It takes 30 seconds; a mock with no widget costs a round. |
-| "A local screenshot, `observe_url` or a curl 200 proves it" | Only the served route has the widget; `observe_url` is an event stream; any id answers 200. |
+| "A local screenshot, `observe_url` or a curl 200 proves it" | Only the served route has the widget; `observe_url` is an event stream; a 200 is the host page, not the mock. |
 | "I'll do the UX pass myself" | A builder can't sign off their own work. |
