@@ -29,12 +29,14 @@ import type { BoardWorkspace, TaskStore } from '../tasks.ts';
  *   GET  /workspaces/<id>/library/items — meetings and files, newest first
  *   POST /workspaces/<id>/library/open  — `{ path }` → `{ docId, href }`
  *
- * Neither is on `shareScopeAllows`, so both are trusted-local: a member on the
- * operator host or the box. The PAGE (`/workspaces/<id>/library`) is a board
- * tab like Activity and is served with the shell; the data is not, because it
- * names files in a repo on this machine rather than content filed on the
- * board. Each handler refuses a share visitor itself as well, so a later
- * allowlist entry under the board's prefix cannot open them silently.
+ * The list is on `shareScopeAllows`, and a share visitor's list is a
+ * different build: only what is FILED on the board — its docs, mocks, apps
+ * and meetings, each opening at an address on the board — with no project,
+ * no repo file nobody filed and no mount, because those name files on this
+ * machine rather than content on the board (`visitorSources`). Before this, a
+ * member who opened the Library tab was refused its data and read "The
+ * library could not load". `open` is not on the allowlist and refuses a share
+ * visitor itself as well: it binds a file on this machine.
  *
  * **What `open` may bind.** A page may not name a host path — binding is an
  * agent action for exactly that reason (`browserCannotBindBody`). This verb
@@ -105,12 +107,26 @@ export async function handleLibraryRoutes(
   const items = restIs(scope, 'library/items');
   const open = restIs(scope, 'library/open');
   if (!scope || (!items && !open)) return undefined;
-  if (visitor) return j(403, { error: 'the library is not available to share visitors' });
   if (items && req.method === 'GET') {
-    return j(200, buildLibrary(sourcesFor(ctx, scope, isOnBox(ctx, req))));
+    const onBox = !visitor && isOnBox(ctx, req);
+    const src = sourcesFor(ctx, scope, onBox);
+    return j(200, buildLibrary(visitor ? visitorSources(src) : src));
   }
+  if (visitor) return j(403, { error: 'the library is not available to share visitors' });
   if (open && req.method === 'POST') return openFile(ctx, scope, req);
   return j(405, { error: 'method not allowed' });
+}
+
+/**
+ * A share visitor's Library: the board's own filed content and nothing that
+ * names the machine. No project root means no project path, no repo listing
+ * and no file to bind; no mounts and no `placing` means no folder names and
+ * no storage phrases. Every row left opens at an address on the board, which
+ * the membership gate judges again when it is opened.
+ */
+function visitorSources(src: LibrarySources): LibrarySources {
+  const { placing: _placing, ...rest } = src;
+  return { ...rest, projectRoot: () => null, markdownFiles: () => [], mountedFiles: () => [] };
 }
 
 /** Did this request come from this machine, unproxied? */
