@@ -426,9 +426,12 @@ describe('wireBoardVoice with the spoken reply', () => {
   });
 
   it('mounts the spoken mic for a held setup alone, so the panel can say why', async () => {
-    const m = mount([], { '2': 'Setup 2 waits on turning off ElevenLabs training.' });
+    const line = 'Setup 2 waits on turning off ElevenLabs training.';
+    const m = mount([], { '2': line });
     await vi.advanceTimersByTimeAsync(0);
-    expect(document.getElementById('vr-panel')).not.toBeNull();
+    m.el('board-mic').dispatchEvent(new Event('pointerdown'));
+    expect(document.querySelector('#vr-panel .vr-body')?.textContent).toBe(line);
+    expect(m.opened).toEqual([]);
   });
 
   it('keeps the plain mic when the server can speak no setup', async () => {
