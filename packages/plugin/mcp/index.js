@@ -15642,12 +15642,17 @@ var REVIEW_ITEM_SCHEMA = {
 var SECRET_PROPERTIES = {
   review_type: {
     type: "string",
-    enum: ["decision", "question", "secret"],
-    description: "Use 'decision' to offer 2-6 named options. Use 'question' to ask for an answer in the reader's own words. Use 'secret' to ask for values you must never see: the reader types them into the card and they go straight to this machine's store."
+    enum: ["decision", "question", "secret", "grant"],
+    description: "Use 'decision' to offer 2-6 named options. Use 'question' to ask for an answer in the reader's own words. Use 'secret' to ask for values you must never see: the reader types them into the card and they go straight to this machine's store. Use 'grant' to ask the owner to allow the exact commands a task needs (`allowRules`): approved in the browser, removed when the task closes."
   },
   shape: {
     type: "string",
-    enum: ["decision", "review", "secret"]
+    enum: ["decision", "review", "secret", "grant"]
+  },
+  allowRules: {
+    type: "array",
+    items: { type: "string" },
+    description: "For 'grant' only, and required there. Every Claude Code allow rule the task needs, exactly as it will be written into the owner's settings, e.g. `Bash(git push --force-with-lease:*)`. 1 to 20 rules, each naming a tool AND a specifier: bare `Bash`, a rule covering a whole tool, and any mention of deny or ask rules are refused. The owner approves them in the browser; you cannot answer this card. They are removed when the task moves to done or is archived."
   },
   secrets: {
     type: "array",
@@ -17479,7 +17484,7 @@ var TOOL_LIST = {
     },
     {
       name: "add_review_item",
-      description: `Hang a question on a task that already exists, so the ask stays attached to the work. A task carries several at once, each answered on its own, so the task title keeps naming the work. When you file work and question together, use \`review\` on a create_tasks entry. Every item passes the board's quality gate: \`held: true\` means it is OFF the reader's queue until revise_review_item closes \`heldReason\`. To ask for a value you must never see — an account name, a signing value, anything you would otherwise ask a person to paste into chat — file \`review_type: 'secret'\` with one \`secrets\` field per value. The reader types them into the card and they go straight to this machine's store; you are told only that they were saved and under which names. Read one back with \`${secretReadCommand("<service>")}\` (the stored name carries that prefix; the card shows the bare one), use it in the command that needs it, and never write it anywhere.`,
+      description: `Hang a question on a task that already exists, so the ask stays attached to the work. A task carries several at once, each answered on its own, so the task title keeps naming the work. When you file work and question together, use \`review\` on a create_tasks entry. Every item passes the board's quality gate: \`held: true\` means it is OFF the reader's queue until revise_review_item closes \`heldReason\`. To ask for a value you must never see — an account name, a signing value, anything you would otherwise ask a person to paste into chat — file \`review_type: 'secret'\` with one \`secrets\` field per value. The reader types them into the card and they go straight to this machine's store; you are told only that they were saved and under which names. Read one back with \`${secretReadCommand("<service>")}\` (the stored name carries that prefix; the card shows the bare one), use it in the command that needs it, and never write it anywhere. To run commands only the owner may allow, file ONE \`review_type: 'grant'\` item before the work starts, listing every rule in \`allowRules\`; the owner approves it in the browser, the rules are written to their settings, and they are removed when the task closes.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -17495,7 +17500,7 @@ var TOOL_LIST = {
     },
     {
       name: "answer_review_item",
-      description: "Record a person's verbatim answer to one review item on their behalf, for when they told you in chat or voice. Pass their exact words, never a paraphrase. reviewItemId keeps several open questions on one task independently answerable. It does not transition the task, so close that with task_transition once you have acted on the returned links. A 'secret' item is REFUSED here and cannot be answered this way: its values are typed into its own card and go straight to this machine's store, and words recorded through this tool are stored, echoed to the feed and read back to you. If a person offers you such a value in chat, do not pass it on — point them at the item.",
+      description: "Record a person's verbatim answer to one review item on their behalf, for when they told you in chat or voice. Pass their exact words, never a paraphrase. reviewItemId keeps several open questions on one task independently answerable. It does not transition the task, so close that with task_transition once you have acted on the returned links. A 'secret' item is REFUSED here and cannot be answered this way: its values are typed into its own card and go straight to this machine's store, and words recorded through this tool are stored, echoed to the feed and read back to you. If a person offers you such a value in chat, do not pass it on — point them at the item. A 'grant' item is refused here too: only the owner, signed in to the board, can approve one.",
       inputSchema: {
         type: "object",
         properties: {
@@ -20760,7 +20765,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.271";
+var PLUGIN_VERSION = "0.1.274";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
