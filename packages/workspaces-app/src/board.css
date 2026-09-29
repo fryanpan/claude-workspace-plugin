@@ -137,6 +137,28 @@ body.board-body {
   text-transform: uppercase;
   white-space: nowrap;
 }
+/* A member's address and the way to sign in as another, under the topbar.
+   One quiet line: a member reads it once to know which address this board
+   answered, so it spends a line of height, not a control's worth. */
+.board-signed-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 10px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.board-signed-in b {
+  color: var(--fg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.board-signed-in a {
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+}
 
 /* ################# BOARD · TOP-RIGHT CLUSTER #################
    Who is here, share, settings, me.

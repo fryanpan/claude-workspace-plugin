@@ -59,20 +59,44 @@ export const NAV_COLLAPSE_HTML = `<button type="button" id="board-nav-collapse" 
         </button>`;
 
 /**
+ * Did the server say this visitor's door lists their boards at `/`? The share,
+ * collaboration and main hostnames do (the member's own list); a per-share
+ * hostname does not, because its one board is all there is.
+ *
+ * The server sets `data-visitor` and `data-visitor-home` on `#board-root` — it
+ * is the only side that knows which door served the page.
+ */
+function visitorWithoutHome(root: HTMLElement): boolean {
+  return root.dataset.visitor === '1' && root.dataset.visitorHome !== '1';
+}
+
+/**
  * The back arrow, or nothing.
  *
- * `/` is the all-workspaces page, and on a share or collaboration hostname it
- * is not a page at all: the host guard refuses every path that names no
- * workspace, so the arrow landed a visitor on a raw JSON refusal. A member was
- * given one board; there is nowhere above it for them to go, so the arrow is
- * left out rather than pointed somewhere it does not belong.
- *
- * The server sets `data-visitor` on `#board-root` — it is the only side that
- * knows which hostname class served the page.
+ * `/` is the owner's all-workspaces page, or a member's own list of the
+ * boards shared with them. On a door with neither there is nowhere above the
+ * board to go, so the arrow is left out rather than pointed at a refusal.
  */
 function backLink(root: HTMLElement): string {
-  if (root.dataset.visitor === '1') return '';
+  if (visitorWithoutHome(root)) return '';
   return '<a href="/" class="back-link" title="All workspaces" aria-label="Back">←</a>';
+}
+
+/**
+ * Who Cloudflare signed in, and the way to sign in as someone else — for a
+ * member only. The owner's identity is the chip in the cluster; a member was
+ * admitted by an ADDRESS, and a person with two of them needs to see which
+ * one this board answered before they comment as it.
+ *
+ * The link is Cloudflare's own logout path, answered at the edge: the next
+ * visit asks which address to sign in with.
+ */
+export const ACCESS_LOGOUT_PATH = '/cdn-cgi/access/logout';
+
+function signedInLine(root: HTMLElement): string {
+  const email = root.dataset.signedInAs ?? '';
+  if (root.dataset.visitor !== '1' || root.dataset.visitorHome !== '1' || email === '') return '';
+  return `<div class="board-signed-in"><span>Signed in as <b>${escapeHtml(email)}</b></span><a href="${ACCESS_LOGOUT_PATH}">Use a different account</a></div>`;
 }
 
 /** Static shell — built once; regions re-render into their containers. */
@@ -94,6 +118,7 @@ export function buildShell(
       </div>
       <div id="board-me-menu" class="board-me-menu hidden" role="region" aria-label="Your identity"></div>
     </header>
+    ${signedInLine(root)}
     <div id="board-connection" class="conn-banner hidden" role="status" aria-live="polite"></div>
     <div class="board-main" id="board-main">
       <nav id="board-nav" class="board-nav" aria-label="Workspace pages">

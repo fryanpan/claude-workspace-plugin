@@ -202,9 +202,10 @@ describe('a proxied trusted host, with Access in front of it', () => {
     it('a token is admission, not identity — a collaborator the SAME app admits is refused', async () => {
       // One Access application (one AUD) may cover both hostnames, so a
       // collaborator's perfectly valid token reaches this door too. What
-      // makes it the operator's door is the email allowlist: the verified
-      // claim must name an operator, or every operator verb is refused with
-      // a body that does not echo who was refused.
+      // makes it the operator's door is the email allowlist: an email that
+      // is not an operator's is a VISITOR here, scoped to the boards it is a
+      // member of (member-home.test.ts), so every operator verb is refused
+      // with the share-scope body, which does not echo who was refused.
       const asCollaborator = {
         host: PROXIED_HOST,
         ...CF_RAY,
@@ -212,20 +213,20 @@ describe('a proxied trusted host, with Access in front of it', () => {
       };
       const list = await get(h, docsOf(h), asCollaborator);
       expect(list.status).toBe(403);
-      expect(await list.json()).toEqual({ error: 'forbidden' });
+      expect(await list.json()).toEqual({ error: 'out_of_share_scope' });
       const create = await fetch(`http://127.0.0.1:${h.port}/workspaces`, {
         method: 'POST',
         headers: { ...asCollaborator, 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'Should not exist' }),
       });
       expect(create.status).toBe(403);
-      expect(await create.json()).toEqual({ error: 'forbidden' });
+      expect(await create.json()).toEqual({ error: 'out_of_share_scope' });
       const deploy = await fetch(`http://127.0.0.1:${h.port}/api/deploy`, {
         method: 'POST',
         headers: asCollaborator,
       });
       expect(deploy.status).toBe(403);
-      expect(await deploy.json()).toEqual({ error: 'forbidden' });
+      expect(await deploy.json()).toEqual({ error: 'out_of_share_scope' });
     });
 
     it('a token with NO email claim names nobody, and nobody is not the operator', async () => {

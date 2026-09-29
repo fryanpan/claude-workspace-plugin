@@ -1920,6 +1920,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     shareLinkMemberOf,
     redeemShareLink,
     boardRoleOf,
+    listBoards: () => taskStore.listWorkspaces(),
     safeDecodeSegment,
     withReviewUrl,
     recallRelay,
@@ -2776,6 +2777,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         visitor,
         visitorShareId,
         visitorMemberKey,
+        visitorHome,
         widgetDoorGrant,
         metaFor,
         roleFor,
@@ -3319,7 +3321,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // own file, or a redirect to the address that has one. Null means no
       // block there claimed this address, which is the same fall-through
       // the run did in place, and it lands on the 404 below.
-      const shell = serveShellRoutes({ req, url, pathname, visitor });
+      const shell = serveShellRoutes({ req, url, pathname, visitor, visitorHome });
       if (shell) return shell;
 
       // ── The task address ── see routes/task-page.ts. Below the shell
