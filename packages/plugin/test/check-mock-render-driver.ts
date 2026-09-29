@@ -8,15 +8,15 @@
  *   - one with a 1000px-wide table, which scrolls sideways at 430,
  *   - the fitting one again, from a server that has no widget build, so the
  *     widget never appears.
- * The check is spawned as a separate process with `node`, exactly as the skill
- * tells an agent in another repository to run it.
+ * The check is spawned as a separate process, with `node` as the skill tells
+ * an agent in another repository to run it (or bun where node predates 22).
  *
  * Spawned by `check-mock-render.test.ts`, which reads the JSON it prints.
  *
  * audit: no-text — nothing here reads a source file, a bundle or a
  * stylesheet; every value it returns came from the check's own output.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +40,13 @@ export interface RenderReading {
 }
 
 const CHECK = join(import.meta.dirname, '../skills/building-a-mock/check-mock-render.mjs');
+
+/** `node` as the skill tells an agent to run it, when this machine's node
+ *  has a WebSocket (22+); otherwise this bun, which runs the same script. */
+const RUNTIME =
+  spawnSync('node', ['-e', "process.exit(typeof WebSocket === 'function' ? 0 : 1)"]).status === 0
+    ? 'node'
+    : process.execPath;
 
 const page = (body: string) =>
   `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Harborlight berths</title></head><body style="margin:0;font:16px sans-serif">${body}</body></html>`;
@@ -112,7 +119,7 @@ async function serve(
 /** Async, so the servers in this process keep answering while the check runs. */
 function runCheck(url: string, out: string): Promise<CheckRun> {
   const args = [CHECK, '--url', url, '--out', out, '--chrome', resolveChromeBin(undefined)];
-  const child = spawn('node', [...args, '--timeout', '15000'], {
+  const child = spawn(RUNTIME, [...args, '--timeout', '15000'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';

@@ -268,6 +268,9 @@ async function main() {
   let browser;
   try {
     opts = parseArgs(process.argv.slice(2));
+    if (typeof WebSocket !== 'function') {
+      throw new UsageError('this runtime has no WebSocket: use Node 22 or newer, or Bun');
+    }
     opts.out = opts.out || mkdtempSync(join(tmpdir(), 'cw-mock-shots-'));
     mkdirSync(opts.out, { recursive: true });
     browser = await launch(findChrome(opts.chrome));
