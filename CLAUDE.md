@@ -179,84 +179,10 @@ The full delivery model is [docs/process/delivery.md](docs/process/delivery.md)
 - The board's presence strip names which ATTACHED sessions are behind; an
   empty `behind` list is never fleet-wide clearance.
 
-## Deploying prod — an agent action: do it, don't ask (Bryan, 2026-08-17)
+## Owner's machine-only rules
 
-`POST /api/deploy` from the box does it all (pull `--ff-only`, `bun install
---frozen-lockfile`, restart, record; `GET` reads it back). The restart is
-recorded as an INTENT: `GET /api/deploy` shows `verification` — `pending`
-until the restarted server confirms its own boot, `boot-failed` if it never
-does (a 200 on the POST is not delivery; read the verdict). Manual fallback
-when the server is down — no `bun install` step: the restarted supervisor runs
-the frozen install before it builds or boots. A failed one boots nothing, says
-why in `com.fryanpan.claude-workspaces.err.log`, and retries on a backoff
-(sooner once `bun.lock` changes; delivery.md "Restart == deploy"). The steps:
-
-```bash
-# in PROD'S OWN checkout — see "Where prod lives" below. NOT Bryan's working copy.
-cd ~/Library/Application\ Support/claude-workspaces/repo
-git pull --ff-only origin main
-launchctl kickstart -k gui/$(id -u)/com.fryanpan.claude-workspaces   # NOT ...live-feedback
-cat ~/Library/Application\ Support/claude-workspaces/client/current/release.json
-```
-
-### Where prod lives — all of it on the boot disk (2026-09-01)
-
-Everything the service needs sits under
-`~/Library/Application Support/claude-workspaces/`: `repo/` (prod's own
-checkout, tracking `origin/main`), `data/` (the `.ydoc` corpus — set by
-`CW_DATA_DIR`), `client/` (releases — set by `CW_CLIENT_ROOT`), and
-`bin/bun`. Dev checkouts and worktrees stay on `/Volumes/Data`.
-
-**TCC attaches per BINARY, not per volume.** The rule is that the executable
-must live on the boot disk and hold Full Disk Access; what it reads afterwards
-follows that grant. A launchd job whose bun is `bin/bun` reads `/Volumes/Data`
-fine — verified by booting a full launchd server with `WorkingDirectory` on
-Data, which built and served normally. Do not write, or repeat, "launchd
-cannot read /Volumes/Data": that claim came from probing with `/bin/cat`,
-which holds no grant, and it is how this section read on the day it was
-written.
-
-- **Prod's deploy source is whatever checkout the plist's `WorkingDirectory`
-  names** — nothing else defines it, because `bin.ts` derives `repoRoot` from
-  its own file location. Moving prod means editing that key.
-- The primary checkout is no longer prod's deploy source, so a mid-edit or
-  unpulled working tree can no longer ship the wrong client. **This, not TCC,
-  is the durable reason the move was worth doing.**
-- **The move reduced the grant dependency; it did not remove it.** Without the
-  grant prod still boots and serves the board — repo, corpus, releases, logs,
-  bun and `~/.ssh` are all boot disk. Three things would still break:
-  the **discovery file** (`~/.local`, `~/.claude` and `~/.bun` are symlinks
-  onto `/Volumes/Data`, so `~/.claude/claude-workspaces/server.json` is a Data
-  path and every MCP client resolves prod through it), **bound docs and
-  folders rooted in Data repos**, and the plugin-cache refresh. Symlinking
-  `~/.claude/claude-workspaces` to boot-disk storage would remove the first —
-  it works under launchd, but it is NOT currently installed. Audit every new
-  `homedir()` path against this.
-- **The 2026-09-04 reboot answered it, and the answer is not TCC alone.**
-  After the 14:25Z reboot prod wedged for ~20 min: the main thread sat in a
-  synchronous open of a Dropbox-bound doc while macOS showed a consent dialog
-  for prod's bun, and Bryan allowing it ended the hang. Every boot since logs
-  `EDEADLK` on the same reads. `open(2)` documents EDEADLK as "a dataless file
-  needs materialization and the process's I/O policy disallows it", and a
-  probe with prod's own bun under launchd read
-  `IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES` = OFF (the system default). So a
-  Dropbox file that is online-only fails instantly (the doc runs from its
-  `.ydoc`, disk edits never flow in, and the next flush overwrites the file),
-  while one still downloading or waiting on consent hangs the open. The
-  hydrate guard bounds the hang; whether the server turns materialization on
-  or the folders go Available Offline is Bryan's call on the hydrate ticket.
-- Diagnosing it: `launchctl submit` a probe **using the same binary the
-  service runs**, and pair it with a positive control on a path you expect to
-  work. A system binary like `/bin/cat` is not a proxy for bun — it will
-  report a block the service does not have, which is exactly the false
-  negative that sent this migration after the wrong bug.
-
-Done when `release.json`'s `sourceRef` matches the commit you shipped AND the
-deploy's `verification` reads `healthy` — a healthy restart over an unpulled
-checkout republishes the OLD client, and `release.json` advances even when the
-server then crashes on boot. A bound doc with un-flushed edits refuses the
-deploy (`force` accepts the loss); a failed `bun install` refuses the restart
-(`install-failed` — the server keeps running on the old code).
+The owner's machine-only rules (deploying prod, where prod lives, Linear,
+Sentry watches, Notion) are in the gitignored `CLAUDE.local.md` at the repo root.
 
 ## Staging — review a branch before merge
 
@@ -319,9 +245,6 @@ unprotected and looks identical to a protected one; `bun install` warns
 one self-test: `bun run check:scrub-gate` (pre-commit runs its `--only commit`
 subset). Bypass sparingly: `SCRUB_SKIP=1`, or `SCRUB_SKIP_HAIKU=1` for Haiku
 alone.
-
-**Linear:** Team Bryan Chan (BRY), team ID
-`01328a7f-d761-4176-8bbf-004a397dc6f7`
 
 ## Learnings archive — grep it, don't load it
 

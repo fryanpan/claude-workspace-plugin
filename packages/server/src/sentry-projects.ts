@@ -52,8 +52,8 @@ export interface SentryWatchPlan {
 
 /**
  * The projects this board raises into. Both slugs are also written down in
- * `.claude/rules/workspaces-local.md`; this is the copy the running server
- * hands out.
+ * the owner's gitignored `CLAUDE.local.md`; this is the copy the running
+ * server hands out.
  */
 export const DEFAULT_SENTRY_PROJECTS: readonly SentryProjectRef[] = [
   { slug: 'workspaces-server', raises: 'server' },

@@ -74,3 +74,7 @@ coverage/
 # Nightly browser run output — `bun run ui:nightly` rewrites the PNGs every
 # run and CI uploads them as an artifact. Screenshots are not source.
 .ui-nightly/
+
+# The owner's machine-only rules (deploying prod, Linear, Sentry, Notion).
+# Never committed: this repo is public.
+CLAUDE.local.md
