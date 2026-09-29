@@ -14,10 +14,12 @@
  *
  * `BoardVoiceDeps` is the whole list of what the mic may reach.
  */
+import type { SpokenSetup, SpokenTimingSummary } from '@claude-workspaces/core/spoken-reply';
 import type { BootLocation } from '../boot-env.ts';
 import { type VoiceAck, type VoiceCaptureOpts, createVoiceCapture } from '../voice-capture.ts';
-import { type BoardState, send } from './board-actions.ts';
+import { type BoardState, fetchJson, send } from './board-actions.ts';
 import { voiceBoardContext } from './board-presence-model.ts';
+import { type SpokenReplyOpts, createSpokenReply } from './spoken-reply-client.ts';
 
 /** Everything the mic needs from `bootBoard`, and nothing else. */
 export interface BoardVoiceDeps {
@@ -43,6 +45,16 @@ export interface BoardVoiceDeps {
    *  reader — is only reachable through a completed utterance. Omitted by
    *  `bootBoard`, which takes the browser's own. */
   createRecognition?: VoiceCaptureOpts['createRecognition'];
+  /**
+   * Ask the server whether it can speak a reply (`GET …/voice/timings`) and,
+   * if it names a setup, swap the plain mic for the spoken one
+   * (`spoken-reply-client.ts`). `bootBoard` passes `{}`; a test passes the
+   * seams it needs, and omitting it keeps the plain mic with no request.
+   */
+  spoken?: Partial<Pick<SpokenReplyOpts, 'openSocket' | 'startCapture' | 'playbackContext'>> & {
+    host?: string;
+    protocol?: string;
+  };
 }
 
 /**
@@ -51,25 +63,39 @@ export interface BoardVoiceDeps {
 export function wireBoardVoice(deps: BoardVoiceDeps): void {
   const { state, author, workspaceId, document, location, el, renderDetail } = deps;
 
+  // A task lookup on this same board opens the detail in place — the
+  // session survives navigation (§3.8); everything else is a page move.
+  const navigate = (u: string): void => {
+    const url = new URL(u, location.origin);
+    const taskParam = url.searchParams.get('task');
+    if (taskParam && url.pathname === location.pathname) {
+      state.detailTaskId = taskParam;
+      renderDetail();
+    } else {
+      location.assign(u);
+    }
+  };
+  // The open detail panel OR the highlighted row — see `voiceBoardContext`.
+  // Both are "this ticket" to the person holding the mic.
+  const getContext = () =>
+    voiceBoardContext(
+      state.detailTaskId,
+      document.activeElement?.closest<HTMLElement>('.board-task-row')?.dataset.taskId,
+      // The review item the panel is aimed at, so "pick the second one"
+      // answers THAT one when the ticket has several.
+      state.detailThreadId,
+      // Or the ticket's own single review row, when the panel is open on it.
+      state.reviewItems,
+    );
+
   // Voice (§2.4/§3.8): hold Space or the mic button; the context object sent
   // with each utterance anchors it to wherever the speaker is NOW — the
   // board, or the open task detail. Every utterance gets an explicit ack.
-  createVoiceCapture({
+  const capture = createVoiceCapture({
     button: el('board-mic'),
     indicator: el('board-voice'),
     ...(deps.createRecognition ? { createRecognition: deps.createRecognition } : {}),
-    // The open detail panel OR the highlighted row — see `voiceBoardContext`.
-    // Both are "this ticket" to the person holding the mic.
-    getContext: () =>
-      voiceBoardContext(
-        state.detailTaskId,
-        document.activeElement?.closest<HTMLElement>('.board-task-row')?.dataset.taskId,
-        // The review item the panel is aimed at, so "pick the second one"
-        // answers THAT one when the ticket has several.
-        state.detailThreadId,
-        // Or the ticket's own single review row, when the panel is open on it.
-        state.reviewItems,
-      ),
+    getContext,
     send: async (transcript, context) => {
       const res = await send(`/workspaces/${encodeURIComponent(workspaceId)}/voice`, 'POST', {
         transcript,
@@ -78,17 +104,33 @@ export function wireBoardVoice(deps: BoardVoiceDeps): void {
       });
       return res.ok && res.data ? (res.data as unknown as VoiceAck) : null;
     },
-    onNavigate: (u) => {
-      // A task lookup on this same board opens the detail in place — the
-      // session survives navigation (§3.8); everything else is a page move.
-      const url = new URL(u, location.origin);
-      const taskParam = url.searchParams.get('task');
-      if (taskParam && url.pathname === location.pathname) {
-        state.detailTaskId = taskParam;
-        renderDetail();
-      } else {
-        location.assign(u);
-      }
-    },
+    onNavigate: navigate,
   });
+
+  const spoken = deps.spoken;
+  if (!spoken) return;
+  const base = `/workspaces/${encodeURIComponent(workspaceId)}/voice`;
+  void fetchJson<{ setups?: SpokenSetup[]; timings?: SpokenTimingSummary }>(`${base}/timings`).then(
+    (r) => {
+      const setups = r?.setups ?? [];
+      if (setups.length === 0) return;
+      // Space is a singleton: the plain capture goes before the spoken one mounts.
+      capture.destroy();
+      const protocol = spoken.protocol ?? window.location.protocol;
+      const host = spoken.host ?? window.location.host;
+      createSpokenReply({
+        document,
+        button: el('board-mic'),
+        url: `${protocol === 'https:' ? 'wss' : 'ws'}://${host}${base}/converse`,
+        setups,
+        timings: r?.timings ?? {},
+        author,
+        getContext,
+        onNavigate: navigate,
+        ...(spoken.openSocket ? { openSocket: spoken.openSocket } : {}),
+        ...(spoken.startCapture ? { startCapture: spoken.startCapture } : {}),
+        ...(spoken.playbackContext ? { playbackContext: spoken.playbackContext } : {}),
+      });
+    },
+  );
 }

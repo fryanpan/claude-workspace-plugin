@@ -851,7 +851,17 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
 
   // Where an utterance lands: the open panel, or the row the keyboard is on.
   // `board-voice.ts` — one capture per page, because Space is a singleton.
-  wireBoardVoice({ state, author, workspaceId, document, location, el, renderDetail });
+  wireBoardVoice({
+    state,
+    author,
+    workspaceId,
+    document,
+    location,
+    el,
+    renderDetail,
+    // Swaps in the spoken reply when the server can speak one.
+    spoken: {},
+  });
 
   // Gmail-style row shortcuts — the handler lives in board-shortcuts.ts so a
   // test can call it directly with a state of its own, rather than booting a
