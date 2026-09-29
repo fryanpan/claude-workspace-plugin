@@ -50,3 +50,15 @@ Write the HTML outside the working tree and serve it with `attach_mockup`.
 `.gitignore` holds `demos/*` and re-includes `demos/dev-server/` and
 `demos/mockup/`, so a new page dropped at the top level of `demos/` stays out
 of git. The few already tracked there predate the pattern and stay visible.
+
+## Workflow: building-a-mock
+
+Steps this project adds to the plugin's `building-a-mock` skill:
+
+- **Start from a staging capture.** For a change to an existing surface, run
+  `bun run staging` from a linked worktree, save the surface's served markup
+  and its stylesheets from `http://127.0.0.1:8788`, and make the change in
+  that copy. The mock loads the board's own stylesheets by their served
+  paths (`/app/…`), which the mock frame inlines.
+- **Render against prod's local address**, `http://127.0.0.1:8787`, with the
+  path `attach_mockup` returned. The public hostname answers a sign-in.
