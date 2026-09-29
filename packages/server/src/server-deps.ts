@@ -36,6 +36,7 @@ import { createRecallClient, recallStatusWebhookUrl } from './recall.ts';
 import { haikuReviewJudge, reviewGateEnabled } from './review-judge.ts';
 import type { ServerConfig } from './server-config.ts';
 import { readKeychainPassword } from './share/keychain.ts';
+import { createSpokenEngines } from './spoken-reply/engines.ts';
 import { ThreadSummarizer } from './summarize.ts';
 import {
   KEYCHAIN_SERVICE as ASSEMBLYAI_KEYCHAIN_SERVICE,
@@ -145,6 +146,9 @@ export function createServerDeps(
   // Default first — Soniox (Bryan, 2026-09-01). The ordering itself lives in
   // `orderedEngines`, where a test holds it still.
   const engines = orderedEngines({ soniox, assemblyAi, assemblyAiPro });
+  // The board mic's spoken reply — Soniox's listener again, plus the voices
+  // and Gemini Live, each built only when its key is here.
+  const spokenReply = createSpokenEngines(soniox);
   const transcription = engines.length > 0 ? engines : null;
   if (!transcription) {
     console.log(
@@ -385,6 +389,7 @@ export function createServerDeps(
     answerCoverage,
     effortEstimator,
     transcription,
+    spokenReply,
     meetingBot,
     calendarBot,
     notesComposer,

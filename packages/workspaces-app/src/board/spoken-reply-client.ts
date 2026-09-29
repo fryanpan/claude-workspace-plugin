@@ -1,0 +1,488 @@
+/**
+ * The board mic in spoken mode: hold the mic (or Space), ask, and Claude
+ * writes a short overview into the panel above the mic and says the first
+ * two sentences of it. Speaking while Claude talks stops it.
+ *
+ * The socket is `WS /workspaces/<ws>/voice/converse` (the server's
+ * `spoken-reply/`), opened at the first press and kept. The answer comes from
+ * the board mic's own router, so everything the plain mic does — fast paths,
+ * hand-off to the lead — happens here too; the setup switch changes only who
+ * hears and who speaks.
+ *
+ * A press becomes one of two kinds of question:
+ *  - held (Space always; the mic past `TAP_MS`): the question ends on release.
+ *  - tapped (the mic released inside `TAP_MS`): the listener decides where the
+ *    question ends. A second tap ends it by hand.
+ * The kind is only known at release or at `TAP_MS`, so the frames said before
+ * then are held and sent behind the `start` that names it.
+ *
+ * THE DELAY. From the end of the question — the release for a held one, the
+ * last frame loud enough to be speech for a tapped one — to the moment the
+ * first audible sample of the reply plays. Sent to the server as `timing`,
+ * which logs it per setup (`spoken-reply/timings.ts` names where it is read).
+ */
+import {
+  SPOKEN_SETUPS,
+  type SpokenClientMessage,
+  type SpokenMode,
+  type SpokenServerMessage,
+  type SpokenSetup,
+  type SpokenTimingSummary,
+  parseSpokenServerMessage,
+} from '@claude-workspaces/core/spoken-reply';
+import { defaultOriginFacts, insecureOriginMessage } from '../voice-capture.ts';
+import {
+  type PlaybackContext,
+  type SpokenCaptureOpts,
+  type SpokenCaptureStart,
+  createSpokenPlayer,
+  startSpokenCapture,
+} from './spoken-reply-audio.ts';
+import { wireSpokenHold } from './spoken-reply-hold.ts';
+import { type SpokenPanel, createSpokenPanel } from './spoken-reply-panel.ts';
+
+/** A press released sooner than this is a tap. */
+export const TAP_MS = 300;
+/** Frames held before the socket or the question's kind is known: 20s. */
+const MAX_HELD_FRAMES = 400;
+export const SETUP_KEY = 'cw.spoken-reply.setup';
+
+export interface SpokenSocket {
+  binaryType: string;
+  readyState: number;
+  onopen: (() => void) | null;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+  onclose: (() => void) | null;
+  send(data: string | ArrayBufferLike | ArrayBufferView): void;
+  close(): void;
+}
+
+export interface SpokenReplyOpts {
+  document: Document;
+  button: HTMLElement;
+  /** `ws(s)://host/workspaces/<ws>/voice/converse`. */
+  url: string;
+  setups: readonly SpokenSetup[];
+  timings: SpokenTimingSummary;
+  author: { id: string; name: string; kind?: string };
+  getContext(): unknown;
+  onNavigate(url: string): void;
+  openSocket?: (url: string) => SpokenSocket;
+  startCapture?: (opts: SpokenCaptureOpts) => Promise<SpokenCaptureStart>;
+  /** A context for the microphone, made inside the press. */
+  captureContext?: () => AudioContext | undefined;
+  playbackContext?: () => PlaybackContext | null;
+  storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
+  now?: () => number;
+}
+
+export interface SpokenReply {
+  panel: SpokenPanel;
+  setup(): SpokenSetup;
+  destroy(): void;
+}
+
+interface Turn {
+  mode: SpokenMode | null;
+  /** From a tapped choice, not from the microphone: nothing to time. */
+  fromChoice: boolean;
+  releasedAt: number | null;
+  lastVoiceAt: number | null;
+  turnEndAt: number | null;
+  replyAt: number | null;
+  asking: boolean;
+  timed: boolean;
+}
+
+function newTurn(fromChoice = false): Turn {
+  return {
+    mode: null,
+    fromChoice,
+    releasedAt: null,
+    lastVoiceAt: null,
+    turnEndAt: null,
+    replyAt: null,
+    asking: false,
+    timed: false,
+  };
+}
+
+const OPEN = 1;
+
+function defaultSocket(url: string): SpokenSocket {
+  return new WebSocket(url) as unknown as SpokenSocket;
+}
+
+function audioCtor(): typeof AudioContext | undefined {
+  return (
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  );
+}
+
+function readStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
+  const doc = opts.document;
+  const now = opts.now ?? (() => performance.now());
+  const storage = opts.storage === undefined ? readStorage() : opts.storage;
+  const available = SPOKEN_SETUPS.filter((s) => opts.setups.includes(s));
+  let summary = opts.timings;
+
+  const stored = Number(
+    (() => {
+      try {
+        return storage?.getItem(SETUP_KEY);
+      } catch {
+        return null;
+      }
+    })(),
+  );
+  let setup: SpokenSetup = available.includes(stored as SpokenSetup)
+    ? (stored as SpokenSetup)
+    : (available[0] ?? 1);
+
+  let socket: SpokenSocket | null = null;
+  let queue: Array<string | Int16Array> = [];
+  let capture: { stop(): void } | null = null;
+  let captureGen = 0;
+  let held: Int16Array[] = [];
+  let turn: Turn = newTurn();
+  let pressing = false;
+  let tapTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const sendRaw = (data: string | Int16Array): void => {
+    if (socket && socket.readyState === OPEN) socket.send(data);
+    else if (queue.length < MAX_HELD_FRAMES) queue.push(data);
+  };
+  const sendMsg = (m: SpokenClientMessage): void => sendRaw(JSON.stringify(m));
+
+  const ensureSocket = (): void => {
+    if (socket && socket.readyState <= OPEN) return;
+    const ws = (opts.openSocket ?? defaultSocket)(opts.url);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => {
+      const pending = queue;
+      queue = [];
+      for (const d of pending) ws.send(d);
+    };
+    ws.onmessage = (ev) => onMessage(ev.data);
+    ws.onclose = () => {
+      if (socket !== ws) return;
+      socket = null;
+      queue = [];
+      stopCapture();
+      player.stop();
+      const s = panel.state();
+      if (s !== 'idle' && s !== 'done' && s !== 'stopped') {
+        panel.note('The connection closed. Press the mic to try again.');
+        panel.setState('done');
+      }
+    };
+    socket = ws;
+  };
+
+  let playCtx: PlaybackContext | null = null;
+  const player = createSpokenPlayer({
+    context: () => {
+      if (playCtx) return playCtx;
+      if (opts.playbackContext) playCtx = opts.playbackContext();
+      else {
+        const Ctor = audioCtor();
+        playCtx = Ctor ? (new Ctor() as unknown as PlaybackContext) : null;
+      }
+      return playCtx;
+    },
+    onFirstWord: (at) => recordDelay(at),
+    now,
+  });
+
+  const panel = createSpokenPanel({
+    document: doc,
+    anchor: opts.button,
+    setups: available,
+    onStop: () => stopSpeaking(),
+    onClose: () => closePanel(),
+    onPickSetup: (s) => pickSetup(s),
+    onChoice: (text) => choose(text),
+  });
+  panel.setSetup(setup);
+  panel.setDelay(null, summary[String(setup) as '1' | '2' | '3']);
+
+  function pickSetup(s: SpokenSetup): void {
+    if (!available.includes(s)) return;
+    setup = s;
+    try {
+      storage?.setItem(SETUP_KEY, String(s));
+    } catch {}
+    panel.setSetup(s);
+    panel.setDelay(null, summary[String(s) as '1' | '2' | '3']);
+  }
+
+  function stopCapture(): void {
+    captureGen++;
+    capture?.stop();
+    capture = null;
+    held = [];
+  }
+
+  function clearTap(): void {
+    if (tapTimer) clearTimeout(tapTimer);
+    tapTimer = null;
+  }
+
+  function speakingNow(): boolean {
+    const s = panel.state();
+    return s === 'speaking' || s === 'asking' || player.playing();
+  }
+
+  function stopSpeaking(): void {
+    player.stop();
+    sendMsg({ type: 'stop' });
+    panel.setState(turn.asking ? 'waiting' : 'stopped');
+  }
+
+  function closePanel(): void {
+    clearTap();
+    pressing = false;
+    stopCapture();
+    if (speakingNow()) sendMsg({ type: 'stop' });
+    player.stop();
+    panel.close();
+    panel.setState('idle');
+  }
+
+  /** The question's kind is known: name it, then send what was held. */
+  function commit(mode: SpokenMode): void {
+    if (turn.mode) return;
+    turn.mode = mode;
+    sendMsg({
+      type: 'start',
+      setup,
+      mode,
+      context: opts.getContext(),
+      author: opts.author,
+    });
+    for (const f of held) sendRaw(f);
+    held = [];
+  }
+
+  function press(fromSpace: boolean): void {
+    if (pressing) return;
+    const blocked = insecureOriginMessage(defaultOriginFacts());
+    if (blocked) {
+      panel.open();
+      panel.clearBody();
+      panel.note(blocked);
+      panel.setState('done');
+      return;
+    }
+    // A second tap on a tapped question that is still listening ends it by hand.
+    if (panel.state() === 'listening' && turn.mode === 'tap') {
+      finishByHand();
+      return;
+    }
+    pressing = true;
+    player.wake();
+    ensureSocket();
+    const interrupting = speakingNow();
+    const answering = interrupting ? turn.asking : panel.state() === 'waiting';
+    if (interrupting) {
+      player.stop();
+      sendMsg({ type: 'stop' });
+    }
+    panel.open();
+    if (!interrupting && !answering) panel.clearBody();
+    if (interrupting) panel.note('Stopped when you started talking.');
+    panel.setYou('…');
+    panel.setState('listening');
+    stopCapture();
+    turn = newTurn();
+    const gen = captureGen;
+    const Ctor = audioCtor();
+    const ctx = opts.captureContext ? opts.captureContext() : Ctor ? new Ctor() : undefined;
+    void (opts.startCapture ?? startSpokenCapture)({
+      ...(ctx ? { context: ctx } : {}),
+      onFrame: (pcm, speech) => {
+        if (gen !== captureGen) return;
+        if (speech) turn.lastVoiceAt = now();
+        if (turn.mode) sendRaw(pcm);
+        else if (held.length < MAX_HELD_FRAMES) held.push(pcm);
+      },
+    }).then((r) => {
+      if (gen !== captureGen) {
+        if (r.ok) r.capture.stop();
+        return;
+      }
+      if (!r.ok) {
+        panel.note(r.message);
+        panel.setState('done');
+        pressing = false;
+        clearTap();
+        return;
+      }
+      capture = r.capture;
+    });
+    if (fromSpace) commit('hold');
+    else {
+      tapTimer = setTimeout(() => {
+        tapTimer = null;
+        if (pressing) commit('hold');
+      }, TAP_MS);
+    }
+  }
+
+  function release(): void {
+    if (!pressing) return;
+    pressing = false;
+    if (panel.state() !== 'listening') return;
+    if (!turn.mode) {
+      clearTap();
+      commit('tap');
+      return;
+    }
+    if (turn.mode === 'hold') {
+      turn.releasedAt = now();
+      stopCapture();
+      sendMsg({ type: 'end' });
+      panel.setState('sending');
+    }
+  }
+
+  function finishByHand(): void {
+    turn.releasedAt = now();
+    stopCapture();
+    sendMsg({ type: 'end' });
+    panel.setState('sending');
+  }
+
+  function choose(text: string): void {
+    ensureSocket();
+    player.wake();
+    player.stop();
+    stopCapture();
+    turn = newTurn(true);
+    panel.setYou(text);
+    panel.clearBody();
+    panel.setState('sending');
+    sendMsg({ type: 'say', text });
+  }
+
+  function recordDelay(at: number): void {
+    if (turn.timed || turn.fromChoice) return;
+    const end =
+      turn.mode === 'hold' || turn.lastVoiceAt === null ? turn.releasedAt : turn.lastVoiceAt;
+    const questionEnd = end ?? turn.turnEndAt;
+    if (questionEnd === null) return;
+    turn.timed = true;
+    const delayMs = Math.max(0, at - questionEnd);
+    panel.setDelay(delayMs, summary[String(setup) as '1' | '2' | '3']);
+    sendMsg({
+      type: 'timing',
+      delayMs,
+      ...(turn.turnEndAt !== null ? { endpointMs: Math.max(0, turn.turnEndAt - questionEnd) } : {}),
+      ...(turn.turnEndAt !== null && turn.replyAt !== null
+        ? { replyMs: Math.max(0, turn.replyAt - turn.turnEndAt) }
+        : {}),
+      ...(turn.replyAt !== null ? { audioMs: Math.max(0, at - turn.replyAt) } : {}),
+    });
+  }
+
+  function onMessage(data: unknown): void {
+    if (data instanceof ArrayBuffer) {
+      player.push(new Uint8Array(data));
+      return;
+    }
+    if (typeof data !== 'string') return;
+    const m = parseSpokenServerMessage(data);
+    if (m) onServer(m);
+  }
+
+  function onServer(m: SpokenServerMessage): void {
+    switch (m.type) {
+      case 'ready':
+        summary = m.timings;
+        return;
+      case 'heard':
+        if (panel.state() === 'listening' || panel.state() === 'sending') panel.setYou(m.text);
+        return;
+      case 'turn-end':
+        turn.turnEndAt = now();
+        pressing = false;
+        clearTap();
+        stopCapture();
+        panel.setYou(m.text || '…');
+        panel.setState('sending');
+        return;
+      case 'reply':
+        turn.replyAt = now();
+        turn.asking = m.asking;
+        panel.reply({
+          spoken: m.spoken,
+          detail: m.detail,
+          ...(m.choices ? { choices: m.choices } : {}),
+        });
+        if (!m.spoken) {
+          panel.note('Didn’t catch anything.');
+          panel.setState('done');
+        } else if (panel.state() !== 'speaking' && panel.state() !== 'asking') {
+          panel.setState('writing');
+        }
+        if (m.navigate) opts.onNavigate(m.navigate);
+        return;
+      case 'audio-start':
+        player.begin(m.sampleRate);
+        panel.setState(turn.asking ? 'asking' : 'speaking');
+        return;
+      case 'audio-end':
+        player.finish(() => {
+          const s = panel.state();
+          if (s === 'speaking') panel.setState('done');
+          else if (s === 'asking') panel.setState('waiting');
+        });
+        return;
+      case 'timings':
+        summary = m.summary;
+        panel.setDelay(undefined, summary[String(setup) as '1' | '2' | '3']);
+        return;
+      case 'error':
+        stopCapture();
+        pressing = false;
+        clearTap();
+        panel.note(m.message);
+        panel.setState('done');
+        return;
+    }
+  }
+
+  const input = wireSpokenHold({
+    document: doc,
+    button: opts.button,
+    onPress: press,
+    onRelease: release,
+    onEscape: () => {
+      if (!panel.isOpen()) return false;
+      closePanel();
+      return true;
+    },
+  });
+
+  return {
+    panel,
+    setup: () => setup,
+    destroy() {
+      closePanel();
+      input.destroy();
+      const ws = socket;
+      socket = null;
+      ws?.close();
+      panel.destroy();
+    },
+  };
+}

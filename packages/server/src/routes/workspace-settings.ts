@@ -34,7 +34,16 @@ export async function handleWorkspaceSettings(
   ctx: WorkspaceRoutesContext,
   rq: WorkspaceRouteRequest,
 ): Promise<Response | undefined> {
-  const { taskStore, taskProjection, voiceRouter, j, safeJson, parallelismCapView } = ctx;
+  const {
+    taskStore,
+    taskProjection,
+    voiceRouter,
+    spokenRelay,
+    spokenTimings,
+    j,
+    safeJson,
+    parallelismCapView,
+  } = ctx;
   const { req, pathname, scope, authorFor, visitor, requireOwner } = rq;
   // The workspace-level TEXT goal is GONE — the ordered goal LIST is
   // the one goal system now. This route stays because it is on the
@@ -449,6 +458,15 @@ export async function handleWorkspaceSettings(
     });
     if (!res.ok) return j(404, res);
     return j(200, res);
+  }
+  // The spoken reply's delay per setup (`spoken-reply/timings.ts`) — the
+  // number the setups are compared by, read without a terminal.
+  const timingsMatch = pathname.match(/^\/workspaces\/([^/]+)\/voice\/timings$/);
+  if (timingsMatch && req.method === 'GET') {
+    if (!taskStore.getWorkspace(decodeURIComponent(timingsMatch[1] ?? ''))) {
+      return j(404, { error: 'workspace-not-found' });
+    }
+    return j(200, { setups: spokenRelay.setups(), timings: spokenTimings.summary() });
   }
   return undefined;
 }

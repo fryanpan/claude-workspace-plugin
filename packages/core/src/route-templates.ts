@@ -219,6 +219,8 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['workspaces', ':id', 'huddles'],
   ['workspaces', ':id', 'comment-queue', ':id', 'ack'],
   ['workspaces', ':id', 'voice-queue', ':id', 'ack'],
+  ['workspaces', ':id', 'voice', 'converse'],
+  ['workspaces', ':id', 'voice', 'timings'],
   // Board collections addressed the canonical way — the live event stream
   // and the agent roster, both moved off names the glossary spends elsewhere.
   ['workspaces', ':id', 'events:stream'],

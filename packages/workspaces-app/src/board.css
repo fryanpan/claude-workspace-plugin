@@ -2291,6 +2291,197 @@ html:has(.board-walk-cred-form) {
   bottom: calc(100% + 8px);
   z-index: auto;
 }
+/* ################# BOARD · SPOKEN REPLY PANEL #################
+   Claude's spoken reply, above the rail mic (`board/spoken-reply-panel.ts`),
+   as the approved mock drew it. Fixed to the viewport and placed from the
+   mic's rect in script, because the dock clips and the phone's mic sits in
+   the bottom tab bar. Calm: one steady dot names the state, nothing moves,
+   and the header keeps its size — the label is sized for its widest value and
+   the panel keeps one height, so the body scrolls rather than the panel
+   growing. */
+.vr-panel {
+  position: fixed;
+  z-index: 2147483001;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.vr-panel.hidden {
+  display: none;
+}
+.vr-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.vr-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--border);
+}
+.vr-panel[data-state="listening"] .vr-dot {
+  background: var(--red-strong);
+  border-color: var(--red-strong);
+}
+.vr-panel[data-state="speaking"] .vr-dot,
+.vr-panel[data-state="asking"] .vr-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.vr-panel[data-state="waiting"] .vr-dot {
+  border-color: var(--accent);
+}
+.vr-state {
+  flex: none;
+  width: 13.5em;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vr-spacer {
+  flex: 1;
+}
+.vr-head button {
+  flex: none;
+  height: 30px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--fg);
+}
+.vr-stop {
+  width: 60px;
+}
+.vr-stop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.vr-close {
+  width: 30px;
+}
+.vr-scroll {
+  overflow-y: auto;
+  padding: 10px 12px;
+  min-height: 0;
+  flex: 1;
+}
+.vr-you {
+  margin: 0 0 8px;
+  color: var(--fg-muted);
+}
+.vr-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-right: 6px;
+}
+.vr-spoken {
+  margin: 0 0 8px;
+  font-weight: 500;
+}
+.vr-spoken .vr-kicker {
+  display: block;
+  margin-bottom: 2px;
+}
+.vr-detail {
+  margin: 0;
+  padding-left: 18px;
+}
+.vr-detail li {
+  margin: 0 0 4px;
+}
+.vr-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.vr-choices button {
+  min-width: 88px;
+  height: 34px;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--accent);
+}
+.vr-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.vr-foot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.vr-setup-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.vr-setups {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.vr-setups button {
+  width: 28px;
+  height: 26px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.vr-setups button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.vr-setups button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.vr-setup-name {
+  color: var(--fg);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.vr-delay b {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 4ch;
+  text-align: right;
+}
 /* ################# BOARD · HOME BRIEF + REVIEW QUEUE #################
    The since-last-read brief and the ranked For Your Review list, on a
    reading column. */

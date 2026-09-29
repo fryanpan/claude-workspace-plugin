@@ -1172,10 +1172,23 @@ export class VoiceRouter {
    * or the board when nothing is. Composed from the store; no model phrases
    * it, so the numbers in it are the board's numbers.
    */
+  /**
+   * The same brief, about one goal's tasks — what the spoken reply answers
+   * once "how is the goal going?" has been told which goal. Undefined when
+   * the board or the goal is not there.
+   */
+  goalStatus(workspaceId: string, goalId: string): VoiceResult | undefined {
+    const workspace = this.tasks.getWorkspace(workspaceId);
+    const goal = workspace?.goals.find((g) => g.id === goalId);
+    if (!goal) return undefined;
+    return this.statusResult(workspaceId, `“${goal.title}”`, undefined, goal.id);
+  }
+
   private statusResult(
     workspaceId: string,
     workspaceName: string,
     resource: VoiceResource | undefined,
+    goalId?: string,
   ): VoiceResult {
     const now = Date.now();
     const toStatus = (t: Task): StatusTask => {
@@ -1194,8 +1207,14 @@ export class VoiceRouter {
         links: t.links.length,
       };
     };
-    const tasks = this.tasks.listTasks(workspaceId).map(toStatus);
-    const queue = this.queue?.(workspaceId) ?? [];
+    const tasks = this.tasks
+      .listTasks(workspaceId)
+      .filter((t) => goalId === undefined || t.goal === goalId)
+      .map(toStatus);
+    const titles = new Set(tasks.map((t) => t.title));
+    const queue = (this.queue?.(workspaceId) ?? []).filter(
+      (q) => goalId === undefined || titles.has(q.title),
+    );
     const task = resource?.kind === 'task' ? tasks.find((t) => t.id === resource.id) : undefined;
     const doc =
       resource?.kind === 'doc'
