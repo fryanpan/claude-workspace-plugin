@@ -863,6 +863,39 @@ export function secretsRequestFor(
 }
 
 /**
+ * Where a GRANT item's answer goes — `/grant`, never `/answer`, which the
+ * server refuses for this shape. The body carries the lines the card SHOWED,
+ * and the server refuses the approval if they no longer match what it holds.
+ */
+export function grantRequestFor(
+  taskId: string,
+  reviewItemId: string,
+  allowRules: readonly string[],
+  decision: 'approve' | 'decline',
+  workspaceId?: string,
+): { path: string; body: Record<string, unknown> } {
+  return {
+    path: api(
+      `tasks/${encodeURIComponent(taskId)}/review-items/${encodeURIComponent(reviewItemId)}/grant`,
+      workspaceId,
+    ),
+    body: { decision, allowRules: [...allowRules] },
+  };
+}
+
+/** The same request from a queue item, or null when it is not a ticket-borne grant. */
+export function reviewGrantRequest(
+  item: ReviewItem,
+  decision: 'approve' | 'decline',
+): { path: string; body: Record<string, unknown> } | null {
+  const rules = item.review?.shape === 'grant' ? item.review.allowRules : undefined;
+  const t = item.thread;
+  if (!rules || rules.length === 0) return null;
+  if (!t || t.kind !== 'task-review' || !t.taskId || !t.reviewItemId) return null;
+  return grantRequestFor(t.taskId, t.reviewItemId, rules, decision, t.workspaceId);
+}
+
+/**
  * What a question asked ON a review item anchors to: the item, on its task's
  * doc. A TICKET-borne item has one, and so does a ticket's OWN decision — it
  * anchors as the derived `r-legacy` row, which the server admits since
@@ -1289,6 +1322,8 @@ export function reviewShapeBadge(
   if (shape === 'decision') return { label: 'Decision', tone: 'decision' };
   if (shape === 'review') return { label: 'Question', tone: 'review' };
   if (shape === 'secret') return { label: 'Secret', tone: 'secret' };
+  // Owner-only for the secret's reason, so it carries the secret's weight.
+  if (shape === 'grant') return { label: 'Permissions', tone: 'secret' };
   return undefined;
 }
 

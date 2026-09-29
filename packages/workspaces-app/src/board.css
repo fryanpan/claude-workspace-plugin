@@ -1639,6 +1639,22 @@ body.board-body {
   color: var(--fg-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+/* A grant card's allow lines: one row per line, in the secret field's box,
+   in the secret service name's monospace. Full ink, not muted — these are the
+   exact strings the reader is approving — and broken anywhere, because a
+   long command must wrap inside the box rather than widen the card. */
+.board-grant-rules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.board-grant-rule {
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.board-grant-note {
+  margin-right: auto;
+}
 /* The field and its eye, as one box. BOXED, not underlined: the first version
    drew a top rule and nothing else, so an empty field had no border, no
    placeholder and nothing to aim at — on a phone it read as a label with a

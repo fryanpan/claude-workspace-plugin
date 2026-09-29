@@ -79,6 +79,8 @@ export interface BoardWalkthroughDeps {
     item: ReviewItem,
     values: ReadonlyArray<{ service: string; value: string }>,
   ) => Promise<boolean>;
+  /** Approve or decline a grant item. Boolean for the secret door's reason. */
+  grantOnItem?: (item: ReviewItem, decision: 'approve' | 'decline') => Promise<boolean>;
   /** This board's queue just drained. `bootBoard` decides whether the sitting
    *  continues on another board (`?then=`) or ends here. */
   onQueueDrained(): void;
@@ -105,6 +107,7 @@ export function createBoardWalkthrough(deps: BoardWalkthroughDeps): BoardWalkthr
     askOnReviewItem,
     replyToReviewItem,
     saveSecretsOnItem,
+    grantOnItem,
   } = deps;
 
   /**
@@ -221,6 +224,12 @@ export function createBoardWalkthrough(deps: BoardWalkthroughDeps): BoardWalkthr
         // or it records nothing.
         onSaveSecrets: (item, values) =>
           finishWalkItem(item, next, () => saveSecretsOnItem(item, values)),
+        ...(grantOnItem
+          ? {
+              onGrant: (item: ReviewItem, decision: 'approve' | 'decline') =>
+                finishWalkItem(item, next, () => grantOnItem(item, decision)),
+            }
+          : {}),
         onOpenItem: (item) => openFromWalk((back) => openReviewItem(item, back)),
         // Same one-step close-then-open as `onOpenItem`, aimed at the thread —
         // and the same doc jump underneath when the item has no thread on a

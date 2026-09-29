@@ -21,6 +21,8 @@ import { type BoardReviewItem, type BoardTask } from './board-model.ts';
 import {
   type ReviewItem,
   type ReviewQueue,
+  grantRequestFor,
+  reviewGrantRequest,
   reviewItemAskRequest,
   reviewItemOwner,
   reviewItemQuestionRequest,
@@ -543,11 +545,51 @@ export function createBoardReviewController(deps: BoardReviewControllerDeps) {
     return true;
   }
 
+  /**
+   * Approve or decline a GRANT item — the allow lines a task asked to add to
+   * the owner's settings. Its own route, as the secrets are: a grant is never
+   * answered in words. A refusal toasts the server's sentence (not signed in,
+   * the card changed, the settings file would not parse); the card stays open.
+   */
+  async function grantOnItem(item: ReviewItem, decision: 'approve' | 'decline'): Promise<boolean> {
+    const reqSpec = reviewGrantRequest(item, decision);
+    if (!reqSpec) return false;
+    return sendGrant(reqSpec, false);
+  }
+
+  async function grantOnTaskItem(
+    taskId: string,
+    reviewItemId: string,
+    allowRules: readonly string[],
+    decision: 'approve' | 'decline',
+  ): Promise<boolean> {
+    return sendGrant(grantRequestFor(taskId, reviewItemId, allowRules, decision), true);
+  }
+
+  async function sendGrant(
+    reqSpec: { path: string; body: Record<string, unknown> },
+    confirm: boolean,
+  ): Promise<boolean> {
+    const res = await send(reqSpec.path, 'POST', { ...reqSpec.body, author });
+    if (!res.ok) {
+      const said = typeof res.data?.message === 'string' ? res.data.message : '';
+      showToast(said || 'Nothing was changed. Try again.');
+      return false;
+    }
+    if (confirm) {
+      showToast(reqSpec.body.decision === 'approve' ? 'Permissions added' : 'Declined');
+    }
+    await loadReviewItems();
+    return true;
+  }
+
   return {
     startWalkthrough,
     openInQueue,
     saveSecretsOnItem,
     saveSecretsOnTaskItem,
+    grantOnItem,
+    grantOnTaskItem,
     answerDecision,
     answerTaskDecision,
     undoThreadAnswer,
