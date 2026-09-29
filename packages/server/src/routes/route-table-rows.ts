@@ -297,6 +297,13 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['share-scope', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/withdraw', 'POST'],
     ['share-scope', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/withdraw/undo', 'POST'],
   ]),
+  // The one route that writes the owner's Claude Code settings. Trusted-local
+  // for the secrets row's reason — absent from the member allowlist, so no
+  // share visitor reaches it — and the handler additionally demands a person
+  // proof naming the owner, because trusted-local passes every agent on the box.
+  ...family('routes/task-grants.ts', [
+    ['trusted-local', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/grant', 'POST'],
+  ]),
   ...family('routes/task-fields.ts', [
     ['share-scope', '/workspaces/:ws/tasks/:taskId/after', 'POST'],
     ['share-scope', '/workspaces/:ws/tasks/:taskId/title', 'POST'],

@@ -7,8 +7,10 @@ import type { ChatAudit } from '../chat-audit.ts';
 import type { DispatchRegistry } from '../dispatch-registry.ts';
 import type { DispatchReportStore } from '../dispatch-reports.ts';
 import type { DocStore } from '../doc-store.ts';
+import type { IdentityRecord } from '../identities.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
 import type { WorkspaceScope } from '../middleware/workspace-scope.ts';
+import type { PermissionGrants } from '../permission-grants.ts';
 import type { ReadyWorkNudger } from '../ready-nudge.ts';
 import type { GateRunOpts, ReviewGate } from '../review-gate-types.ts';
 import type { SecretWriter } from '../secret-store.ts';
@@ -82,6 +84,13 @@ export interface TaskRoutesContext {
    * about this whole path.
    */
   secretWriter?: SecretWriter;
+  /**
+   * The ledger and writer behind a grant card's Approve. **No default**, the
+   * secret writer's seam rule for the same reason: the real one edits the
+   * owner's user settings file, so only `bin.ts` constructs it. Omitted, the
+   * grant door answers 503 to an approval and nothing is written.
+   */
+  permissionGrants?: PermissionGrants;
   /**
    * Whether an answer covered every question an item asks. **No default**,
    * the judge's seam rule; omitted, every answer closes its item as before.
@@ -213,6 +222,14 @@ export interface TaskRouteRequest {
   /** The owner gate: `null` for the board's owner, the 403 for anyone else.
    *  Read by the owner-only review item — see `handleTaskReviewItems`. */
   requireOwner: (workspaceId: string) => Response | null;
+  /**
+   * The PERSON this request proved — the Access email or the signed session
+   * cookie — or null. Never a body's claim, a widget token or an agent
+   * token. Read by the grant door, which `requireOwner` alone cannot guard:
+   * that passes every loopback caller, agents included. Optional so a caller
+   * that does not pass it fails closed.
+   */
+  provenIdentityFor?: () => IdentityRecord | null;
 }
 
 /**

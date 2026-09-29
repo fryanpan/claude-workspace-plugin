@@ -30,6 +30,7 @@
  * cannot quietly put this reader back into every embed. Everywhere else — the
  * server, the board, the MCP bundle — reads the real thing.
  */
+import { readAllowRules } from './permission-rule.ts';
 import type { ReviewPayload, ReviewSecretField, ReviewShape } from './review-item-types.ts';
 
 /**
@@ -96,6 +97,15 @@ export function applySecretShape(
   shape: ReviewShape | undefined,
   value: Record<string, unknown>,
 ): void {
+  // The GRANT shape takes the same forcing for the same reason: approving it
+  // writes allow rules into the owner's own settings file. It rides this one
+  // call site so the widget, which never renders either, carries neither.
+  if (shape === 'grant') {
+    const rules = readAllowRules(value.allowRules);
+    if (rules) out.allowRules = rules;
+    out.ownerOnly = true;
+    return;
+  }
   if (shape !== 'secret') return;
   const secrets = readSecretFields(value.secrets);
   if (secrets) out.secrets = secrets;

@@ -1,5 +1,10 @@
 import { type TaskReviewItem, type User } from '@claude-workspaces/core';
-import { SECRET_FILING_DENIAL, asksForSecret } from '../share/board-role.ts';
+import {
+  GRANT_FILING_DENIAL,
+  SECRET_FILING_DENIAL,
+  asksForGrant,
+  asksForSecret,
+} from '../share/board-role.ts';
 /**
  * Batch capture: a burst of rows in one call, each landing owned and placed.
  *
@@ -231,6 +236,10 @@ export async function handleTaskBatch(
       // joins `failures` and the honest ones still land.
       if (visitor && asksForSecret((resolvedRow as Record<string, unknown>)?.review)) {
         failures.push({ index, ...named, ...SECRET_FILING_DENIAL });
+        continue;
+      }
+      if (visitor && asksForGrant((resolvedRow as Record<string, unknown>)?.review)) {
+        failures.push({ index, ...named, ...GRANT_FILING_DENIAL });
         continue;
       }
       const parsed = parseTaskCreate(resolvedRow, createdBy, batchBoard);

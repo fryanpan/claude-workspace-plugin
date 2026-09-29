@@ -1,3 +1,4 @@
+import { checkAllowRules } from './permission-rule.ts';
 /**
  * The quality gate: every published limit, the check that enforces them, and
  * the advice a passing-but-thin payload gets back.
@@ -183,7 +184,7 @@ export function checkReviewPayload(input: unknown, context?: { text?: string }):
   const shape = normalizeReviewType(p.review_type ?? p.shape);
   if (shape === undefined) {
     fail(
-      "review.review_type must be 'decision' (a choice between named options), 'question' (read this and tell me what you think), or 'secret' (ask the board's owner for one or more values you must never see). The legacy spellings — field 'shape', value 'review' — are accepted too.",
+      "review.review_type must be 'decision' (a choice between named options), 'question' (read this and tell me what you think), or 'secret' (ask the board's owner for one or more values you must never see), or 'grant' (ask the board's owner to allow listed commands until the task closes). The legacy spellings — field 'shape', value 'review' — are accepted too.",
     );
   }
 
@@ -267,7 +268,9 @@ export function checkReviewPayload(input: unknown, context?: { text?: string }):
       fail(
         shape === 'secret'
           ? "review.options belong to a 'decision'. A 'secret' item is answered by filling in review.secrets, which is not a choice between anything."
-          : "review.options belong to a 'decision'. A 'review' item is answered in the person's own words.",
+          : shape === 'grant'
+            ? "review.options belong to a 'decision'. A 'grant' card is answered by Approve or Decline on the card itself."
+            : "review.options belong to a 'decision'. A 'review' item is answered in the person's own words.",
       );
     }
     if (options.length > REVIEW_LIMITS.maxOptions) {
@@ -387,6 +390,9 @@ export function checkReviewPayload(input: unknown, context?: { text?: string }):
       "a 'secret' item needs at least one entry in review.secrets — each one a label and the service name its value is stored under. With none there is nothing for the reader to fill in.",
     );
   }
+
+  // The lines a `grant` card would write — see `permission-rule.ts`.
+  checkAllowRules(p, shape, fail);
 
   if (shape === 'decision' && (options?.length ?? 0) < REVIEW_LIMITS.minOptions) {
     fail(
