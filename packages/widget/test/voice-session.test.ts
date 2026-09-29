@@ -170,7 +170,6 @@ describe('a spoken comment becoming a thread', () => {
       type: 'posted',
       key: 'v1',
       threadId: 't1',
-      commentId: 'c1',
     });
   });
 
@@ -415,7 +414,6 @@ describe('stopping', () => {
       type: 'posted',
       key: 'v1',
       threadId: 't2',
-      commentId: 'c2',
     });
   });
 

@@ -54,7 +54,7 @@ export type VoiceClientMessage =
   | { type: 'reopen'; key: string }
   /** The page posted comment `key` as this thread — recorded in the log, and
    *  where the server looks first if the page goes before the note is done. */
-  | { type: 'posted'; key: string; threadId: string; commentId?: string }
+  | { type: 'posted'; key: string; threadId: string }
   | { type: 'stop' };
 
 /** A spoken comment as the server currently understands it. */
@@ -217,15 +217,9 @@ export function parseVoiceClientMessage(raw: unknown): VoiceClientMessage | null
     case 'reopen':
       return key ? { type: 'reopen', key } : null;
     case 'posted':
-      if (!key || typeof m.threadId !== 'string' || !ID_RE.test(m.threadId)) return null;
-      return {
-        type: 'posted',
-        key,
-        threadId: m.threadId,
-        ...(typeof m.commentId === 'string' && ID_RE.test(m.commentId)
-          ? { commentId: m.commentId }
-          : {}),
-      };
+      return key && typeof m.threadId === 'string' && ID_RE.test(m.threadId)
+        ? { type: 'posted', key, threadId: m.threadId }
+        : null;
     default:
       return null;
   }

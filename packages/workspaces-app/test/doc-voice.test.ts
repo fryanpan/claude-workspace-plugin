@@ -214,7 +214,6 @@ describe('voice comments on a review doc — pointing at a passage', () => {
         type: 'posted',
         key: 'v1',
         threadId: 'th-1',
-        commentId: 'c-1',
       }),
     );
   });

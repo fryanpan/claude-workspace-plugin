@@ -405,7 +405,7 @@ export class VoiceFeedbackRelay {
         // Its thread rides on the line logged when it settles; only a comment
         // that settled before the post came back gets a line of its own.
         const c = s.comments.get(msg.key);
-        if (c) Object.assign(c, { threadId: msg.threadId, commentId: msg.commentId });
+        if (c) c.threadId = msg.threadId;
         if (c && !c.final) return;
         s.log.write(`- Comment ${msg.key} posted as thread ${msg.threadId}\n`);
         return;

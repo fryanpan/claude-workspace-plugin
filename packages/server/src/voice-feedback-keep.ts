@@ -22,6 +22,7 @@
  * (`subject`), which is where the widget puts a note about no element.
  */
 import type { Anchor, Thread, User, VoiceNote, WriteVia } from '@claude-workspaces/core';
+import { mayTouchFrom } from './mockup-frame.ts';
 import type { Session } from './voice-feedback-session.ts';
 import { clipPath } from './voice-feedback-store.ts';
 
@@ -32,9 +33,8 @@ export interface NoteToKeep {
   target: number | null;
   raw: string;
   clip: string;
-  /** The thread and comment the page said it posted this note as. */
+  /** The thread the page said it posted this note as. */
   threadId?: string;
-  commentId?: string;
 }
 
 /** The slice of the doc store this needs. */
@@ -79,6 +79,7 @@ interface Found {
   text: string;
   voice: VoiceNote | undefined;
   author: User;
+  via: WriteVia | undefined;
 }
 
 /** `…/seg-3.wav#t=12.4,31` → `…/seg-3.wav#t=12.4,` — the part a note keeps. */
@@ -86,14 +87,23 @@ export function clipStart(clip: string): string {
   return clip.slice(0, clip.lastIndexOf(',') + 1);
 }
 
+/** The comment holding this note: by its clip, which the server made, so a
+ *  thread id the page reported can only narrow the search, never widen it. */
 function locate(threads: Thread[], note: NoteToKeep): Found | null {
   const prefix = clipStart(note.clip);
-  for (const thread of threads) {
+  if (prefix === '') return null;
+  const named = threads.filter((t) => t.id === note.threadId);
+  for (const thread of [...named, ...threads]) {
     for (const c of thread.comments) {
-      const byId = note.threadId === thread.id && (!note.commentId || note.commentId === c.id);
-      const byClip = prefix !== '' && c.voice?.clip.startsWith(prefix) === true;
-      if ((byId && c.voice) || byClip) {
-        return { thread, commentId: c.id, text: c.text, voice: c.voice, author: c.author };
+      if (c.voice?.clip.startsWith(prefix)) {
+        return {
+          thread,
+          commentId: c.id,
+          text: c.text,
+          voice: c.voice,
+          author: c.author,
+          via: c.via,
+        };
       }
     }
   }
@@ -125,6 +135,9 @@ export async function keepNotes(threads: VoiceNoteThreads, req: KeepRequest): Pr
     const f = found.get(n.key);
     if (f) {
       if (f.text === n.text && f.voice?.clip === n.clip && f.voice?.raw === n.raw) continue;
+      // A mock's socket edits only what was written from inside the mock,
+      // as a relayed edit through the thread routes does.
+      if (!mayTouchFrom(req.via, f)) continue;
       const res = threads.editCommentText(req.docId, f.thread.id, f.commentId, n.text, {
         actor: author ?? f.author,
         voice,

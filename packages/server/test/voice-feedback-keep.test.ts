@@ -163,7 +163,6 @@ describe('keepNotes', () => {
         raw: 'the save button hides behind the footer',
         clip: clip('0.0', '1.8'),
         threadId: 't1',
-        commentId: 'c1',
       },
       {
         key: 'v2',
@@ -197,6 +196,60 @@ describe('keepNotes', () => {
     const kept = await keepNotes(store, { docId: DOC, author: ALICE, notes: [note] });
     expect(kept.edited).toEqual(['v1']);
     expect(store.threads).toHaveLength(1);
+  });
+
+  it('a thread id the page reports cannot point the write at somebody else’s comment', async () => {
+    const store = memoryThreads();
+    await seed(
+      store,
+      'Harborlight is late.',
+      { clip: clip('9.0', '9.9'), raw: 'harborlight is late' },
+      BOB,
+    );
+    const kept = await keepNotes(store, {
+      docId: DOC,
+      author: ALICE,
+      notes: [
+        {
+          key: 'v1',
+          text: 'The header is tall.',
+          target: null,
+          raw: 'the header is tall',
+          clip: clip('0.0', '1.2'),
+          threadId: 't1',
+        },
+      ],
+    });
+    expect(kept.created).toEqual(['v1']);
+    expect(store.threads[0]?.comments[0]?.text).toBe('Harborlight is late.');
+  });
+
+  it('a mock’s socket leaves alone a note that was not written from inside the mock', async () => {
+    const store = memoryThreads();
+    await seed(store, 'The Save button hides.', {
+      clip: clip('0.0', '1.0'),
+      raw: 'the save button hides',
+    });
+    const note: NoteToKeep = {
+      key: 'v1',
+      text: 'Rewritten by the mock.',
+      target: null,
+      raw: 'the save button hides',
+      clip: clip('0.0', '1.4'),
+    };
+    const kept = await keepNotes(store, {
+      docId: DOC,
+      author: ALICE,
+      via: 'mock-frame',
+      notes: [note],
+    });
+    expect(kept).toEqual({ created: [], edited: [], unwritten: [] });
+    expect(store.threads).toHaveLength(1);
+    expect(store.threads[0]?.comments[0]?.text).toBe('The Save button hides.');
+    // The control: the same note from a socket no mock relayed is written.
+    expect((await keepNotes(store, { docId: DOC, author: ALICE, notes: [note] })).edited).toEqual([
+      'v1',
+    ]);
   });
 
   it('with nobody named, writes as the author of a note the page posted, and names what it could not write', async () => {

@@ -168,7 +168,7 @@ describe('leaving a page mid-voice-note', () => {
       describe: 'the first note',
     });
     const posted = await postNote(docId, first);
-    page.ws.send(JSON.stringify({ type: 'posted', key: first.key, ...posted }));
+    page.ws.send(JSON.stringify({ type: 'posted', key: first.key, threadId: posted.threadId }));
     // The same topic goes on, and the browser is gone before the next pause.
     page.speak(4);
     await waitFor(

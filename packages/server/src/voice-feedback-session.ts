@@ -42,7 +42,6 @@ export interface LiveComment {
   chosen?: boolean;
   /** The thread the page posted it as, once the page says. */
   threadId?: string;
-  commentId?: string;
 }
 
 export interface Session {

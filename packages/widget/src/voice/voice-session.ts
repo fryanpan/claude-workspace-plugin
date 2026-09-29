@@ -362,12 +362,7 @@ export class VoiceSession {
       // A create that answers after its recording ended must not name a
       // comment of the next one.
       if (c.take === this.take) {
-        this.sendJson({
-          type: 'posted',
-          key: c.wire,
-          threadId: posted.threadId,
-          commentId: posted.commentId,
-        });
+        this.sendJson({ type: 'posted', key: c.wire, threadId: posted.threadId });
       }
       this.change();
       return;
