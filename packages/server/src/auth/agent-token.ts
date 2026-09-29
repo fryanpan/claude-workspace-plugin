@@ -160,9 +160,9 @@ export interface AgentCallerCheck {
  * caller claims to be: through the edge, from off this machine, or from a
  * page. Null when none applies.
  *
- * Shared by `authorizeAgentCaller` and the `/mcp` endpoint, which carries the
- * same feeds and the same REST verbs — so a check added to one door cannot be
- * forgotten on the other.
+ * Run by `authorizeAgentCaller`, and on its own by the `/mcp` endpoint before
+ * it knows which agents a request names — so a check added to one door cannot
+ * be forgotten on the other.
  */
 export function refuseNonLocalAgentCaller(
   req: Request,

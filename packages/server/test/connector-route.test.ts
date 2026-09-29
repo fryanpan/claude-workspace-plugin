@@ -20,7 +20,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { resolveAgentAuthor } from '../../mcp/src/author.ts';
 import { TOOL_LIST } from '../../mcp/src/tool-schemas.ts';
+import { agentTokenKey, mintAgentToken } from '../src/auth/agent-token.ts';
 import type { ConnectorHost } from '../src/connector/host.ts';
+import {
+  type ConnectorIdentity,
+  readIdentityHeaders,
+  resolveIdentity,
+} from '../src/connector/identity.ts';
 import { snapshotPath } from '../src/connector/snapshot.ts';
 import { handleMcpConnectorRoute } from '../src/routes/mcp-connector.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
@@ -28,6 +34,7 @@ import {
   type Send,
   identityHeaders,
   initialize,
+  initializeBody,
   listen,
   openStream,
   rpc,
@@ -36,6 +43,7 @@ import { waitFor } from './wait-for.ts';
 import { seedBoard } from './workspace-seed.ts';
 
 const ALPHA_ID = resolveAgentAuthor({ CW_AGENT_NAME: 'Riverbend Alpha', CW_AUTHOR: 'agent' }).id;
+const BETA_ID = resolveAgentAuthor({ CW_AGENT_NAME: 'Harborlight Beta', CW_AUTHOR: 'agent' }).id;
 const PERSON = {
   id: 'known-reviewer',
   name: 'Saltmarsh Reviewer',
@@ -44,30 +52,45 @@ const PERSON = {
 };
 
 describe('/mcp gate', () => {
+  const KEY = agentTokenKey('a-test-base-key-that-is-not-a-real-one');
   let handled = 0;
+  let warned: string[] = [];
+  /** Session id -> the identity it was opened as, standing in for the host's table. */
+  const live = new Map<string, ConnectorIdentity>();
   const host = {
     handle: async () => {
       handled += 1;
       return new Response('handled');
     },
+    sessionIdentity: (sid: string) => live.get(sid),
   } as unknown as ConnectorHost;
-  const ctx = (address: string) => ({
+  const ctx = (address: string, requireAgentToken: boolean) => ({
     host,
     j: (status: number, body: unknown) => Response.json(body, { status }),
     requestAddress: () => address,
+    agentTokenKey: () => KEY,
+    requireAgentToken,
+    warnLegacyAgentCaller: (agentId: string) => {
+      warned.push(agentId);
+    },
   });
   const call = (
     headers: Record<string, string>,
-    opts: { address?: string; visitor?: unknown } = {},
+    opts: { address?: string; visitor?: unknown; requireToken?: boolean } = {},
   ) =>
-    handleMcpConnectorRoute(ctx(opts.address ?? '127.0.0.1'), {
+    handleMcpConnectorRoute(ctx(opts.address ?? '127.0.0.1', opts.requireToken ?? false), {
       req: new Request('http://127.0.0.1/mcp', { method: 'POST', headers }),
       pathname: '/mcp',
       visitor: opts.visitor ?? null,
     });
+  const bearer = (agentId: string) => ({ authorization: `Bearer ${mintAgentToken(agentId, KEY)}` });
+  const alpha = identityHeaders('Riverbend Alpha', '/work/riverbend');
+  const beta = identityHeaders('Harborlight Beta', '/work/harborlight');
 
   beforeEach(() => {
     handled = 0;
+    warned = [];
+    live.clear();
   });
 
   it('hands a local agent process to the host', async () => {
@@ -99,8 +122,69 @@ describe('/mcp gate', () => {
     expect(handled).toBe(0);
   });
 
+  describe('with the agent token required', () => {
+    const required = { requireToken: true };
+
+    it('serves an agent that presents its own token', async () => {
+      const res = await call({ ...alpha, ...bearer(ALPHA_ID) }, required);
+      expect(await res?.text()).toBe('handled');
+      expect(handled).toBe(1);
+    });
+
+    it('refuses an agent named with no token', async () => {
+      const res = await call(alpha, required);
+      expect(res?.status).toBe(401);
+      expect(((await res?.json()) as { error: string }).error).toBe('agent-token-required');
+      expect(handled).toBe(0);
+    });
+
+    it("refuses an agent named with another agent's token", async () => {
+      const res = await call({ ...alpha, ...bearer(BETA_ID) }, required);
+      expect(res?.status).toBe(403);
+      expect(((await res?.json()) as { error: string }).error).toBe('agent-token-mismatch');
+      expect(handled).toBe(0);
+    });
+
+    it('refuses a session id opened as another agent, whatever the headers name', async () => {
+      const read = readIdentityHeaders(new Headers(alpha));
+      if (!read.ok) throw new Error(read.message);
+      const opened = resolveIdentity(read.headers, 'sid-alpha');
+      if (!opened.ok) throw new Error(opened.message);
+      live.set('sid-alpha', opened.identity);
+      const res = await call(
+        { ...beta, ...bearer(BETA_ID), 'mcp-session-id': 'sid-alpha' },
+        required,
+      );
+      expect(res?.status).toBe(403);
+      expect(handled).toBe(0);
+      // Control: the session's own agent, on its own id, is served.
+      const own = await call(
+        { ...alpha, ...bearer(ALPHA_ID), 'mcp-session-id': 'sid-alpha' },
+        required,
+      );
+      expect(await own?.text()).toBe('handled');
+    });
+
+    it('serves a session that names no agent: it pools with nobody', async () => {
+      const res = await call(identityHeaders(null, '/work/saltmarsh'), required);
+      expect(await res?.text()).toBe('handled');
+    });
+  });
+
+  it('serves a tokenless agent while the token is not required, and says so once per call', async () => {
+    const res = await call(alpha);
+    expect(await res?.text()).toBe('handled');
+    expect(warned).toEqual([ALPHA_ID]);
+  });
+
+  it('refuses a wrong token even while the token is not required', async () => {
+    const res = await call({ ...alpha, ...bearer(BETA_ID) });
+    expect(res?.status).toBe(403);
+    expect(handled).toBe(0);
+  });
+
   it('declines every other path', async () => {
-    const res = await handleMcpConnectorRoute(ctx('127.0.0.1'), {
+    const res = await handleMcpConnectorRoute(ctx('127.0.0.1', false), {
       req: new Request('http://127.0.0.1/mcp/extra'),
       pathname: '/mcp/extra',
       visitor: null,
@@ -119,7 +203,15 @@ describe('/mcp on a real server', () => {
     // hosted session's REST calls come from the server's own process, which
     // the loopback mint refuses, so its watches only work if its token is
     // minted in-process (connector/session-factory.ts).
-    const handle = createServer({ port: 0, dataDir, requireAgentToken: true });
+    // The mint's process probe is stood in for: this test's process is the
+    // caller, and it is Riverbend Alpha. agent-token-mint.test.ts drives the
+    // real probe.
+    const handle = createServer({
+      port: 0,
+      dataDir,
+      requireAgentToken: true,
+      identifyAgentCaller: async () => ({ ok: true, agentId: ALPHA_ID, via: 'session' }),
+    });
     handles.push(handle);
     const base = `http://127.0.0.1:${handle.port}`;
     const send: Send = (method, headers, body) =>
@@ -129,6 +221,14 @@ describe('/mcp on a real server', () => {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     return { handle, base, send };
+  };
+
+  /** Alpha's identity headers plus the token its own mint hands it. */
+  const alphaWithToken = async (base: string, cwd: string): Promise<Record<string, string>> => {
+    const res = await fetch(`${base}/api/agents/${ALPHA_ID}/token`);
+    expect(res.status).toBe(200);
+    const { token } = (await res.json()) as { token: string };
+    return { ...identityHeaders('Riverbend Alpha', cwd), authorization: `Bearer ${token}` };
   };
 
   const makeDoc = async (base: string, ws: string, alias: string): Promise<string> => {
@@ -173,7 +273,7 @@ describe('/mcp on a real server', () => {
       }
     };
     const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
-      requestInit: { headers: identityHeaders('Riverbend Alpha', cwd) },
+      requestInit: { headers: await alphaWithToken(base, cwd) },
     });
     await client.connect(transport);
     try {
@@ -213,9 +313,22 @@ describe('/mcp on a real server', () => {
     }
   }, 30_000);
 
+  it("refuses an agent's session without that agent's token, and opens it with one", async () => {
+    const { send, base } = boot();
+    const bare = await send(
+      'POST',
+      identityHeaders('Riverbend Alpha', '/work/riverbend'),
+      initializeBody(),
+    );
+    expect(bare.status).toBe(401);
+    expect(((await bare.json()) as { error: string }).error).toBe('agent-token-required');
+    const sid = await initialize(send, await alphaWithToken(base, '/work/riverbend'));
+    expect(sid.length).toBeGreaterThan(0);
+  });
+
   it('carries a comment posted right after a restart to the agent, once', async () => {
-    const alpha = identityHeaders('Riverbend Alpha', '/work/riverbend');
     const first = boot();
+    const alpha = await alphaWithToken(first.base, '/work/riverbend');
     const ws = await seedBoard(first.base);
     const docId = await makeDoc(first.base, ws, 'doc-one');
     const sid = await initialize(first.send, alpha);

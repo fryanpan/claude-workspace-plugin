@@ -27,10 +27,9 @@
  * it may have been told was empty. A POST for an unknown id is answered 404,
  * which the client does handle: it re-initializes.
  *
- * WHAT IS NOT HERE. The path, the gate and the share-visitor refusal are the
- * route's (routes/mcp-connector.ts). Building a connector — its REST fetch and
- * its in-process event stream — is session-factory.ts. This module is the two
- * tables and the protocol between them.
+ * WHAT IS NOT HERE. The path and every gate, the agent token's included, are
+ * the route's (routes/mcp-connector.ts); building a connector is
+ * session-factory.ts. This module is the two tables and their protocol.
  */
 import { randomUUID } from 'node:crypto';
 import type { AgentAuthor } from '../../../mcp/src/author.ts';
@@ -92,6 +91,8 @@ export interface ConnectorHost {
   /** Retire idle sessions and identities. Runs on a timer; exposed for tests. */
   sweep(): void;
   counts(): { identities: number; sessions: number; streams: number };
+  /** The identity a live session was opened as, for the route's agent gate. */
+  sessionIdentity(sid: string): ConnectorIdentity | undefined;
   stop(): void;
 }
 
@@ -482,6 +483,10 @@ export function createConnectorHost(deps: ConnectorHostDeps): ConnectorHost {
       let streams = 0;
       for (const s of sessions.values()) if (s.closeStream) streams += 1;
       return { identities: identities.size, sessions: sessions.size, streams };
+    },
+
+    sessionIdentity(sid) {
+      return identities.get(sessions.get(sid)?.key ?? '')?.identity;
     },
 
     stop() {

@@ -2271,7 +2271,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         }),
       // Hosted sessions mint in-process: their REST calls come from this
       // process, which the loopback mint refuses (auth/agent-caller.ts). The
-      // identity is the one `/mcp`'s own gate already settled.
+      // identity is the one `/mcp`'s own gate already settled: under
+      // `requireAgentToken` it took that agent's token to get in.
       mintAgentToken: (agentId) => mintAgentToken(agentId, agentTokenKeyFor()),
       log: (...args) => console.error('[connector]', ...args),
     }),
@@ -3092,7 +3093,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // because it is the door those agents come through.
       {
         const handled = await handleMcpConnectorRoute(
-          { host: connectorHost, j, requestAddress: (r) => server.requestIP(r)?.address },
+          {
+            host: connectorHost,
+            j,
+            requestAddress: (r) => server.requestIP(r)?.address,
+            agentTokenKey: agentTokenKeyFor,
+            requireAgentToken,
+            warnLegacyAgentCaller,
+          },
           { req, pathname, visitor },
         );
         if (handled) return handled;
