@@ -212,6 +212,9 @@ export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandl
         return;
       }
       onClose(ws as unknown as FeedbackWs);
+      // While open, the connection itself holds the doc; the week-long
+      // window counts from here (`doc-residency.ts`).
+      docStore.notePersonLeft((ws as unknown as FeedbackWs).data.docId);
     },
   };
 }

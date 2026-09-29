@@ -28,12 +28,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { memberDocId } from '../src/binds.ts';
 import { DocStore } from '../src/doc-store.ts';
+import { createSocketHandlers } from '../src/socket-handlers.ts';
 import { SseBus } from '../src/sse.ts';
 import { createWebhookDispatcher } from '../src/webhooks.ts';
 import { waitFor } from './wait-for.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
 
 /** Read a bound doc's markdown back off disk. */
 const onDisk = (p: string) => readFileSync(p, 'utf8');
@@ -163,19 +164,60 @@ describe('evicting an idle doc', () => {
     }
   });
 
-  it('drops a doc idle for two days and keeps one touched an hour ago', () => {
-    bound('stale');
-    bound('fresh');
+  /** A browser editor opening `docId` and, on `close()`, leaving it —
+   *  through the same socket handlers the server mounts. */
+  function openEditor(docId: string): { close: () => void } {
+    const handlers = createSocketHandlers({
+      docStore,
+      meetingRelay: {} as never,
+      recallRelay: {} as never,
+      voiceRelay: {} as never,
+    });
+    const ws = {
+      data: { docId, kind: 'yjs' },
+      sendBinary: () => {},
+      send: () => {},
+      close: () => {},
+    } as unknown as Parameters<NonNullable<typeof handlers.open>>[0];
+    handlers.open?.(ws);
+    return { close: () => handlers.close?.(ws, 1000, '') };
+  }
+
+  it('drops a doc only an agent reached after thirty minutes, not two days', () => {
+    bound('agent-edited');
+    bound('agent-read');
     docStore.flush();
 
-    // Three days on, then a real interaction with one of them an hour ago.
-    clock += 3 * DAY - HOUR;
-    expect(docStore.get('fresh')).toBeDefined();
-    clock += HOUR;
+    // Twenty minutes on: an agent's content read, and an agent's threads read.
+    clock += 20 * MINUTE;
+    expect(docStore.get('agent-edited')).toBeDefined();
+    expect(docStore.listThreads('agent-read')).toEqual([]);
 
-    expect(docStore.evictIdleDocs()).toEqual(['stale']);
-    expect(resident('stale')).toBe(false);
-    expect(resident('fresh')).toBe(true);
+    // The threads read reset nothing, so that doc goes thirty minutes after
+    // it was last REACHED...
+    clock += 11 * MINUTE;
+    expect(docStore.evictIdleDocs()).toEqual(['agent-read']);
+    // ...and the content read holds its doc for thirty minutes, not two days.
+    clock += 20 * MINUTE;
+    expect(docStore.evictIdleDocs()).toEqual(['agent-edited']);
+  });
+
+  it('keeps a doc a person opened for a week after they left it', () => {
+    bound('opened');
+    bound('only-agent');
+    docStore.flush();
+    const editor = openEditor('opened');
+    // Connected is a hold of its own; the week counts from leaving.
+    clock += 3 * DAY;
+    expect(docStore.evictIdleDocs()).toEqual(['only-agent']);
+    editor.close();
+
+    clock += 6 * DAY;
+    expect(docStore.evictIdleDocs()).toEqual([]);
+    expect(resident('opened')).toBe(true);
+    // Control: a week and a day after they left, it goes.
+    clock += 2 * DAY;
+    expect(docStore.evictIdleDocs()).toEqual(['opened']);
   });
 
   it('an interaction resets the clock, so a doc opened today survives', () => {

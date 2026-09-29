@@ -41,6 +41,8 @@
  * this module writes separates them.
  */
 
+import { createRequire } from 'node:module';
+
 /** A request the front door has admitted and not yet answered. */
 export interface InflightRequest {
   method: string;
@@ -133,6 +135,50 @@ export interface LoopLagMonitorOptions {
   stamp?: () => string;
   /** What the front door was holding when the loop came back. */
   inflight?: () => InflightRequest[];
+  /** The process counters a report compares across the block. */
+  sample?: () => ProcessSample;
+}
+
+/**
+ * The counters that tell the three idle causes apart, read every tick and
+ * compared across a block. CPU near the block's length is this process
+ * running — a GC or a timer — and a falling heap says it was the GC. CPU
+ * well short of it with major faults climbing is the process waiting on
+ * page-ins; with neither, the OS had it descheduled. One `getrusage` and one
+ * heap read, under a microsecond together.
+ */
+export interface ProcessSample {
+  /** User plus system CPU time since boot. */
+  cpuMs: number;
+  /** Page faults that had to wait on disk, since boot. */
+  majorFaults: number;
+  heapMb: number;
+}
+
+/**
+ * The live heap size. `bun:jsc`, not `memoryUsage().heapUsed`: that one is not
+ * refreshed by a collection, so it cannot show the drop a GC leaves. Resolved
+ * lazily and only under Bun, because the client suites import this module on
+ * Node, where `bun:jsc` does not exist.
+ */
+let heapBytes: (() => number) | undefined;
+function readHeap(): number {
+  if (!heapBytes) {
+    heapBytes =
+      typeof (globalThis as { Bun?: unknown }).Bun === 'undefined'
+        ? () => process.memoryUsage().heapUsed
+        : (createRequire(import.meta.url)('bun:jsc') as { heapSize: () => number }).heapSize;
+  }
+  return heapBytes();
+}
+
+function processSample(): ProcessSample {
+  const r = process.resourceUsage();
+  return {
+    cpuMs: (r.userCPUTime + r.systemCPUTime) / 1000,
+    majorFaults: r.majorPageFault,
+    heapMb: readHeap() / 1024 / 1024,
+  };
 }
 
 /** How many in-flight requests a report names before it summarises the rest. */
@@ -153,6 +199,9 @@ export class LoopLagMonitor {
   private readonly log: (line: string) => void;
   private readonly stamp: () => string;
   private readonly inflight: () => InflightRequest[];
+  private readonly sample: () => ProcessSample;
+  /** The counters as the previous tick read them. */
+  private last: ProcessSample;
   private timer: ReturnType<typeof setInterval> | undefined;
   /** When the next tick was due. A tick that arrives after this was blocked. */
   private dueAt: number;
@@ -166,6 +215,8 @@ export class LoopLagMonitor {
     this.log = opts.log ?? ((line) => console.error(line));
     this.stamp = opts.stamp ?? (() => new Date().toISOString());
     this.inflight = opts.inflight ?? (() => []);
+    this.sample = opts.sample ?? processSample;
+    this.last = this.sample();
     this.dueAt = this.now() + this.periodMs;
   }
 
@@ -181,9 +232,11 @@ export class LoopLagMonitor {
     const at = this.now();
     const blockedMs = at - this.dueAt;
     this.dueAt = at + this.periodMs;
+    const before = this.last;
+    this.last = this.sample();
     if (blockedMs < this.thresholdMs) return blockedMs > 0 ? blockedMs : 0;
     this.reported++;
-    this.log(this.lineFor(blockedMs, at));
+    this.log(`${this.lineFor(blockedMs, at)}; ${countersLine(before, this.last)}`);
     return blockedMs;
   }
 
@@ -237,6 +290,13 @@ export class LoopLagMonitor {
     const more = rest > 0 ? `, +${rest} more` : '';
     return `${head} — in flight: ${named}${more}`;
   }
+}
+
+/** What the counters did across a block, for the end of its report. */
+function countersLine(before: ProcessSample, after: ProcessSample): string {
+  const cpu = Math.round(after.cpuMs - before.cpuMs);
+  const faults = after.majorFaults - before.majorFaults;
+  return `across it: cpu ${cpu}ms, ${faults} page-ins, heap ${Math.round(before.heapMb)}→${Math.round(after.heapMb)}MB`;
 }
 
 /**

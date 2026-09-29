@@ -40,6 +40,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { DocEditOps, type DocEditPersistence } from './doc-edit-ops.ts';
 import type { BlockEditsAuthor, BlockEditsResult, DocOutline } from './doc-outline-ops.ts';
+import { type ResidencyEntry, pastWindow } from './doc-residency.ts';
 import { type DocStoreWorkspacePersistence, DocStoreWorkspaces } from './doc-store-workspaces.ts';
 import { type DocThreadPersistence, DocThreads } from './doc-threads.ts';
 import {
@@ -417,27 +418,14 @@ const REVISION_SETTLE_MS = DOC_STORE_TIMINGS.revisionSettleMs;
  *  not the clock). See `DocStore.staleWriteCheck`. */
 const STALE_WRITE_WINDOW_MS = 10 * 60_000;
 
-/**
- * How long a doc may sit untouched in memory before it is dropped.
- *
- * Two days, and it is Bryan's number, not a tuning parameter: *"drop idle
- * docs after two days, but if the user opens the doc again or interacts with
- * it that resets the clock"*. The reason it is long is that he is unwilling
- * to have a doc he touched recently disappear from memory, so err towards
- * keeping rather than towards a smaller process.
- *
- * THE WINDOW IS THE AUTHORITATIVE RULE. An earlier design carried a resident
- * cap of ~500 docs alongside it; roughly 600 docs are touched in a single
- * day, so a two-day window legitimately holds more than that cap allows. If
- * a count-based cap is ever added here, it must yield: a doc somebody touched
- * yesterday is never evicted to satisfy a number. There is deliberately no
- * such cap in this file today, and adding one is a decision, not a tweak.
- */
-const IDLE_EVICT_MS = 2 * 24 * 60 * 60 * 1000;
+// How long a doc may sit untouched in memory before it is dropped is
+// `doc-residency.ts`: a week for a doc a person opened, within a cap, and
+// thirty minutes for anything else. It replaced a flat two-day window that
+// held ~2,700 docs resident on prod — heap every full GC had to walk, and
+// page back in under swap (2026-09-29).
 
-/** How often the idle sweep runs. A two-day window does not need a fast
- *  clock; this only bounds how late an eviction is, never whether it
- *  happens. */
+/** How often the idle sweep runs. This only bounds how late an eviction is,
+ *  never whether it happens. */
 const EVICT_SWEEP_MS = 10 * 60_000;
 
 /** Doc → `.ydoc`: how long a change waits before the CRDT snapshot is persisted. */
@@ -568,6 +556,8 @@ export class DocStore {
 
   /** docId → last time anything reached for this doc (see `touchDoc`). */
   private lastTouchedAt = new Map<string, number>();
+  /** docId → last time a person's editor left it (`notePersonLeft`). */
+  private lastPersonAt = new Map<string, number>();
 
   /**
    * Set by `stop()`. A deferred bind is the one piece of work that can land
@@ -757,6 +747,7 @@ export class DocStore {
     //    `activityMtime` stays too, so a listing still answers without a stat.
     this.docs.delete(docId);
     this.lastTouchedAt.delete(docId);
+    this.lastPersonAt.delete(docId);
     this.hydratedAt.delete(docId);
     // A park describes THIS live doc; the next hydrate decides afresh.
     this.parkedSources.delete(docId);
@@ -786,7 +777,7 @@ export class DocStore {
    * the first thing anyone asks.
    *
    * NOT a hold, and worth knowing: an agent's `watch_doc` subscription. A
-   * watched doc that nobody opens for two days is evicted, and while its
+   * watched doc that nobody opens for its window is evicted, and while its
    * COMMENT events still arrive — a comment goes through `get`, which
    * hydrates — an external edit to its bound `.md` no longer does, because
    * an evicted doc has no file binding to poll. The doc is not resident, so
@@ -816,7 +807,8 @@ export class DocStore {
   }
 
   /**
-   * Drop every doc nobody has touched for two days. Returns what went.
+   * Drop every doc whose window has run out (`doc-residency.ts`). Returns
+   * what went.
    *
    * Public because the sweep timer and the tests must exercise the same
    * pass — a test that reimplemented the policy would prove only that the
@@ -824,15 +816,33 @@ export class DocStore {
    */
   evictIdleDocs(): string[] {
     const now = this.now();
+    const entries: ResidencyEntry[] = [];
+    for (const docId of this.docs.keys()) {
+      entries.push({
+        docId,
+        lastReachedAt: this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now,
+        lastPersonAt: this.lastPersonAt.get(docId),
+      });
+    }
     const evicted: string[] = [];
-    // Snapshot: `evictDoc` mutates the map being walked.
-    for (const [docId, doc] of [...this.docs]) {
-      const last = this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now;
-      if (now - last < IDLE_EVICT_MS) continue;
-      if (this.evictionHold(docId, doc, now) !== null) continue;
+    // `evictDoc` mutates the map; `entries` is the snapshot walked.
+    for (const docId of pastWindow(entries, now)) {
+      const doc = this.docs.get(docId);
+      if (!doc || this.evictionHold(docId, doc, now) !== null) continue;
       if (this.evictDoc(docId)) evicted.push(docId);
     }
     return evicted;
+  }
+
+  /**
+   * A person's editor left this doc: the clock the week-long window runs
+   * on. Called by the websocket close, and only a browser opens one —
+   * agents reach docs over HTTP. Nothing is needed on open, because a
+   * connected doc is held (`evictionHold`) for as long as it stays open.
+   */
+  notePersonLeft(docId: string): void {
+    const doc = this.peek(docId);
+    if (doc) this.lastPersonAt.set(doc.docId, this.now());
   }
 
   private startEvictionSweep(): void {
@@ -1344,6 +1354,7 @@ export class DocStore {
     this.docs.delete(docId);
     this.activityMtime.delete(docId);
     this.lastTouchedAt.delete(docId);
+    this.lastPersonAt.delete(docId);
     this.hydratedAt.delete(docId);
     this.parkedSources.delete(docId);
     this.unboundReads.delete(docId);
@@ -2172,7 +2183,7 @@ export class DocStore {
    *
    * Deliberately does NOT touch: hydrating is not the same as somebody
    * reaching for a doc, and a sweep that pulled docs in would otherwise hold
-   * every one of them for two days. `get` touches; this does not, so a doc
+   * every one of them for its window. `get` touches; this does not, so a doc
    * pulled in by machinery goes back out on the next sweep.
    *
    * The `.ydoc` must exist. Hydration LOADS what is on disk — it must never

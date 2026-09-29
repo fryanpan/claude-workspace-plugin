@@ -171,7 +171,7 @@ Do not let a doc's questions age because reading felt risky. It is not, and the 
 - **`list_threads` and `get_thread` bind nothing.** Threads live in the CRDT, so the server answers out of it: no bound file is read, no file poll is joined, no write-back observer is installed. A dormant doc stays dormant. **You cannot clobber a file on disk by reading its comments**, and a doc you only read threads on is bound properly the moment anything asks for its content.
 - **`get_doc` and every edit tool DO bind.** They reach for content, so they read the file and arm the binding. That is right for a doc you are about to work on, and it is the read the caution about bound docs is actually about.
 
-**Bounded, not free — so read with a reason, never by enumeration.** A threads read on a doc that is not already in memory loads its whole CRDT and holds it resident for two days. Walking one board's docs, or one task's threads, costs that and nothing else: do it without asking. Sweeping every doc on the server is a different animal and stays banned — one such sweep took a server from 2,246 resident docs to 7,114 and 281MB, with ~95s spent not answering.
+**Bounded, not free — so read with a reason, never by enumeration.** A threads read on a doc that is not already in memory loads its whole CRDT and holds it resident for half an hour (a doc a person opens stays up to a week). Walking one board's docs, or one task's threads, costs that and nothing else: do it without asking. Sweeping every doc on the server is a different animal and stays banned — one such sweep took a server from 2,246 resident docs to 7,114 and 281MB, with ~95s spent not answering.
 
 ## When Someone Comments on Your Review Item
 
