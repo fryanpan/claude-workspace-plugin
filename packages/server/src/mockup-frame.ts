@@ -155,9 +155,11 @@ export interface HostItem {
 }
 
 /**
- * The host page. It draws nothing of its own — one frame the size of the
- * window — and its script builds the frame, so it can hand the frame the
- * reader's display name before the widget inside reads it (see
+ * The host page. It draws one frame the size of the window and one link over
+ * it, back to the board the mock is filed on — without it, a reader who
+ * arrived on a mock or a dev server from a share link had no way to the
+ * board but the address bar. Its script builds the frame, so it can hand the
+ * frame the reader's display name before the widget inside reads it (see
  * `mock-host.ts`).
  */
 export function renderMockHost(args: {
@@ -175,7 +177,13 @@ export function renderMockHost(args: {
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<title>${title}</title>` +
     '<style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}' +
-    'iframe{border:0;width:100%;height:100%;display:block}</style></head><body>' +
+    'iframe{border:0;width:100%;height:100%;display:block}' +
+    '.cw-board-link{position:fixed;top:8px;left:8px;z-index:2147483646;padding:4px 10px;' +
+    'border-radius:999px;border:1px solid rgba(0,0,0,.14);background:rgba(255,255,255,.94);' +
+    'color:#1f2328;font:500 13px/18px system-ui,-apple-system,sans-serif;text-decoration:none;' +
+    'box-shadow:0 1px 3px rgba(0,0,0,.12)}</style></head><body>' +
+    `<a class="cw-board-link" href="/workspaces/${escapeAttr(encodeURIComponent(args.workspaceId))}"` +
+    ' aria-label="Back to the board">← Board</a>' +
     `<iframe data-cw-mock-frame sandbox="${MOCK_FRAME_SANDBOX}" allow="microphone"` +
     ` title="${escapeAttr(title || 'Mock')}" data-src="${escapeAttr(frameSrcFor(args.url))}"></iframe>` +
     `<script src="/widget/mock-host.js" data-workspace-id="${escapeAttr(args.workspaceId)}"` +

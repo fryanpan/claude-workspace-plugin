@@ -135,10 +135,14 @@ export async function handleDocResourceCore(
         ? scope.workspaceId
         : (taskStore.workspaceOfDoc(docId) ?? null);
     // Where the review app's `←` should go: the board that links this doc,
-    // not the machine-wide landing page. OWNER ONLY, as `hubWorkspaceId` is;
-    // resolved through the review for a review member, where
-    // `hubWorkspaceId` deliberately stops.
-    const backTo = visitor ? null : backTargetFor(docId, doc.meta.workspaceId, scope?.workspaceId);
+    // not the machine-wide landing page. Resolved through the review for a
+    // review member, where `hubWorkspaceId` deliberately stops. A visitor
+    // gets it only when it is the board in their own path — the one the gate
+    // just admitted them to, so naming it tells them nothing new — and
+    // without it the arrow sent a member who landed here from a share link
+    // to `/`, which the share hostname refuses.
+    const back = backTargetFor(docId, doc.meta.workspaceId, scope?.workspaceId);
+    const backTo = !visitor || back?.id === scope?.workspaceId ? back : null;
     // Who the Make Plan float names ("Ask <lead> to create a plan").
     const lead = boardWs ? taskStore.getWorkspace(boardWs)?.leadAgentId : undefined;
     // The open ticket items linking this doc, for its dock: off the board in
