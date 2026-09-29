@@ -115,6 +115,29 @@ describe('LoopLagMonitor', () => {
     expect(lines[0]).toContain('nothing in flight');
   });
 
+  it('reports what the process counters did across the block, not since boot', () => {
+    const clock = fakeClock();
+    const lines: string[] = [];
+    let counters = { cpuMs: 10_000, majorFaults: 500, heapMb: 170 };
+    const m = new LoopLagMonitor({
+      periodMs: 250,
+      thresholdMs: 1000,
+      now: clock.now,
+      log: (l) => lines.push(l),
+      sample: () => counters,
+    });
+    // An on-time tick moves the baseline, so the report below is the block's
+    // own deltas and not everything since the monitor was built.
+    clock.advance(250);
+    counters = { cpuMs: 10_050, majorFaults: 510, heapMb: 172 };
+    m.tick();
+    // A 2.4s block: 300ms of CPU, 14,000 page-ins, and the heap collected.
+    clock.advance(2_650);
+    counters = { cpuMs: 10_350, majorFaults: 14_510, heapMb: 60 };
+    m.tick();
+    expect(lines[0]).toContain('across it: cpu 300ms, 14000 page-ins, heap 172→60MB');
+  });
+
   it('summarises the tail rather than printing every held request', () => {
     const clock = fakeClock();
     const lines: string[] = [];
