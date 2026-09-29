@@ -658,6 +658,9 @@ export interface ServerOptions {
    * session still transcribes and its words land as said.
    */
   voiceFeedbackTidy?: TidyComplete;
+  /** How long after a voice page goes before the server writes its notes
+   *  (`VOICE_KEEP_GRACE_MS`). Tests pass 0. */
+  voiceKeepGraceMs?: number;
   /**
    * The Recall.ai client that puts a BOT in a Zoom / Meet call. **No
    * default**, the same seam rule as `transcription` directly above and for

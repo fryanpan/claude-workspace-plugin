@@ -1,3 +1,4 @@
+import type { User, WriteVia } from '@claude-workspaces/core';
 /**
  * ── Socket handlers: what an open connection DOES ──
  *
@@ -86,6 +87,10 @@ export type UpgradeData = {
   readOnly?: boolean;
   widgetDoorGrant?: { token: string; origin: string };
   editor?: SocketEditor;
+  /** A voice socket's proven speaker, and its mark when a mock relayed it —
+   *  what the notes the server writes after the page has gone carry. */
+  author?: User | null;
+  via?: WriteVia;
 };
 
 /**
@@ -199,7 +204,7 @@ export function createSocketHandlers(ctx: SocketHandlersContext): WebSocketHandl
       }
       if (ws.data.kind === 'voice') {
         docStore.untrackShareSocket(ws);
-        voiceRelay.onClose(ws);
+        voiceRelay.onClose(ws, code);
         return;
       }
       if (ws.data.kind === 'audio') {

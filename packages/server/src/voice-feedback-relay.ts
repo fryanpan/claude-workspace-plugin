@@ -7,8 +7,8 @@
  * hands the new words, with everything already said for the open note, to
  * the tidier (`voice-feedback-tidy.ts`), which says whether they grow that
  * note or start a new one, and which element each is about. The page posts
- * what comes back as ordinary threads, under its own identity — the socket
- * never writes a comment.
+ * what comes back as ordinary threads, under its own identity; the socket
+ * writes a comment only once the page has gone (below).
  *
  * WHEN A TICK RUNS. At a pause — `pauseMs` after the last word heard — so a
  * note is written once a thought is finished, not rewritten mid-sentence; the
@@ -16,6 +16,11 @@
  * is a ceiling for talk that never pauses. A tap on another element (`pin`) or
  * an earlier note (`reopen`) is a pause too: the words said before it go to
  * the old note, and the ones after wait for the new. One tick at a time.
+ *
+ * WHEN THE PAGE GOES. A socket that closes without a Stop — a link followed,
+ * the tab closed, the browser quit, the network gone — ends the recording as
+ * Stop does, so the sentence being said still becomes a note, and then the
+ * server writes whatever notes the page can no longer (`voice-feedback-keep.ts`).
  *
  * WHO MAY OPEN ONE. The upgrade refuses share visitors outright, because a
  * session spends a transcription engine and the model on the owner's keys;
@@ -27,10 +32,11 @@ import {
   type VoiceClientMessage,
   type VoiceCommentFrame,
   type VoiceServerMessage,
-  type VoiceTarget,
   parseVoiceClientMessage,
 } from '@claude-workspaces/core';
+import { isCategoryAuthor } from './task-owner.ts';
 import type { EngineTurn, TranscriptionEngine } from './transcribe.ts';
+import { type VoiceNoteThreads, keepSession } from './voice-feedback-keep.ts';
 import type { LiveComment, Session, VoiceTimers, VoiceWs } from './voice-feedback-session.ts';
 import {
   VoiceLog,
@@ -61,6 +67,11 @@ export interface VoiceFeedbackDeps {
   /** How long the speaker is quiet before what they said becomes a note. */
   pauseMs?: number;
   timers?: VoiceTimers;
+  /** Where the notes of a page that went away are written; none, not kept. */
+  keep?: VoiceNoteThreads;
+  /** How long after the page goes before its notes are written, so a write
+   *  it sent as it went lands first and is found rather than repeated. */
+  keepGraceMs?: number;
   /** Wall clock, for the log's section heading. */
   now?: () => number;
   log?: (line: string) => void;
@@ -69,6 +80,8 @@ export interface VoiceFeedbackDeps {
 export const VOICE_CADENCE_MS = 30_000;
 /** The pause the owner approved on the mock: long enough to be a breath, not a comma. */
 export const VOICE_PAUSE_MS = 1_400;
+export const VOICE_KEEP_GRACE_MS = 1_500;
+type How = 'stop' | 'gone' | 'shutdown' | 'revoked';
 /** PCM16 mono at the meeting rate: bytes per millisecond of audio. */
 const BYTES_PER_MS = (MEETING_SAMPLE_RATE * 2) / 1000;
 
@@ -104,7 +117,7 @@ export class VoiceFeedbackRelay {
     }
     const s = this.sessions.get(ws);
     if (msg.type === 'start') {
-      if (!s) void this.start(ws, msg.targets);
+      if (!s) void this.start(ws, msg);
       return;
     }
     if (!s || s.closed) return;
@@ -118,17 +131,23 @@ export class VoiceFeedbackRelay {
     s.engine?.send(pcm);
   }
 
-  onClose(ws: VoiceWs): void {
+  /** `code` 1008 is this server hanging up on a grant that ended
+   *  (`live-doc-fanout.ts`): nothing more is written on that grant's word. */
+  onClose(ws: VoiceWs, code?: number): void {
     const s = this.sessions.get(ws);
-    if (s) void this.finish(s, false);
+    if (s) void this.finish(s, code === 1008 ? 'revoked' : 'gone');
   }
 
-  /** Every open session, ended. Awaited by the server's shutdown. */
+  /** Every open session, ended and kept. Awaited by the server's shutdown. */
   async dispose(): Promise<void> {
-    await Promise.all([...this.live].map((s) => this.finish(s, false)));
+    await Promise.all([...this.live].map((s) => this.finish(s, 'shutdown')));
   }
 
-  private async start(ws: VoiceWs, targets: VoiceTarget[]): Promise<void> {
+  private async start(
+    ws: VoiceWs,
+    msg: Extract<VoiceClientMessage, { type: 'start' }>,
+  ): Promise<void> {
+    const { targets } = msg;
     if (ws.data.readOnly) {
       this.send(ws, { type: 'unavailable', reason: 'sign_in_required' });
       return;
@@ -147,6 +166,8 @@ export class VoiceFeedbackRelay {
       wav,
       log: new VoiceLog(dataDir, docId),
       segment,
+      // A proven identity outranks the page's claim, as on the thread routes.
+      author: ws.data.author ?? (isCategoryAuthor(msg.author) ? null : (msg.author ?? null)),
       targets,
       turns: new VoiceTurns(),
       comments: new Map(),
@@ -179,7 +200,7 @@ export class VoiceFeedbackRelay {
     } catch (err) {
       this.deps.log?.(`[voice-feedback] engine failed to open: ${String(err)}`);
       this.send(ws, { type: 'unavailable', reason: 'engine_failed' });
-      await this.finish(s, false);
+      await this.finish(s, 'shutdown');
       return;
     }
     if (s.closed) {
@@ -384,15 +405,13 @@ export class VoiceFeedbackRelay {
         // Its thread rides on the line logged when it settles; only a comment
         // that settled before the post came back gets a line of its own.
         const c = s.comments.get(msg.key);
-        if (c && !c.final) {
-          c.threadId = msg.threadId;
-          return;
-        }
+        if (c) Object.assign(c, { threadId: msg.threadId, commentId: msg.commentId });
+        if (c && !c.final) return;
         s.log.write(`- Comment ${msg.key} posted as thread ${msg.threadId}\n`);
         return;
       }
       case 'stop':
-        void this.finish(s, true);
+        void this.finish(s, 'stop');
         return;
     }
   }
@@ -410,36 +429,37 @@ export class VoiceFeedbackRelay {
   }
 
   /**
-   * End a session. With `flush`, the engine's last turn and one more tick run
-   * first, so the sentence being said when Stop was pressed still becomes a
-   * comment — the sentence most likely to matter.
+   * End a session, however it ends: the engine's last turn and one more tick
+   * run first, so the sentence being said when Stop was pressed or the page
+   * went still becomes a note — the sentence most likely to matter. A page
+   * that pressed Stop writes the notes itself; one that went (`gone`), or a
+   * server shutting down, leaves them to be kept here; a revoked grant, nothing.
    */
-  private finish(s: Session, flush: boolean): Promise<void> {
-    s.ending ??= this.end(s, flush);
+  private finish(s: Session, how: How): Promise<void> {
+    // Live until its notes are kept, so a shutdown waits for them too.
+    s.ending ??= this.end(s, how).finally(() => this.live.delete(s));
     return s.ending;
   }
 
-  private async end(s: Session, flush: boolean): Promise<void> {
+  private async end(s: Session, how: How): Promise<void> {
     // A tap made before the end still lands where it was meant.
     await s.switching;
-    if (!flush) {
-      // A tidy call already under way still becomes a settled, logged comment.
-      if (s.timer !== null) this.timers.clear(s.timer);
-      if (s.inflight) await s.inflight;
-    }
-    if (flush && s.engine) {
+    if (s.engine && how !== 'revoked') {
       await s.engine.close();
       if (s.timer !== null) this.timers.clear(s.timer);
       s.timer = null;
       if (s.inflight) await s.inflight;
-      await this.tick(s);
+      // Every word, settled or not: nothing more will be said to settle it.
+      await this.run(s, s.turns.take(true), this.audioMs(s));
+    } else {
+      if (s.timer !== null) this.timers.clear(s.timer);
+      if (s.inflight) await s.inflight;
+      void s.engine?.close();
     }
     s.closed = true;
     if (s.timer !== null) this.timers.clear(s.timer);
     if (s.open) this.settle(s, s.open);
-    if (!flush) void s.engine?.close();
     s.wav.close();
-    this.live.delete(s);
     const secs = Math.round(this.audioMs(s) / 1000);
     s.log.flush();
     s.log.write(
@@ -448,9 +468,21 @@ export class VoiceFeedbackRelay {
     this.deps.log?.(
       `[voice-feedback] ${s.ws.data.docId} seg-${s.segment}: ${secs}s audio, ${s.ticks} ticks, $${s.usd.toFixed(4)} model`,
     );
-    if (flush) {
+    if (how === 'stop') {
       this.send(s.ws, { type: 'stopped' });
       s.ws.close(1000, 'stopped');
+      return;
     }
+    if (how === 'revoked') return;
+    await this.keep(s, how === 'gone' ? (this.deps.keepGraceMs ?? VOICE_KEEP_GRACE_MS) : 0);
+  }
+
+  private async keep(s: Session, graceMs: number): Promise<void> {
+    const { keep } = this.deps;
+    if (!keep || s.comments.size === 0) return;
+    if (graceMs > 0) await new Promise<void>((r) => this.timers.set(() => r(), graceMs));
+    await keepSession(keep, s).catch((err) =>
+      this.deps.log?.(`[voice-feedback] keeping notes failed: ${String(err)}`),
+    );
   }
 }

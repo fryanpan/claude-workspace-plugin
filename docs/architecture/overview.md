@@ -621,9 +621,15 @@ recording's WAV and a timestamped raw transcript beside the doc
 that is the `<audio>` fetching the clip itself, with its byte ranges and its
 `#t=` seek; with one it is a fetch carrying the Bearer header an `<audio>`
 cannot set, played from a blob, which costs the whole recording rather than
-the stretch the clip names. No new write path: a spoken
-comment is the thread POST the typed composer already makes, carrying a
-`voice` note (clip and raw words).
+the stretch the clip names. While the page is open, a spoken comment is the
+thread POST the typed composer already makes, carrying a `voice` note (clip
+and raw words). When the page goes without a Stop — a link followed, the
+browser quit — the relay finishes the last note from the words it heard and
+`voice-feedback-keep.ts` writes what the page could not, straight to the doc
+store: it finds each note's thread by the id the page reported or by where
+its clip starts, edits it, and creates only a note no thread holds. The
+socket carries the upgrade's proven identity for that write; with none, the
+speaker the page named at `start`.
 
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's
