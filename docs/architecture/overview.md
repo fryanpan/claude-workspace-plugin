@@ -631,6 +631,30 @@ its clip starts, edits it, and creates only a note no thread holds. The
 socket carries the upgrade's proven identity for that write; with none, the
 speaker the page named at `start`.
 
+**The board mic's spoken reply.** Holding the board mic can get a spoken
+answer rather than a line of text: Claude writes a short overview into a
+panel above the mic and says its first two sentences, or asks one question
+and waits. The words come from the board mic's own router (`voice.ts`), so
+fast paths and the hand-off to the lead behave exactly as on the plain mic;
+what varies is who hears and who speaks, and three setups sit behind one
+switch so they can be compared on the same board — Soniox alone, Soniox with
+ElevenLabs Flash, and Gemini Live. The wire is `core/spoken-reply.ts`
+(a new top-level core module: the messages and their parsers both ends read).
+On the page, `board/spoken-reply-client.ts` owns the socket and the turn,
+`spoken-reply-panel.ts` the panel's markup and states, `spoken-reply-audio.ts`
+the capture and the player, and `spoken-reply-hold.ts` the press; all four sit
+inside `board/`, and `board-voice.ts` mounts them in place of the plain
+capture only when `GET /workspaces/<ws>/voice/timings` names a setup. On the
+server, `routes/upgrade-stream.ts` hands `WS /workspaces/<ws>/voice/converse`
+to `spoken-reply/` (a new top-level server directory): `relay.ts` keeps one
+`session.ts` per socket, `answer.ts` cuts the router's answer into a spoken and
+a written part and adds the one question the router lacks ("which goal?"),
+`tts.ts` and `gemini-live.ts` are the vendor adapters, `keys.ts` reads their
+keys from the Keychain at runtime, and `timings.ts` logs each answer's delay
+from the end of the question to the first spoken word per setup. The billed
+engines are built only in `server-deps.ts`; a test server gets none, so every
+setup reads as not set up and the plain mic stays.
+
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's
 source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and

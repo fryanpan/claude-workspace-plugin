@@ -291,4 +291,6 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/workspaces/:ws/tasks/batch` | POST | `routes/tasks-batch.ts` | trusted-local |  |
 | `/workspaces/:ws/voice` | POST | `routes/workspace-settings.ts` | trusted-local |  |
 | `/workspaces/:ws/voice-queue/:id/ack` | POST | `routes/workspace-attachments.ts` | trusted-local |  |
+| `/workspaces/:ws/voice/converse` | GET | `routes/upgrade-stream.ts` | trusted-local |  |
+| `/workspaces/:ws/voice/timings` | GET | `routes/workspace-settings.ts` | trusted-local |  |
 | `/workspaces/:ws/y` | GET | `routes/upgrade-stream.ts` | collab-scope |  |
