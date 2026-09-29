@@ -51,13 +51,13 @@ describe('schema', () => {
       createdAt: 1,
       title: 'Public title',
       relPath: 'notes.md',
-      sourceUrl: '/Volumes/Data/private/notes.md',
-      owner: '/Volumes/Data/private',
-      workspaceRoot: '/Volumes/Data/private',
+      sourceUrl: '/path/to/private/notes.md',
+      owner: '/path/to/private',
+      workspaceRoot: '/path/to/private',
       producedBy: { agentId: 'some-agent', sessionId: 's1' },
     });
     const raw = JSON.stringify((doc.getMap('meta') as Y.Map<unknown>).toJSON());
-    expect(raw).not.toContain('/Volumes/');
+    expect(raw).not.toContain('/path/to/');
     expect(raw).not.toContain('some-agent');
     // ...while everything that describes the DOCUMENT still round-trips.
     const m = readDocMeta(doc);

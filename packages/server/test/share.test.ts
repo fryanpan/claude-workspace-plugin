@@ -33,7 +33,7 @@ import type { CfAccessApp, CfAccessPolicy } from '../src/share/cf-api.ts';
 const SHARE_CONFIG = {
   cfAccountId: 'test-account',
   cfTeamDomain: 'test.cloudflareaccess.com',
-  baseHostname: 'tunnel.fryanpan.com',
+  baseHostname: 'tunnel.example.com',
 };
 
 function makeMockCfApi(state: { apps: CfAccessApp[]; policies: CfAccessPolicy[] }) {

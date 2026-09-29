@@ -13,7 +13,7 @@ describe('docLabel', () => {
       docLabel({
         type: 'diff',
         relPath: 'src/a.ts',
-        labelHint: '/Volumes/Data/repo/src/a.ts',
+        labelHint: '/path/to/repo/src/a.ts',
         docId: 'rev1:src~a.ts',
       }),
     ).toBe('src/a.ts');
@@ -23,8 +23,8 @@ describe('docLabel', () => {
     // The regression this guards: no title, no relPath, sourceUrl no longer in
     // the CRDT — the label fell through to the docId.
     expect(
-      docLabel({ type: 'markdown', labelHint: '/Volumes/Data/repo/notes.md', docId: 'shared' }),
-    ).toBe('/Volumes/Data/repo/notes.md');
+      docLabel({ type: 'markdown', labelHint: '/path/to/repo/notes.md', docId: 'shared' }),
+    ).toBe('/path/to/repo/notes.md');
   });
 
   it('gives a share visitor the basename, never the docId', () => {
@@ -41,7 +41,7 @@ describe('docLabel', () => {
         type: 'markdown',
         huddle: true,
         title: 'Huddle 2026-09-01 14:40',
-        labelHint: '/Volumes/Data/dev/repo/data/huddles/d-huddle1.md',
+        labelHint: '/path/to/dev/repo/data/huddles/d-huddle1.md',
         docId: 'd-huddle1',
       }),
     ).toBe('Huddle 2026-09-01 14:40');
@@ -52,10 +52,10 @@ describe('docLabel', () => {
       docLabel({
         type: 'markdown',
         huddle: true,
-        labelHint: '/Volumes/Data/dev/repo/data/huddles/d-huddle1.md',
+        labelHint: '/path/to/dev/repo/data/huddles/d-huddle1.md',
         docId: 'd-huddle1',
       }),
-    ).toBe('/Volumes/Data/dev/repo/data/huddles/d-huddle1.md');
+    ).toBe('/path/to/dev/repo/data/huddles/d-huddle1.md');
   });
 
   it('prefers an explicit title when there is no path at all', () => {
@@ -77,8 +77,8 @@ describe('docLabel', () => {
   it('falls back to the hint for a diff doc that somehow has no relPath', () => {
     // Degenerate, but it's what the pre-change order did (sourceUrl next), and
     // a path beats an opaque id.
-    expect(
-      docLabel({ type: 'diff', labelHint: '/Volumes/Data/repo/src/a.ts', title: 'a.ts' }),
-    ).toBe('/Volumes/Data/repo/src/a.ts');
+    expect(docLabel({ type: 'diff', labelHint: '/path/to/repo/src/a.ts', title: 'a.ts' })).toBe(
+      '/path/to/repo/src/a.ts',
+    );
   });
 });

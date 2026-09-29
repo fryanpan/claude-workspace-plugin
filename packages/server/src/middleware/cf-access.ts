@@ -7,13 +7,13 @@ import {
 } from 'jose';
 
 export interface CfAccessOptions {
-  /** Cloudflare Zero Trust team domain, e.g. "fryanpan.cloudflareaccess.com". */
+  /** Cloudflare Zero Trust team domain, e.g. "<team>.cloudflareaccess.com". */
   teamDomain: string;
   /**
    * AUD tag(s) the verifier accepts. Can be:
    *   - a string: every request must match this single AUD (simple env-driven setup)
    *   - a function: resolve AUD per Host header — used by the share module so
-   *     each share-<slug>.tunnel.fryanpan.com gets its own AUD without restarts.
+   *     each share-<slug>.tunnel.example.com gets its own AUD without restarts.
    *     Return null when the host has no active share (request is rejected).
    *   - absent: a team domain with NO audience to check against. Every token
    *     is refused. This is what bin.ts hands over when CF_ACCESS_TEAM_DOMAIN

@@ -56,16 +56,16 @@ describe('sidecar round-trip', () => {
       createdAt: 1,
       title: 'public title',
       relPath: 'src/a.ts',
-      sourceUrl: '/Volumes/Data/x/a.ts',
-      owner: '/Volumes/Data/x',
-      workspaceRoot: '/Volumes/Data/x',
+      sourceUrl: '/path/to/x/a.ts',
+      owner: '/path/to/x',
+      workspaceRoot: '/path/to/x',
       producedBy: { agentId: 'a', sessionId: 's' },
     });
     const back = readPrivateMeta(dir, 'doc-1');
     expect(back).toEqual({
-      sourceUrl: '/Volumes/Data/x/a.ts',
-      owner: '/Volumes/Data/x',
-      workspaceRoot: '/Volumes/Data/x',
+      sourceUrl: '/path/to/x/a.ts',
+      owner: '/path/to/x',
+      workspaceRoot: '/path/to/x',
       producedBy: { agentId: 'a', sessionId: 's' },
     });
     // The public fields are NOT duplicated into the sidecar — the ydoc is
@@ -121,23 +121,23 @@ describe('liftPrivateMetaFromYdoc (legacy migration)', () => {
       m.set('docId', 'legacy');
       m.set('type', 'markdown');
       m.set('title', 'Keep me');
-      m.set('sourceUrl', '/Volumes/Data/private/notes.md');
-      m.set('owner', '/Volumes/Data/private');
-      m.set('workspaceRoot', '/Volumes/Data/private');
+      m.set('sourceUrl', '/path/to/private/notes.md');
+      m.set('owner', '/path/to/private');
+      m.set('workspaceRoot', '/path/to/private');
       m.set('producedBy', { agentId: 'secret-agent', sessionId: 'sess-1' });
     });
 
     const lifted = liftPrivateMetaFromYdoc(ydoc);
 
     expect(lifted).toEqual({
-      sourceUrl: '/Volumes/Data/private/notes.md',
-      owner: '/Volumes/Data/private',
-      workspaceRoot: '/Volumes/Data/private',
+      sourceUrl: '/path/to/private/notes.md',
+      owner: '/path/to/private',
+      workspaceRoot: '/path/to/private',
       producedBy: { agentId: 'secret-agent', sessionId: 'sess-1' },
     });
     for (const k of PRIVATE_META_KEYS) expect(m.has(k)).toBe(false);
     expect(m.get('title')).toBe('Keep me');
-    expect(JSON.stringify(m.toJSON())).not.toContain('/Volumes/');
+    expect(JSON.stringify(m.toJSON())).not.toContain('/path/to/');
   });
 
   it('is a no-op on a doc that never had them', () => {

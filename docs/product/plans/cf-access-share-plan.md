@@ -8,7 +8,7 @@ Sharing is **purely additive** — it wraps the existing review surfaces in a pu
 
 | Surface                                     | Today (private review)                                       | With share (public, gated)                                   |
 | ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Markdown doc                                | Agent: `attach_markdown(docId, path)` → reviewer opens `mac-mini.<tailnet>.ts.net:8788/review/<docId>` over Tailscale/LAN | Same `attach_markdown`. Plus `bun share doc <docId>` → reviewer opens `share-<slug>.tunnel.fryanpan.com/review/<docId>` over the public internet, gated by Access. |
+| Markdown doc                                | Agent: `attach_markdown(docId, path)` → reviewer opens `mac-mini.<tailnet>.ts.net:8788/review/<docId>` over Tailscale/LAN | Same `attach_markdown`. Plus `bun share doc <docId>` → reviewer opens `share-<slug>.tunnel.example.com/review/<docId>` over the public internet, gated by Access. |
 | Interactive mockup (HTML file or directory) | Agent embeds widget `<script>` in the HTML → reviewer opens it locally or via static server on Tailscale/LAN | Same widget embed. Plus `bun share mockup <path> --doc <docId>` → spawns a local static server, tunnels mockup + widget through one gated origin. |
 | Live dev server                             | Agent embeds widget `<script>` in dev site → reviewer opens dev server on Tailscale/LAN | Same widget embed. Plus `bun share site http://localhost:4321 --doc <docId>` → tunnels dev origin + widget through one gated origin. |
 
@@ -38,7 +38,7 @@ Implications for the share MCP tools (refines Components & interfaces below):
 
 ## Measurable outcomes
 
-1. `bun share <docId> --allow-domain @partner-org.example` brings up a public URL of the form `https://share-<slug>.tunnel.fryanpan.com/review/<docId>` within 10 seconds.
+1. `bun share <docId> --allow-domain @partner-org.example` brings up a public URL of the form `https://share-<slug>.tunnel.example.com/review/<docId>` within 10 seconds.
 2. Visiting that URL from an unauthenticated browser redirects to a Cloudflare Access login page (email-OTP by default).
 3. Login with an `@partner-org.example` email succeeds and lands the reviewer on the live-feedback editor.
 4. Login with any other email domain is rejected by Cloudflare with the standard Access deny page.
@@ -53,7 +53,7 @@ flowchart TD
     Start[bun share docId --allow-domain @x.com] --> CheckEnv{CF_ACCESS_TEAM_DOMAIN<br/>+ token in keychain?}
     CheckEnv -- missing --> ErrEnv[fail with setup hint]
     CheckEnv -- ok --> MintSlug[mint share slug<br/>e.g. share-2026-05-07-a3f]
-    MintSlug --> CreateApp[CF API: POST /access/apps<br/>domain=share-slug.tunnel.fryanpan.com]
+    MintSlug --> CreateApp[CF API: POST /access/apps<br/>domain=share-slug.tunnel.example.com]
     CreateApp --> CreatePolicy[CF API: POST policy<br/>include email_domain @x.com]
     CreatePolicy --> StartTunnel{cloudflared<br/>live-feedback running?}
     StartTunnel -- no --> SpawnTunnel[spawn cloudflared tunnel run]
@@ -82,7 +82,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     Reviewer[Reviewer Browser] -->|HTTPS| CF[Cloudflare Edge]
-    CF -->|JWT check| AccessApp[Access App<br/>share-slug.tunnel.fryanpan.com]
+    CF -->|JWT check| AccessApp[Access App<br/>share-slug.tunnel.example.com]
     AccessApp -->|allow @x.com| Tunnel[cloudflared<br/>~/.cloudflared/live-feedback.yml]
     Tunnel -->|HTTP + JWT header| Server[feedback-serve<br/>localhost:8787]
     Server -->|verify Cf-Access-Jwt-Assertion| JWT[cf-access middleware]
@@ -104,18 +104,18 @@ flowchart LR
 | JWT verify middleware | `packages/server/src/middleware/cf-access.ts` | env: `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`; req header `Cf-Access-Jwt-Assertion` (or `CF_Authorization` cookie) | sets `req.cfAccessEmail`; returns 401 on bad/missing JWT when env is set; no-op when env unset (local dev) |
 | JWKS fetcher          | `packages/server/src/middleware/jwks.ts`      | team domain                                                  | cached JWKS, 1h TTL, network failure surfaces as 503 not 401 |
 | Server wiring         | `packages/server/src/server.ts`               | —                                                            | call middleware before route dispatch when env present       |
-| Tunnel config         | `~/.cloudflared/live-feedback.yml`            | (one-time edit)                                              | route `*.tunnel.fryanpan.com → localhost:8787` instead of placeholder `:9900` |
+| Tunnel config         | `~/.cloudflared/live-feedback.yml`            | (one-time edit)                                              | route `*.tunnel.example.com → localhost:8787` instead of placeholder `:9900` |
 | Decision log update   | `docs/product/decisions.md`                   | new entry dated today                                        | "Public sharing via Cloudflare Access — re-opens 2026-04-19 decision for explicit-share use case only; default access remains Tailscale/LAN" |
 
 ### Subdomain pattern
 
-`share-<YYYY-MM-DD>-<3-char-suffix>.tunnel.fryanpan.com`. Example: `share-2026-05-07-a3f.tunnel.fryanpan.com`. Suffix from crypto.randomBytes(2).toString('hex').slice(0, 3) — short enough to type, low collision risk. Same subdomain pattern serves all three surfaces (markdown, mockup, dev server) — only the tunnel ingress rules differ.
+`share-<YYYY-MM-DD>-<3-char-suffix>.tunnel.example.com`. Example: `share-2026-05-07-a3f.tunnel.example.com`. Suffix from crypto.randomBytes(2).toString('hex').slice(0, 3) — short enough to type, low collision risk. Same subdomain pattern serves all three surfaces (markdown, mockup, dev server) — only the tunnel ingress rules differ.
 
-User can override with `--name <slug>`: `bun share <doc> --name partner-org-mockup` → `share-partner-org-mockup.tunnel.fryanpan.com`.
+User can override with `--name <slug>`: `bun share <doc> --name partner-org-mockup` → `share-partner-org-mockup.tunnel.example.com`.
 
 ### Bryan's one-time setup (manual; agents can't do)
 
-1. **Enable Cloudflare Access.** Dashboard → Zero Trust → Access. On first visit you pick a team subdomain (e.g., `fryanpan.cloudflareaccess.com`). **This is permanent.** Accept ToS, pick the default email-OTP IdP. ~3 min.
+1. **Enable Cloudflare Access.** Dashboard → Zero Trust → Access. On first visit you pick a team subdomain (e.g., `<team>.cloudflareaccess.com`). **This is permanent.** Accept ToS, pick the default email-OTP IdP. ~3 min.
 2. **Find the Account ID.** Right sidebar of any zone page. Save it; we'll wire it into env or a config file.
 3. **Create a scoped API token.** Dashboard → Profile → API Tokens → Create Custom Token:
 
@@ -131,7 +131,7 @@ User can override with `--name <slug>`: `bun share <doc> --name partner-org-mock
 
 | Var                     | Source                               | Purpose                                                      |
 | ----------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| `CF_ACCESS_TEAM_DOMAIN` | e.g. `fryanpan.cloudflareaccess.com` | JWKS endpoint base + issuer claim check                      |
+| `CF_ACCESS_TEAM_DOMAIN` | e.g. `<team>.cloudflareaccess.com` | JWKS endpoint base + issuer claim check                      |
 | `CF_ACCESS_AUD`         | per-app AUD tag from CF              | audience claim check (the share CLI writes this to a server-readable config when it creates the app) |
 
 When unset → middleware is a no-op (local dev unchanged). When set → all routes require valid JWT.

@@ -1,7 +1,7 @@
 /**
  * HTTP-level coverage for the collaboration hostname — the deliberate
  * narrowing of the `cf-ray` veto (ticket: "Collaborators can reach Workspaces
- * at workspaces.fryanpan.com from outside the tailnet").
+ * at workspaces.example.com from outside the tailnet").
  *
  * The veto itself stays. cloudflared forwards the visitor's Host verbatim, so
  * a gate that believed the header would be spoofable by exactly the callers it
@@ -11,7 +11,7 @@
  * then reach is the share surface, scoped per request to whichever workspace
  * the path names.
  *
- * Bryan set the boundary (2026-08-18): *"workspaces.fryanpan.com is meant to
+ * Bryan set the boundary (2026-08-18): *"workspaces.example.com is meant to
  * be the Cloudflare tunnel for collaboration that's reachable outside tailnet.
  * But not used for the privileged access that inside-tailnet traffic gets."*
  * So the suites below are three questions, in the order they matter:

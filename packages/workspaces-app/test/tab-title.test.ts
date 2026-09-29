@@ -51,8 +51,8 @@ describe('tabName', () => {
 
   it('drops the leading directories of an absolute path', () => {
     // A tab truncates from the right, so an absolute path would spend the
-    // whole title on `/Volumes/Data/Users/…` and never reach the filename.
-    expect(tabName('/Volumes/Data/repo/docs/notes.md')).toBe('notes.md');
+    // whole title on `/path/to/…` and never reach the filename.
+    expect(tabName('/path/to/repo/docs/notes.md')).toBe('notes.md');
   });
 
   it('drops the origin and directories of a URL', () => {
@@ -178,7 +178,7 @@ describe('an attachment names its own tab', () => {
   it('leads with the file name for a file-backed doc, not its full path', () => {
     const ydoc = new Y.Doc();
     getMeta(ydoc).set('type', 'markdown');
-    nameTab({ ydoc, labelHint: '/Volumes/Data/repo/docs/notes.md' });
+    nameTab({ ydoc, labelHint: '/path/to/repo/docs/notes.md' });
     expect(document.title).toBe('notes.md · Workspaces');
   });
 
@@ -186,7 +186,7 @@ describe('an attachment names its own tab', () => {
     const ydoc = new Y.Doc();
     getMeta(ydoc).set('type', 'diff');
     getMeta(ydoc).set('relPath', 'packages/server/src/server.ts');
-    nameTab({ ydoc, labelHint: '/Volumes/Data/repo/packages/server/src/server.ts' });
+    nameTab({ ydoc, labelHint: '/path/to/repo/packages/server/src/server.ts' });
     expect(document.title).toBe('packages/server/src/server.ts · Workspaces');
   });
 

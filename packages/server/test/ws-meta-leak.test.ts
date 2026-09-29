@@ -26,7 +26,7 @@ import { seedBoard } from './workspace-seed.ts';
 
 const MSG_SYNC = 0;
 const CANARY = 'CanaryBodyText';
-const OWNER = '/Volumes/Data/Users/someone/dev/private-repo';
+const OWNER = '/path/to/private-repo';
 
 /** Real Yjs client — same framing the browser uses. */
 function connectDoc(url: string, headers: Record<string, string>) {
@@ -175,7 +175,7 @@ describe('the sync channel leaks no host metadata', () => {
     expect(meta.workspaceRoot).toBeUndefined();
     expect(meta.producedBy).toBeUndefined();
     const dump = JSON.stringify(meta);
-    expect(dump).not.toContain('/Volumes/');
+    expect(dump).not.toContain('/path/to/');
     expect(dump).not.toContain('private-repo');
     expect(dump).not.toContain('secret-agent');
     expect(dump).not.toContain(dataDir);

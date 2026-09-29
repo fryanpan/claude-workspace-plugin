@@ -10,9 +10,9 @@ const FULL: DocMeta & { reviewUrl?: string } = {
   relPath: 'src/a.ts',
   workspaceId: 'ws-1',
   setId: 'ws-1',
-  sourceUrl: '/Volumes/Data/Users/someone/dev/private-repo/src/a.ts',
-  owner: '/Volumes/Data/Users/someone/dev/private-repo',
-  workspaceRoot: '/Volumes/Data/Users/someone/dev/private-repo',
+  sourceUrl: '/path/to/private-repo/src/a.ts',
+  owner: '/path/to/private-repo',
+  workspaceRoot: '/path/to/private-repo',
   reviewUrl: 'http://host-name.tailnet.ts.net:8787/review/ws-1%3Asrc~a.ts',
   producedBy: { agentId: 'some-agent', sessionId: 'sess-9' },
   diffBase: 'abc123def456',
@@ -33,7 +33,7 @@ describe('redactMetaForVisitor', () => {
       expect(out[k]).toBeUndefined();
     }
     // Belt and braces: no absolute path survives anywhere in the payload.
-    expect(JSON.stringify(out)).not.toContain('/Volumes/');
+    expect(JSON.stringify(out)).not.toContain('/path/to/');
   });
 
   it('drops the tailnet review URL', () => {
@@ -117,10 +117,10 @@ describe('redactMetaForVisitor', () => {
       docId: 'solo',
       type: 'code',
       createdAt: 1,
-      sourceUrl: '/Volumes/Data/Users/someone/dev/private-repo/src/deep/Thing.kt',
+      sourceUrl: '/path/to/private-repo/src/deep/Thing.kt',
     } as DocMeta) as Record<string, unknown>;
     expect(standalone.relPath).toBe('Thing.kt');
-    expect(JSON.stringify(standalone)).not.toContain('/Volumes/');
+    expect(JSON.stringify(standalone)).not.toContain('/path/to/');
     expect(JSON.stringify(standalone)).not.toContain('private-repo');
   });
 
