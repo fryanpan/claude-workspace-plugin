@@ -708,6 +708,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     webhooks,
     decorateDocMeta: withReviewUrl,
     onDocEvent: (docId, payload) => onLiveDocEvent?.(docId, payload),
+    // A task's comments name the task. Read at fire time, after taskStore exists.
+    docTitle: (docId) => {
+      const taskId = taskIdOfBodyDoc(docId);
+      return taskId ? taskStore.getTask(taskId)?.title : undefined;
+    },
     // A doc being recorded into stays resident: the notes reach it by a door
     // no other eviction hold can see. See `DocStoreConfig.isRecording`.
     isRecording: (docId) => meetingStore.active(docId) !== undefined,
