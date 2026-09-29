@@ -603,10 +603,12 @@ const BOARD_MEMBER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   // prefix now and a second place to say yes is a second place to drift.
   mine: ['GET'],
   activity: ['GET'],
-  // The Library tab, as a page only. Its data (`library/items`) and its one
-  // verb (`library/open`) are deliberately absent: they name files in a repo
-  // on this machine, not content filed on the board.
+  // The Library tab, and its list. A member's list is built from what is
+  // FILED on the board and nothing else (`workspace-library.ts`): no project
+  // path, no repo file nobody filed, no mount. Its one verb (`library/open`)
+  // stays absent — it binds a file in a repo on this machine.
   library: ['GET'],
+  'library/items': ['GET'],
   'home/read': ['POST'],
   // The Home brief's own recipe — how this board's summary is written. Board
   // content in the owner's words, edited from the Home pane's own control.

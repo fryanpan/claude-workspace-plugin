@@ -189,11 +189,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ...family('routes/workspace-related.ts', [
     ['trusted-local', '/workspaces/:ws/related-work', 'GET'],
   ]),
-  // The Library's data names files in a repo on this machine, so it is not on
-  // `shareScopeAllows` even though the page it feeds is a board tab; both
-  // handlers refuse a share visitor as well.
+  // A member's Library list is built from what is filed on the board alone,
+  // so it is on `shareScopeAllows`; the open verb binds a file in a repo on
+  // this machine, so it is not, and its handler refuses a visitor as well.
   ...family('routes/workspace-library.ts', [
-    ['trusted-local', '/workspaces/:ws/library/items', 'GET'],
+    ['share-scope', '/workspaces/:ws/library/items', 'GET'],
     ['trusted-local', '/workspaces/:ws/library/open', 'POST'],
   ]),
 

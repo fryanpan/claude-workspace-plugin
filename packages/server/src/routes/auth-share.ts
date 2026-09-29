@@ -40,6 +40,7 @@ import { boardLockedRefusal, lockedBoardNamedBy } from '../share/board-lock.ts';
 import { type BoardRole, normalizeBoardRole } from '../share/board-role.ts';
 import { collabMembershipEnded } from '../share/collab-member-key.ts';
 import { readCookie } from '../share/link-session.ts';
+import { landingLookupsFor, landingOnBoard, parseShareLanding } from '../share/share-landing.ts';
 import { type ShareLinks, shareMemberKey } from '../share/share-links.ts';
 import { ACCESS_NOT_CONFIGURED, type Shares } from '../share/shares.ts';
 import type { SharingFlip } from '../share/sharing-flip.ts';
@@ -977,6 +978,7 @@ export async function handleAuthShareRoutes(
     if (body?.entryDocId) {
       return j(400, {
         error: 'a board share opens the board — entryDocId is not supported',
+        hint: "to land on one doc, pass landing: { kind: 'doc', id }",
       });
     }
     if (body?.label !== undefined && typeof body.label !== 'string') {
@@ -1000,6 +1002,20 @@ export async function handleAuthShareRoutes(
           hint: "role must be 'owner' or 'member' — omit it for a regular user, which is the default",
         });
       }
+    }
+    // Where the link lands once its reader has signed in (`share-landing.ts`).
+    // Only something on THIS board: an id on another board is refused in the
+    // words a made-up one gets, so the mint cannot say which ids are real.
+    const parsedLanding = parseShareLanding(body?.landing);
+    if (!parsedLanding.ok) return j(400, { error: 'bad_landing', hint: parsedLanding.error });
+    const landing = parsedLanding.landing
+      ? landingOnBoard(workspaceId, parsedLanding.landing, landingLookupsFor(taskStore, docStore))
+      : undefined;
+    if (landing === null) {
+      return j(400, {
+        error: 'landing_not_on_board',
+        hint: 'landing must name a task, doc, mock or dev server filed on this board, as its own kind',
+      });
     }
     // NO EXPIRY BY DEFAULT (Bryan, 2026-09-03: links are long-living). An
     // optional one stays on the record for the cases that want it, and the
@@ -1036,6 +1052,7 @@ export async function handleAuthShareRoutes(
         ...(ttlSeconds !== undefined ? { ttlSeconds } : {}),
         ...(typeof body?.label === 'string' ? { label: body.label } : {}),
         ...(role !== undefined ? { role } : {}),
+        ...(landing ? { landing } : {}),
       });
       const url = `https://${shareLinkBaseHost}/s/${link.linkId}`;
       return j(200, {

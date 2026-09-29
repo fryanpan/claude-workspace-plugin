@@ -331,14 +331,30 @@ describe('library routes', () => {
         visitor,
       });
 
-    it('refuses a share visitor both the list and the open verb', async () => {
+    it('refuses a share visitor the open verb', async () => {
       const ctx = ctxFor('127.0.0.1');
       const visitor = { workspaceId: WS } as ShareTarget;
-      for (const rest of ['library/items', 'library/open']) {
-        // Positive control on the same context: the owner is answered.
-        expect((await ask(ctx, rest, null))?.status).toBe(200);
-        expect((await ask(ctx, rest, visitor))?.status).toBe(403);
-      }
+      // Positive control on the same context: the owner is answered.
+      expect((await ask(ctx, 'library/open', null))?.status).toBe(200);
+      expect((await ask(ctx, 'library/open', visitor))?.status).toBe(403);
+    });
+
+    it("lists for a share visitor only what is filed, never the project's files", async () => {
+      // Loopback on purpose: a visitor's list is narrowed because they are a
+      // visitor, not because of where the socket came from.
+      const ctx = ctxFor('127.0.0.1');
+      type Lib = { project: unknown; files: Array<{ open?: string; href?: string }> };
+      const owner = (await (await ask(ctx, 'library/items', null))?.json()) as Lib;
+      // The control: the owner's list has a project and a file to bind.
+      expect(owner.project).not.toBeNull();
+      expect(owner.files.some((f) => f.open !== undefined)).toBe(true);
+      const res = await ask(ctx, 'library/items', { workspaceId: WS } as ShareTarget);
+      expect(res?.status).toBe(200);
+      const text = (await res?.text()) ?? '';
+      const lib = JSON.parse(text) as Lib;
+      expect(lib.project).toBeNull();
+      expect(lib.files.every((f) => f.open === undefined && f.href !== undefined)).toBe(true);
+      expect(text).not.toContain(repo);
     });
 
     it('lists a local-only project on the box and not a file of it off the box', async () => {

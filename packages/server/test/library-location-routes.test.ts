@@ -170,9 +170,12 @@ describe('where files live, over the library route', () => {
     expect(owner?.status).toBe(200);
     expect(ownerText).toContain('"notes"');
 
+    // A visitor is answered — the board's Library is theirs too — but with
+    // no locations: where a doc lives names folders on this machine.
     const away = await ask({ workspaceId: WS } as ShareTarget);
-    expect(away?.status).toBe(403);
+    expect(away?.status).toBe(200);
     const awayText = (await away?.text()) ?? '';
+    expect(JSON.parse(awayText).where).toBeUndefined();
     expect(awayText).not.toContain('notes');
     expect(awayText).not.toContain(repo);
   });

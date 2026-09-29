@@ -16748,7 +16748,7 @@ var TOOL_LIST = {
     },
     {
       name: "share_workspace",
-      description: "Mint a share link for a board. Anyone you send it to signs in once with their email, and joins that board as a Regular User — able to read and comment, not to change who else is in. Everything filed on the board travels with the share, so check what else is there. Returns a share.<domain>/s/<id> URL.",
+      description: "Mint a share link for a board. Anyone you send it to signs in once with their email, and joins that board as a Regular User — able to read and comment, not to change who else is in. Everything filed on the board travels with the share, so check what else is there. Pass landing to send them straight to one thing on the board after sign-in. Returns a share.<domain>/s/<id> URL.",
       inputSchema: {
         type: "object",
         properties: {
@@ -16770,6 +16770,18 @@ var TOOL_LIST = {
             type: "string",
             enum: ["owner", "member"],
             description: "What everyone who opens this link becomes. Omit for 'member' (a Regular User), which is the default."
+          },
+          landing: {
+            type: "object",
+            description: "Where the link opens after sign-in. Omit for the board. kind 'home' is the board's Home; 'task', 'doc', 'mockup' and 'app' (an attached dev server) need the id of one filed on this board, and one that is not is refused. The board stays one tap away.",
+            properties: {
+              kind: { type: "string", enum: ["home", "board", "task", "doc", "mockup", "app"] },
+              id: {
+                type: "string",
+                description: "The task or doc id. Not used for home or board."
+              }
+            },
+            required: ["kind"]
           }
         },
         required: ["workspaceId"]
@@ -20748,7 +20760,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.269";
+var PLUGIN_VERSION = "0.1.270";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
