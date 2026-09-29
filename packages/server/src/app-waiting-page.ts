@@ -216,7 +216,16 @@ const WAITING_SCRIPT = `
     if (s === 'waiting') text.textContent = 'Waiting for ' + d.app + ' to answer.';
     else if (s === 'stuck') text.textContent = d.name + ' has not started it yet. Asked' + (againAt === askedAt ? ' again' : '') + ' at ' + hhmm(askedAt) + '.';
     else text.textContent = 'Asked ' + d.name + ' again at ' + hhmm(askedAt) + '. Still waiting.';
-    if (note) text.textContent = note;
+    if (note) {
+      text.textContent = note.text;
+      if (note.href) {
+        var a = document.createElement('a');
+        a.href = note.href;
+        a.textContent = note.link;
+        text.appendChild(a);
+        text.appendChild(document.createTextNode('.'));
+      }
+    }
     if (!btn) return;
     if (s === 'waiting' || framed) row.setAttribute('data-hidden', '');
     else row.removeAttribute('data-hidden');
@@ -240,8 +249,12 @@ const WAITING_SCRIPT = `
         if (x.r.ok && typeof x.b.askedAt === 'number') { askedAt = againAt = x.b.askedAt; }
         else if (x.r.status === 429 && typeof x.b.retryAt === 'number') { askedAt = x.b.retryAt - d.askAgainMs; }
         else if (x.b.error === 'app_answering') { poll(); }
-        else note = 'Could not ask ' + d.name + ' again' + (x.b.error === 'sign_in_required' ? ': sign in first.' : '.');
-      }, function () { note = 'Could not ask ' + d.name + ' again.'; })
+        else if (x.b.error === 'sign_in_required' && typeof x.b.signInUrl === 'string') {
+          note = { text: 'To ask ' + d.name + ' again, ', link: 'sign in first',
+            href: x.b.signInUrl + '?next=' + encodeURIComponent(location.pathname + location.search) };
+        }
+        else note = { text: 'Could not ask ' + d.name + ' again.' };
+      }, function () { note = { text: 'Could not ask ' + d.name + ' again.' }; })
       .then(function () { busy = false; render(); });
   }
 
