@@ -11,11 +11,16 @@
  * `permissions.allow` rule for the person to apply themselves.
  *
  * Two things it deliberately does NOT do:
- *  - **Write settings.** No code path here — or anywhere the server owns —
- *    opens a `settings.json`. The rule is text in the item's detail; pasting
- *    it is the person's act, and an agent asked to do it says no. That is
- *    what keeps "truly dangerous commands still stop" true: the only hand on
- *    the allowlist is a human one.
+ *  - **Write settings.** Nothing in this module opens a `settings.json`. The
+ *    rule is text in the item's detail; pasting it is the person's act, and
+ *    an agent asked to do it says no. The server has exactly ONE writer of
+ *    the owner's settings, and it is not this: `permission-grants.ts` appends
+ *    the lines a `grant` card listed, only when the owner presses Approve in
+ *    the browser with a person proof (`routes/task-grants.ts` — an agent's
+ *    answer to the card is refused), and removes exactly those lines when the
+ *    task closes. It never touches `deny`, `ask` or any other key, and it
+ *    writes nothing to a file it cannot parse. So the only hand that ADDS to
+ *    the allowlist is still a human one.
  *  - **Count from the notes.** Neither copy of a denial note is a reliable
  *    tally. The per-agent ring is in-process, capped at 20 notes of every
  *    kind, and gone on restart — three denials a day apart never meet in
