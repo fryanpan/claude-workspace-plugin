@@ -279,6 +279,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/workspaces/:ws/tasks/:taskId/restore` | POST | `routes/task-fields.ts` | share-scope |  |
 | `/workspaces/:ws/tasks/:taskId/review-items` | POST | `routes/task-review-items.ts` | share-scope |  |
 | `/workspaces/:ws/tasks/:taskId/review-items/:itemId/answer` | POST | `routes/task-review-items.ts` | share-scope |  |
+| `/workspaces/:ws/tasks/:taskId/review-items/:itemId/grant` | POST | `routes/task-grants.ts` | trusted-local |  |
 | `/workspaces/:ws/tasks/:taskId/review-items/:itemId/more-info` | POST | `routes/task-review-items.ts` | share-scope |  |
 | `/workspaces/:ws/tasks/:taskId/review-items/:itemId/release` | POST | `routes/task-review-items.ts` | share-scope |  |
 | `/workspaces/:ws/tasks/:taskId/review-items/:itemId/revise` | POST | `routes/task-review-items.ts` | share-scope |  |

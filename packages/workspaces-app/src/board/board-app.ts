@@ -385,6 +385,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     askOnReviewItem,
     replyToReviewItem,
     saveSecretsOnItem,
+    grantOnItem,
     commentOnActivity,
     replyOnActivity,
   } = review;
@@ -624,6 +625,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     askOnReviewItem: (item, phrase, question) => askOnReviewItem(item, phrase, question),
     replyToReviewItem: (item, text, optionId) => replyToReviewItem(item, text, optionId),
     saveSecretsOnItem: (item, values) => saveSecretsOnItem(item, values),
+    grantOnItem: (item, decision) => grantOnItem(item, decision),
     onQueueDrained: () => chainWalkDrain?.(),
   });
   // Destructured rather than wrapped: a local `function renderWalkthrough`

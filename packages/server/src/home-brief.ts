@@ -277,7 +277,7 @@ export interface BriefInput {
 
 /** The two facts about an answered item that decide how the brief says it. */
 export interface AnsweredReview {
-  shape: 'decision' | 'review' | 'secret';
+  shape: 'decision' | 'review' | 'secret' | 'grant';
   /** How many values a `secret` item asked for. */
   secretCount?: number;
 }

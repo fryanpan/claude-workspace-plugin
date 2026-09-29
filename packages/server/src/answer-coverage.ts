@@ -137,7 +137,7 @@ export function haikuAnswerCoverage(opts: HaikuAnswerCoverageOpts = {}): AnswerC
  */
 export function coverageApplies(review: ReviewPayload, answeredWith: string | undefined): boolean {
   if (answeredWith !== undefined) return false;
-  if (review.shape === 'secret') return false;
+  if (review.shape === 'secret' || review.shape === 'grant') return false;
   return questionsAsked(review) >= 2;
 }
 

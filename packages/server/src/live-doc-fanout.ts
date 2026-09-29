@@ -52,6 +52,30 @@ import type { WebhookDispatcher } from './webhooks.ts';
  *  re-enters on its own transaction. */
 const PRIVATE_META_GUARD_ORIGIN = 'private-meta-guard';
 
+/** How much of the replied-to comment a frame carries. The channel line
+ *  quotes less; this is enough for a reader of the meta to recognise it. */
+export const IN_REPLY_TO_MAX = 280;
+
+/**
+ * The comment a reply answers: the one before it in the thread. A thread is
+ * flat, so "the comment above" is the only parent there is. Undefined when
+ * the reply is not in the thread or has nothing above it.
+ */
+export function commentRepliedTo(
+  thread: Thread,
+  reply: { id: string } | undefined,
+): { author: string; text: string } | undefined {
+  if (!reply) return undefined;
+  const at = thread.comments.findIndex((c) => c.id === reply.id);
+  const parent = at > 0 ? thread.comments[at - 1] : undefined;
+  if (!parent) return undefined;
+  const text =
+    parent.text.length > IN_REPLY_TO_MAX
+      ? `${parent.text.slice(0, IN_REPLY_TO_MAX - 1)}…`
+      : parent.text;
+  return { author: parent.author.name, text };
+}
+
 /**
  * Does this transaction origin mean a PERSON or an AGENT changed the doc, as
  * opposed to the server writing to itself? Feeds `LiveDoc.lastContentChangeAt`.
@@ -186,6 +210,9 @@ export interface LiveDocFanoutHost {
   webhooks(): WebhookDispatcher;
   /** `DocStoreConfig.decorateDocMeta`, already defaulted to identity. */
   decorate(meta: DocMeta): DocMeta;
+  /** What a thread frame names the doc by — `DocStoreConfig.docTitle`, then
+   *  the doc's own title. */
+  titleOf(doc: LiveDoc): string | undefined;
   /** `DocStoreConfig.onDocEvent`, already defaulted to a no-op. */
   emitDocEvent(docId: string, payload: WebhookPayload): void;
   summarizer(): ThreadSummarizer | undefined;
@@ -479,6 +506,8 @@ export class LiveDocFanout {
     // going without it.
     if (opts?.generate !== false) this.scheduleSummary(doc, thread.id);
     const decorate = (m: DocMeta) => this.host.decorate(m);
+    const docTitle = this.host.titleOf(doc);
+    const inReplyTo = event === 'thread.replied' ? commentRepliedTo(thread, comment) : undefined;
     this.broadcastToDoc(doc, {
       event,
       docId: doc.docId,
@@ -497,6 +526,10 @@ export class LiveDocFanout {
       // A reply that answered some of an item's questions, not all: the ones
       // still open, so the filer acts on the answered part and does not re-ask.
       ...(opts?.openParts && opts.openParts.length > 0 ? { openParts: opts.openParts } : {}),
+      // Where the comment came from and what it answers, so an agent reading
+      // "Go ahead" knows what it is being told to go ahead with.
+      ...(docTitle ? { docTitle } : {}),
+      ...(inReplyTo ? { inReplyTo } : {}),
       seq: doc.seq,
     });
   }

@@ -270,6 +270,14 @@ export interface ServerOptions {
    */
   secretWriter?: SecretWriter;
   /**
+   * The Claude Code user settings file a grant card's Approve may append
+   * allow rules to (see permission-grants.ts). Absent by default, set in ONE
+   * place (bin.ts, for prod or an explicit `CW_PERMISSION_SETTINGS_PATH`), so
+   * no test and no staging run can reach a real settings file by accident.
+   * Without it an approval is refused with 503 and nothing is written.
+   */
+  permissionSettingsPath?: string;
+  /**
    * The client release root this deployment publishes into (see
    * client-release.ts), enabling the "your browser is running an old client"
    * signal on the board.

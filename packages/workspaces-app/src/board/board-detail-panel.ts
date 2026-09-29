@@ -176,6 +176,7 @@ export function createBoardDetailPanel(deps: BoardDetailDeps): BoardDetailPanel 
     releaseHeldReviewItem,
     undoThreadAnswer,
     saveSecretsOnTaskItem,
+    grantOnTaskItem,
     commentOnActivity,
     replyOnActivity,
   } = deps.review;
@@ -497,6 +498,10 @@ export function createBoardDetailPanel(deps: BoardDetailDeps): BoardDetailPanel 
             ? Promise.resolve(false)
             : saveSecretsOnTaskItem(_t.id, item.reviewItemId, values),
         secretsGate: state.secretsGate,
+        onGrant: (_t, item, decision) =>
+          item.reviewItemId === undefined || !item.allowRules
+            ? Promise.resolve(false)
+            : grantOnTaskItem(_t.id, item.reviewItemId, item.allowRules, decision),
         // So the answered record can say "Answered by you" for the reader's
         // own answer — the record compares display names, same as answer.by.
         selfName: author.name,

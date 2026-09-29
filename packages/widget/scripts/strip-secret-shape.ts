@@ -1,6 +1,8 @@
 /**
  * Take the SECRET shape's reader out of the widget's copy of the review-item
- * wire reader.
+ * wire reader — and with it the GRANT shape's, which rides the same two lines
+ * for the same reason: a grant card is approved on the board, never in an
+ * embed, so the widget must not read one as an ask at all.
  *
  * `readReviewPayload` is reached from `schema.ts`, so every surface that reads
  * a thread pulls that reader in — the widget included, and the widget is
@@ -27,7 +29,7 @@
 
 /** The lines removed, exactly as the reader writes them. */
 export const SECRET_SHAPE_LINES: readonly string[] = [
-  "  if (READS_SECRET_SHAPE && value === 'secret') return 'secret';\n",
+  "  if (READS_SECRET_SHAPE && (value === 'secret' || value === 'grant')) return value;\n",
   '  if (READS_SECRET_SHAPE) applySecretShape(out, shape, value);\n',
 ];
 

@@ -24,6 +24,7 @@ import { handleTaskAnswers } from './task-answers.ts';
 import { handleTaskDetail } from './task-detail.ts';
 import { handleTaskDoneWhen } from './task-done-when.ts';
 import { handleTaskFields } from './task-fields.ts';
+import { handleTaskGrants } from './task-grants.ts';
 import { handleTaskReviewItems } from './task-review-items.ts';
 import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.ts';
 import { handleTaskSecrets } from './task-secrets.ts';
@@ -53,6 +54,9 @@ export async function handleTaskRoutes(
     (await handleTaskStatusAndLinks(ctx, rq)) ??
     (await handleTaskAnswers(ctx, rq)) ??
     (await handleTaskSecrets(ctx, rq)) ??
+    // Beside the secrets door and before the family, for the same reason: its
+    // `/grant` suffix is a segment no other review-item route names.
+    (await handleTaskGrants(ctx, rq)) ??
     (await handleTaskReviewItems(ctx, rq)) ??
     (await handleTaskFields(ctx, rq))
   );

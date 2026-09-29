@@ -696,6 +696,15 @@ export interface ThreadWebhookPayload {
    *  renderer, a webhook — learns WHICH item to revise without walking the
    *  thread. Absent on every other thread. */
   reviewItemId?: string;
+  /** What the thread is ON, by name: the doc's title, or a task's title for
+   *  the comments on a task. Lets a consumer that reads only the frame say
+   *  where a comment came from. Absent when nothing names the doc, and from
+   *  servers older than the stamp. */
+  docTitle?: string;
+  /** On `thread.replied`: the comment this reply follows, its text cut to
+   *  280 characters. Absent on the thread's first comment and
+   *  from servers older than the stamp. */
+  inReplyTo?: { author: string; text: string };
   /** monotonically-increasing sequence within a doc. NOT unique across a
    *  server restart — the counter lives on the in-memory doc and starts at 0
    *  again on every start. Use `eid` to identify an event. */

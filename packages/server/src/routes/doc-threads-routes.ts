@@ -158,16 +158,17 @@ function reviewFromBody(
   // the owner for values with only the ordinary answer path to send them
   // down, which records words. Refused rather than quietly downgraded: the
   // asking agent must learn that this is filed on a task or not at all.
-  if (
-    typeof raw === 'object' &&
-    raw !== null &&
-    normalizeReviewType(
-      (raw as Record<string, unknown>).review_type ?? (raw as Record<string, unknown>).shape,
-    ) === 'secret'
-  ) {
+  // A GRANT card likewise: its Approve door is addressed by task and item id.
+  const filedShape =
+    typeof raw === 'object' && raw !== null
+      ? normalizeReviewType(
+          (raw as Record<string, unknown>).review_type ?? (raw as Record<string, unknown>).shape,
+        )
+      : undefined;
+  if (filedShape === 'secret' || filedShape === 'grant') {
     return {
       ok: false,
-      error: "a 'secret' item is filed on a task, not on a comment — use add_review_item",
+      error: `a '${filedShape}' item is filed on a task, not on a comment — use add_review_item`,
     };
   }
   const check = checkReviewPayload(raw, { text });

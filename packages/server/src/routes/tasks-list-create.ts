@@ -1,4 +1,9 @@
-import { SECRET_FILING_DENIAL, asksForSecret } from '../share/board-role.ts';
+import {
+  GRANT_FILING_DENIAL,
+  SECRET_FILING_DENIAL,
+  asksForGrant,
+  asksForSecret,
+} from '../share/board-role.ts';
 /**
  * The board's task list and the single-row create.
  *
@@ -139,6 +144,7 @@ export async function handleTaskListCreate(
     // the dedicated door does, so a refusal on one door alone would be a
     // refusal with a second door beside it.
     if (visitor && asksForSecret(body?.review)) return j(403, SECRET_FILING_DENIAL);
+    if (visitor && asksForGrant(body?.review)) return j(403, GRANT_FILING_DENIAL);
     // `links` and `origin` name their targets in the BODY, which no path
     // check ever read. For a member that makes them the one field on this
     // route that can reach off their board: a stored ref becomes a computed

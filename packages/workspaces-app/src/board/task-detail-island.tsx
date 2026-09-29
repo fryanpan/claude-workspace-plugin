@@ -99,6 +99,7 @@ import { panelReviewQueue } from './board-review-render.ts';
 import { ComposerForm, Discussion, useFill } from './detail-parts.tsx';
 import { DoneWhenList } from './done-when-list.tsx';
 import { GateHoldLine, GateLessSpecificNote } from './review-gate-note.tsx';
+import { ReviewGrantBlock } from './review-grant-block.tsx';
 import { markPhrase } from './review-item-phrase.ts';
 import { useReviewItemSeen } from './review-item-seen-hook.ts';
 import { ReviewSecretBlock } from './review-secret-form.tsx';
@@ -332,6 +333,14 @@ function ReviewCard(props: {
   const secretsGate: SecretsGate = handlers.onSaveSecrets
     ? (handlers.secretsGate ?? 'off-machine')
     : 'off-machine';
+  // A GRANT ask's lines, under the same gate: no handler is a refusal.
+  const allowRules =
+    item.shape === 'grant' && item.allowRules && item.allowRules.length > 0
+      ? item.allowRules
+      : undefined;
+  const grantGate: SecretsGate = handlers.onGrant
+    ? (handlers.secretsGate ?? 'off-machine')
+    : 'off-machine';
 
   const classes = ['board-decide-card'];
   if (busy) classes.push('is-busy');
@@ -436,7 +445,16 @@ function ReviewCard(props: {
             </div>
           )}
           <div class={asking ? 'board-decide-answering hidden' : 'board-decide-answering'}>
-            {secrets ? (
+            {allowRules ? (
+              // A GRANT item: Approve or Decline, never the composer.
+              <ReviewGrantBlock
+                rules={allowRules}
+                gate={grantGate}
+                onAnswer={(decision) =>
+                  handlers.onGrant?.(task, item, decision) ?? Promise.resolve(false)
+                }
+              />
+            ) : secrets ? (
               // A SECRET item, and both the options and the composer are
               // deliberately absent — the same block the Home walkthrough
               // draws, from the same module, so the two surfaces cannot

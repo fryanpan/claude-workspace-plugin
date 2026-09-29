@@ -716,19 +716,26 @@ describe('what the tool schemas tell an agent', () => {
       (r as { properties?: Record<string, unknown> }).properties ?? {};
     expect(Object.keys(propsOf(onComment))).toEqual(expect.arrayContaining(['headline', 'detail']));
 
-    // The difference, named. `secrets` exists on the task family alone, and
-    // the two enums the shape travels in are widened by exactly one value.
-    expect(Object.keys(propsOf(onComment))).not.toContain('secrets');
-    expect(Object.keys(propsOf(onTask))).toContain('secrets');
+    // The difference, named. `secrets` and `allowRules` exist on the task
+    // family alone, and the two enums the shape travels in are widened by
+    // exactly the two task-only shapes.
+    for (const key of ['secrets', 'allowRules']) {
+      expect(Object.keys(propsOf(onComment))).not.toContain(key);
+      expect(Object.keys(propsOf(onTask))).toContain(key);
+    }
     const enumOf = (r: Record<string, unknown>, key: string) =>
       (propsOf(r)[key] as { enum?: string[] } | undefined)?.enum ?? [];
-    expect(enumOf(onTask, 'review_type')).toEqual([...enumOf(onComment, 'review_type'), 'secret']);
-    expect(enumOf(onTask, 'shape')).toEqual([...enumOf(onComment, 'shape'), 'secret']);
-    // Nothing ELSE forked: strip the three known differences and the two
+    expect(enumOf(onTask, 'review_type')).toEqual([
+      ...enumOf(onComment, 'review_type'),
+      'secret',
+      'grant',
+    ]);
+    expect(enumOf(onTask, 'shape')).toEqual([...enumOf(onComment, 'shape'), 'secret', 'grant']);
+    // Nothing ELSE forked: strip the four known differences and the two
     // payloads are the same object again.
     const withoutSecretFields = (r: Record<string, unknown>) => {
       const { description: _drop, ...rest } = r;
-      const { secrets: _s, review_type: _rt, shape: _sh, ...props } = propsOf(r);
+      const { secrets: _s, allowRules: _ar, review_type: _rt, shape: _sh, ...props } = propsOf(r);
       return { ...rest, properties: props };
     };
     expect(withoutSecretFields(onTask)).toEqual(withoutSecretFields(onComment));

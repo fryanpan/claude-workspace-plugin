@@ -211,6 +211,8 @@ async function boot(): Promise<void> {
         },
         onSaveSecrets: (item, values) =>
           finish(item.key, next?.item.key ?? null, () => review.saveSecretsOnItem(item, values)),
+        onGrant: (item, decision) =>
+          finish(item.key, next?.item.key ?? null, () => review.grantOnItem(item, decision)),
         onOpenItem: (item) => {
           openEntry(item.key);
         },

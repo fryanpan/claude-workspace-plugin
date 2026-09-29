@@ -12,7 +12,7 @@ describe('taking the secret shape out of the widget copy of the reader', () => {
   const reader = [
     'export function normalizeReviewType(value) {',
     "  if (value === 'decision') return 'decision';",
-    "  if (READS_SECRET_SHAPE && value === 'secret') return 'secret';",
+    "  if (READS_SECRET_SHAPE && (value === 'secret' || value === 'grant')) return value;",
     '  return undefined;',
     '}',
     'function readReviewPayload(value) {',

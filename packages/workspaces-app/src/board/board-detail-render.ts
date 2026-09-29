@@ -307,6 +307,16 @@ export interface DetailHandlers {
    */
   secretsGate?: SecretsGate;
   /**
+   * Approve or decline a GRANT item's allow lines, through its own route.
+   * Absent on a surface that cannot, and the card then lists the lines with
+   * no buttons. Read with `secretsGate`, as the secret form is.
+   */
+  onGrant?: (
+    task: BoardTask,
+    item: PanelReviewItem,
+    decision: 'approve' | 'decline',
+  ) => Promise<boolean>;
+  /**
    * Overrule the quality gate on one HELD review item, putting it on the
    * reader's queue without waiting for its filer to reword it.
    *
@@ -1326,6 +1336,8 @@ export interface PanelReviewItem {
    * secret ask instead (UX review, 2026-09-12).
    */
   secrets?: readonly ReviewSecretField[];
+  /** A GRANT ask's allow lines, exactly as they will be written. */
+  allowRules?: readonly string[];
   headline: string;
   /** The ONE body. A task-borne decision has no `detail` field to read, so
    *  this is `decisionBlurb`'s derived prose; a declaration carries its own. */

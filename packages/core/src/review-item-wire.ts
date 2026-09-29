@@ -82,7 +82,7 @@ export function normalizeReviewType(value: unknown): ReviewShape | undefined {
   // Behind the flag the widget's build turns off, because the widget must
   // never render this shape — see `review-item-secret-wire.ts` for what the
   // stand-in does and why the answer it gives there is the safe one.
-  if (READS_SECRET_SHAPE && value === 'secret') return 'secret';
+  if (READS_SECRET_SHAPE && (value === 'secret' || value === 'grant')) return value;
   return undefined;
 }
 

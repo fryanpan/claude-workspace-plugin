@@ -106,6 +106,12 @@ export interface ChannelPayload {
     comments?: Array<ChannelComment>;
   };
   comment?: ChannelComment;
+  /** What the thread is on, by name — a doc's title, or a task's for its own
+   *  comments. Absent from servers older than the stamp. */
+  docTitle?: string;
+  /** On a reply: the comment it follows. Absent on a first comment and from
+   *  servers older than the stamp. */
+  inReplyTo?: { author?: string; text?: string };
   /** A reply that answered some of a review item's questions: the ones still open. */
   openParts?: unknown[];
   /** A resolve/reopen relayed from inside a mock page. A comment event's mark
@@ -616,8 +622,15 @@ async function emitChannelMessage(
   const onItem = reviewItemId
     ? ` on review item ${reviewItemId}${snippet ? ` "${truncate(snippet, 60)}"` : ''} —`
     : '';
+  // Where the comment came from and what it answers, so "Go ahead" is never
+  // read without knowing what it is permission for. Both absent from an
+  // older server, which leaves the line as it was.
+  const onDoc = text && p.docTitle ? ` on "${truncate(p.docTitle, 60)}"` : '';
+  const parentText = event === 'thread.replied' ? oneLine(p.inReplyTo?.text ?? '') : '';
+  const toParent = parentText ? ` — to "${truncate(parentText, 100)}"` : '';
+  const who = `${author ? `${author}${fromMock}` : fromMock.trim()}${onDoc}${toParent}`.trim();
   const body = text
-    ? `[${action}]${onItem} ${author ? `${author}${fromMock}: ` : fromMock ? `${fromMock.trim()}: ` : ''}${text}${openPartsClause(p.openParts)}${editHint}`
+    ? `[${action}]${onItem} ${who ? `${who}: ` : ''}${text}${openPartsClause(p.openParts)}${editHint}`
     : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
 
   await deps.notify({
@@ -633,10 +646,18 @@ async function emitChannelMessage(
         event,
         author,
         anchor_text: snippet,
+        ...(p.docTitle ? { doc_title: p.docTitle } : {}),
+        ...(parentText ? { in_reply_to: parentText } : {}),
+        ...(parentText && p.inReplyTo?.author ? { in_reply_to_author: p.inReplyTo.author } : {}),
         ...(pageEdits?.length ? { page_edits: JSON.stringify(pageEdits) } : {}),
       },
     },
   });
+}
+
+/** Newlines and runs of spaces as one space, so a quote stays on its line. */
+function oneLine(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
 }
 
 export function truncate(s: string, n: number): string {
