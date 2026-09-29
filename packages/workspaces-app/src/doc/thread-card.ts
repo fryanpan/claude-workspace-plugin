@@ -39,6 +39,7 @@ import { reviewItemSeen } from '../review-item-seen.ts';
 import { threadGlyph, threadKind } from '../thread-kind.ts';
 import { isFoldingTap, syncFaceVisibility } from '../thread-morph.ts';
 import type { ThreadPanelOpts } from '../threads.ts';
+import { voiceFoot } from './voice-note-foot.ts';
 
 /**
  * The panel, as far as a card is concerned. Everything is a call so the card
@@ -138,7 +139,19 @@ export function renderThreadCard(
   // off: the highlight in the prose already shows the sentence, and a card
   // that repeated it said nothing about what was wanted.
   const topic = itemComment?.review?.headline ?? summary.topic;
-  el.appendChild(slotA(t, topic, itemComment?.id));
+  // A spoken opening message keeps its clip, its raw words and Undo in both
+  // faces, so the controls are there whether the card is folded or open.
+  const note = t.comments[0]?.voice;
+  const voice = note
+    ? () =>
+        voiceFoot(
+          note,
+          status === 'resolved',
+          { resolve: () => host.opts.onResolve(t.id), reopen: () => host.opts.onReopen(t.id) },
+          host.opts.canWrite !== false,
+        )
+    : undefined;
+  el.appendChild(slotA(t, topic, itemComment?.id, voice));
   el.appendChild(
     slotB(host, t, summary, status, { pending, itemComment, withdrawn, pendingReply }),
   );
@@ -271,7 +284,12 @@ function head(
 }
 
 /** Slot A: the topic line becomes the opening message, in place. */
-function slotA(t: Thread, topic: string, itemCommentId?: string): HTMLElement {
+function slotA(
+  t: Thread,
+  topic: string,
+  itemCommentId?: string,
+  voice?: () => HTMLElement,
+): HTMLElement {
   const topicEl = div('thread-topic clip');
   // Plain text, never HTML: the snippet is doc content, untrusted.
   topicEl.textContent = topic;
@@ -290,7 +308,10 @@ function slotA(t: Thread, topic: string, itemCommentId?: string): HTMLElement {
   // nothing else says it was ever asked.
   const opening = t.comments[0];
   const header = opening && opening.id !== itemCommentId ? reviewHeader(opening.review) : null;
-  return slot('slot-a', [topicEl], header ? [header, msg] : [msg]);
+  const detail = header ? [header, msg] : [msg];
+  return voice
+    ? slot('slot-a', [topicEl, voice()], [...detail, voice()])
+    : slot('slot-a', [topicEl], detail);
 }
 
 /** Slot B: who spoke + where it got to becomes the replies + the reply box. */

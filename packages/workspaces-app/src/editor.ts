@@ -47,6 +47,11 @@ import { ThreadDecorations, type ThreadRange, setThreadDecorations } from './thr
 export interface EditorHandle {
   editor: Editor;
   getSelectionRel: () => { start: Uint8Array; end: Uint8Array; snippet: string } | null;
+  /** Any range as the same anchor bytes — a passage pointed at by voice. */
+  rangeRel: (
+    from: number,
+    to: number,
+  ) => { start: Uint8Array; end: Uint8Array; snippet: string } | null;
   resolveRel: (startRel: Uint8Array, endRel: Uint8Array) => { from: number; to: number } | null;
   scrollToPos: (pos: number) => void;
   /** Brief highlight pulse on a text range — used when clicking a thread in the panel. */
@@ -316,22 +321,25 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
     return ySyncPluginKey.getState(editor.state);
   }
 
+  function toRel(from: number, to: number) {
+    const sync = syncState();
+    if (!sync?.binding) return null;
+    const { mapping, type } = sync.binding;
+    const startRel = absolutePositionToRelativePosition(from, type, mapping);
+    const endRel = absolutePositionToRelativePosition(to, type, mapping);
+    const snippet = editor.state.doc.textBetween(from, to, ' ').slice(0, 80);
+    return {
+      start: Y.encodeRelativePosition(startRel),
+      end: Y.encodeRelativePosition(endRel),
+      snippet,
+    };
+  }
+
   return {
     editor,
+    rangeRel: toRel,
     getSelectionRel() {
-      const sync = syncState();
-      if (!sync?.binding) return null;
-      const { mapping, type } = sync.binding;
-      const toRel = (from: number, to: number) => {
-        const startRel = absolutePositionToRelativePosition(from, type, mapping);
-        const endRel = absolutePositionToRelativePosition(to, type, mapping);
-        const snippet = editor.state.doc.textBetween(from, to, ' ').slice(0, 80);
-        return {
-          start: Y.encodeRelativePosition(startRel),
-          end: Y.encodeRelativePosition(endRel),
-          snippet,
-        };
-      };
+      if (!syncState()?.binding) return null;
       // 1) ProseMirror's own selection — authoritative in edit mode.
       const { from, to, empty } = editor.state.selection;
       if (!empty) return toRel(from, to);

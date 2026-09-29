@@ -3421,6 +3421,234 @@ body.composer-open .composer-scrim.composer-scrim--clear {
   }
 }
 
+/* ================= VOICE COMMENTS (doc/doc-voice.ts) =================
+   The widget's voice mode on the review doc, as approved 29 September: a
+   round mic at the bottom right, apart from Record Audio; a live card that
+   floats above it until the note has a passage and then stands in the margin
+   level with it (docked above the mic when the cards are inline); a dashed
+   outline on the passage. Calm: the only red is the still Stop button and the
+   steady recording dot. The head keeps its height and Move keeps its slot in
+   every state, so the card never jumps as words arrive. */
+.doc-voice-mic {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--doc-dock-h, 0px) + 16px + var(--safe-bottom));
+  z-index: 900;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.doc-voice-mic:hover {
+  border-color: var(--accent);
+}
+.doc-voice-mic svg {
+  width: 22px;
+  height: 22px;
+}
+.doc-voice-mic .doc-voice-stop {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #fff;
+}
+.doc-voice-mic.on {
+  background: var(--red-strong);
+  border-color: var(--red-strong);
+}
+.doc-voice-mic.on svg {
+  display: none;
+}
+.doc-voice-mic.on .doc-voice-stop {
+  display: block;
+}
+.doc-voice-readout {
+  position: fixed;
+  right: 68px;
+  bottom: calc(var(--doc-dock-h, 0px) + 20px + var(--safe-bottom));
+  z-index: 900;
+  max-width: min(320px, calc(100vw - 100px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font: 13px / 1.4 var(--sans);
+  cursor: default;
+}
+.doc-voice-readout[hidden],
+.doc-voice-live[hidden],
+.doc-voice-outline[hidden] {
+  display: none;
+}
+.doc-voice-live {
+  position: fixed;
+  z-index: 850;
+  width: 260px;
+  overflow: hidden;
+  border: 1.5px dashed var(--accent);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgba(18, 38, 63, 0.16);
+  font: 14px / 1.45 var(--sans);
+}
+.doc-voice-live.float {
+  right: 16px;
+  bottom: calc(var(--doc-dock-h, 0px) + 76px + var(--safe-bottom));
+}
+.doc-voice-live.docked {
+  left: 12px;
+  right: 12px;
+  width: auto;
+  bottom: calc(var(--doc-dock-h, 0px) + 76px + var(--safe-bottom));
+}
+.doc-voice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font: 600 12px / 1.2 var(--sans);
+}
+.doc-voice-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red-strong);
+}
+.doc-voice-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  cursor: pointer;
+}
+.doc-voice-where.seeking {
+  color: var(--fg-muted);
+  font-weight: 500;
+  font-style: italic;
+}
+.doc-voice-live.picking .doc-voice-where {
+  color: var(--accent);
+}
+.doc-voice-move {
+  position: relative;
+  flex: none;
+  margin-left: auto;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--accent);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+}
+/* A finger needs 44px; the button keeps its 28px look and takes the taps round it. */
+.doc-voice-move::after {
+  content: "";
+  position: absolute;
+  inset: -9px -4px;
+}
+.doc-voice-move:disabled {
+  visibility: hidden;
+}
+.doc-voice-text {
+  padding: 9px 12px 10px;
+  overflow-wrap: anywhere;
+}
+.doc-voice-text:empty::before {
+  content: "Say your feedback.";
+  color: var(--fg-muted);
+}
+.doc-voice-text.hint {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.doc-voice-live.hearing .doc-voice-text:empty {
+  display: none;
+}
+.doc-voice-pending {
+  display: none;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: 2.9em;
+  margin: 0 0 10px;
+  padding: 0 12px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.doc-voice-live.hearing .doc-voice-pending {
+  display: flex;
+}
+.doc-voice-outline {
+  position: fixed;
+  z-index: 840;
+  pointer-events: none;
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  background: rgba(46, 125, 215, 0.08);
+}
+/* While talking, a tap on a passage points at it; the typed-comment pill
+   waits until the recording stops. */
+body.doc-voice-on #editor > .ProseMirror :is(p, li, tr, h1, h2, h3, h4, blockquote, pre) {
+  cursor: pointer;
+}
+body.doc-voice-picking #editor > .ProseMirror {
+  cursor: crosshair;
+}
+body.doc-voice-on #comment-pill {
+  visibility: hidden;
+}
+/* A spoken comment's foot on its thread card (doc/voice-note-foot.ts). */
+.thread .voice-raw {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+.thread .voice-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 2px;
+  border-top: 1px solid var(--border);
+}
+.thread .voice-foot button {
+  min-height: 36px;
+  min-width: 44px;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  font: 500 12px var(--sans);
+  cursor: pointer;
+}
+.thread .voice-foot .voice-play {
+  color: var(--accent);
+}
+.thread .voice-foot .voice-undo {
+  margin-left: auto;
+}
+
 /* ================= FULL-SCREEN THREAD VIEW =================
    Tapping a highlight in the doc opens this — Notion's "Diskussion"
    pattern. Focused single-thread view, dismissable with X or Esc. */

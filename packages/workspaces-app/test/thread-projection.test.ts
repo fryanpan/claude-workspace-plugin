@@ -147,6 +147,22 @@ describe('the ydoc → Thread[] projection', () => {
     });
   });
 
+  it('carries a spoken comment’s clip and raw words, which its card’s controls need', () => {
+    const ydoc = new Y.Doc();
+    const voice = {
+      clip: '/workspaces/w-1/docs/d1/voice-feedback/seg-1.wav#t=0,7',
+      raw: 'um a date',
+    };
+    createThread(ydoc, {
+      threadId: 't1',
+      anchor: range(0, 3),
+      createdBy: AUTHOR,
+      firstComment: { id: 'c1', text: 'Give this a date.', voice },
+    });
+    const { projection } = projectionOver(ydoc);
+    expect(projection.collect()[0]?.comments[0]?.voice).toEqual(voice);
+  });
+
   it('carries a stored summary through — the one field whose loss is invisible', () => {
     const ydoc = new Y.Doc();
     createThread(ydoc, {

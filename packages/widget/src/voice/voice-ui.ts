@@ -1,4 +1,4 @@
-import { escapeHtml as escape } from '@claude-workspaces/core';
+import { clipLength, escapeHtml as escape } from '@claude-workspaces/core';
 import { isPhoneFace } from '../widget-card.ts';
 import { stackColumn } from './voice-column.ts';
 import { VOICE_CSS } from './voice-css.ts';
@@ -47,12 +47,8 @@ export interface VoiceViewDeps {
   now?: () => number;
 }
 
-/** `#t=12.4,31` → "0:19". */
-export function clipLength(clip: string): string {
-  const m = /#t=([\d.]+),([\d.]+)$/.exec(clip);
-  const s = m ? Math.max(0, Math.round(Number(m[2]) - Number(m[1]))) : 0;
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
+/** Core's, so the review doc's card reads a clip's length the same way. */
+export { clipLength };
 
 export class VoiceView {
   readonly live: HTMLDivElement;

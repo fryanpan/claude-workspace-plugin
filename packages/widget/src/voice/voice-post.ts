@@ -28,18 +28,22 @@ export interface VoicePoster {
 
 const enc = encodeURIComponent;
 
-export function widgetPoster(el: FeedbackWidgetEl): VoicePoster {
-  const base = (): string =>
-    `${httpBase(el)}/workspaces/${enc(el.opts.workspaceId)}/docs/${enc(el.opts.docId)}/threads`;
+/**
+ * The poster over any page's thread routes. `base` is the doc's
+ * `…/docs/<id>/threads`, `post` sends one JSON body (and may sign it), and
+ * `author` is who the page says is speaking. The widget and the review
+ * editor each pass their own three; the writes are the same.
+ */
+export function threadPoster(
+  base: () => string,
+  send: (url: string, body: unknown) => Promise<Response>,
+  author: () => unknown,
+): VoicePoster {
   const post = (path: string, body: () => unknown): Promise<Response> =>
-    authedPost(el, `${base()}${path}`, () => ({
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body()),
-    }));
+    send(`${base()}${path}`, body());
   return {
     async create(anchor, text, voice) {
-      const res = await post('', () => ({ author: el.user, text, anchor, voice }));
+      const res = await post('', () => ({ author: author(), text, anchor, voice }));
       if (!res.ok) return null;
       const { thread } = (await res.json()) as {
         thread?: { id?: string; comments?: Array<{ id?: string; author?: { name?: unknown } }> };
@@ -47,16 +51,16 @@ export function widgetPoster(el: FeedbackWidgetEl): VoicePoster {
       const first = thread?.comments?.[0];
       const commentId = first?.id;
       if (!thread?.id || !commentId) return null;
-      const author = first?.author?.name;
+      const name = first?.author?.name;
       return {
         threadId: thread.id,
         commentId,
-        ...(typeof author === 'string' && author ? { author } : {}),
+        ...(typeof name === 'string' && name ? { author: name } : {}),
       };
     },
     async edit(at, text, voice) {
       const res = await post(`/${enc(at.threadId)}/edit-comment`, () => ({
-        author: el.user,
+        author: author(),
         commentId: at.commentId,
         text,
         voice,
@@ -69,9 +73,23 @@ export function widgetPoster(el: FeedbackWidgetEl): VoicePoster {
     },
     async setResolved(threadId, resolved) {
       const res = await post(`/${enc(threadId)}/${resolved ? 'resolve' : 'reopen'}`, () => ({
-        author: el.user,
+        author: author(),
       }));
       return res.ok;
     },
   };
+}
+
+export function widgetPoster(el: FeedbackWidgetEl): VoicePoster {
+  return threadPoster(
+    () =>
+      `${httpBase(el)}/workspaces/${enc(el.opts.workspaceId)}/docs/${enc(el.opts.docId)}/threads`,
+    (url, body) =>
+      authedPost(el, url, () => ({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })),
+    () => el.user,
+  );
 }

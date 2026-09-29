@@ -25,6 +25,7 @@ import {
   type User,
   readReviewPayload,
   readStoredSummary,
+  readVoiceNote,
   summaryPending,
 } from '@claude-workspaces/core';
 import type * as Y from 'yjs';
@@ -143,6 +144,9 @@ export function createThreadProjection(deps: ThreadProjectionDeps): ThreadProjec
             // reads the REST projection) shows two. Exactly the class of bug
             // the header of this file warns about.
             const deliveredAt = c.get('deliveredAt');
+            // A spoken comment's clip and raw words: without them its card
+            // loses the play, raw-words and Undo controls.
+            const voice = readVoiceNote(c.get('voice'));
             comments.push({
               id: cid,
               author,
@@ -150,6 +154,7 @@ export function createThreadProjection(deps: ThreadProjectionDeps): ThreadProjec
               ts,
               ...(review ? { review } : {}),
               ...(typeof deliveredAt === 'number' ? { deliveredAt } : {}),
+              ...(voice ? { voice } : {}),
             });
           }
         }
