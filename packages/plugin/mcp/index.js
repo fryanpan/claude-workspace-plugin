@@ -16776,7 +16776,10 @@ var TOOL_LIST = {
             description: "Where the link opens after sign-in. Omit for the board. kind 'home' is the board's Home; 'task', 'doc', 'mockup' and 'app' (an attached dev server) need the id of one filed on this board, and one that is not is refused. The board stays one tap away.",
             properties: {
               kind: { type: "string", enum: ["home", "board", "task", "doc", "mockup", "app"] },
-              id: { type: "string", description: "The task or doc id. Not used for home or board." }
+              id: {
+                type: "string",
+                description: "The task or doc id. Not used for home or board."
+              }
             },
             required: ["kind"]
           }
