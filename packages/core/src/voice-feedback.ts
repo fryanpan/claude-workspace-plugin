@@ -1,3 +1,5 @@
+import type { User } from './types.ts';
+
 /**
  * Voice feedback: a person talks about the page in front of them, and what
  * they say lands as comments anchored to the elements they are talking about.
@@ -36,7 +38,10 @@ export interface VoiceTarget {
 }
 
 export type VoiceClientMessage =
-  | { type: 'start'; sampleRate: number; targets: VoiceTarget[] }
+  /** `author`: who the page says is speaking, as it says so on a typed
+   *  comment. Used only when the server writes the notes itself, after the
+   *  page has gone, and only when the socket proved nobody. */
+  | { type: 'start'; sampleRate: number; targets: VoiceTarget[]; author?: User }
   /** The page changed under the speaker; the catalog is replaced. */
   | { type: 'targets'; targets: VoiceTarget[] }
   /** The person tapped an element: the NEXT words go there. `null` is the
@@ -47,8 +52,9 @@ export type VoiceClientMessage =
   /** The person tapped an earlier note of this recording: the NEXT words add
    *  to it, and it is written again from everything said for it. */
   | { type: 'reopen'; key: string }
-  /** The page posted comment `key` as this thread — recorded in the log. */
-  | { type: 'posted'; key: string; threadId: string }
+  /** The page posted comment `key` as this thread — recorded in the log, and
+   *  where the server looks first if the page goes before the note is done. */
+  | { type: 'posted'; key: string; threadId: string; commentId?: string }
   | { type: 'stop' };
 
 /** A spoken comment as the server currently understands it. */
@@ -166,6 +172,18 @@ export function parseVoiceTargets(raw: unknown): VoiceTarget[] | null {
   return out;
 }
 
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A claimed speaker, or undefined for anything that is not one. */
+function readAuthor(raw: unknown): User | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { id, name, kind, color } = raw as Record<string, unknown>;
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_.:@-]{1,128}$/.test(id)) return undefined;
+  if (typeof name !== 'string' || name.trim() === '' || name.length > 128) return undefined;
+  if (kind !== 'known' && kind !== 'anon') return undefined;
+  return { id, name, kind, color: typeof color === 'string' ? color.slice(0, 16) : '' };
+}
+
 /** Parse a client frame, or null for anything malformed. */
 export function parseVoiceClientMessage(raw: unknown): VoiceClientMessage | null {
   if (typeof raw !== 'string') return null;
@@ -185,7 +203,8 @@ export function parseVoiceClientMessage(raw: unknown): VoiceClientMessage | null
     case 'start': {
       const targets = parseVoiceTargets(m.targets);
       if (m.sampleRate !== 16_000 || !targets) return null;
-      return { type: 'start', sampleRate: 16_000, targets };
+      const author = readAuthor(m.author);
+      return { type: 'start', sampleRate: 16_000, targets, ...(author ? { author } : {}) };
     }
     case 'targets': {
       const targets = parseVoiceTargets(m.targets);
@@ -198,9 +217,15 @@ export function parseVoiceClientMessage(raw: unknown): VoiceClientMessage | null
     case 'reopen':
       return key ? { type: 'reopen', key } : null;
     case 'posted':
-      return key && typeof m.threadId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(m.threadId)
-        ? { type: 'posted', key, threadId: m.threadId }
-        : null;
+      if (!key || typeof m.threadId !== 'string' || !ID_RE.test(m.threadId)) return null;
+      return {
+        type: 'posted',
+        key,
+        threadId: m.threadId,
+        ...(typeof m.commentId === 'string' && ID_RE.test(m.commentId)
+          ? { commentId: m.commentId }
+          : {}),
+      };
     default:
       return null;
   }

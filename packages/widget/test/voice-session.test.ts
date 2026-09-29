@@ -166,7 +166,12 @@ describe('a spoken comment becoming a thread', () => {
         },
       },
     ]);
-    expect(t.socket().json().at(-1)).toEqual({ type: 'posted', key: 'v1', threadId: 't1' });
+    expect(t.socket().json().at(-1)).toEqual({
+      type: 'posted',
+      key: 'v1',
+      threadId: 't1',
+      commentId: 'c1',
+    });
   });
 
   it('anchors a comment about no element to the page as a whole', async () => {
@@ -406,7 +411,12 @@ describe('stopping', () => {
     expect(t.session.comments.get('1.v1')?.text, 'the first comment keeps its words').toBe(
       'the goal bar is too tall',
     );
-    expect(t.socket().json().at(-1)).toEqual({ type: 'posted', key: 'v1', threadId: 't2' });
+    expect(t.socket().json().at(-1)).toEqual({
+      type: 'posted',
+      key: 'v1',
+      threadId: 't2',
+      commentId: 'c2',
+    });
   });
 
   it('does not name a comment of the next recording when an old create answers late', async () => {

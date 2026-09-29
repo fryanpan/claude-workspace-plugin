@@ -91,6 +91,7 @@ export function mountDocVoice(opts: DocVoiceOptions): DocVoice {
       opts.send ?? postJson,
       () => user,
     ),
+    author: () => user,
     catalog: () => targets.catalog(),
     anchorFor: (t) => targets.anchorFor(t),
     onChange: () => draw(),
