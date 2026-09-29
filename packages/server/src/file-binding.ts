@@ -2967,7 +2967,13 @@ export class FileBindings {
    * this path" rather than two that can disagree.
    */
   private rearbitratePath(path: string): void {
-    const holders = [...this.bindings].filter(([, b]) => b.path === path && bindingWrites(b));
+    // Walked, not spread: eviction calls this once per doc, and copying the
+    // whole map each time made a sweep of 2,700 bound docs allocate 7.3M
+    // entry pairs to find the one or two that share a path.
+    const holders: Array<[string, FileBinding]> = [];
+    this.bindings.forEach((b, id) => {
+      if (b.path === path && bindingWrites(b)) holders.push([id, b]);
+    });
     if (holders.length === 0) return;
     let newestId = '';
     let newestAt = Number.NEGATIVE_INFINITY;

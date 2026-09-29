@@ -570,6 +570,8 @@ export class DocStore {
   /** The `[doc-store] mem` sampler; see memory-log.ts. */
   private readonly memoryLog = new MemoryLog({ stats: () => this.stats() });
   private evictTicker: ReturnType<typeof setInterval> | null = null;
+  /** An idle sweep is part-way through, handing the loop back between docs. */
+  private sweeping = false;
   /**
    * When each resident doc entered memory. The eviction clock reads
    * `lastTouchedAt` first — a real reach — and falls back to this, so a doc
@@ -813,25 +815,46 @@ export class DocStore {
    * Public because the sweep timer and the tests must exercise the same
    * pass — a test that reimplemented the policy would prove only that the
    * test agrees with itself.
+   *
+   * Yields on `slice` between docs. One pass can evict thousands at once —
+   * every doc a boot's fan-out read, thirty minutes later — and 2,700 bound
+   * docs took 92ms in one synchronous run on an idle machine, which a
+   * swapping one multiplies. So the holds are asked again after every yield,
+   * and a doc anybody reached while the pass was handed back is skipped: its
+   * clock moved, so the window the snapshot judged it by no longer applies.
    */
-  evictIdleDocs(): string[] {
+  async evictIdleDocs(slice: TimeSlice = timeSlice()): Promise<string[]> {
     const now = this.now();
     const entries: ResidencyEntry[] = [];
-    for (const docId of this.docs.keys()) {
-      entries.push({
-        docId,
-        lastReachedAt: this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now,
-        lastPersonAt: this.lastPersonAt.get(docId),
-      });
-    }
+    for (const docId of this.docs.keys()) entries.push(this.residencyEntry(docId, now));
+    const judged = new Map(entries.map((e) => [e.docId, e]));
     const evicted: string[] = [];
     // `evictDoc` mutates the map; `entries` is the snapshot walked.
     for (const docId of pastWindow(entries, now)) {
+      await slice.yieldIfDue();
       const doc = this.docs.get(docId);
-      if (!doc || this.evictionHold(docId, doc, now) !== null) continue;
+      if (!doc || this.stopped) continue;
+      const then = judged.get(docId);
+      const current = this.residencyEntry(docId, now);
+      if (
+        then?.lastReachedAt !== current.lastReachedAt ||
+        then.lastPersonAt !== current.lastPersonAt
+      ) {
+        continue;
+      }
+      if (this.evictionHold(docId, doc, this.now()) !== null) continue;
       if (this.evictDoc(docId)) evicted.push(docId);
     }
     return evicted;
+  }
+
+  /** One resident doc's clocks, as `pastWindow` judges them. */
+  private residencyEntry(docId: string, now: number): ResidencyEntry {
+    return {
+      docId,
+      lastReachedAt: this.lastTouchedAt.get(docId) ?? this.hydratedAt.get(docId) ?? now,
+      lastPersonAt: this.lastPersonAt.get(docId),
+    };
   }
 
   /**
@@ -848,12 +871,17 @@ export class DocStore {
   private startEvictionSweep(): void {
     if (this.evictTicker) return;
     const timer = setInterval(() => {
-      try {
-        const gone = this.evictIdleDocs();
-        if (gone.length > 0) console.error(`[doc-store] evicted ${gone.length} idle doc(s)`);
-      } catch (err) {
-        console.error('[doc-store] eviction sweep failed:', err);
-      }
+      // A pass still yielding its way through a big sweep owns the next one.
+      if (this.sweeping) return;
+      this.sweeping = true;
+      this.evictIdleDocs()
+        .then((gone) => {
+          if (gone.length > 0) console.error(`[doc-store] evicted ${gone.length} idle doc(s)`);
+        })
+        .catch((err) => console.error('[doc-store] eviction sweep failed:', err))
+        .finally(() => {
+          this.sweeping = false;
+        });
     }, EVICT_SWEEP_MS);
     timer.unref?.();
     this.evictTicker = timer;
