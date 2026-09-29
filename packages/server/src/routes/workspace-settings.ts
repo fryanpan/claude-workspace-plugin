@@ -466,7 +466,11 @@ export async function handleWorkspaceSettings(
     if (!taskStore.getWorkspace(decodeURIComponent(timingsMatch[1] ?? ''))) {
       return j(404, { error: 'workspace-not-found' });
     }
-    return j(200, { setups: spokenRelay.setups(), timings: spokenTimings.summary() });
+    return j(200, {
+      setups: spokenRelay.setups(),
+      held: spokenRelay.held(),
+      timings: spokenTimings.summary(),
+    });
   }
   return undefined;
 }

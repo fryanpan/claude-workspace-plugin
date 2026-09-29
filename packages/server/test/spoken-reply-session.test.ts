@@ -229,6 +229,20 @@ describe('SpokenSession, setups 1 and 2', () => {
     expect(l.closes).toBe(1);
   });
 
+  it('a held setup is named in ready and refused with its line; setup 1 still runs', async () => {
+    const l = fakeListener();
+    const v = fakeVoice();
+    const line = 'Setup 2 waits on turning off ElevenLabs training.';
+    const h = harness({ listener: l.engine, voices: { 1: v.voice, 2: null }, held: { '2': line } });
+    h.session.open();
+    expect(h.json[0]).toEqual({ type: 'ready', setups: [1], held: { '2': line }, timings: {} });
+    h.send({ type: 'start', setup: 2, mode: 'hold' });
+    expect(h.json[1]).toEqual({ type: 'error', message: line });
+    expect(l.opened.length).toBe(0);
+    h.send({ type: 'start', setup: 1, mode: 'hold' });
+    await waitFor(() => l.opened.length === 1, { describe: 'setup 1 listens' });
+  });
+
   it('a setup this server cannot run, and a read-only socket, are refused', () => {
     const h = harness({});
     h.send({ type: 'start', setup: 2, mode: 'hold' });

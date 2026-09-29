@@ -6,7 +6,7 @@
  * in a test server that injects none — every setup then reads as not set up
  * and the page keeps the plain mic).
  */
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import type { SpokenHeldSetups, SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { isCategoryAuthor } from '../task-owner.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
@@ -39,6 +39,11 @@ export class SpokenReplyRelay {
   /** Which setups this server can run — none unless the engines were built. */
   setups() {
     return availableSetups(this.deps.engines);
+  }
+
+  /** Setups with keys but held back, and why. */
+  held(): SpokenHeldSetups {
+    return this.deps.engines.held ?? {};
   }
 
   onOpen(ws: SpokenWs): void {

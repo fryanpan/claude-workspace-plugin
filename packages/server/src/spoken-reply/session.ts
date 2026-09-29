@@ -23,6 +23,7 @@ import {
   SPOKEN_OUTPUT_RATE,
   SPOKEN_SETUPS,
   type SpokenClientMessage,
+  type SpokenHeldSetups,
   type SpokenMode,
   type SpokenServerMessage,
   type SpokenSetup,
@@ -50,6 +51,8 @@ export interface SpokenEngines {
   listener: TranscriptionEngine | null;
   voices: { 1: SpokenVoice | null; 2: SpokenVoice | null };
   gemini: GeminiLive | null;
+  /** Built but not run yet, and why — see `SpokenHeldSetups`. */
+  held?: SpokenHeldSetups;
 }
 
 export function availableSetups(e: SpokenEngines): SpokenSetup[] {
@@ -115,6 +118,7 @@ export class SpokenSession {
     this.deps.sendJson({
       type: 'ready',
       setups: availableSetups(this.deps.engines),
+      ...(this.deps.engines.held ? { held: this.deps.engines.held } : {}),
       timings: this.deps.timings.summary(),
     });
   }
@@ -179,7 +183,9 @@ export class SpokenSession {
     if (!availableSetups(this.deps.engines).includes(msg.setup)) {
       this.deps.sendJson({
         type: 'error',
-        message: `Setup ${msg.setup} is not set up on this server.`,
+        message:
+          this.deps.engines.held?.[String(msg.setup) as '1' | '2' | '3'] ??
+          `Setup ${msg.setup} is not set up on this server.`,
       });
       return;
     }

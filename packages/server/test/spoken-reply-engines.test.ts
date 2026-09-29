@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import {
+  ELEVENLABS_HELD_LINE,
   ELEVENLABS_TRAINING_OFF_VAR,
   createSpokenEngines,
   elevenLabsTrainingOff,
@@ -24,7 +25,7 @@ const NO_KEYCHAIN = {
 function build(env: Record<string, string | undefined>) {
   const lines: string[] = [];
   const engines = createSpokenEngines(LISTENER, (l) => lines.push(l), { env, ...NO_KEYCHAIN });
-  return { setups: availableSetups(engines), line: lines.join('\n') };
+  return { setups: availableSetups(engines), held: engines.held, line: lines.join('\n') };
 }
 
 const KEYS = {
@@ -39,10 +40,12 @@ describe('createSpokenEngines', () => {
     expect(held.setups).toEqual([1, 3]);
     expect(held.line).toContain(`setup 2 held until ${ELEVENLABS_TRAINING_OFF_VAR}=1`);
     expect(held.line).not.toContain('fixture-');
+    expect(held.held).toEqual({ '2': ELEVENLABS_HELD_LINE });
 
     const cleared = build({ ...KEYS, [ELEVENLABS_TRAINING_OFF_VAR]: '1' });
     expect(cleared.setups).toEqual([1, 2, 3]);
     expect(cleared.line).not.toContain('held');
+    expect(cleared.held).toBeUndefined();
   });
 
   it('drops a setup whose key is missing', () => {
