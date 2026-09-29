@@ -42,6 +42,12 @@ import { type DocMeta, attachmentIdOf, normalizeEmail } from '@claude-workspaces
 import type { DocStore } from './doc-store.ts';
 import type { ShareTarget } from './middleware/host-guard.ts';
 import { type BoardRole, DEFAULT_BOARD_ROLE } from './share/board-role.ts';
+import {
+  landingLookupsFor,
+  landingOnBoard,
+  landingPath,
+  parseShareLanding,
+} from './share/share-landing.ts';
 import { renderShareLinkUnavailable } from './share/share-link-page.ts';
 import type { ShareLinkMember, ShareLinks } from './share/share-links.ts';
 import { type Shares, audienceEntryAdmits } from './share/shares.ts';
@@ -434,9 +440,13 @@ export function createBoardMembership(ctx: BoardMembershipContext): BoardMembers
    * The board check runs BEFORE the redeem, so a link whose board was retired
    * writes no membership row on its way to being refused.
    *
-   * Success is a redirect to the board on this same hostname, which is where
-   * a returning member's next visit goes directly.
+   * Success is a redirect on this same hostname to the resource the link
+   * names (`share-landing.ts`) — the board when it names none, or when what
+   * it named has since left the board. The redirect grants nothing: the page
+   * it points at meets the membership gate like any other request.
    */
+  const landingLookups = landingLookupsFor(taskStore, docStore);
+
   const redeemShareLink = (linkId: string, email: string | null): Response => {
     const unavailable = () =>
       new Response(renderShareLinkUnavailable(), {
@@ -454,10 +464,17 @@ export function createBoardMembership(ctx: BoardMembershipContext): BoardMembers
     if (!ctx.boardSharingOpen(link.workspaceId)) return unavailable();
     const outcome = shareLinks.redeem(linkId, email ?? '');
     if (!outcome.ok) return unavailable();
+    // Parsed again rather than trusted: the record is a file on disk, and a
+    // hand-edited landing must fall back to the board, not into a path.
+    const stored = parseShareLanding(link.landing);
+    const landing =
+      stored.ok && stored.landing
+        ? landingOnBoard(outcome.workspaceId, stored.landing, landingLookups)
+        : null;
     return new Response(null, {
       status: 302,
       headers: {
-        location: `/workspaces/${encodeURIComponent(outcome.workspaceId)}`,
+        location: landingPath(outcome.workspaceId, landing ?? undefined),
         'referrer-policy': 'no-referrer',
         'cache-control': 'no-store',
       },

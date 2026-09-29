@@ -49,6 +49,7 @@ import { join } from 'node:path';
 import { normalizeEmail } from '@claude-workspaces/core';
 
 import { type BoardRole, DEFAULT_BOARD_ROLE, normalizeBoardRole } from './board-role.ts';
+import type { ShareLanding } from './share-landing.ts';
 
 const SECRET_MODE = 0o600;
 const REGISTRY_FILENAME = 'share-links.json';
@@ -88,6 +89,8 @@ export interface ShareLinkRecord {
    * the record the gate actually reads.
    */
   role?: BoardRole;
+  /** Where redeeming it lands (`share-landing.ts`). Absent = the board. */
+  landing?: ShareLanding;
   redemptions: ShareLinkRedemption[];
 }
 
@@ -127,6 +130,7 @@ export interface CreateShareLinkReq {
   label?: string;
   /** What redeemers arrive as. Omitted = `member`. */
   role?: BoardRole;
+  landing?: ShareLanding;
 }
 
 interface Persisted {
@@ -167,6 +171,7 @@ export class ShareLinks {
       // Absent for a `member` link, so a link minted with the default is
       // byte-identical to every link minted before roles existed.
       ...(req.role === 'owner' ? { role: req.role } : {}),
+      ...(req.landing ? { landing: req.landing } : {}),
       redemptions: [],
     };
     this.links.push(record);

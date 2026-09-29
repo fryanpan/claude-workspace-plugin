@@ -94,6 +94,7 @@ describe('the frame and host helpers', () => {
       html: '<html><head><title>Price board</title></head><body><script>steal()</script></body></html>',
       url: new URL('http://b.test/workspaces/w-stand/mockups/d?v=3'),
       items: [{ taskId: 't-1', reviewItemId: 'r-1' }],
+      visitor: false,
     });
     const frame = html.match(/<iframe\b[^>]*>/)?.[0] ?? '';
     expect(frame).toContain('sandbox="allow-scripts');
@@ -104,6 +105,28 @@ describe('the frame and host helpers', () => {
     expect(html).not.toContain('steal()');
     expect(html).not.toContain('d"><x');
     expect(html).toContain('data-items="[[&quot;t-1&quot;,&quot;r-1&quot;]]"');
+  });
+
+  it("draws the link back to the board for a share visitor and nothing over the owner's mock", () => {
+    const args = {
+      workspaceId: 'board one',
+      docId: 'd-mock',
+      html: '<html><head><title>Riverbend mock</title></head><body></body></html>',
+      url: new URL('http://b.test/workspaces/board%20one/mockups/d-mock'),
+      items: [],
+    };
+    const owner = renderMockHost({ ...args, visitor: false });
+    const visitor = renderMockHost({ ...args, visitor: true });
+    expect(owner).not.toContain('cw-board-link');
+    expect(visitor).toContain(
+      '<a class="cw-board-link" href="/workspaces/board%20one" aria-label="Back to the board">',
+    );
+    // The flag adds the pill and its one style rule, and changes nothing
+    // else on the page: take both out and the two pages are the same bytes.
+    const stripped = visitor
+      .replace(/\.cw-board-link\{[^}]*\}/, '')
+      .replace(/<a class="cw-board-link"[^>]*>[^<]*<\/a>/, '');
+    expect(stripped).toBe(owner);
   });
 });
 

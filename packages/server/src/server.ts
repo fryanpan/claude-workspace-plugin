@@ -3001,7 +3001,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // Its attach sits beside the doc create it mirrors, and its reads claim
       // only `apps/<id>/…`, which no route below answers.
       {
-        const handled = await handleAppRoutes(appRoutesCtx, { req, url, scope });
+        const handled = await handleAppRoutes(appRoutesCtx, {
+          req,
+          url,
+          scope,
+          visitor: Boolean(visitor),
+        });
         if (handled) return handled;
       }
 

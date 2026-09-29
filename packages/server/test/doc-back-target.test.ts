@@ -169,10 +169,12 @@ describe('a doc knows which board to go back to', () => {
 
 /**
  * A board id is an unguessable URL capability. `hubWorkspaceId` is owner-only
- * on this route for exactly that reason, and the back target has to obey the
- * same rule or it becomes a second door onto the id the first one closed.
+ * on this route for exactly that reason, and the back target obeys the same
+ * rule for every board but one: the board in the visitor's own path, which
+ * the gate just admitted them to. Without that one the `←` of a doc a share
+ * link landed on sent its reader to `/`, which the share hostname refuses.
  */
-describe('the back target is not handed to a share visitor', () => {
+describe('the back target a share visitor is handed', () => {
   let handle: ServerHandle;
   let dataDir: string;
   let base: string;
@@ -239,7 +241,7 @@ describe('the back target is not handed to a share visitor', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('gives the owner the board id and the visitor none of it', async () => {
+  it('gives the owner the board id and the visitor only the board they stand on', async () => {
     // Presence, on the same doc in the same pass: without this, the
     // `undefined` below is equally consistent with a resolver that never
     // resolves anything for anybody.
@@ -261,7 +263,7 @@ describe('the back target is not handed to a share visitor', () => {
       backTo?: { workspaceId: string };
     };
     expect(visitor.meta).toBeDefined(); // …and really got the payload
-    expect(visitor.backTo).toBeUndefined();
+    expect(visitor.backTo?.workspaceId).toBe(boardId);
   });
 
   it('never names a board the visitor was not shared', async () => {
