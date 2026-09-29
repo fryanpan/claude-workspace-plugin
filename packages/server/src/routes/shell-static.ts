@@ -153,6 +153,10 @@ export interface ShellStaticRequest {
    *  mock's ticket items out of its page — never to widen access, which
    *  `request-admission.ts` has already decided. */
   visitor: ShareTarget | null;
+  /** A member's list and signed-in address, when the door they came in by
+   *  has one (`request-admission.ts`). Read only to paint the board's way
+   *  back to that list and who is signed in. */
+  visitorHome: { signedInAs: string } | null;
 }
 
 export interface ShellStatic {
@@ -414,6 +418,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     url,
     pathname,
     visitor,
+    visitorHome,
   }: ShellStaticRequest): Response | null => {
     // --- Static: widget ---
     if (widgetDist && pathname.startsWith('/widget/')) {
@@ -496,10 +501,11 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
       return new Response(
         renderBoardShell(workspace.id, workspace.name, {
           feedback: !visitor,
-          // The board is the whole of what a visitor was given, so the
-          // shell leaves out the "all workspaces" arrow rather than
-          // painting a link to a 403.
+          // A visitor's shell leaves out the owner's chrome. Where their
+          // door lists their boards at `/`, it keeps the arrow back to that
+          // list and says who is signed in.
           visitor: Boolean(visitor),
+          visitorHome,
           sentry: browserSentry,
           assets: readAppAssetManifest(markdownAppDist),
         }),

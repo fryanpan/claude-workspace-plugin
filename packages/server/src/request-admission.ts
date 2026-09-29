@@ -40,6 +40,7 @@
  */
 import { normalizeEmail } from '@claude-workspaces/core';
 import type { DocMeta } from '@claude-workspaces/core';
+import { memberBoards, memberHomeResponse, notAMemberResponse, wantsPage } from './member-home.ts';
 import { LOOPBACK_HOSTS, type OriginPolicy, corsHeadersFor } from './middleware/browser-origin.ts';
 import type { CfAccessVerifier } from './middleware/cf-access.ts';
 import {
@@ -61,6 +62,7 @@ import { shareMemberKey } from './share/share-links.ts';
 import type { Shares } from './share/shares.ts';
 import type { SharingGate } from './share/sharing-gate.ts';
 import type { Share } from './share/types.ts';
+import type { BoardWorkspace } from './tasks.ts';
 
 /** The two `ServerOptions` fields the origin policy reads. */
 export interface OriginPolicyOptions {
@@ -227,6 +229,8 @@ export interface RequestAdmissionContext {
   redeemShareLink: (linkId: string, email: string | null) => Response;
   /** What a caller may DO on a board — `board-membership.ts`'s one reading. */
   boardRoleOf: (workspaceId: string, email: string | null, isVisitor: boolean) => BoardRole;
+  /** Every board on this server, for a member's list at `/`. */
+  listBoards: () => readonly BoardWorkspace[];
   /** One path segment, decoded without throwing on a bad escape. */
   safeDecodeSegment: (s: string) => string;
   /** Doc metadata decorated with its review URL, before redaction. */
@@ -278,6 +282,14 @@ export type Admission =
       visitorMemberKey: string | null;
       /** The email Cloudflare Access verified for this request, if any. */
       accessEmail: string | null;
+      /**
+       * Set when a MEMBER came in through a door that lists their boards at
+       * `/` — the share, collaboration or main hostname — carrying the address
+       * Access verified. The board shell reads it to paint the way back to
+       * that list and who is signed in. Null for the owner, a local caller,
+       * and a per-share hostname, which has no list above its one board.
+       */
+      visitorHome: { signedInAs: string } | null;
       /**
        * The board token and page origin a request came through the tailnet
        * widget door with, or null for every other request. Read by the doc
@@ -339,6 +351,7 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
     shareLinkMemberOf,
     redeemShareLink,
     boardRoleOf,
+    listBoards,
     safeDecodeSegment,
     withReviewUrl,
     recallRelay,
@@ -379,6 +392,66 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
     let accessEmail: string | null = null;
     /** Set by the widget-door branch below; see the admitted field. */
     let widgetDoorGrant: { token: string; origin: string } | null = null;
+    /** Set by `memberDoor` below; see the admitted field. */
+    let visitorHome: { signedInAs: string } | null = null;
+    /** Where a refused visitor's page links for their list, or null on a door
+     *  with none. Set by `memberDoor`, read by every visitor refusal. */
+    let listHref: string | null = null;
+
+    /**
+     * A visitor's refusal. A browser navigating gets the one page that says
+     * who is signed in and where their boards are; anything else keeps the
+     * JSON body, because the client's own error handling reads it. The page
+     * is built from the email alone, so a board that exists and one that
+     * does not answer the same bytes, exactly as the two JSON bodies did.
+     */
+    const refuseVisitor = (error: 'out_of_share_scope' | 'sharing_disabled'): Response =>
+      wantsPage(req) ? notAMemberResponse(accessEmail, listHref) : j(403, { error });
+
+    /**
+     * The three MEMBERSHIP doors — the share hostname, the collaboration
+     * hostname, and the main hostname for an email that is not the owner's.
+     * One rule, so the three cannot drift apart: `/` is the member's own
+     * list, every other path is `collabScope` against `isMember`, and the
+     * admitted request is a visitor scoped to the board the path names.
+     *
+     * The list is built from the same `isMember` the scope check asks, with
+     * closed boards taken out, so a board it names opens and a board it
+     * leaves out does not. `boardRoleOf` answers the badge exactly as it
+     * answers the board's own owner gate.
+     */
+    const memberDoor = (
+      isMember: (workspaceId: string) => boolean,
+      keyFor: (workspaceId: string, email: string) => string,
+    ): Response | null => {
+      listHref = accessEmail ? '/' : null;
+      if (pathname === '/' && accessEmail && wantsPage(req)) {
+        const email = accessEmail;
+        const rows = memberBoards(
+          listBoards(),
+          (id) => isMember(id) && sharingGate.isBoardOpen(id),
+          (id) => boardRoleOf(id, email, true),
+        );
+        return memberHomeResponse(email, rows);
+      }
+      const scope = collabScope(pathname, req.method, {
+        workspacesOf: shareWorkspacesOf,
+        isMember,
+      });
+      if (!scope.allowed) return refuseVisitor('out_of_share_scope');
+      // An outsider like any other: identity rewritten to a guest, doc
+      // metadata redacted, `visitor`-gated routes closed. No
+      // `visitorShareId` — no ONE share admitted it.
+      visitor = scope.target;
+      // The membership instead, stamped on whatever this request upgrades
+      // so that ending it, or throwing the master switch, can hang it up.
+      visitorMemberKey =
+        accessEmail && scope.target?.workspaceId
+          ? keyFor(scope.target.workspaceId, accessEmail)
+          : null;
+      visitorHome = accessEmail ? { signedInAs: accessEmail } : null;
+      return null;
+    };
 
     // --- Cloudflare Access gate ---
     // When cfAccess is configured (server is reachable via a public
@@ -513,7 +586,7 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
         // the shared board: no doc enumeration, no workspace/diff
         // creation, no share administration.
         if (!shareScopeAllows(pathname, req.method, decision.target, shareWorkspacesOf)) {
-          return j(403, { error: 'out_of_share_scope' });
+          return refuseVisitor('out_of_share_scope');
         }
         visitor = decision.target;
         visitorShareId = shares?.findLiveByHostname(req.headers.get('host') ?? '')?.shareId ?? null;
@@ -562,22 +635,12 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
         // The refusal is spelled exactly like the collaboration
         // hostname's, on purpose: two different bodies would tell a
         // signed-in stranger which guessed workspace ids are real.
-        const scope = collabScope(pathname, req.method, {
-          workspacesOf: shareWorkspacesOf,
-          isMember: (wsId) => shareLinkMemberOf(wsId, accessEmail),
-        });
-        if (!scope.allowed) return j(403, { error: 'out_of_share_scope' });
-        // An outsider like any other: identity rewritten to a guest, doc
-        // metadata redacted, `visitor`-gated routes closed. No
-        // `visitorShareId` — there is no Cloudflare share behind this.
-        visitor = scope.target;
-        // What there IS instead: the membership. Stamped on whatever this
-        // request upgrades so that removing the member, or throwing the
-        // master switch, can hang it up.
-        visitorMemberKey =
-          accessEmail && scope.target?.workspaceId
-            ? shareMemberKey(scope.target.workspaceId, accessEmail)
-            : null;
+        //
+        // The root is the member's own list (`memberDoor`), and the key
+        // stamped on an upgrade is the share-link spelling, so removing the
+        // member hangs it up.
+        const refused = memberDoor((wsId) => shareLinkMemberOf(wsId, accessEmail), shareMemberKey);
+        if (refused) return refused;
       } else if (decision.kind === 'collab') {
         // The collaboration hostname: one stable public address, an
         // Access application in front of it, and the SHARE surface behind
@@ -608,22 +671,12 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
         // collaborator which guessed workspace ids are real, which is an
         // enumeration oracle over precisely the ids this check exists to
         // stop them opening.
-        const scope = collabScope(pathname, req.method, {
-          workspacesOf: shareWorkspacesOf,
-          isMember: (wsId) => collabMemberOf(wsId, accessEmail),
-        });
-        if (!scope.allowed) return j(403, { error: 'out_of_share_scope' });
-        // An outsider like any other: identity rewritten to a guest, doc
-        // metadata redacted, `visitor`-gated routes closed. What it does
-        // NOT get is a `visitorShareId` — no ONE share admitted it.
-        visitor = scope.target;
-        // The membership instead, stamped on whatever this request upgrades
-        // so that revoking or expiring a share, or throwing the master
-        // switch, can find the connection and ask the question above again.
-        visitorMemberKey =
-          accessEmail && scope.target?.workspaceId
-            ? collabMemberKey(scope.target.workspaceId, accessEmail)
-            : null;
+        //
+        // The collaboration spelling of the key, so revoking or expiring a
+        // share, or throwing the master switch, can find the connection and
+        // ask the question above again.
+        const refused = memberDoor((wsId) => collabMemberOf(wsId, accessEmail), collabMemberKey);
+        if (refused) return refused;
       } else if (decision.kind === 'recall-callback') {
         // Recall's dedicated hostname. No Access token is demanded and
         // none could be presented: this caller is a vendor's backend.
@@ -724,13 +777,30 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
         // must be on the allowlist — folded the way the roster folds — or
         // the door stays shut. The body names nothing: not the email, not
         // that an allowlist exists.
+        //
+        // A token with no email names nobody, and nobody is refused outright.
         const who = result.email ? normalizeEmail(result.email) : '';
-        if (who === '' || !proxiedTrustedEmails.has(who)) {
-          return j(403, { error: 'forbidden' });
-        }
+        if (who === '') return j(403, { error: 'forbidden' });
         accessEmail = result.email ?? null;
-        // Nothing else: no `visitor`, no scope. From here on the request
-        // is what a loopback request is.
+        // Any other email is a MEMBER, not the operator: a visitor on exactly
+        // the terms the collaboration hostname gives, never a step past this
+        // line into loopback privileges. Membership is either record — a
+        // redeemed share link or a live share's allow list — because both are
+        // how the owner gives somebody a board, and this is the address they
+        // were most likely to type. The key names which record admitted
+        // them, so the verb that ends that record hangs up the connection.
+        if (!proxiedTrustedEmails.has(who)) {
+          const refused = memberDoor(
+            (wsId) => shareLinkMemberOf(wsId, accessEmail) || collabMemberOf(wsId, accessEmail),
+            (wsId, email) =>
+              shareLinkMemberOf(wsId, email)
+                ? shareMemberKey(wsId, email)
+                : collabMemberKey(wsId, email),
+          );
+          if (refused) return refused;
+        }
+        // The operator: no `visitor`, no scope. From here on the request is
+        // what a loopback request is.
       } else if (cfAccessVerifier && !shares && !shareLinkVerifier) {
         // Legacy whole-server mode: cfAccess configured WITHOUT any
         // sharing surface means the entire deployment sits behind Access,
@@ -755,7 +825,7 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
       // this caller was already admitted to the board, so naming the reason
       // tells them nothing they could not see.
       if (visitor?.workspaceId && !sharingGate.isBoardOpen(visitor.workspaceId)) {
-        return j(403, { error: 'sharing_disabled' });
+        return refuseVisitor('sharing_disabled');
       }
       return null;
     })();
@@ -804,6 +874,7 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
       visitorShareId,
       visitorMemberKey,
       accessEmail,
+      visitorHome,
       widgetDoorGrant,
       metaFor,
       roleFor,

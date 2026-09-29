@@ -299,6 +299,12 @@ export function renderBoardShell(
      * the HTML is a hint about what to paint, never a permission.
      */
     visitor?: boolean;
+    /**
+     * The visitor's door lists their boards at `/`, and this is the address
+     * Access verified for them. Stamped so the shell keeps the back arrow and
+     * says who is signed in — a hint about what to paint, like `visitor`.
+     */
+    visitorHome?: { signedInAs: string } | null;
     sentry?: BrowserSentryConfig | null;
     assets?: AssetManifest;
   } = {
@@ -319,6 +325,10 @@ export function renderBoardShell(
   const sentryTags = sentryHeadTags(opts.sentry ?? null, 'board', assets);
   const manifestHref = opts.visitor ? boardManifestPath(workspaceId) : '/manifest.webmanifest';
   const sentryMeta = sentryTags ? `\n    ${sentryTags}` : '';
+  const home = opts.visitor ? opts.visitorHome : null;
+  const visitorAttrs = opts.visitor
+    ? ` data-visitor="1"${home ? ` data-visitor-home="1" data-signed-in-as="${escape(home.signedInAs)}"` : ''}`
+    : '';
   // Deliberately NOT rendered for a share visitor. Every peer on a Yjs doc
   // syncs the whole doc, so one shared feedback doc would hand every board
   // visitor every other workspace's feedback threads — including the board
@@ -364,7 +374,7 @@ export function renderBoardShell(
     <link rel="stylesheet" href="${tokensCss}" />
   </head>
   <body class="board-body">
-    <div id="board-root" data-workspace-id="${safeId}"${opts.visitor ? ' data-visitor="1"' : ''}></div>
+    <div id="board-root" data-workspace-id="${safeId}"${visitorAttrs}></div>
     <script type="module" src="${boardJs}"></script>${widget}
   </body>
 </html>`;
@@ -937,7 +947,7 @@ function renderLandingArtifact(a: LandingArtifact): string {
  * landing page is server-rendered and owns its own styles, so the client
  * bundle's cascade cannot move it.
  */
-const LANDING_CSS = `
+export const LANDING_CSS = `
 *{box-sizing:border-box}
 body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0 auto;max-width:760px;padding:20px 14px 40px;color:#1b1f23;overflow-wrap:anywhere}
 h1{font-size:20px;margin:0 0 2px}
