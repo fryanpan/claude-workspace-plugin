@@ -142,6 +142,7 @@ export function mountVoiceMode(
       opts.startCapture ??
       ((o) => (socket && 'cwMic' in socket ? hostCapture(socket, o) : startPcmCapture(o))),
     poster: widgetPoster(widget),
+    author: () => widget.user,
     catalog,
     anchorFor,
     onChange: () => draw(),

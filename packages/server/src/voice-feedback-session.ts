@@ -4,14 +4,22 @@
  * heard (`voice-feedback-turns.ts`) and the notes made from them. Types only;
  * the relay's tests drive every field.
  */
-import type { VoiceTarget } from '@claude-workspaces/core';
+import type { User, VoiceTarget, WriteVia } from '@claude-workspaces/core';
 import type { TranscriptionSession } from './transcribe.ts';
 import type { VoiceLog, WavWriter } from './voice-feedback-store.ts';
 import type { VoiceTurns } from './voice-feedback-turns.ts';
 
 /** The slice of a Bun `ServerWebSocket` this module needs. */
 export interface VoiceWs {
-  data: { docId: string; workspaceId?: string; readOnly?: boolean };
+  data: {
+    docId: string;
+    workspaceId?: string;
+    readOnly?: boolean;
+    /** The identity the upgrade proved, if any — never what a body claimed. */
+    author?: User | null;
+    /** Opened from inside a served mock — see `WriteVia`. */
+    via?: WriteVia;
+  };
   send(payload: string): void;
   close(code?: number, reason?: string): void;
 }
@@ -42,6 +50,8 @@ export interface Session {
   wav: WavWriter;
   log: VoiceLog;
   segment: number;
+  /** Who is speaking, for notes the server writes after the page has gone. */
+  author: User | null;
   targets: VoiceTarget[];
   turns: VoiceTurns;
   comments: Map<string, LiveComment>;

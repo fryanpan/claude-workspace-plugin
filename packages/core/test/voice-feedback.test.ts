@@ -102,6 +102,28 @@ describe('parseVoiceClientMessage', () => {
     expect(parseVoiceClientMessage('{not json')).toBeNull();
     expect(parseVoiceClientMessage(42)).toBeNull();
   });
+
+  it('keeps a claimed speaker only when it reads whole', () => {
+    const author = { id: 'known-alice', name: 'Alice', kind: 'known', color: '#2e7dd7' };
+    expect(p({ type: 'start', sampleRate: 16_000, targets: [], author })).toEqual({
+      type: 'start',
+      sampleRate: 16_000,
+      targets: [],
+      author,
+    });
+    for (const bad of [
+      { ...author, id: '../x' },
+      { ...author, name: '' },
+      { ...author, kind: 'agent' },
+      'Alice',
+    ]) {
+      expect(p({ type: 'start', sampleRate: 16_000, targets: [], author: bad })).toEqual({
+        type: 'start',
+        sampleRate: 16_000,
+        targets: [],
+      });
+    }
+  });
 });
 
 describe('parseVoiceServerMessage', () => {

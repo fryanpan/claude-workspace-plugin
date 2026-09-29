@@ -74,6 +74,9 @@ export interface VoiceSessionDeps {
   poster: VoicePoster;
   /** The page, described — `collectTargets`, with the recording's numbering. */
   catalog: () => VoiceTarget[];
+  /** Who is speaking, as the poster names them — so the server can write
+   *  the notes itself if this page goes before they are done. */
+  author?: () => unknown;
   /** A target index to an anchor; `null`, or an element gone, is the page. */
   anchorFor: (target: number | null) => Anchor;
   /** Anything worth redrawing changed. */
@@ -156,7 +159,12 @@ export class VoiceSession {
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
     ws.onopen = () =>
-      this.sendJson({ type: 'start', sampleRate: 16_000, targets: this.deps.catalog() });
+      this.sendJson({
+        type: 'start',
+        sampleRate: 16_000,
+        targets: this.deps.catalog(),
+        author: this.deps.author?.(),
+      });
     ws.onmessage = (ev) => this.onMessage(ev.data);
     ws.onerror = () => {};
     ws.onclose = () => this.closed();
