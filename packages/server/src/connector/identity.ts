@@ -17,10 +17,10 @@
  * a value shaped like one means "not set".
  *
  * Every value is checked here, before anything is built from it, and none of
- * them grants anything: the endpoint is loopback-only, and a loopback caller
- * can already mint a token for any agent id. What the checks buy is that a
- * malformed value is refused with a sentence rather than carried into a
- * session, a file path or a log line.
+ * them grants anything: naming an agent is a claim, and the route
+ * (routes/mcp-connector.ts) asks for that agent's token before the claim is
+ * served. What the checks buy is that a malformed value is refused with a
+ * sentence rather than carried into a session, a file path or a log line.
  */
 import { resolveAgentAuthor } from '../../../mcp/src/author.ts';
 import type { AgentAuthor } from '../../../mcp/src/author.ts';

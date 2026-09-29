@@ -13,24 +13,56 @@
  * A share visitor is refused before any of them, as the agent stream refuses
  * one: nothing here is scoped to a board.
  *
- * What it does not ask for is an agent token. The token proves to a REST
- * route that a caller is the agent it names; a loopback caller can mint one
- * for any agent, so on this door it would prove nothing a loopback address
- * does not. The hosted connector still mints and presents one for every REST
- * call it makes on the agent's behalf, so those routes are gated exactly as
- * they were for the stdio child.
+ * And it asks for the agent token those doors ask for, through the same
+ * `authorizeAgentCaller`. A loopback caller can no longer mint a token for any
+ * agent — the mint checks which session holds the socket
+ * (auth/agent-caller.ts) — so the token is what proves a caller is the agent
+ * it names, here as on `/events/agent/<id>`. Under `requireAgentToken` a
+ * request naming a named agent without that agent's token is refused; with it
+ * off, a tokenless caller is served with the one legacy warning, and a wrong
+ * token is refused either way. The agent checked is every one the request
+ * could act as: the one its headers name, and the one its `Mcp-Session-Id`
+ * was opened as, so a session id cannot carry a caller into someone else's
+ * session. The shared unnamed identity has no token and needs none: it is
+ * keyed per session, so it reaches nobody else's feed.
+ *
+ * The connector it hosts mints in-process for every REST call it makes on the
+ * agent's behalf, so those routes are gated exactly as they were for the stdio
+ * child.
  */
-import { refuseNonLocalAgentCaller } from '../auth/agent-token.ts';
+import { authorizeAgentCaller, refuseNonLocalAgentCaller } from '../auth/agent-token.ts';
 import type { ConnectorHost } from '../connector/host.ts';
+import { readIdentityHeaders, resolveIdentity } from '../connector/identity.ts';
 
 export interface McpConnectorRouteContext {
   host: ConnectorHost;
   j: (status: number, body: unknown) => Response;
   /** The request's SOCKET address, never a header. */
   requestAddress: (req: Request) => string | undefined;
+  /** The key the `at1` agent bearer verifies under. See auth/agent-token.ts. */
+  agentTokenKey: () => string;
+  /** Whether a caller presenting no agent token is refused. */
+  requireAgentToken: boolean;
+  /** Logs the deprecation-window warning, once per agent id per route. */
+  warnLegacyAgentCaller: (agentId: string, route: string) => void;
 }
 
 export const MCP_CONNECTOR_PATH = '/mcp';
+
+/**
+ * Every named agent this request could act as. Headers the host will refuse
+ * name nobody here; the host answers them with its own 400.
+ */
+function agentsNamedBy(host: ConnectorHost, req: Request): Set<string> {
+  const ids = new Set<string>();
+  const sid = req.headers.get('mcp-session-id');
+  const live = sid ? host.sessionIdentity(sid) : undefined;
+  if (live && !live.shared) ids.add(live.author.id);
+  const read = readIdentityHeaders(req.headers);
+  const resolved = read.ok ? resolveIdentity(read.headers, sid ?? '') : null;
+  if (resolved?.ok && !resolved.identity.shared) ids.add(resolved.identity.author.id);
+  return ids;
+}
 
 export async function handleMcpConnectorRoute(
   ctx: McpConnectorRouteContext,
@@ -38,7 +70,19 @@ export async function handleMcpConnectorRoute(
 ): Promise<Response | null> {
   if (input.pathname !== MCP_CONNECTOR_PATH) return null;
   if (input.visitor) return ctx.j(403, { error: 'not available to share visitors' });
-  const refused = refuseNonLocalAgentCaller(input.req, ctx.requestAddress(input.req));
+  const address = ctx.requestAddress(input.req);
+  const refused = refuseNonLocalAgentCaller(input.req, address);
   if (refused) return ctx.j(refused.status, refused.body);
+  for (const agentId of agentsNamedBy(ctx.host, input.req)) {
+    const allowed = authorizeAgentCaller({
+      agentId,
+      req: input.req,
+      address,
+      key: ctx.agentTokenKey(),
+      requireToken: ctx.requireAgentToken,
+    });
+    if (!allowed.ok) return ctx.j(allowed.status, allowed.body);
+    if (allowed.proof === 'legacy') ctx.warnLegacyAgentCaller(agentId, '/mcp');
+  }
   return ctx.host.handle(input.req);
 }
