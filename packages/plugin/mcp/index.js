@@ -14918,7 +14918,11 @@ async function emitChannelMessage(deps, event, rawPayload) {
   const action = event.startsWith("thread.") ? event.slice("thread.".length) : event;
   const header = snippet ? `on "${truncate7(snippet, 60)}"` : "";
   const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate7(snippet, 60)}"` : ""} —` : "";
-  const body = text ? `[${action}]${onItem} ${author ? `${author}${fromMock}: ` : fromMock ? `${fromMock.trim()}: ` : ""}${text}${openPartsClause(p.openParts)}${editHint}` : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
+  const onDoc = text && p.docTitle ? ` on "${truncate7(p.docTitle, 60)}"` : "";
+  const parentText = event === "thread.replied" ? oneLine(p.inReplyTo?.text ?? "") : "";
+  const toParent = parentText ? ` — to "${truncate7(parentText, 100)}"` : "";
+  const who = `${author ? `${author}${fromMock}` : fromMock.trim()}${onDoc}${toParent}`.trim();
+  const body = text ? `[${action}]${onItem} ${who ? `${who}: ` : ""}${text}${openPartsClause(p.openParts)}${editHint}` : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
   await deps.notify({
     method: "notifications/claude/channel",
     params: {
@@ -14932,10 +14936,16 @@ async function emitChannelMessage(deps, event, rawPayload) {
         event,
         author,
         anchor_text: snippet,
+        ...p.docTitle ? { doc_title: p.docTitle } : {},
+        ...parentText ? { in_reply_to: parentText } : {},
+        ...parentText && p.inReplyTo?.author ? { in_reply_to_author: p.inReplyTo.author } : {},
         ...pageEdits?.length ? { page_edits: JSON.stringify(pageEdits) } : {}
       }
     }
   });
+}
+function oneLine(s) {
+  return s.replace(/\s+/g, " ").trim();
 }
 function truncate7(s, n) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -20760,7 +20770,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.271";
+var PLUGIN_VERSION = "0.1.272";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
