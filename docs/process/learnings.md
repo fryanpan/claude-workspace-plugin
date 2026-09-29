@@ -1323,6 +1323,16 @@ kernel-wide socket CREATION failing, and its cause is still unknown.**
   therefore still what a corpus-wide read would cost. An agent told only
   "thread reads are cheap" sweeps the whole server; the rule in
   `.claude/rules/workspaces-default.md` says cheap AND bounded for that reason.
+- **The two-day window itself went (2026-09-29).** Idle event-loop blocks of
+  2.4-2.7s with nothing in flight, 10-18 min after a deploy, ~290MB free under
+  swap. Measured on 2,700 synthetic docs: 169MB heap, 3.4M objects, ~62KB per
+  doc and linear; a full GC 38-61ms unpressured, timers and the sweeps ~1ms.
+  So nothing reproduces 2s without swap; the inference is a full GC paging a
+  swapped-out heap back in. `doc-residency.ts` now keeps a doc a person's
+  editor left for a week (cap 500) and anything else for thirty minutes —
+  2,700 → 300 resident took the heap to 25MB and the full GC to ~4ms. The
+  `[loop] blocked` line now carries CPU, major faults and heap across the
+  block, so the next one is attributed from prod's own log, not inferred.
 
 ## Multi-agent workflow implementation (balloons + suggestions pattern)
 

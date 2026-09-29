@@ -1214,6 +1214,16 @@ the window's requests by route family and its busiest doc-store activator.
 `doc-store.ts` owns the sampler and `server.ts` counts each request at the
 front door; neither module imports a subsystem.
 
+`doc-residency.ts` joins the doc-store group and moves no boundary. It is the
+eviction WINDOWS as a pure function over each resident doc's clocks — a week
+for a doc a person's editor left, for at most 500 such docs, and thirty minutes
+for anything else — while `doc-store.ts` keeps the holds, the flush and the
+sweep. It replaced a flat two-day window after prod's idle event-loop blocks
+of 2.4-2.7s (2026-09-28) under swap: every resident doc is heap a full GC
+walks, ~62KB each, so the count is the lever. The same fix gave the
+`event-loop.ts` block line the CPU, major page faults and heap across the
+block, so the next idle block says which of GC, page-in or descheduling it was.
+
 `server-starts.ts` joins Ops and moves no boundary. `bin.ts` records every
 start of the process in `server-starts.json` beside the deploy log: once at
 start, and again once serving, with the deploy it confirmed. It reads the
