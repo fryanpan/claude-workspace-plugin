@@ -2,7 +2,7 @@
  * Where a share link lands once the reader has signed in.
  *
  * A link used to open its board, always: a collaborator sent a link to one
- * doc signed in and then had to find the doc on the board (Bryan, 29 Sept).
+ * doc signed in and then had to find the doc on the board.
  * A link now names one resource on its board — the board's Home, the board,
  * a task, a doc, a mock or a dev server — and redeeming it redirects there.
  *
