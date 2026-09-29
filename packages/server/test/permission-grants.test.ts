@@ -132,7 +132,10 @@ describe('the close wiring', () => {
         };
       },
     } as unknown as TaskStore;
-    return { store, fire: (ev: Record<string, unknown>) => listener?.(ev as TaskStoreEvent) };
+    return {
+      store,
+      fire: (ev: Record<string, unknown>) => listener?.(ev as unknown as TaskStoreEvent),
+    };
   }
 
   it('releases on done and on archive, not on another move', () => {
