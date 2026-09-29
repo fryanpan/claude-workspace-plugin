@@ -8,7 +8,13 @@ import { answerAsksBack } from '@claude-workspaces/core';
 import { classifyActor } from '../actor-identity.ts';
 import { matchRest } from '../middleware/workspace-scope.ts';
 import { reviewItemAnsweredEvent, reviewItemFilerId } from '../review-items/analytics.ts';
-import { SECRET_ANSWER_DENIAL, asksForSecret, refuseOwnerOnlyWrite } from '../share/board-role.ts';
+import {
+  GRANT_ANSWER_DENIAL,
+  SECRET_ANSWER_DENIAL,
+  asksForGrant,
+  asksForSecret,
+  refuseOwnerOnlyWrite,
+} from '../share/board-role.ts';
 import { LEGACY_REVIEW_ITEM_ID, legacyDecisionItem } from '../tasks.ts';
 import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.ts';
 
@@ -50,6 +56,7 @@ export async function handleTaskAnswers(
       const task = taskStore.getTask(taskId);
       const decision = task ? legacyDecisionItem(task) : undefined;
       if (asksForSecret(decision?.review)) return j(400, SECRET_ANSWER_DENIAL);
+      if (asksForGrant(decision?.review)) return j(400, GRANT_ANSWER_DENIAL);
     }
     const body = await safeJson(req);
     const text = body?.text;
