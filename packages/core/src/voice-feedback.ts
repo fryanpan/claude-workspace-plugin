@@ -128,6 +128,13 @@ export function readVoiceNote(raw: unknown): VoiceNote | undefined {
   return { clip, raw: words };
 }
 
+/** How long a note's clip runs, from its media fragment: `#t=12.4,31` → "0:19". */
+export function clipLength(clip: string): string {
+  const m = /#t=([\d.]+),([\d.]+)$/.exec(clip);
+  const s = m ? Math.max(0, Math.round(Number(m[2]) - Number(m[1]))) : 0;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 function str(v: unknown, max: number): string | undefined {
   return typeof v === 'string' ? v.slice(0, max) : undefined;
 }
