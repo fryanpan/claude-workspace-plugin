@@ -16,14 +16,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ReviewPayload } from '@claude-workspaces/core';
+import type { ReviewPayload, User } from '@claude-workspaces/core';
 import type { CrossReviewQueue } from '../src/cross-review-queue.ts';
 import type { AnswerRecord } from '../src/review-answer-ledger.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { taskBodyDocId } from '../src/task-projection.ts';
 import { waitFor } from './wait-for.ts';
 
-const AGENT = { id: 'agent-harborlight', name: 'Harborlight Agent', kind: 'agent' } as const;
+const AGENT: User = {
+  id: 'agent-harborlight',
+  name: 'Harborlight Agent',
+  kind: 'agent' as unknown as User['kind'],
+  color: '#000',
+};
 const PERSON = { id: 'known-riverbend', name: 'Riverbend', kind: 'known', color: '#000' } as const;
 const CHOICE: ReviewPayload = {
   shape: 'decision',
