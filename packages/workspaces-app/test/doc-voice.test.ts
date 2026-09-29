@@ -206,9 +206,15 @@ describe('voice comments on a review doc — pointing at a passage', () => {
     expect(post?.body.text).toBe('Give this a date.');
     expect(post?.body.voice).toEqual({ clip: CLIP, raw: 'um this one needs a date' });
     expect(t.anchoredWords(post?.body.anchor)).toBe('Week two adds reminders for Saltmarsh.');
-    // The relay is told which thread the note became, for its log.
+    // The relay is told who is speaking, and which thread the note became:
+    // for its log, and to write the note itself if this page goes first.
+    expect(socket.json()[0]).toMatchObject({ type: 'start', author: { id: 'u-1' } });
     await vi.waitFor(() =>
-      expect(socket.json()).toContainEqual({ type: 'posted', key: 'v1', threadId: 'th-1' }),
+      expect(socket.json()).toContainEqual({
+        type: 'posted',
+        key: 'v1',
+        threadId: 'th-1',
+      }),
     );
   });
 

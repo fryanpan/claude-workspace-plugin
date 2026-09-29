@@ -494,6 +494,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         : [],
     tidy: opts.voiceFeedbackTidy ?? null,
     dataDir,
+    // Read when a page has gone, long after `docStore` below exists.
+    keep: {
+      listThreads: (docId) => docStore.listThreads(docId),
+      postComment: (docId, threadId, author, text, anchor, o) =>
+        docStore.postComment(docId, threadId, author, text, anchor, o),
+      editCommentText: (docId, threadId, commentId, text, o) =>
+        docStore.editCommentText(docId, threadId, commentId, text, o),
+    },
+    ...(opts.voiceKeepGraceMs !== undefined ? { keepGraceMs: opts.voiceKeepGraceMs } : {}),
     log: (line) => console.log(line),
   });
   const meetingRelay = new MeetingRelay({

@@ -377,6 +377,12 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
             // and `socket-handlers.ts` tracks it because it joins no doc's
             // `conns` for a sweep to walk.
             ...(widgetDoorGrant ? { widgetDoorGrant } : {}),
+            // Who a note the server writes after the page has gone is by:
+            // the identity this upgrade proved, ranked as the thread routes
+            // rank it. None proven, the page's own claim at \`start\` is
+            // used, as a typed comment's body is (\`voice-feedback-relay.ts\`).
+            author: provenAuthor(),
+            ...(socketViaOf(url) ? { via: socketViaOf(url) } : {}),
           },
         });
         if (!upgraded) return new Response('upgrade required', { status: 426 });
