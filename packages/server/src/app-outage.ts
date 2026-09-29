@@ -23,10 +23,23 @@
  * the notice for the next one. The state is in memory: a server restart
  * during an outage tells the agent again on the next failure, which is one
  * repeat after a deploy rather than a silence.
+ *
+ * ASK AGAIN. The waiting page a reader holds open offers "Ask again" once two
+ * minutes have passed since the last notice; `askAgain` is that second
+ * notice, marked `askedAgain`, and it refuses a repeat sooner than
+ * `ASK_AGAIN_MS` however many times it is called.
  */
 
 /** The addressed frame's event name, on the board's `ws~` channel. */
 export const APP_UNREACHABLE_EVENT = 'workspace.app_unreachable';
+
+/**
+ * How long after one notice a reader may ask for another. The waiting page
+ * (`app-waiting-page.ts`) offers "Ask again" only once this has passed since
+ * the last notice, and `askAgain` refuses anything sooner, so a held-down
+ * button or a script cannot wake the agent more than once per two minutes.
+ */
+export const ASK_AGAIN_MS = 2 * 60_000;
 
 export interface AppUnreachableFrame {
   event: typeof APP_UNREACHABLE_EVENT;
@@ -41,6 +54,10 @@ export interface AppUnreachableFrame {
   reason: string;
   /** Whether the addressee attached the app or is standing in as lead. */
   addressedAs: 'attacher' | 'lead';
+  /** A reader on the waiting page asked again: the app is still down. */
+  askedAgain?: true;
+  /** When the outage started, on a repeat notice. */
+  downSince?: number;
   ts: number;
 }
 
@@ -64,27 +81,95 @@ export interface AppOutageDeps {
   now?: () => number;
 }
 
+/** What the waiting page shows about one outage. */
+export interface OutageView {
+  /** When the first failure arrived. */
+  since: number;
+  /** When the agent was last told: the start, or the latest ask-again. */
+  askedAt: number;
+  /** When a reader last asked again, if one has. */
+  askedAgainAt?: number;
+  /** The agent told, or undefined when there was nobody to tell. */
+  to?: string;
+  addressedAs?: 'attacher' | 'lead';
+}
+
+export type AskAgainResult =
+  | { ok: true; askedAt: number; to: string; addressedAs: 'attacher' | 'lead' }
+  | { ok: false; reason: 'not_down' | 'nobody' }
+  | { ok: false; reason: 'too_soon'; retryAt: number };
+
+interface Outage extends OutageView {
+  failure: AppFailure;
+}
+
 export class AppOutages {
-  /** docId → when its outage started. */
-  private readonly down = new Map<string, number>();
+  /** docId → its current outage. */
+  private readonly down = new Map<string, Outage>();
 
   constructor(private readonly deps: AppOutageDeps) {}
+
+  private now(): number {
+    return (this.deps.now ?? Date.now)();
+  }
+
+  private log(line: string): void {
+    (this.deps.log ?? console.warn)(line);
+  }
 
   /** A proxy fetch to the app threw. Tells somebody only if this starts an
    *  outage; returns whether it did. */
   failed(f: AppFailure): boolean {
     if (this.down.has(f.docId)) return false;
-    const ts = (this.deps.now ?? Date.now)();
-    this.down.set(f.docId, ts);
+    const ts = this.now();
     const lead = f.attachedBy ? undefined : this.deps.leadOf(f.workspaceId);
     const to = f.attachedBy ?? lead;
-    const log = this.deps.log ?? console.warn;
     const what = `[apps] ${f.docId} on ${f.workspaceId} stopped answering at ${f.origin} (${f.reason})`;
     if (to === undefined) {
-      log(`${what}; nobody to tell: no attacher recorded and the board has no lead`);
+      this.down.set(f.docId, { since: ts, askedAt: ts, failure: f });
+      this.log(`${what}; nobody to tell: no attacher recorded and the board has no lead`);
       return true;
     }
     const addressedAs = f.attachedBy ? 'attacher' : 'lead';
+    const outage: Outage = { since: ts, askedAt: ts, to, addressedAs, failure: f };
+    this.down.set(f.docId, outage);
+    this.tell(outage, to, addressedAs, what, false);
+    return true;
+  }
+
+  /**
+   * A reader on the waiting page asked for the agent to be told again. Only
+   * during an outage, only when somebody was told the first time, and only
+   * once `ASK_AGAIN_MS` has passed since the last notice.
+   */
+  askAgain(docId: string): AskAgainResult {
+    const outage = this.down.get(docId);
+    if (!outage) return { ok: false, reason: 'not_down' };
+    const { to, addressedAs } = outage;
+    if (to === undefined || addressedAs === undefined) return { ok: false, reason: 'nobody' };
+    const ts = this.now();
+    const retryAt = outage.askedAt + ASK_AGAIN_MS;
+    if (ts < retryAt) return { ok: false, reason: 'too_soon', retryAt };
+    outage.askedAt = ts;
+    outage.askedAgainAt = ts;
+    this.tell(
+      outage,
+      to,
+      addressedAs,
+      `[apps] ${docId} still down, and a reader asked again`,
+      true,
+    );
+    return { ok: true, askedAt: ts, to, addressedAs };
+  }
+
+  private tell(
+    outage: Outage,
+    to: string,
+    addressedAs: 'attacher' | 'lead',
+    what: string,
+    again: boolean,
+  ): void {
+    const f = outage.failure;
     const reached = this.deps.send(f.workspaceId, to, {
       event: APP_UNREACHABLE_EVENT,
       workspaceId: f.workspaceId,
@@ -94,27 +179,40 @@ export class AppOutages {
       prefix: f.prefix,
       reason: f.reason,
       addressedAs,
-      ts,
+      ...(again ? { askedAgain: true as const, downSince: outage.since } : {}),
+      ts: outage.askedAt,
     });
     // An addressed frame is buffered for the agent's reconnect even when no
     // stream is open, so zero is "held for replay", not "lost".
-    log(
+    this.log(
       `${what}; told ${to} (${addressedAs}${reached === 0 ? ', not listening now: held for its reconnect' : ''})`,
     );
-    return true;
   }
 
   /** The dev server answered. Ends any outage, so the next failure tells. */
   answered(docId: string): void {
-    const since = this.down.get(docId);
-    if (since === undefined) return;
+    const outage = this.down.get(docId);
+    if (outage === undefined) return;
     this.down.delete(docId);
-    const secs = Math.round(((this.deps.now ?? Date.now)() - since) / 1000);
-    (this.deps.log ?? console.warn)(`[apps] ${docId} answering again after ${secs}s down`);
+    const secs = Math.round((this.now() - outage.since) / 1000);
+    this.log(`[apps] ${docId} answering again after ${secs}s down`);
   }
 
   /** Whether the app is in an outage this process has told somebody about. */
   isDown(docId: string): boolean {
     return this.down.has(docId);
+  }
+
+  /** The current outage as the waiting page reads it, or undefined. */
+  outage(docId: string): OutageView | undefined {
+    const o = this.down.get(docId);
+    if (!o) return undefined;
+    return {
+      since: o.since,
+      askedAt: o.askedAt,
+      ...(o.askedAgainAt !== undefined ? { askedAgainAt: o.askedAgainAt } : {}),
+      ...(o.to !== undefined ? { to: o.to } : {}),
+      ...(o.addressedAs !== undefined ? { addressedAs: o.addressedAs } : {}),
+    };
   }
 }

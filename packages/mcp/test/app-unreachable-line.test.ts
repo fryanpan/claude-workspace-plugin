@@ -26,4 +26,11 @@ describe('appUnreachableLine', () => {
       'You are told as the board lead',
     );
   });
+
+  it('says a waiting reader asked again on a repeat notice', () => {
+    const line = appUnreachableLine({ ...FRAME, askedAgain: true });
+    expect(line).toContain('is still not answering');
+    expect(line).toContain('asked you again');
+    expect(appUnreachableLine(FRAME)).not.toContain('asked you again');
+  });
 });

@@ -8,7 +8,8 @@
  *     ones whose shares name them.
  *
  * Each reads their own board's app, and is refused another board's app, a
- * write, and a path that leaves the app. A request with no Access token is
+ * write, and a path that leaves the app. The one write a share visitor may
+ * make is the waiting page's ask-again, on its own board's app. A request with no Access token is
  * refused before it reaches any of it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -111,6 +112,19 @@ describe('a share visitor and an attached app', () => {
     expect(attach.status).toBeGreaterThanOrEqual(400);
     const write = await asVisitor(`${mine.prefix}echo`, { method: 'POST' });
     expect(write.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("may ask again about its own board's app, and no other", async () => {
+    // Admitted and answered by the route: the app is up, so nothing to ask.
+    const own = await asVisitor(mine.prefix.replace(/\/$/, ''), { method: 'POST' });
+    expect(own.status).toBe(409);
+    expect(((await own.json()) as { error: string }).error).toBe('app_answering');
+    const other = await asVisitor(`/workspaces/${mine.ws}/apps/${theirs.app}`, { method: 'POST' });
+    expect(other.status).toBeGreaterThanOrEqual(400);
+    expect(other.status).not.toBe(409);
+    const foreign = await asVisitor(theirs.prefix.replace(/\/$/, ''), { method: 'POST' });
+    expect(foreign.status).toBeGreaterThanOrEqual(400);
+    expect(foreign.status).not.toBe(409);
   });
 
   it('cannot leave the app by its path', async () => {

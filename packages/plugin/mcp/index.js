@@ -14094,7 +14094,8 @@ function appUnreachableLine(p) {
   const app = p.title ? `"${p.title}" (${p.docId ?? "?"})` : p.docId ?? "an attached app";
   const why = p.reason ? ` (${p.reason})` : "";
   const whose = p.addressedAs === "lead" ? " You are told as the board lead: the attach recorded no agent, so pass this to whoever runs it." : "";
-  return `[workspace.app_unreachable] ${app} is not answering at ${p.origin ?? "its origin"}${why}; readers opening ${p.prefix ?? "it"} see "The app is not running". Start its dev server on that origin.${whose} This notice fires once per outage and re-arms after the app next answers.`;
+  const lead = p.askedAgain ? `${app} is still not answering at ${p.origin ?? "its origin"}${why}, and a reader waiting on ${p.prefix ?? "it"} asked you again.` : `${app} is not answering at ${p.origin ?? "its origin"}${why}; readers opening ${p.prefix ?? "it"} see a page that waits and opens it once it answers.`;
+  return `[workspace.app_unreachable] ${lead} Start its dev server on that origin.${whose} This notice fires once per outage, again only when a waiting reader asks, and re-arms after the app next answers.`;
 }
 
 // packages/mcp/src/bookkeeping-events.ts
@@ -20747,7 +20748,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.266";
+var PLUGIN_VERSION = "0.1.268";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -5,7 +5,9 @@
  * Driven through the real route table with an upstream that refuses
  * connections — a port that had a dev server on it and now has nothing. The
  * reader's status is 503 because Cloudflare swaps an origin 502 for its own
- * "Bad gateway" page (routes/apps.ts, `APP_DOWN_STATUS`). The agent that
+ * "Bad gateway" page (routes/apps.ts, `APP_DOWN_STATUS`), and the body is the
+ * waiting page (`app-waiting-page.ts`), which polls with HEAD and can ask the
+ * agent again through `POST …/apps/<id>`. The agent that
  * attached the app is told once per outage, on its own board stream, and
  * told again only after the app has answered in between.
  */
@@ -118,11 +120,39 @@ describe('an attached app whose dev server is down', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('answers the reader 503 with the not-running page, uncached', async () => {
+  const askAgain = (docPrefix: string) =>
+    fetch(`${base}${docPrefix.replace(/\/$/, '')}`, { method: 'POST', headers: LOCAL() });
+
+  it('answers the reader 503 with the waiting page, uncached and marked', async () => {
     const r = await open();
     expect(r.status).toBe(503);
     expect(r.headers.get('cache-control')).toBe('no-store');
-    expect(await r.text()).toContain('The app is not running');
+    expect(r.headers.get('x-cw-app-down')).toBe('1');
+    const page = await r.text();
+    expect(page).toContain('<h1>Harborlight site is starting</h1>');
+    expect(page).toContain('the agent that attached it');
+    expect(page).toContain('Ask ');
+  });
+
+  it('answers the page’s HEAD poll with the same mark and no body', async () => {
+    const r = await fetch(`${base}${prefix}`, { method: 'HEAD', headers: LOCAL() });
+    expect(r.status).toBe(503);
+    expect(r.headers.get('x-cw-app-down')).toBe('1');
+    expect(await r.text()).toBe('');
+  });
+
+  it('refuses an ask-again inside two minutes of the first notice', async () => {
+    const r = await askAgain(prefix);
+    expect(r.status).toBe(429);
+    const body = (await r.json()) as { error: string; retryAt: number };
+    expect(body.error).toBe('asked_recently');
+    expect(typeof body.retryAt).toBe('number');
+    expect(Number(r.headers.get('retry-after'))).toBeGreaterThan(0);
+  });
+
+  it('answers 404 for an ask-again on a doc that is not an app', async () => {
+    const r = await askAgain(`/workspaces/${ws}/apps/no-such-app`);
+    expect(r.status).toBe(404);
   });
 
   it('tells the attaching agent once however many requests fail', async () => {
@@ -161,6 +191,10 @@ describe('an attached app whose dev server is down', () => {
     const ok = await open();
     expect(ok.status).toBe(200);
     await ok.body?.cancel();
+    // The app answered, so the outage is over: there is nothing to ask again.
+    const asked = await askAgain(prefix);
+    expect(asked.status).toBe(409);
+    expect(((await asked.json()) as { error: string }).error).toBe('app_answering');
     await dev.stop(true);
     const r = await open();
     expect(r.status).toBe(503);
