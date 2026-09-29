@@ -24,7 +24,8 @@
  *
  * ── The fall-through contract ──
  *
- * `serveShellRoutes` returns `Response | null`. Null means "no block here
+ * `serveShellRoutes` returns `Response | null` — or a promise of one for
+ * `/`, whose review bar loads its docs first. Null means "no block here
  * claimed this address", which is what the run did inside `route()` when a
  * static file was missing: `if (resp) return resp;` and on to the next
  * block. `createServer` answers a null with the same 404 that used to sit at
@@ -137,8 +138,9 @@ export interface ShellStaticContext {
     meta: T,
   ) => T & { reviewUrl?: string };
   /** The top of `/`: every waiting item's size, the project order, and each
-   *  board's last hour in a sentence. See landing-review.ts. */
-  landingReview: () => LandingReview;
+   *  board's last hour in a sentence. See landing-review.ts. Loads the docs
+   *  the whole page reads, a slice at a time, before it answers. */
+  landingReview: () => Promise<LandingReview>;
   /** The holding-pen board's name, which the landing banner's join names. */
   defaultBoardWorkspaceName: string;
 }
@@ -162,7 +164,7 @@ export interface ShellStaticRequest {
 export interface ShellStatic {
   /** A shell, an asset, a mockup or a redirect — or null when no block here
    *  claimed the address, which the caller answers with its 404. */
-  serveShellRoutes: (addressed: ShellStaticRequest) => Response | null;
+  serveShellRoutes: (addressed: ShellStaticRequest) => Response | null | Promise<Response>;
 }
 
 export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
@@ -413,13 +415,41 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     });
   };
 
+  /** `/` — the landing page. Async only for the review bar's loads. */
+  const serveLanding = async (): Promise<Response> => {
+    const review = await landingReview();
+    const model = buildLandingModel(
+      collectLandingWorkspaces(docStore, taskStore),
+      collectLandingProjects(docStore),
+      Date.now(),
+    );
+    // The landing banner's join files its doc under the default board
+    // (the join POST carries no workspaceId from `/`), so the offer
+    // names that destination on its face.
+    // `no-store` like every other shell, and this one has a second
+    // reason of its own: the page IS the model — workspace rows,
+    // waiting counts, "active in the last N days". Served with no cache
+    // directives at all, as it was, a browser picks its own freshness
+    // lifetime and can show a queue that has since been worked.
+    return new Response(
+      renderLanding(
+        model,
+        browserSentry,
+        defaultBoardWorkspaceName,
+        readAppAssetManifest(markdownAppDist),
+        review,
+      ),
+      { headers: HTML_SHELL_HEADERS },
+    );
+  };
+
   const serveShellRoutes = ({
     req,
     url,
     pathname,
     visitor,
     visitorHome,
-  }: ShellStaticRequest): Response | null => {
+  }: ShellStaticRequest): Response | null | Promise<Response> => {
     // --- Static: widget ---
     if (widgetDist && pathname.startsWith('/widget/')) {
       const p = join(widgetDist, pathname.slice('/widget/'.length));
@@ -637,31 +667,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     }
 
     // --- Landing ---
-    if (pathname === '/') {
-      const model = buildLandingModel(
-        collectLandingWorkspaces(docStore, taskStore),
-        collectLandingProjects(docStore),
-        Date.now(),
-      );
-      // The landing banner's join files its doc under the default board
-      // (the join POST carries no workspaceId from `/`), so the offer
-      // names that destination on its face.
-      // `no-store` like every other shell, and this one has a second
-      // reason of its own: the page IS the model — workspace rows,
-      // waiting counts, "active in the last N days". Served with no cache
-      // directives at all, as it was, a browser picks its own freshness
-      // lifetime and can show a queue that has since been worked.
-      return new Response(
-        renderLanding(
-          model,
-          browserSentry,
-          defaultBoardWorkspaceName,
-          readAppAssetManifest(markdownAppDist),
-          landingReview(),
-        ),
-        { headers: HTML_SHELL_HEADERS },
-      );
-    }
+    if (pathname === '/') return serveLanding();
 
     // --- One project's artifacts, on demand ---
     // The landing page deliberately does not carry these. Work here is

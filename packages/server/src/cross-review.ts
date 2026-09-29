@@ -12,6 +12,11 @@
  * The measurement reads every board's queue, which the answering request has
  * no reason to wait for, and a failure in it must never fail an answer that
  * was recorded.
+ *
+ * Every read of the queue loads its cold docs first, a slice at a time
+ * (`prepare`). The queue itself is one synchronous pass over every thread on
+ * every live board, and on a 5,722-doc corpus the first one after a boot
+ * loaded 1,561 docs inside it, holding the loop for over half a second.
  */
 import { classifyActor } from './actor-identity.ts';
 import {
@@ -35,6 +40,7 @@ import {
   resolvePlanBoard,
 } from './review-plan.ts';
 import type { ReviewSizer, SizedReviewItemRow } from './review-sizing.ts';
+import { taskBodyDocId } from './task-row.ts';
 import { type BoardWorkspace, LEGACY_REVIEW_ITEM_ID, type TaskStore, isRetired } from './tasks.ts';
 
 export interface CrossReviewContext {
@@ -58,8 +64,15 @@ export interface CrossReview {
   plan: ReviewPlanStore;
   /** Every live board in project order, with the plan board they came from. */
   projects(): { planWorkspaceId?: string; projects: RankedProject[] };
+  /**
+   * Load the cold docs a queue read will take threads from, handing the loop
+   * back between loads. `includeRetired` adds the retired boards' task docs,
+   * which the landing page's activity reading walks too. Resolves to how many
+   * docs it loaded.
+   */
+  prepare(opts?: { includeRetired?: boolean }): Promise<number>;
   /** Every open item on every live board, top project first. */
-  queue(): CrossReviewQueue & { planWorkspaceId?: string };
+  queue(): Promise<CrossReviewQueue & { planWorkspaceId?: string }>;
   ledger: ReviewAnswerLedger;
   /** Measure and record one answer now. Exposed for tests; the listeners
    *  call it a tick after the answer. */
@@ -71,7 +84,7 @@ export interface CrossReview {
     visibleAt: number;
     answeredAt: number;
     size: { minutes: number; size: AnswerRecord['size'] };
-  }): AnswerRecord | null;
+  }): Promise<AnswerRecord | null>;
   dispose(): void;
 }
 
@@ -91,6 +104,28 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
 
   const liveBoards = (): BoardWorkspace[] =>
     taskStore.listWorkspaces().filter((w) => !isRetired(w));
+
+  /**
+   * Every doc a queue read on `boards` takes threads from, all of them
+   * unfiltered: the roster (`knownPeople`) reads resolved threads too, and
+   * the activity reading (`lastActivityOf`) reads archived tasks' threads.
+   */
+  const readTargets = (boards: BoardWorkspace[]): Map<string, undefined> => {
+    const targets = new Map<string, undefined>();
+    for (const w of boards) {
+      for (const t of taskStore.listTasks(w.id, { includeArchived: true })) {
+        targets.set(taskBodyDocId(t.id), undefined);
+      }
+      for (const g of taskStore.listGoalRows(w.id)) targets.set(taskBodyDocId(g.id), undefined);
+      for (const docId of w.docIds) targets.set(docId, undefined);
+    }
+    return targets;
+  };
+
+  const prepare: CrossReview['prepare'] = (opts) =>
+    docStore.warmForThreadReads(
+      readTargets(opts?.includeRetired ? taskStore.listWorkspaces() : liveBoards()),
+    );
 
   const projectsOf = (boards: BoardWorkspace[]) => {
     const inputs = boards.map((w) => ({
@@ -145,13 +180,17 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     return { ...crossReviewQueue(inputs), ...(planWorkspaceId ? { planWorkspaceId } : {}) };
   };
 
-  const queue = () => {
+  const queue = async () => {
+    await prepare();
     const q = compute();
     shown = { at: Date.now(), ranks: new Map(q.projects.map((p) => [p.workspaceId, p.rank])) };
     return q;
   };
 
-  const recordAnswer: CrossReview['recordAnswer'] = (args) => {
+  const recordAnswer: CrossReview['recordAnswer'] = async (args) => {
+    if (!isLive(args.workspaceId)) return null;
+    await prepare();
+    // Asked again: the board can be retired while the loads hand back.
     const w = taskStore.getWorkspace(args.workspaceId);
     if (!w || isRetired(w)) return null;
     const recent = shown && args.answeredAt - shown.at < SHOWN_FRESH_MS ? shown.ranks : undefined;
@@ -177,27 +216,28 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     return record;
   };
 
-  const later = (fn: () => void) =>
+  const isLive = (workspaceId: string): boolean => {
+    const w = taskStore.getWorkspace(workspaceId);
+    return w !== undefined && !isRetired(w);
+  };
+
+  const later = (fn: () => Promise<unknown>) =>
     setTimeout(() => {
-      try {
-        fn();
-      } catch (err) {
-        ctx.onError?.(err);
-      }
+      fn().catch((err: unknown) => ctx.onError?.(err));
     }, 0);
 
   const offTask = taskStore.onEvent((event) => {
     if (event.type !== 'decision.answered') return;
     // A partial answer leaves the ask open; it is recorded when it closes.
     if (event.openParts !== undefined && event.openParts.length > 0) return;
-    later(() => {
+    later(async () => {
       const task = taskStore.getTask(event.taskId);
       if (!task) return;
       const rid = event.reviewItemId ?? LEGACY_REVIEW_ITEM_ID;
       const item = taskStore.listReviewItems(task.id).find((i) => i.id === rid);
       if (!item) return;
       const legacy = rid === LEGACY_REVIEW_ITEM_ID;
-      recordAnswer({
+      await recordAnswer({
         workspaceId: task.workspaceId,
         ask: {
           kind: 'task-review',
@@ -236,7 +276,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
 
   const offDoc = docStore.onReviewAnswered((event) => {
     if (event.openParts !== undefined && event.openParts.length > 0) return;
-    later(() => {
+    later(async () => {
       const comment = docStore
         .listThreads(event.docId)
         .find((t) => t.id === event.threadId)
@@ -246,7 +286,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
       const home = threadHome(event.docId);
       if (!home) return;
       const { workspaceId, kind, task } = home;
-      recordAnswer({
+      await recordAnswer({
         workspaceId,
         ask: {
           kind,
@@ -270,10 +310,13 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
   // is recorded the way a declared answer is.
   const offComment = docStore.onCommentPosted((event) => {
     if (classifyActor(event.author) === 'agent') return;
-    later(() => {
+    later(async () => {
       const home = threadHome(event.docId);
       const w = home && taskStore.listWorkspaces().find((b) => b.id === home.workspaceId);
       if (!home || !w || isRetired(w)) return;
+      // Both reads below walk this board's threads; they are loaded first so
+      // the pair stays one synchronous stretch over the same state.
+      await docStore.warmForThreadReads(readTargets([w]));
       const onThread = (r: SizedReviewItemRow) =>
         r.kind !== 'task-review' && r.docId === event.docId && r.threadId === event.threadId;
       const still = new Set(
@@ -283,7 +326,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
       );
       for (const row of reviewItemsFor(w, event).filter(onThread)) {
         if (row.kind === 'task-review' || row.band !== 'unreplied' || still.has(row.band)) continue;
-        recordAnswer({
+        await recordAnswer({
           workspaceId: w.id,
           ask: askShapeOf(row),
           key: `${row.kind}:${row.docId}:${row.threadId}`,
@@ -299,6 +342,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
   return {
     plan,
     projects: () => projectsOf(liveBoards()),
+    prepare,
     queue,
     ledger,
     recordAnswer,
