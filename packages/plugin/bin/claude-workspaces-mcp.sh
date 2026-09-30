@@ -23,7 +23,7 @@
 #   1. The compiled relay: relay/relay.swift, built on THIS machine by
 #      /usr/bin/swiftc into a per-user cache keyed by the source's hash. No
 #      binary is ever shipped. The first launch of a new version builds it
-#      (about 2s) while any other launch waits for that build, up to 20s. A
+#      (6s measured on an M-series Mac) while any other launch waits for that build, up to 20s. A
 #      build that fails, or a cached binary that no longer runs, is never
 #      exec'd: it has to pass `--self-test` first.
 #   2. The node relay, mcp/relay.js, wherever there is no working build —
