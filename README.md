@@ -27,7 +27,9 @@ This has proven useful so far, but as the fleet of agents has grown, other bottl
 
 ## Current Experiments
 
-Here are some of the main bottlenecks this repo tries to tackle.
+Here are some of the areas this repo tries to explore.
+
+So far, experiments 1-3 added together are the main reasons I've doubled my productivity between July and August 2026.  Experiments 4 and 5 are more preliminary -- who knows if they'll work out :)
 
 ### 1. Increase productivity by focusing on key decisions that need a human, not chat
 
@@ -68,20 +70,18 @@ On long projects, agents tended to go off track, stop early, or sit silently wai
 - **Stall check**: pings agents to tell them to keep going if they're not done yet
 - **Scheduled tasks**: Slightly more reliable and flexible than the default scheduled tasks in Claude Code (and the tasks can have done criteria)
 
-Experiments 1-3 together have roughly doubled my average productivity.  For most of 2026, I've been doing about 10x as much as I might in a week in 2024.  Since Aug 2026, with this new harness, it's averaging more like 20x or so.
-
 ### 4. Voice Everywhere
 
 This repo lets me experiment with more advanced voice functionality than SaaS services support (or can afford to support)
 
-- e.g. Real-time note taking and reorganization while I can also edit the same notes
+- e.g. Real-time note taking and reorganization while I can also edit the same notes (at a cost of a few $USD per hour)
 - e.g. Voice feedback on a mockup or live web app, where the agent cleans up feedback automatically and segments and attaches feedback items to the right DOM element.
 
 ### 5. Sharing a board with collaborators (unproven)
 
-This functionality still needs more security hardening before trying it out for real.  I've only used it briefly with my life partner.
+The pain point here is that when I'm working with collaborators and my team of agents does a month of engineering work in a few days, it's hard to explain this to the team.  Plus it's hard to do code review when all the changes arrive in one big chunk.
 
-Experiments 4 and 5 are still in early testing -- who knows if they're actually useful?
+Testing out possible ways to handle this.
 
 ## Install
 
