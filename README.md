@@ -39,14 +39,17 @@ All status updates and other chatter stream somewhere else, where I can summariz
 
 ### 2. Reduce overhead between humans and agents by having a shared space designed for all of us
 
-In SaaS tools, I had to deal with a UX that was built for the masses but not for me and MCPs that are often fragile and missing key functionality.  And if I wanted to try out some new way to work, it's hard to extend legacy SaaS tools and cobble things together.
+In SaaS tools, I had to deal with a UX that was built for the masses but not for me and MCPs that were fragile and missing key functionality from the UX.  And if I wanted to try out a new way to work, it was hard to extend SaaS tools and cobble things together.
 
-For now, I decided to ditch all the SaaS tools, and now I do all of the following in this workspace plugin:
+So for now, I decided to ditch all the SaaS tools!
+
+This workspace plugin spins up a local server that lets me do all of the following from the web app:
 
 - **Working with docs**: Notion / Confluence
 - **Meetings**: Granola / Fireflies.ai
 - **Product and project management**: Asana / Jira / Linear
 - **UX Design**: Figma / Claude Design (but I'd already switched to doing this mostly in Claude Code earlier this year)
+- **Implementation & Testing**
 
 Each part of the workspace supports real-time collaboration, so my agents and I all see the same thing.  Plus agents can reach me from anywhere with a review item.  And I can reach my Claude Code agent also from anywhere with comments and voice feedback via [Claude Code channels](https://code.claude.com/docs/en/channels).
 
@@ -54,21 +57,21 @@ This has reduced my communication overhead a lot.
 
 ### 3. Better guardrails to keep team on track for hours to days
 
-On long projects, agents tended to go off track, stop early, or sit silently waiting on me. A few guardrails keep them moving:
+On long projects, agents tended to go off track, stop early, or sit silently waiting. I used a few common techniques to keep them moving:
 
 - **Continuous reprioritization**: Agents continuously reprioritize tasks according to high level goals I've set
-- **Done criteria** on each task that a separate agent verifies
-- **Stall check** that pings agents to tell them to keep going if they're not done yet
+- **Done criteria** each task specifies done criteria that a separate agent verifies
+- **Stall check** pings agents to tell them to keep going if they're not done yet
 - **Scheduled tasks**: Slightly more reliable and flexible than the default scheduled tasks in Claude Code (and the tasks can have done criteria)
 
-Experiments 1, 2 and 3 together have roughly doubled my productivity from ~10x 2024 levels to ~20x since August 2026.
+Experiments 1-3 together have roughly doubled my average productivity.  For most of 2026, I've been doing about 10x as much as I might in a week in 2024.  Since Aug 2026, with this new harness, it's averaging more like 20x or so.
 
 ### 4. Voice Everywhere
 
 This repo lets me experiment with more advanced voice functionality than SaaS services support (or can afford to support)
 
 - e.g. Real-time note taking and reorganization while I can also edit the same notes
-- e.g. Giving voice feedback on a mockup or live web app, where the agent segments topics automatically, cleans up feedback notes, and attaches each feedback item to the right element on screen
+- e.g. Voice feedback on a mockup or live web app, where the agent cleans up feedback automatically and segments and attaches feedback items to the right DOM element.
 
 ### 5. Sharing a board with collaborators (unproven)
 
