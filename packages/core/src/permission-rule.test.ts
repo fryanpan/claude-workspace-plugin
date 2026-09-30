@@ -67,6 +67,16 @@ describe('which lines a grant card may carry', () => {
       'Bash(perl -e:*)',
       'Bash(osascript:*)',
       'Bash(/bin/sh -c:*)',
+      'Bash(dash:*)',
+      'Bash(ksh:*)',
+      'Bash(python3.12 -c:*)',
+      'Bash(node20 -e:*)',
+      'Bash(awk:*)',
+      'Bash(find:*)',
+      'Bash(find src:*)',
+      'Bash(launchctl:*)',
+      'Bash(open:*)',
+      'Bash(caffeinate:*)',
     ];
     for (const rule of runners) {
       expect(permissionRuleProblem(rule), rule).toMatch(/runs any command/);
@@ -83,13 +93,139 @@ describe('which lines a grant card may carry', () => {
     for (const tool of ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
       for (const root of ['/', '~', '/**', '~/**', '**', '//**']) {
         expect(permissionRuleProblem(`${tool}(${root})`), `${tool}(${root})`).toMatch(
-          /opens every file/,
+          /relative to the project|opens every file|whole tool/,
         );
       }
     }
     // Control: a directory inside a project is admitted.
     expect(permissionRuleProblem('Edit(src/**)')).toBeUndefined();
-    expect(permissionRuleProblem('Write(~/harborlight/notes/**)')).toBeUndefined();
+  });
+
+  it('refuses every line the 30 Sept review found passing', () => {
+    // S1: a file rule that reaches the Claude config dir, a shell startup file,
+    // or a directory above every project.
+    for (const rule of [
+      'Edit(~/.claude/settings.json)',
+      'Write(~/.claude/**)',
+      'Edit(~/.zshrc)',
+      'Edit(/Users/**)',
+      'Write(/Volumes/**)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toBeDefined();
+    }
+    // S2: a case-folded, escaped or padded runner, a runner the list missed,
+    // and a whole-tool prefix on a command that runs others.
+    for (const rule of [
+      'Bash(SH:*)',
+      'Bash(Bash -c:*)',
+      'Bash(npx:*)',
+      'Bash(bunx:*)',
+      'Bash(uvx:*)',
+      'Bash(npm exec:*)',
+      'Bash(git:*)',
+      'Bash(find:*)',
+      'Bash(make:*)',
+      'Bash(awk:*)',
+      'Bash(ssh:*)',
+      'Bash(dash:*)',
+      'Bash(ksh:*)',
+      'Bash(python3.12 -c:*)',
+      'Bash(\\sh:*)',
+      'Bash( sh:*)',
+      'Bash(launchctl:*)',
+      'Bash(open:*)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toBeDefined();
+    }
+  });
+
+  it('admits a file rule only as a path inside the project', () => {
+    for (const rule of [
+      'Edit(src/**)',
+      'Edit(./src/**)',
+      'Write(docs/notes/harborlight.md)',
+      'Read(packages/core/src/*.ts)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toBeUndefined();
+    }
+    // Absolute, home and settings-relative spellings: all refused. Claude
+    // Code reads a single leading `/` against the settings file's own
+    // directory, which for the file a grant writes IS the config dir.
+    for (const rule of [
+      'Edit(/settings.json)',
+      'Edit(//Users/harborlight/repo/**)',
+      'Write(~/harborlight/notes/**)',
+      'Edit(/private/**)',
+      'Read(~/.ssh/id_ed25519)',
+      'Edit($CLAUDE_CONFIG_DIR/settings.json)',
+      'Edit(C:\\Users\\x)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/relative to the project/);
+    }
+    // Climbing out, or reaching config, startup or credential files from inside.
+    for (const rule of [
+      'Edit(../**)',
+      'Edit(src/../../.claude/settings.json)',
+      'Edit(.claude/settings.local.json)',
+      'Edit(.CLAUDE/**)',
+      'Write(packages/.claude/**)',
+      'Edit(.zshrc)',
+      'Edit(.bash_profile)',
+      'Edit(.git/hooks/pre-commit)',
+      'Edit(.c*/**)',
+      'Edit({.claude,src}/**)',
+      'Edit(./**)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toBeDefined();
+    }
+  });
+
+  it('refuses a Bash rule whose first word is disguised or too broad', () => {
+    // Case: macOS's default volume is case-insensitive, so SH runs sh.
+    for (const rule of ['Bash(SH:*)', 'Bash(Zsh -c:*)', 'Bash(/BIN/BASH:*)', 'Bash(\\bash:*)']) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/runs any command/);
+    }
+    expect(permissionRuleProblem('Bash( sh:*)')).toMatch(/whitespace/);
+    // A first word that is not a plain command name.
+    for (const rule of ['Bash(FOO=1 sh:*)', 'Bash("sh" -c:*)', 'Bash($SHELL:*)', 'Bash(s*:*)']) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/plain command name/);
+    }
+    // A command that needs its subcommand named.
+    for (const rule of [
+      'Bash(git:*)',
+      'Bash(git *)',
+      'Bash(git -c core.pager=sh:*)',
+      'Bash(npm:*)',
+      'Bash(make:*)',
+      'Bash(ssh:*)',
+      'Bash(npx:*)',
+      'Bash(bunx:*)',
+      'Bash(uvx:*)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/subcommand/);
+    }
+    // A subcommand that is itself a runner.
+    for (const rule of [
+      'Bash(npm exec:*)',
+      'Bash(npm x:*)',
+      'Bash(pnpm dlx:*)',
+      'Bash(uv run:*)',
+      'Bash(git config:*)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toMatch(/runs any command/);
+    }
+    // Controls: the named subcommand of each is admitted.
+    for (const rule of [
+      'Bash(git push:*)',
+      'Bash(git push --force-with-lease:*)',
+      'Bash(npm publish:*)',
+      'Bash(make release:*)',
+      'Bash(ssh harborlight-build:*)',
+      'Bash(bunx biome check:*)',
+      'Bash(gh pr merge:*)',
+    ]) {
+      expect(permissionRuleProblem(rule), rule).toBeUndefined();
+    }
   });
 
   it('refuses a line break, padding and an over-long line', () => {

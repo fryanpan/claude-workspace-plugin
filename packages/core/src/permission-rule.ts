@@ -21,9 +21,21 @@
  *    still matches nearly every command.
  *  - A Bash rule whose first word is a shell, interpreter or command runner —
  *    `Bash(sh:*)`, `Bash(python3 -c:*)`, `Bash(sudo:*)`. Each runs whatever
- *    follows it, so the rule is the whole tool.
- *  - A file-tool rule on the disk root or home directory — `Write(/**)`,
- *    `Edit(~/**)`.
+ *    follows it, so the rule is the whole tool. The first word is compared
+ *    lower-cased, without a leading `\` or a directory, because on macOS's
+ *    case-insensitive volume `SH` runs `sh`; and it must be a plain command
+ *    name, so `FOO=1 sh` or `"sh"` cannot hide one.
+ *  - A Bash rule on a command that runs others unless its subcommand is named
+ *    — `Bash(git:*)` (`git -c core.pager=…`), `Bash(npx:*)`, `Bash(ssh:*)` —
+ *    and a subcommand that is itself a runner, `npm exec` or `git config`.
+ *  - A file-tool rule that is not a path inside the project. Only relative
+ *    paths are admitted: an absolute one (`/Users/**`), a home one
+ *    (`~/.claude/**`) and a single leading `/` (which Claude Code reads
+ *    against the settings file's own directory — for the file a grant
+ *    writes, the config dir) are all refused, as is `..`, and any segment
+ *    naming config, startup or credential files (`.claude`, `.git`,
+ *    `.zshrc`). A grant that could edit a settings file would outlive its
+ *    task: `release` takes back only the lines it wrote.
  *  - Anything that is not one line of printable text, or that runs past
  *    `GRANT_LIMITS.ruleMaxChars`. The card shows the line verbatim; a line
  *    break would let the card show one thing and the file receive another.
@@ -64,8 +76,12 @@ export function permissionRuleProblem(rule: unknown): string | undefined {
   }
   const tool = m[1] ?? '';
   const raw = m[2] ?? '';
-  if (FILE_TOOLS.has(tool) && FILE_ROOTS.has(raw.replace(/^\/\//, '/'))) {
-    return 'opens every file — the path has to name a directory inside a project, like `Edit(src/**)`';
+  if (raw !== raw.trimStart()) {
+    return 'must not start with whitespace inside the parentheses — it hides the first word';
+  }
+  if (FILE_TOOLS.has(tool)) {
+    const problem = filePathProblem(raw);
+    if (problem) return problem;
   }
   const spec = raw.replace(/^domain:/, '');
   if (!/[A-Za-z0-9]/.test(spec)) {
@@ -74,47 +90,204 @@ export function permissionRuleProblem(rule: unknown): string | undefined {
   if (raw.startsWith('*')) {
     return 'starts with a wildcard, which matches nearly anything — start with the command, path or domain itself';
   }
-  if (tool === 'Bash') {
-    const first = (raw.split(/[ :]/, 1)[0] ?? '').split('/').pop() ?? '';
-    if (COMMAND_RUNNERS.has(first)) {
-      return `starts with \`${first}\`, which runs any command it is given — name the command itself`;
-    }
-  }
+  if (tool === 'Bash') return bashRuleProblem(raw);
   return undefined;
 }
 
 /** Tools whose specifier is a path. */
 const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
-/** Paths that name the whole disk or the whole home directory. */
-const FILE_ROOTS = new Set(['/', '~', '/**', '~/**', '**']);
+/**
+ * Path segments a grant may never reach, compared lower-cased: the Claude
+ * config dir (a project's own `.claude` holds settings too), git's hooks and
+ * config, shell startup files, and credential stores. Each is a way to run a
+ * command, or change what may run, after the task has closed.
+ */
+const PROTECTED_SEGMENTS = new Set([
+  '.claude',
+  '.git',
+  '.ssh',
+  '.gnupg',
+  '.aws',
+  '.config',
+  '.zshrc',
+  '.zshenv',
+  '.zprofile',
+  '.zlogin',
+  '.zlogout',
+  '.bashrc',
+  '.bash_profile',
+  '.bash_login',
+  '.bash_logout',
+  '.profile',
+  '.envrc',
+  '.netrc',
+  '.npmrc',
+  '.gitconfig',
+]);
+
+/**
+ * A file rule must be a path inside the project, relative to it. Refusing
+ * every absolute and home spelling is simpler than proving one is inside a
+ * repo, and a relative path is always available to a task working in one.
+ */
+function filePathProblem(raw: string): string | undefined {
+  if (/^[/~$]/.test(raw) || /[\\:]/.test(raw)) {
+    return 'is not relative to the project — write the path from the project root, like `Edit(src/**)`; an absolute or home path can reach your settings and shell startup files';
+  }
+  if (!/^[A-Za-z0-9._\-/*@+ ]+$/.test(raw)) {
+    return 'may use only letters, digits, spaces and `. - _ / * @ +` in a path, so a pattern cannot spell a protected name';
+  }
+  const segments = raw.replace(/^(\.\/)+/, '').split('/');
+  const top = segments[0] ?? '';
+  // A leading wildcard has its own refusal below, with its own advice.
+  if ((!/[A-Za-z0-9]/.test(top) || top.startsWith('*')) && !raw.startsWith('*')) {
+    return 'opens every file in the project — name a directory inside it, like `Edit(src/**)`';
+  }
+  for (const seg of segments) {
+    const lower = seg.toLowerCase();
+    if (lower === '..') return 'climbs out of the project with `..`';
+    if (PROTECTED_SEGMENTS.has(lower) || (lower.startsWith('.') && lower.includes('*'))) {
+      return `reaches \`${seg}\`, which holds settings, hooks, startup files or credentials`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Why a Bash specifier is too broad, or undefined. Reads the first word the
+ * way the shell will find it — case-folded, without a leading `\` or a
+ * directory — and, for a command that runs others, the word after it.
+ */
+function bashRuleProblem(raw: string): string | undefined {
+  const words = raw
+    .replace(/:\*$/, '')
+    .split(' ')
+    .filter((w) => w !== '');
+  const written = words[0] ?? '';
+  const bare = written.replace(/^\\+/, '');
+  if (!/^[A-Za-z0-9._+/-]+$/.test(bare)) {
+    return `starts with \`${written}\`, which is not a plain command name — start with the command itself`;
+  }
+  const first = (bare.split('/').pop() ?? '').toLowerCase();
+  if (COMMAND_RUNNERS.has(first) || RUNNER_FAMILIES.test(first)) {
+    return `starts with \`${first}\`, which runs any command it is given — name the command itself`;
+  }
+  if (NEEDS_SUBCOMMAND.has(first)) {
+    const sub = (words[1] ?? '').toLowerCase();
+    if (!/^[a-z0-9]/.test(sub)) {
+      return `names \`${first}\` without a subcommand, which lets it run other commands — name one, like \`${first} <subcommand>:*\``;
+    }
+    if (RUNNER_SUBCOMMANDS.has(`${first} ${sub}`)) {
+      return `starts with \`${first} ${sub}\`, which runs any command it is given — name the command itself`;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Shells, interpreters and command runners: a prefix rule on any of them
  * allows whatever command follows, so `Bash(sh:*)` is `Bash` by another name.
+ * `find` and `awk` are here because any prefix of theirs still takes `-exec`
+ * or `system()`. Not complete and cannot be — the owner reading each line is
+ * the last check — but every name here is one that was tried.
  */
 const COMMAND_RUNNERS = new Set([
   'sh',
   'bash',
   'zsh',
   'fish',
+  'dash',
+  'ksh',
+  'mksh',
+  'csh',
+  'tcsh',
+  'ash',
+  'busybox',
   'env',
   'eval',
   'exec',
+  'source',
+  '.',
   'sudo',
   'su',
+  'doas',
   'xargs',
   'nohup',
   'time',
+  'timeout',
+  'nice',
   'command',
-  'python',
-  'python3',
-  'node',
-  'bun',
+  'builtin',
+  'script',
+  'expect',
+  'watch',
+  'caffeinate',
+  'arch',
+  'chroot',
+  'sandbox-exec',
+  'parallel',
   'deno',
-  'ruby',
-  'perl',
+  'bun',
   'osascript',
+  'awk',
+  'gawk',
+  'mawk',
+  'nawk',
+  'find',
+  'launchctl',
+  'open',
+  'tmux',
+  'screen',
+  'vi',
+  'vim',
+  'nvim',
+  'emacs',
+]);
+
+/** Interpreters, with or without a version (`python3.12`, `node20`). */
+const RUNNER_FAMILIES =
+  /^(python|pypy|node|nodejs|ruby|perl|php|lua|luajit|tclsh|pwsh|rscript|julia)[0-9.]*$/;
+
+/**
+ * Commands that run others through their bare form or an option before the
+ * subcommand (`git -c core.pager=…`, `npx <anything>`): a rule on one must
+ * name the subcommand, or for the package runners the package.
+ */
+const NEEDS_SUBCOMMAND = new Set([
+  'git',
+  'npm',
+  'pnpm',
+  'yarn',
+  'make',
+  'ssh',
+  'npx',
+  'pnpx',
+  'bunx',
+  'uvx',
+  'uv',
+  'docker',
+  'cargo',
+  'go',
+  'gh',
+]);
+
+/** Subcommands that are themselves runners. */
+const RUNNER_SUBCOMMANDS = new Set([
+  'npm exec',
+  'npm x',
+  'pnpm exec',
+  'pnpm dlx',
+  'yarn exec',
+  'yarn dlx',
+  'uv run',
+  'uv tool',
+  'docker run',
+  'docker exec',
+  'git config',
+  'git submodule',
+  'git bisect',
+  'git filter-branch',
 ]);
 
 /** True when `rule` is a line a grant card may carry. */
