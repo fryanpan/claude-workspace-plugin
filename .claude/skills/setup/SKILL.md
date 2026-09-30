@@ -37,7 +37,7 @@ If `node_modules/` already exists, `command claude plugin list` shows `claude-wo
 bun install
 ```
 
-If `bun` isn't on their PATH, point them at <https://bun.sh> — don't install bun for them. Once they have it, retry.
+If `bun` isn't on their PATH, point them at <https://bun.sh> — don't install bun for them. Once they have it, retry. Node is not required: the plugin's MCP launcher uses node when it finds one and bun otherwise (plugin 0.1.275 and later).
 
 Verify: `node_modules/` exists at the repo root.
 
@@ -86,6 +86,8 @@ Important:
 
 If they'd rather edit the file themselves, give them the exact line and the file path.
 
+Also tell them to name each session at launch, e.g. `CW_AGENT_NAME="Docs agent" claude`. The server refuses a task whose owner comes out as the bare word "agent", so without a name the first "file these as tasks" fails with `assignee-required`.
+
 ### 4. Register the plugin + install at user scope
 
 ```sh
@@ -109,14 +111,18 @@ After install, the plugin's tools should appear when they ask Claude things like
 ### 5. (Optional) Start the server
 
 ```sh
-bun run dev
+CW_REQUIRE_SIGNIN_TO_WRITE=0 bun run dev --host 127.0.0.1
 ```
 
-This is the foreground supervisor — fine for development, dies when the terminal closes. It picks a free port starting at 8787, writes it to `~/.claude/claude-workspaces/server.json` so the plugin can find it, and prints the reachable URLs (`localhost`, plus a Tailscale and a LAN name when it finds them). The board is the `localhost` URL with a trailing `/`. By default only a browser on this machine gets in: the Tailscale and LAN names answer 403 until the server starts with `CW_ACCESS_ONLY_BROWSER_HOSTS=0`, which admits anything on that network (see `docs/architecture/security.md`). Ask before turning it off. Data goes in `data/` inside the clone unless `CW_DATA_DIR` is set.
+`--host 127.0.0.1` binds loopback only. `CW_REQUIRE_SIGNIN_TO_WRITE=0` lets their own browser write: the gate is on by default, and while access-only is on (the default) there is no `/signin` page, so without it the board opens read-only ("You are reading only"). `--port <n>` picks the starting port; `CW_DATA_DIR=<path>` moves the data.
+
+This is the foreground supervisor — fine for development, dies when the terminal closes. It picks a free port starting at 8787, writes it to `~/.claude/claude-workspaces/server.json` so the plugin can find it, and prints the reachable URLs (`localhost`, plus a Tailscale and a LAN name when it finds them). The board is the `localhost` URL with a trailing `/`. By default only a browser on this machine gets in: the Tailscale and LAN names answer 403 until the server starts with `CW_ACCESS_ONLY_BROWSER_HOSTS=0` and without `--host`, which admits anything on that network (see `docs/architecture/security.md`). Ask before turning it off, and keep the sign-in gate on when you do: that also turns on the emailed-code sign-in, whose code prints in the server log until `AUTH_EMAIL_FROM` is set. Data goes in `data/` inside the clone unless `CW_DATA_DIR` is set.
 
 Tell them to keep this terminal open while they work; close it when done. For an always-on setup, point them at the next step.
 
 ### 6. (Optional) Install the macOS launchd supervisor
+
+Untested from a fresh clone — say so to the user before running it.
 
 If they want the server to stay up across logout / Mac reboot / crashes, install the per-user LaunchAgent:
 

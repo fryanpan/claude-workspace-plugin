@@ -12,7 +12,7 @@
  * same Tailscale network or local network as the host machine.
  *
  * Usage:
- *   bun run scripts/serve.ts [--port <n>] [--no-watch]
+ *   bun run scripts/serve.ts [--port <n>] [--host <addr>] [--no-watch]
  *
  * Modes:
  *   default     — DEV: server runs under `bun --watch` (hot-reload on any
@@ -79,6 +79,10 @@ function arg(name: string): string | undefined {
   return undefined;
 }
 const noWatch = args.includes('--no-watch');
+// The bind address, passed through to the server. Unset keeps Bun's wildcard,
+// which the tailnet and LAN addresses need; `--host 127.0.0.1` keeps the
+// server on this machine only.
+const host = arg('host');
 
 const requestedPort = Number(arg('port') ?? process.env.PORT ?? '8787');
 const here = dirname(fileURLToPath(import.meta.url));
@@ -191,6 +195,14 @@ const port = await resolvePort();
 // A failed build keeps the previous release live (stale beats down), loudly.
 // Dependencies were installed above, before this file's imports.
 const clientArgs: string[] = [];
+// DEV: the widget has no watcher, so build it once. Without this a fresh clone
+// serves no /widget.iife.js, and a mockup or dev server takes no comments.
+if (!noWatch) {
+  const r = spawnSync('bun', ['run', join(repoRoot, 'packages', 'widget', 'scripts', 'build.ts')], {
+    stdio: 'inherit',
+  });
+  if (r.status !== 0) note('[supervisor] widget build FAILED — mockups will take no comments');
+}
 if (noWatch) {
   const failures: string[] = [];
   for (const pkg of ['widget', 'workspaces-app']) {
@@ -287,6 +299,7 @@ const serverArgs = [
   // are unchanged.
   '--data-dir',
   dataDir,
+  ...(host ? ['--host', host] : []),
   // PROD only: the published release to serve. Empty in dev, where the
   // bundler watches this checkout's dist and the server should follow it.
   ...clientArgs,
