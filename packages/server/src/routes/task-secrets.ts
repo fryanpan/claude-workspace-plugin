@@ -194,7 +194,10 @@ export async function handleTaskSecrets(
     // line, and what the asking agent reads — which is why it is built from
     // the declared names rather than from anything the caller sent.
     const text = `Secrets saved: ${declared.map((d) => d.service).join(', ')}`;
-    const res = taskStore.answerTaskReview(taskId, reviewItemId, text, { actor: author });
+    const res = taskStore.answerTaskReview(taskId, reviewItemId, text, {
+      actor: author,
+      door: 'secret',
+    });
     if (!res.ok) return j(res.error === 'not-found' ? 404 : 400, res);
     taskProjection.refreshTask(res.task);
     // MEASUREMENT: a secret ask is a review item, shown on the same queue and

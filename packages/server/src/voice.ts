@@ -411,6 +411,10 @@ export class VoiceRouter {
         const ticketItems: VoiceReviewItem[] = this.tasks
           .listReviewItems(task.id)
           .filter(isReviewItemOpen)
+          // A secret or grant card is answered only on the card itself — the
+          // values form, or the owner's Approve — so voice is never offered
+          // one; the store refuses it too (`review-items/answer-doors.ts`).
+          .filter((r) => r.review.shape !== 'secret' && r.review.shape !== 'grant')
           .map((r) => ({
             reviewItemId: r.id,
             ask: r.review.headline,
