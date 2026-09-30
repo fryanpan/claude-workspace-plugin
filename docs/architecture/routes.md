@@ -20,6 +20,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/` | GET | `routes/shell-static.ts` | trusted-local |  |
 | `/api/agent-notes` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/api/agent-notes/*` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
+| `/api/agent-token` | GET | `routes/agent-identity.ts` | loopback-only |  |
 | `/api/agents/:agentId/merge` | POST | `routes/agent-identity.ts` | loopback-only |  |
 | `/api/agents/:agentId/token` | GET | `routes/agent-identity.ts` | loopback-only |  |
 | `/api/agents/:agentId/watches` | GET, POST | `routes/agent-identity.ts` | loopback-only |  |

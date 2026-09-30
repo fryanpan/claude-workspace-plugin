@@ -17,10 +17,13 @@
  * `authorizeAgentCaller`. A loopback caller can no longer mint a token for any
  * agent — the mint checks which session holds the socket
  * (auth/agent-caller.ts) — so the token is what proves a caller is the agent
- * it names, here as on `/events/agent/<id>`. Under `requireAgentToken` a
- * request naming a named agent without that agent's token is refused; with it
- * off, a tokenless caller is served with the one legacy warning, and a wrong
- * token is refused either way. The agent checked is every one the request
+ * it names, here as on `/events/agent/<id>`. Unlike those doors it has no
+ * deprecation window: a request naming a named agent without that agent's
+ * token is refused whether or not `CW_REQUIRE_AGENT_TOKEN` is on. The window
+ * exists for bundles that predate the token, and no such bundle ever spoke
+ * to this door — its one client is the relay (packages/plugin/relay/), which
+ * mints before it initializes (`GET /api/agent-token`, routes/agent-identity.ts).
+ * The agent checked is every one the request
  * could act as: the one its headers name, and the one its `Mcp-Session-Id`
  * was opened as, so a session id cannot carry a caller into someone else's
  * session. The shared unnamed identity has no token and needs none: it is
@@ -41,10 +44,6 @@ export interface McpConnectorRouteContext {
   requestAddress: (req: Request) => string | undefined;
   /** The key the `at1` agent bearer verifies under. See auth/agent-token.ts. */
   agentTokenKey: () => string;
-  /** Whether a caller presenting no agent token is refused. */
-  requireAgentToken: boolean;
-  /** Logs the deprecation-window warning, once per agent id per route. */
-  warnLegacyAgentCaller: (agentId: string, route: string) => void;
 }
 
 export const MCP_CONNECTOR_PATH = '/mcp';
@@ -79,10 +78,9 @@ export async function handleMcpConnectorRoute(
       req: input.req,
       address,
       key: ctx.agentTokenKey(),
-      requireToken: ctx.requireAgentToken,
+      requireToken: true,
     });
     if (!allowed.ok) return ctx.j(allowed.status, allowed.body);
-    if (allowed.proof === 'legacy') ctx.warnLegacyAgentCaller(agentId, '/mcp');
   }
   return ctx.host.handle(input.req);
 }

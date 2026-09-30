@@ -223,6 +223,9 @@ export async function startBundle(
       HOME: process.env.HOME ?? '',
       CW_BASE_URL: `http://127.0.0.1:${port}`,
       CW_AGENT_NAME: 'Harness Agent',
+      // These tests are about the full child's own code, so they run it
+      // through the launcher's rollback lever rather than the relay.
+      CW_MCP_RELAY: '0',
       ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],

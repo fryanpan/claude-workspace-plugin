@@ -15,6 +15,24 @@
 # /bin/sh is the one interpreter guaranteed to be present, so it does the
 # resolution itself instead of trusting the inherited environment.
 #
+# WHICH CHILD. The session's child is a relay by default: it carries MCP
+# between the session and the server's hosted connector at /mcp, and holds no
+# connector of its own (packages/mcp/src/relay/relay-core.ts says why and how).
+# In order of preference:
+#
+#   1. The compiled relay: relay/relay.swift, built on THIS machine by
+#      /usr/bin/swiftc into a per-user cache keyed by the source's hash. No
+#      binary is ever shipped. The first launch of a new version builds it
+#      (measured at 6s) while any other launch waits for that build, up to
+#      20s. A build that fails, or a cached binary that no longer runs, is never
+#      exec'd: it has to pass `--self-test` first.
+#   2. The node relay, mcp/relay.js, run by node or bun, wherever there is
+#      no working build: Linux, a Mac without the command line tools, a
+#      failed build.
+#   3. The full child, mcp/index.js — today's connector in-process — when
+#      CW_MCP_RELAY=0 (the rollback lever), or when an identity value is not
+#      plain ASCII and so cannot travel as an HTTP header.
+#
 # Usage: /bin/sh claude-workspaces-mcp.sh <path-to-mcp/index.js> [args...]
 
 set -u
@@ -89,6 +107,96 @@ find_node() {
   return 1
 }
 
+mcp_dir="${bundle%/*}"
+[ "$mcp_dir" = "$bundle" ] && mcp_dir=.
+relay_src="$mcp_dir/../relay/relay.swift"
+
+# Whether this session runs a relay rather than the full child.
+relay_wanted() {
+  case "${CW_MCP_RELAY:-1}" in 0|off|false|no) return 1 ;; esac
+  # The relay sends these as headers, which carry ASCII; anything else takes
+  # the full child, which reads them from its environment.
+  for value in "${CW_AGENT_NAME:-}" "${FEEDBACK_AGENT_NAME:-}" \
+    "${CW_WORKSPACE_ID:-}" "${FEEDBACK_WORKSPACE_ID:-}" "${PWD:-}"; do
+    (LC_ALL=C; case "$value" in *[!\ -~]*) exit 1 ;; esac) || return 1
+  done
+  return 0
+}
+
+# Compile relay.swift into $relay_bin, once per source hash, under a lock.
+build_relay() {
+  swiftc="${CW_RELAY_SWIFTC:-/usr/bin/swiftc}"
+  [ -x "$swiftc" ] || return 1
+  # /usr/bin/swiftc is a shim: on a Mac without the command line tools it
+  # opens an install dialog rather than failing. xcode-select asks quietly.
+  if [ -z "${CW_RELAY_SWIFTC:-}" ]; then
+    /usr/bin/xcode-select -p >/dev/null 2>&1 || return 1
+  fi
+  mkdir -p "$relay_dir" 2>/dev/null || return 1
+  # A build that failed is not retried for a day: every launch would pay for
+  # the same failure. build.log beside it says why.
+  failed="$relay_dir/failed"
+  if [ -f "$failed" ]; then
+    [ -n "$(find "$failed" -mmin +1440 2>/dev/null)" ] || return 1
+    rm -f "$failed"
+  fi
+  lock="$relay_dir/.building"
+  if mkdir "$lock" 2>/dev/null; then
+    tmp="$relay_dir/cw-relay.$$"
+    if "$swiftc" -O -swift-version 5 -parse-as-library -o "$tmp" "$relay_src" \
+        >"$relay_dir/build.log" 2>&1 \
+      && "$tmp" --self-test >/dev/null 2>&1; then
+      mv -f "$tmp" "$relay_bin"
+    else
+      rm -f "$tmp"
+      : >"$failed"
+    fi
+    rmdir "$lock" 2>/dev/null
+  else
+    # Another launch is building. A lock older than five minutes belongs to
+    # a build that was killed; clear it for the next launch.
+    if [ -n "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ]; then
+      rmdir "$lock" 2>/dev/null
+    fi
+    waited=0
+    while [ "$waited" -lt 40 ] && [ -d "$lock" ] && [ ! -x "$relay_bin" ]; do
+      sleep 0.5
+      waited=$((waited + 1))
+    done
+  fi
+  return 0
+}
+
+# The compiled relay's path, when a build that passes its self-test exists.
+compiled_relay() {
+  [ -f "$relay_src" ] || return 1
+  [ "$(uname -s 2>/dev/null)" = "Darwin" ] || return 1
+  cache="${CW_RELAY_CACHE_DIR:-}"
+  if [ -z "$cache" ]; then
+    [ -n "${HOME:-}" ] || return 1
+    cache="$HOME/Library/Caches/claude-workspaces/relay"
+  fi
+  hash=$(/sbin/md5 -q "$relay_src" 2>/dev/null) || return 1
+  # The suffix names the compiler flags, so changing them rebuilds.
+  relay_dir="$cache/$hash-o5"
+  relay_bin="$relay_dir/cw-relay"
+  [ -x "$relay_bin" ] || build_relay
+  [ -x "$relay_bin" ] && "$relay_bin" --self-test >/dev/null 2>&1 || return 1
+  echo "$relay_bin"
+}
+
+if relay_wanted; then
+  plugin_json="$mcp_dir/../.claude-plugin/plugin.json"
+  if [ -f "$plugin_json" ]; then
+    CW_RELAY_PLUGIN_VERSION=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$plugin_json" | head -n 1)
+    export CW_RELAY_PLUGIN_VERSION
+  fi
+  if relay_bin=$(compiled_relay); then
+    [ "${CW_MCP_PRINT_CHILD:-}" = "1" ] && { echo "compiled $relay_bin"; exit 0; }
+    exec "$relay_bin"
+  fi
+fi
+
 node_bin=$(find_node) || {
   echo "claude-workspaces-mcp: could not find a node or bun binary." >&2
   echo "  Looked on PATH, in \${NVM_DIR:-\$HOME/.nvm}/versions/node, in" >&2
@@ -103,4 +211,9 @@ if [ "${CW_MCP_PRINT_NODE:-}" = "1" ]; then
   exit 0
 fi
 
+if relay_wanted && [ -f "$mcp_dir/relay.js" ]; then
+  [ "${CW_MCP_PRINT_CHILD:-}" = "1" ] && { echo "node-relay"; exit 0; }
+  exec "$node_bin" "$mcp_dir/relay.js"
+fi
+[ "${CW_MCP_PRINT_CHILD:-}" = "1" ] && { echo "full"; exit 0; }
 exec "$node_bin" "$bundle" "$@"

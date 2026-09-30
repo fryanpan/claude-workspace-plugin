@@ -83,9 +83,9 @@ flowchart TB
 | `core` | Wire types, the Yjs⇄markdown document model, anchors, attachment-set ids (`attachment.ts`), review-item rules, goal arithmetic, schedule rules and their English, prompts. | Imports no other workspace package. No `node:` I/O beyond path math, no DOM. |
 | `server` | The one process: data dir, the doc store, board, meetings, auth, sharing, deploys. | The only writer of durable state. Everything else asks it. |
 | `workspaces-app` | The browser client, six bundles from `scripts/build.ts`. | Ships as static assets the server publishes as a numbered release. |
-| `mcp` | The stdio MCP server agents talk to — a **client** of the server's REST and SSE. Its per-session wiring is `connector-session.ts`, which the server also hosts, one per agent, working directory and default board, behind `/mcp` (`server/src/connector/`). | No business logic the server does not also enforce. |
+| `mcp` | The MCP connector agents talk to — a **client** of the server's REST and SSE. Its per-session wiring is `connector-session.ts`, which the server hosts, one per agent, working directory and default board, behind `/mcp` (`server/src/connector/`). `relay/` is the node relay: a stdio-to-`/mcp` forwarder with no tool code of its own. The full stdio child is still built, as the rollback. | No business logic the server does not also enforce. |
 | `widget` | The injectable comment widget for mockups and dev servers. The board imports it into its own bundle rather than loading `/widget.esm.js`, because that bundle carries its own Yjs and a page must run one copy (`check:client-boot` counts them). `widget-iife.ts` is only the script-tag bundle's entry: it imports `widget.ts` and exports nothing. | 40 KB gzipped (`check:widget-size`). Vanilla JS, no framework deps. |
-| `plugin` | Skills, hooks, and a bundled copy of `mcp`. | Version bumped in three places; see CLAUDE.md. |
+| `plugin` | Skills, hooks, a bundled copy of `mcp` (the full child and the node relay), and `relay/relay.swift`, the compiled relay's source. The launcher compiles it on first use. | Version bumped in three places; see CLAUDE.md. No compiled binary is ever committed. |
 
 **A traced request is named by its route, and the table of routes is
 checked.** Both sides send Sentry events, and neither may send a raw path: a
@@ -116,8 +116,29 @@ deliberate: the connector is the mcp package's code, and the server only
 supplies its two seams — REST over a loopback socket, so every route gate
 sees what it saw from the child, and the event stream opened in-process, so
 an agent the previous process was hosting is subscribed again before the
-first request after a restart. The plugin still launches the stdio child;
-switching `.mcp.json` to `/mcp` is a separate change.
+first request after a restart.
+
+**A session's MCP child is a relay to `/mcp`.** `.mcp.json` still names
+`bin/claude-workspaces-mcp.sh`. The launcher tries three children in order,
+and every step down is silent and safe:
+
+1. On macOS, a Swift relay (`plugin/relay/relay.swift`). It is compiled with
+   `/usr/bin/swiftc` into a per-user cache keyed by the source's hash, and must
+   pass `--self-test` before it is used. It uses about 11–15 MB idle.
+2. The node relay (`mcp/src/relay/`, bundled as `plugin/mcp/relay.js`). It is
+   used when the compile is impossible or failed; a failed compile is not
+   retried for a day.
+3. The full stdio child. It is used with `CW_MCP_RELAY=0` (the rollback
+   lever), or when the session's name, board or directory is not ASCII.
+
+Either relay does four things. It mints the agent's token at
+`GET /api/agent-token`, and every `/mcp` request carries the session's
+identity headers and that token. It holds a push while a tool call is in
+flight. When the server is down it answers `initialize` itself, and sends
+`tools/list_changed` once the server answers. Everything else — frame
+handling, self-authored and bookkeeping drops, acks, watches — runs in the
+hosted session. `packages/server/test/relay-stdio.test.ts` drives the
+compiled relay and the node relay through the launcher against a real server.
 
 **Model prompts are a subsystem, not a scatter of literals.** Every set of
 words this server sends to a model is one row of `prompt-catalog.ts`, and

@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUNDLE = 'packages/plugin/mcp/index.js';
+/** The node relay, built by the same command (packages/mcp/src/relay/). */
+export const RELAY_BUNDLE = 'packages/plugin/mcp/relay.js';
 
 /** GitHub renders `::error::` as an annotation; a terminal renders it as noise. */
 function fail(message: string): void {
@@ -36,16 +38,22 @@ if (built.exitCode !== 0) {
   process.exit(built.exitCode ?? 1);
 }
 
-const diff = Bun.spawnSync(['git', 'diff', '--quiet', '--', BUNDLE], { cwd: REPO_ROOT });
+const diff = Bun.spawnSync(['git', 'diff', '--quiet', '--', BUNDLE, RELAY_BUNDLE], {
+  cwd: REPO_ROOT,
+});
 if (diff.exitCode === 0) {
-  console.log(`✓ ${BUNDLE} matches a fresh build.`);
+  console.log(`✓ ${BUNDLE} and ${RELAY_BUNDLE} match a fresh build.`);
   process.exit(0);
 }
 
-fail(`${BUNDLE} is stale — it does not match a fresh build of packages/mcp/src.`);
+fail(
+  `${BUNDLE} or ${RELAY_BUNDLE} is stale — it does not match a fresh build of packages/mcp/src.`,
+);
 console.error('Peers load the committed bundle, not the TypeScript source, so an unrebuilt');
 console.error('bundle ships nothing. The rebuild has already been written to your working');
-console.error(`tree — commit it:  git add ${BUNDLE}`);
-const stat = Bun.spawnSync(['git', 'diff', '--stat', '--', BUNDLE], { cwd: REPO_ROOT });
+console.error(`tree — commit it:  git add ${BUNDLE} ${RELAY_BUNDLE}`);
+const stat = Bun.spawnSync(['git', 'diff', '--stat', '--', BUNDLE, RELAY_BUNDLE], {
+  cwd: REPO_ROOT,
+});
 console.error(stat.stdout.toString());
 process.exit(1);

@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+/**
+ * The node relay's process: stdin lines in, stdout lines out, and nothing
+ * else loaded. See relay-core.ts for what it does, and
+ * packages/plugin/bin/claude-workspaces-mcp.sh for when it runs instead of
+ * the compiled relay.
+ */
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { createRelay } from './relay-core.ts';
+
+const relay = createRelay({
+  env: process.env,
+  cwd: process.cwd(),
+  homedir,
+  existsSync,
+  readFileSync,
+  fetch: (url, init) => fetch(url, init),
+  write: (line) => {
+    process.stdout.write(`${line}\n`);
+  },
+  log: (...args) => console.error(...args),
+  ...(process.env.CW_RELAY_INIT_WAIT_MS !== undefined
+    ? { initWaitMs: Number(process.env.CW_RELAY_INIT_WAIT_MS) || 0 }
+    : {}),
+});
+
+console.error('[relay] node relay started');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk: string) => {
+  buf += chunk;
+  let nl = buf.indexOf('\n');
+  while (nl >= 0) {
+    relay.receive(buf.slice(0, nl));
+    buf = buf.slice(nl + 1);
+    nl = buf.indexOf('\n');
+  }
+});
+process.stdin.on('end', () => {
+  if (buf.trim() !== '') relay.receive(buf);
+  void relay.close().finally(() => process.exit(0));
+});

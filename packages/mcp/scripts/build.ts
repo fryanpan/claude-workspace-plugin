@@ -61,3 +61,25 @@ for (const target of [distOutFile, pluginOutFile]) {
   chmodSync(target, 0o755);
   console.log(`[mcp] built → ${target}`);
 }
+
+// The node relay (src/relay/): the child the launcher runs when the compiled
+// relay is not built yet or cannot be. A bundle of its own, so a relay
+// session loads a few hundred lines rather than every tool handler and the SDK.
+const relayResult = await Bun.build({
+  entrypoints: [join(pkgRoot, 'src', 'relay', 'main.ts')],
+  target: 'node',
+  format: 'esm',
+  minify: false,
+});
+const relayOut = relayResult.outputs[0];
+if (!relayResult.success || !relayOut) {
+  console.error(relayResult.logs.join('\n'));
+  throw new Error('relay build failed');
+}
+const relayFile = join(repoRoot, 'packages', 'plugin', 'mcp', 'relay.js');
+await Bun.write(
+  relayFile,
+  `#!/usr/bin/env node\n${(await relayOut.text()).replace(/^#!.*\n/, '')}`,
+);
+chmodSync(relayFile, 0o755);
+console.log(`[mcp] built → ${relayFile}`);
