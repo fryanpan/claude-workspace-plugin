@@ -157,6 +157,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
 
   ...family('routes/agent-identity.ts', [
     ['loopback-only', '/api/agents/:agentId/token', 'GET'],
+    ['loopback-only', '/api/agent-token', 'GET'],
     ['loopback-only', '/api/agents/:agentId/watches', 'GET POST'],
     ['loopback-only', '/api/agents/:agentId/merge', 'POST'],
   ]),

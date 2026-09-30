@@ -54,7 +54,6 @@ const PERSON = {
 describe('/mcp gate', () => {
   const KEY = agentTokenKey('a-test-base-key-that-is-not-a-real-one');
   let handled = 0;
-  let warned: string[] = [];
   /** Session id -> the identity it was opened as, standing in for the host's table. */
   const live = new Map<string, ConnectorIdentity>();
   const host = {
@@ -64,21 +63,17 @@ describe('/mcp gate', () => {
     },
     sessionIdentity: (sid: string) => live.get(sid),
   } as unknown as ConnectorHost;
-  const ctx = (address: string, requireAgentToken: boolean) => ({
+  const ctx = (address: string) => ({
     host,
     j: (status: number, body: unknown) => Response.json(body, { status }),
     requestAddress: () => address,
     agentTokenKey: () => KEY,
-    requireAgentToken,
-    warnLegacyAgentCaller: (agentId: string) => {
-      warned.push(agentId);
-    },
   });
   const call = (
     headers: Record<string, string>,
-    opts: { address?: string; visitor?: unknown; requireToken?: boolean } = {},
+    opts: { address?: string; visitor?: unknown } = {},
   ) =>
-    handleMcpConnectorRoute(ctx(opts.address ?? '127.0.0.1', opts.requireToken ?? false), {
+    handleMcpConnectorRoute(ctx(opts.address ?? '127.0.0.1'), {
       req: new Request('http://127.0.0.1/mcp', { method: 'POST', headers }),
       pathname: '/mcp',
       visitor: opts.visitor ?? null,
@@ -89,7 +84,6 @@ describe('/mcp gate', () => {
 
   beforeEach(() => {
     handled = 0;
-    warned = [];
     live.clear();
   });
 
@@ -122,24 +116,24 @@ describe('/mcp gate', () => {
     expect(handled).toBe(0);
   });
 
-  describe('with the agent token required', () => {
-    const required = { requireToken: true };
-
+  // Always required here: `/mcp` has no deprecation window, because no
+  // bundle that predates the token ever spoke to it.
+  describe('the agent token', () => {
     it('serves an agent that presents its own token', async () => {
-      const res = await call({ ...alpha, ...bearer(ALPHA_ID) }, required);
+      const res = await call({ ...alpha, ...bearer(ALPHA_ID) });
       expect(await res?.text()).toBe('handled');
       expect(handled).toBe(1);
     });
 
     it('refuses an agent named with no token', async () => {
-      const res = await call(alpha, required);
+      const res = await call(alpha);
       expect(res?.status).toBe(401);
       expect(((await res?.json()) as { error: string }).error).toBe('agent-token-required');
       expect(handled).toBe(0);
     });
 
     it("refuses an agent named with another agent's token", async () => {
-      const res = await call({ ...alpha, ...bearer(BETA_ID) }, required);
+      const res = await call({ ...alpha, ...bearer(BETA_ID) });
       expect(res?.status).toBe(403);
       expect(((await res?.json()) as { error: string }).error).toBe('agent-token-mismatch');
       expect(handled).toBe(0);
@@ -151,40 +145,22 @@ describe('/mcp gate', () => {
       const opened = resolveIdentity(read.headers, 'sid-alpha');
       if (!opened.ok) throw new Error(opened.message);
       live.set('sid-alpha', opened.identity);
-      const res = await call(
-        { ...beta, ...bearer(BETA_ID), 'mcp-session-id': 'sid-alpha' },
-        required,
-      );
+      const res = await call({ ...beta, ...bearer(BETA_ID), 'mcp-session-id': 'sid-alpha' });
       expect(res?.status).toBe(403);
       expect(handled).toBe(0);
       // Control: the session's own agent, on its own id, is served.
-      const own = await call(
-        { ...alpha, ...bearer(ALPHA_ID), 'mcp-session-id': 'sid-alpha' },
-        required,
-      );
+      const own = await call({ ...alpha, ...bearer(ALPHA_ID), 'mcp-session-id': 'sid-alpha' });
       expect(await own?.text()).toBe('handled');
     });
 
     it('serves a session that names no agent: it pools with nobody', async () => {
-      const res = await call(identityHeaders(null, '/work/saltmarsh'), required);
+      const res = await call(identityHeaders(null, '/work/saltmarsh'));
       expect(await res?.text()).toBe('handled');
     });
   });
 
-  it('serves a tokenless agent while the token is not required, and says so once per call', async () => {
-    const res = await call(alpha);
-    expect(await res?.text()).toBe('handled');
-    expect(warned).toEqual([ALPHA_ID]);
-  });
-
-  it('refuses a wrong token even while the token is not required', async () => {
-    const res = await call({ ...alpha, ...bearer(BETA_ID) });
-    expect(res?.status).toBe(403);
-    expect(handled).toBe(0);
-  });
-
   it('declines every other path', async () => {
-    const res = await handleMcpConnectorRoute(ctx('127.0.0.1', false), {
+    const res = await handleMcpConnectorRoute(ctx('127.0.0.1'), {
       req: new Request('http://127.0.0.1/mcp/extra'),
       pathname: '/mcp/extra',
       visitor: null,

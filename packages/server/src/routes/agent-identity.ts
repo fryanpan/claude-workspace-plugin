@@ -1,6 +1,7 @@
 /**
- * The two routes keyed on an AGENT ID rather than on a doc or a board:
- * the durable watch set, and the merge that folds one agent id into another.
+ * The routes keyed on an AGENT ID rather than on a doc or a board: the
+ * token mint, the durable watch set, and the merge that folds one agent id
+ * into another.
  *
  * One family because both are written in terms of the same identity — the
  * watch set is keyed by agent id, and the merge is the verb that moves it,
@@ -24,7 +25,12 @@ import {
   isValidWatchKey,
 } from '../agent-watches.ts';
 import type { CallerAgent } from '../auth/agent-caller.ts';
-import { authorizeAgentCaller, mintAgentToken } from '../auth/agent-token.ts';
+import {
+  authorizeAgentCaller,
+  mintAgentToken,
+  refuseNonLocalAgentCaller,
+} from '../auth/agent-token.ts';
+import { readIdentityHeaders, resolveIdentity } from '../connector/identity.ts';
 import type { Identities } from '../identities.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
 import { isLoopbackAddress } from '../middleware/host-guard.ts';
@@ -105,8 +111,6 @@ export async function handleAgentIdentityRoutes(
     agentTokenKey,
     requireAgentToken,
     warnLegacyAgentCaller,
-    identifyAgentCaller,
-    warnRefusedMint,
   } = ctx;
   const { req, pathname, visitor, authorFor } = rq;
 
@@ -147,18 +151,31 @@ export async function handleAgentIdentityRoutes(
       requireToken: false,
     });
     if (!allowed.ok) return j(allowed.status, allowed.body);
-    const caller = await identifyAgentCaller(req);
-    if (!caller.ok || caller.agentId !== agentId) {
-      const reason = caller.ok
-        ? `the calling process belongs to ${caller.agentId ?? 'no named agent'}`
-        : caller.reason;
-      warnRefusedMint(agentId, reason);
-      return j(403, {
-        error: 'agent-token-not-yours',
-        message: `Only ${agentId}'s own session can mint its token: ${reason}.`,
-      });
+    return mintForCaller(ctx, req, agentId);
+  }
+
+  // --- REST: mint the token for the agent a relay's identity headers name ---
+  //
+  // The same mint, addressed by the `/mcp` identity headers instead of by an
+  // agent id. The relay (packages/plugin/relay/) is a few hundred lines of
+  // Swift, and an agent id is `agentIdForName` over a roster of known users —
+  // a derivation it would have to copy and keep in step. So it sends the
+  // headers it sends `/mcp`, and the id is resolved here by the function
+  // `/mcp` resolves it with (connector/identity.ts): the token it gets back is
+  // for exactly the agent `/mcp` will ask about. Nothing about WHO may mint
+  // changes — same shape gate, same process check.
+  if (pathname === '/api/agent-token' && req.method === 'GET') {
+    if (visitor) return j(403, { error: 'not available to share visitors' });
+    const notLocal = refuseNonLocalAgentCaller(req, requestAddress(req));
+    if (notLocal) return j(notLocal.status, notLocal.body);
+    const read = readIdentityHeaders(req.headers);
+    if (!read.ok) return j(400, { error: 'bad-identity-headers', message: read.message });
+    const resolved = resolveIdentity(read.headers, '');
+    if (!resolved.ok) return j(400, { error: 'bad-identity-headers', message: resolved.message });
+    if (resolved.identity.shared) {
+      return j(400, { error: SHARED_IDENTITY_ERROR, message: SHARED_IDENTITY_MESSAGE });
     }
-    return j(200, { agentId, token: mintAgentToken(agentId, agentTokenKey()) });
+    return mintForCaller(ctx, req, resolved.identity.author.id);
   }
 
   // --- REST: durable agent watches ---
@@ -350,4 +367,28 @@ export async function handleAgentIdentityRoutes(
     });
   }
   return undefined;
+}
+
+/**
+ * The mint's second check, shared by both addresses of it: the process that
+ * opened this socket must run under `agentId`'s own Claude Code session
+ * (auth/agent-caller.ts).
+ */
+async function mintForCaller(
+  ctx: AgentIdentityRoutesContext,
+  req: Request,
+  agentId: string,
+): Promise<Response> {
+  const caller = await ctx.identifyAgentCaller(req);
+  if (!caller.ok || caller.agentId !== agentId) {
+    const reason = caller.ok
+      ? `the calling process belongs to ${caller.agentId ?? 'no named agent'}`
+      : caller.reason;
+    ctx.warnRefusedMint(agentId, reason);
+    return ctx.j(403, {
+      error: 'agent-token-not-yours',
+      message: `Only ${agentId}'s own session can mint its token: ${reason}.`,
+    });
+  }
+  return ctx.j(200, { agentId, token: mintAgentToken(agentId, ctx.agentTokenKey()) });
 }
