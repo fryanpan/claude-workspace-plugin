@@ -26,8 +26,9 @@
 #      (measured at 6s) while any other launch waits for that build, up to
 #      20s. A build that fails, or a cached binary that no longer runs, is never
 #      exec'd: it has to pass `--self-test` first.
-#   2. The node relay, mcp/relay.js, wherever there is no working build —
-#      Linux, a Mac without the command line tools, a failed build.
+#   2. The node relay, mcp/relay.js, run by node or bun, wherever there is
+#      no working build: Linux, a Mac without the command line tools, a
+#      failed build.
 #   3. The full child, mcp/index.js — today's connector in-process — when
 #      CW_MCP_RELAY=0 (the rollback lever), or when an identity value is not
 #      plain ASCII and so cannot travel as an HTTP header.
@@ -94,6 +95,15 @@ find_node() {
   do
     [ -x "$candidate" ] && { echo "$candidate"; return 0; }
   done
+  # 4. Bun, which runs the bundle too. The README asks for bun and not node, so
+  #    a fresh machine may have bun alone — and its installer, like nvm, puts
+  #    it on PATH only through ~/.zshrc.
+  if command -v bun >/dev/null 2>&1; then
+    command -v bun
+    return 0
+  fi
+  bun_home="${BUN_INSTALL:-${HOME:-}/.bun}"
+  [ -x "$bun_home/bin/bun" ] && { echo "$bun_home/bin/bun"; return 0; }
   return 1
 }
 
@@ -188,10 +198,10 @@ if relay_wanted; then
 fi
 
 node_bin=$(find_node) || {
-  echo "claude-workspaces-mcp: could not find a node binary." >&2
-  echo "  Looked on PATH, in \${NVM_DIR:-\$HOME/.nvm}/versions/node, and in" >&2
-  echo "  /opt/homebrew/bin, /usr/local/bin, /usr/bin, /snap/bin." >&2
-  echo "  Install node, or put it on the PATH the session is launched with." >&2
+  echo "claude-workspaces-mcp: could not find a node or bun binary." >&2
+  echo "  Looked on PATH, in \${NVM_DIR:-\$HOME/.nvm}/versions/node, in" >&2
+  echo "  /opt/homebrew/bin, /usr/local/bin, /usr/bin, /snap/bin, and in \${BUN_INSTALL:-\$HOME/.bun}/bin." >&2
+  echo "  Install node or bun, or put one on the PATH the session is launched with." >&2
   exit 127
 }
 
