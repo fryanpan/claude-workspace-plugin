@@ -230,6 +230,13 @@ export interface TaskRouteRequest {
    * that does not pass it fails closed.
    */
   provenIdentityFor?: () => IdentityRecord | null;
+  /**
+   * The origin this request was served on, scheme included — the origin
+   * policy's `requestOrigin`. The grant door requires the browser's `Origin`
+   * to equal it. A thunk, because only that door reads it. Optional so a
+   * caller that does not pass it fails closed.
+   */
+  requestOriginFor?: () => string;
 }
 
 /**

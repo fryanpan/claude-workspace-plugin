@@ -3107,6 +3107,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           roleFor,
           requireOwner,
           provenIdentityFor,
+          requestOriginFor: () => policyFor(req).requestOrigin,
         });
         if (handled) return handled;
       }
