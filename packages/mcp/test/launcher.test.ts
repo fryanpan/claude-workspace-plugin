@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -25,11 +25,15 @@ const NODELESS_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 function run(
   command: string,
   args: string[],
-  { stdin, timeoutMs = 20_000 }: { stdin?: string; timeoutMs?: number } = {},
+  {
+    stdin,
+    timeoutMs = 20_000,
+    env = { PATH: NODELESS_PATH, HOME: process.env.HOME ?? '' },
+  }: { stdin?: string; timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, args, {
-      env: { PATH: NODELESS_PATH, HOME: process.env.HOME ?? '' },
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -57,6 +61,36 @@ function run(
     child.stdin.end();
   });
 }
+
+/**
+ * A copy of the launcher whose fixed node locations point at nothing, in a
+ * fresh temp dir that can stand in for HOME. The fixed locations are baked
+ * into the script, and a CI runner has a real /usr/bin/node — so the
+ * environment alone cannot produce "no node anywhere" portably.
+ */
+function nodelessLauncher(): { dir: string; copy: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'cw-launcher-'));
+  const stripped = readFileSync(LAUNCHER, 'utf8').replace(
+    /^(\s*)(\/opt\/homebrew|\/usr\/local|\/usr|\/snap)\/bin\/node(\s*\\?)$/gm,
+    '$1/nonexistent$2/bin/node$3',
+  );
+  // Non-vacuity: if the rewrite silently matched nothing, a test would be
+  // asserting against the unmodified script and could never fail for the right reason.
+  expect(stripped).not.toBe(readFileSync(LAUNCHER, 'utf8'));
+  expect(stripped).toContain('/nonexistent/usr/bin/node');
+  const copy = join(dir, 'launcher.sh');
+  writeFileSync(copy, stripped);
+  return { dir, copy };
+}
+
+/** This machine's bun, or null. The server suite needs it, so CI has one. */
+const BUN = (() => {
+  try {
+    return execFileSync('/bin/sh', ['-c', 'command -v bun'], { encoding: 'utf8' }).trim() || null;
+  } catch {
+    return null;
+  }
+})();
 
 const INITIALIZE = `${JSON.stringify({
   jsonrpc: '2.0',
@@ -132,26 +166,13 @@ describe('plugin MCP launcher', () => {
   });
 
   it('fails loudly, not silently, when no node exists anywhere', async () => {
-    // The fixed fallback locations are baked into the script, and a CI runner has
-    // a real /usr/bin/node — so the environment alone cannot produce "no node
-    // anywhere" portably. Run a copy with those paths redirected at nothing.
     // Trade-off: this exercises the failure branch and its message, but not the
     // literal contents of the candidate list.
-    const dir = mkdtempSync(join(tmpdir(), 'cw-launcher-'));
-    const stripped = readFileSync(LAUNCHER, 'utf8').replace(
-      /^(\s*)(\/opt\/homebrew|\/usr\/local|\/usr|\/snap)\/bin\/node(\s*\\?)$/gm,
-      '$1/nonexistent$2/bin/node$3',
-    );
-    const copy = join(dir, 'launcher.sh');
-    writeFileSync(copy, stripped);
-    // Non-vacuity: if the rewrite silently matched nothing, this test would be
-    // asserting against the unmodified script and could never fail for the right reason.
-    expect(stripped).not.toBe(readFileSync(LAUNCHER, 'utf8'));
-    expect(stripped).toContain('/nonexistent/usr/bin/node');
+    const { dir, copy } = nodelessLauncher();
 
     const child = await new Promise<{ code: number | null; stderr: string }>((res) => {
       const c = spawn('/bin/sh', [copy, BUNDLE], {
-        // HOME has no .nvm, PATH has no node, and the fallbacks now point nowhere.
+        // HOME has no .nvm or .bun, PATH has neither, and the fallbacks now point nowhere.
         env: { PATH: join(dir, 'empty-bin'), HOME: dir },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -163,7 +184,27 @@ describe('plugin MCP launcher', () => {
     });
 
     expect(child.code).toBe(127);
-    expect(child.stderr).toContain('could not find a node binary');
+    expect(child.stderr).toContain('could not find a node or bun binary');
+  });
+
+  // A fresh Mac set up from the README has bun and no node, and bun's
+  // installer puts it on PATH only through ~/.zshrc — the same trap as nvm.
+  it.skipIf(BUN === null)('falls back to bun in ~/.bun when no node exists', async () => {
+    const { dir, copy } = nodelessLauncher();
+    mkdirSync(join(dir, '.bun', 'bin'), { recursive: true });
+    symlinkSync(BUN as string, join(dir, '.bun', 'bin', 'bun'));
+
+    const { stdout } = await run('/bin/sh', [copy, BUNDLE], {
+      stdin: INITIALIZE,
+      env: { PATH: join(dir, 'empty-bin'), HOME: dir },
+    });
+
+    const line = stdout.split('\n').find((l) => l.trim().startsWith('{'));
+    expect(
+      line,
+      `no JSON-RPC line in output: ${JSON.stringify(stdout.slice(0, 400))}`,
+    ).toBeTruthy();
+    expect(JSON.parse(line as string).result?.serverInfo?.name).toBeTruthy();
   });
 });
 

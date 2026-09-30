@@ -37,7 +37,8 @@ The aim is to make giving feedback to an agent as fast as pointing and saying
 ## Install
 
 You need [Claude Code](https://code.claude.com/docs), [Bun](https://bun.sh)
-and git. The server is tested on macOS.
+and git. These steps were last tested end to end from a fresh clone on macOS.
+Linux and Windows are untested.
 
 There are two parts. The **plugin** comes from the Claude Code plugin
 marketplace and carries the MCP tools, hooks and skills. The **server** runs
@@ -88,6 +89,10 @@ when it asks for one. The flag is the development form because this plugin is
 not on Anthropic's approved channel list. Neither form appears in
 `claude --help` during the channels research preview.
 
+Give each session a name when you launch it, for example
+`CW_AGENT_NAME="Docs agent" claude`. Tasks the agent files are owned by that
+name. Without one, the server refuses a task that names no owner.
+
 On a claude.ai Team or Enterprise plan, channels stay off until an
 organization Owner enables them in the Claude Code admin settings. The tools
 work either way. The details are in the
@@ -99,23 +104,35 @@ work either way. The details are in the
 git clone https://github.com/fryanpan/claude-workspaces-plugin.git
 cd claude-workspaces-plugin
 bun install
-bun run dev
+CW_REQUIRE_SIGNIN_TO_WRITE=0 bun run dev --host 127.0.0.1
 ```
 
-`bun run dev` picks a free port starting at 8787, starts the server with hot
-reload, and prints its addresses. Your data goes in `data/` inside the clone
-unless you set `CW_DATA_DIR`. Keep the terminal open while you work.
+`bun run dev` starts the server with hot reload and prints its addresses.
+Keep the terminal open while you work.
+
+- `--host 127.0.0.1` keeps the server on this machine. Without it the server
+  listens on every network interface.
+- `CW_REQUIRE_SIGNIN_TO_WRITE=0` lets your own browser comment and edit.
+  With the default, a browser must sign in before it writes, and a server
+  reached at `localhost` has no sign-in page, so the board opens read-only.
+- `--port <n>` picks the port. The default is 8787, and the server moves up
+  to the next free port if that one is taken.
+- `CW_DATA_DIR=<path>` picks where your data goes. The default is `data/`
+  inside the clone.
 
 By default only a browser on the same machine can open the board, at
 `localhost`. The Tailscale and LAN names it prints answer 403. To review from
-a tablet or phone on your network, start it with the rule turned off:
+a tablet or phone on your network, start it without `--host` and with the
+rule turned off:
 
 ```sh
 CW_ACCESS_ONLY_BROWSER_HOSTS=0 bun run dev
 ```
 
 Anything on that network can then reach the board, including the routes that
-bind files on your machine. [docs/architecture/security.md](docs/architecture/security.md)
+bind files on your machine. Turning the rule off also turns on the server's
+emailed-code sign-in; until `AUTH_EMAIL_FROM` is set, the code is printed in
+the server's terminal. This path is untested from a fresh clone. [docs/architecture/security.md](docs/architecture/security.md)
 explains what the rule protects.
 
 ### 4. Open the board
@@ -142,6 +159,8 @@ Open Claude Code inside the clone and run `/setup`. It walks through the same
 steps and asks before each one that changes your machine.
 
 ## Keep the server running (macOS, optional)
+
+Untested from a fresh clone.
 
 `bun run dev` stops when its terminal closes. To keep the server up across
 logout, reboot and crashes, install it as a per-user launchd service from the
@@ -172,7 +191,8 @@ when it sees the symptom, which is empty logs and no listener.
 
 Serving the board over HTTPS on a tailnet, which the microphone needs on any
 device other than the host, is in
-[docs/process/tailnet-https.md](docs/process/tailnet-https.md).
+[docs/process/tailnet-https.md](docs/process/tailnet-https.md). It is also
+untested from a fresh clone.
 
 ## How it works
 
@@ -224,6 +244,7 @@ different claim from "works for you". Expect sharp edges.
 - Meetings need a transcription API key on the server. Without one the
   transcript strip says so and everything else works.
 - Mobile and tablet layouts are still being tuned surface by surface.
+- Publishing a board through Cloudflare Access is untested from a fresh clone.
 
 ## Contributing
 
