@@ -1,71 +1,80 @@
-# Claude Workspaces
+# Claude Workspaces Plugin v0.2.0
 
-**The goal is to make it easier to work with teams of agent teams:** to help the team stay on track, working on what's valuable.  And to continue to have a platform to test out new workflows and ideas that are not common practice yet.
+## Warning
 
-If you run multiple Claude Code sessions at once, each one likely spinning up subagents and workflows, this gives you one place to coordinate a whole fleet, from wherever you are (at home or on the go).
+This is a personal Claude Code harness that works nicely for one person (@fryanpan) to move fast on many lower risk projects in parallel (think 6+ projects, each with multiple subagents running in parallel).
+
+I would recommend steering clear for most people.  Go use more polished tools.  There's a good chance that the workflows you find here will be more broadly available in other tools in a few months.  Many folks seem to be hitting similar limitations and exploring a similar solution space (e.g. see [Nimbalyst for Teams](https://nimbalyst.com/teams/)).
+
+With that said, please take a look and poke around.  Feel free to borrow parts that look useful!
+
+## What's The Workspace Plugin For?
+
+I've been [working with a team of agents from my phone](https://fryanpan.com/posts/agent-team/) (and Mac Mini) for most of this year.  As I've started more projects in parallel, I've regularly felt the pain of trying to keep up with  as the user interface.
+
+Since late Spring 2026, the original foundations in this repo made it easy to collaboratively edit all these artifacts with Claude Code:
+
+- **Markdown docs** with Mermaid diagrams (like Markdown artifacts in Claude Desktop)
+- **Mockups** of web or mobile interfaces (like Claude Design)
+- **Live dev servers** or staging applications
+- **Folder diffs** from a git repo
+
+This has proven useful so far, but as the fleet of agents has grown, other bottlenecks have come up.
 
 ## Current Experiments
 
-### 1. Increase productivity by focusing on prioritized decisions that need a human, not chat
+Here are some of the main bottlenecks this repo tries to tackle.
 
-A stream of status updates and questions gets hard to manage with a growing fleet.
+### 1. Increase productivity by focusing on key decisions that need a human, not chat
 
-Instead, the workspace lets you set up weekly priorities across multiple projects.  And then any time an agent needs help, from anywhere, it can attach a **review item** to your queue.  Each review item tries to briefly summarize what you need to know to make the decision.  And it can link to real-time collaborative docs, mockups, dev servers.
+A stream of chat messages is hard to work with, especially if 15+ agents are talking to you.
 
-You primarily make human decisions on review items, in a single queue, in priority order across all projects.  This cuts out the lower priority status updates and keeps decisions organized yet asynchronous.
+Instead the workspace lets me do the following:
 
-It's helped me get 80-90% of my interactions each week out of chat, and mainly into reviewing.  And early data shows this is likely one of the main changes that's doubled my productivity in Aug/Sep 2026 (from about 10x 2024 levels to about 20x).
+1. **Weekly Priorities**: Set up priorities each week across projects and within projects
+2. **Focus on Review Items**: Any time an agent needs help, from anywhere, they can give me a *review item* (e.g. a multiple choice question, a document to look at, a mockup, a request for me to do a human step). Each **review item** tries to clearly and briefly hold just enough information to make a human decision.
+3. **Primary Work Surface = Review Queue, Not Chat**: Whenever I have a moment, I go through review items that agents have already sorted in priority order for the week. This can be from anywhere -- at home, or on the go from my phone or iPad.
 
-### 2. Real-time multiplayer, to make it easier for people + agents to stay on the same page
+All status updates and other chatter stream somewhere else, where I can summarize them if needed.
 
-Working with legacy SaaS tools today and trying to integrate across them is hard sometimes for both agents and humans.  Tools like Asana and Notion cover much of the same space as this tool, but then you're in their walled garden and stuck when you can't do something.
+### 2. Reduce overhead between humans and agents by having a shared space designed for all of us
 
-Everyone seems to be trying to get your data and work in their garden, to build some moat.  This repo is an experiment to instead go [local-first](https://www.inkandswitch.com/local-first-software/) and make all SaaS tools secondary (except keeping Claude Code at the core).
+In SaaS tools, I had to deal with a UX that was built for the masses but not for me and MCPs that are often fragile and missing key functionality.  And if I wanted to try out some new way to work, it's hard to extend legacy SaaS tools and cobble things together.
 
-Most work takes place here in the workspace, with good agent and human UX, and real-time multiplayer collaboration, instead of in SaaS tools:
+For now, I decided to ditch all the SaaS tools, and now I do all of the following in this workspace plugin:
 
 - **Working with docs**: Notion / Confluence
 - **Meetings**: Granola / Fireflies.ai
 - **Product and project management**: Asana / Jira / Linear
-- **UX Design**: Figma / Claude Design
-- **Team tracking & retrospectives**: Timely (using weekly-review tools which are still private)
+- **UX Design**: Figma / Claude Design (but I'd already switched to doing this mostly in Claude Code earlier this year)
 
-All of the pieces are integrated, agents can surface decisions (see #1) from anywhere while they work, and conversely, I can reach Claude Code from anywhere in the workspace immediately via [Claude Code channels](https://code.claude.com/docs/en/channels).
+Each part of the workspace supports real-time collaboration, so my agents and I all see the same thing.  Plus agents can reach me from anywhere with a review item.  And I can reach my Claude Code agent also from anywhere with comments and voice feedback via [Claude Code channels](https://code.claude.com/docs/en/channels).
 
-This has been a joy -- I don't have to deal with the latency, fragility and missing functionality in MCPs.  I can just work, and when there's a problem, the most rewarding thing is I can have one of my project agents express requirements back to the workspace agent.  And then minutes later, there's a new feature or bug fix -- I can't do this with other SaaS software.
+This has reduced my communication overhead a lot.
 
-### 3. Deterministic guardrails to give longer projects a higher chance of success
+### 3. Better guardrails to keep team on track for hours to days
 
-Claude Code already gives us tools like `/goal` and `/workflow` to try and get to a goal; but on more loosely specified tasks, agents often quit early or reward hack (find incorrect solutions that look like they reach the goal).
+On long projects, agents tended to go off track, stop early, or sit silently waiting on me. A few guardrails keep them moving:
 
-This harness provides a few tools that keep the fleet moving:
+- **Continuous reprioritization**: Agents continuously reprioritize tasks according to high level goals I've set
+- **Done criteria** on each task that a separate agent verifies
+- **Stall check** that pings agents to tell them to keep going if they're not done yet
+- **Scheduled tasks**: Slightly more reliable and flexible than the default scheduled tasks in Claude Code (and the tasks can have done criteria)
 
-- **Stall check**: If an active task is not making progress, and not waiting for a human decision, the stall check periodically asks the agent what's up.
-- **Done criteria** on each task. Agents must convince an independent judge agent that the done criteria are met. This is similar to how `/workflow` requires a subtask to report output in a specific JSON schema.
-- **Scheduled tasks**: Similar to what's already in Claude Code, except these reliably come back after session restart and look just like other tasks (have done criteria, can surface review items, etc.)
+Experiments 1, 2 and 3 together have roughly doubled my productivity from ~10x 2024 levels to ~20x since August 2026.
 
-### 4. Voice everywhere to reduce friction
+### 4. Voice Everywhere
 
-Testing out using voice interfaces pervasively to see where/if this might help save time.
+This repo lets me experiment with more advanced voice functionality than SaaS services support (or can afford to support)
 
-It's been fun being able to do all of the following:
-
-- Have notes taken live that I can edit at the same time to help me run more effective meetings
-- Give feedback about a mockup by just talking, and having agents split up my feedback into topics and attach comments to the right element on the page. In parallel, my Claude Code is working in the background to update the mock within 1-2 minutes
-- Doing the same thing on a live production site (personal tool) is also fun
+- e.g. Real-time note taking and reorganization while I can also edit the same notes
+- e.g. Giving voice feedback on a mockup or live web app, where the agent segments topics automatically, cleans up feedback notes, and attaches each feedback item to the right element on screen
 
 ### 5. Sharing a board with collaborators (unproven)
 
-This functionality still needs more security hardening before using for real.
+This functionality still needs more security hardening before trying it out for real.  I've only used it briefly with my life partner.
 
-## What else it does
-
-All of the things this tool used to help with still form the foundation.  You can still review, edit, and comment on each of the following together, in real-time with agents:
-
-- **Markdown docs** with Mermaid diagrams and MDX components (e.g. charts)
-- **Mockups** of web or mobile interfaces
-- **Live dev servers** or staging applications
-- **Folder diffs** from a git repo
+Experiments 4 and 5 are still in early testing -- who knows if they're actually useful?
 
 ## Install
 
