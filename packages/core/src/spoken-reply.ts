@@ -94,8 +94,15 @@ export interface SpokenTimingRow {
 /** Per setup, keyed by the setup's number as a string (JSON keys). */
 export type SpokenTimingSummary = Partial<Record<'1' | '2' | '3', SpokenTimingRow>>;
 
+/**
+ * A setup the server has the keys for but will not run yet, with the one
+ * line that says why — shown on the page when it is chosen. Keyed like
+ * `SpokenTimingSummary`.
+ */
+export type SpokenHeldSetups = Partial<Record<'1' | '2' | '3', string>>;
+
 export type SpokenServerMessage =
-  | { type: 'ready'; setups: SpokenSetup[]; timings: SpokenTimingSummary }
+  | { type: 'ready'; setups: SpokenSetup[]; held?: SpokenHeldSetups; timings: SpokenTimingSummary }
   | { type: 'heard'; text: string }
   | { type: 'turn-end'; text: string }
   | {

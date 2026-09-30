@@ -24,6 +24,7 @@
 import {
   SPOKEN_SETUPS,
   type SpokenClientMessage,
+  type SpokenHeldSetups,
   type SpokenMode,
   type SpokenServerMessage,
   type SpokenSetup,
@@ -63,6 +64,8 @@ export interface SpokenReplyOpts {
   /** `ws(s)://host/workspaces/<ws>/voice/converse`. */
   url: string;
   setups: readonly SpokenSetup[];
+  /** Pickable, but refused on the page with the server's one line. */
+  held?: SpokenHeldSetups;
   timings: SpokenTimingSummary;
   author: { id: string; name: string; kind?: string };
   getContext(): unknown;
@@ -132,7 +135,9 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   const doc = opts.document;
   const now = opts.now ?? (() => performance.now());
   const storage = opts.storage === undefined ? readStorage() : opts.storage;
-  const available = SPOKEN_SETUPS.filter((s) => opts.setups.includes(s));
+  const heldLine = (s: SpokenSetup): string | undefined =>
+    opts.held?.[String(s) as '1' | '2' | '3'];
+  const available = SPOKEN_SETUPS.filter((s) => opts.setups.includes(s) || heldLine(s));
   let summary = opts.timings;
 
   const stored = Number(
@@ -207,6 +212,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     document: doc,
     anchor: opts.button,
     setups: available,
+    held: opts.held ?? {},
     onStop: () => stopSpeaking(),
     onClose: () => closePanel(),
     onPickSetup: (s) => pickSetup(s),
@@ -223,6 +229,16 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     } catch {}
     panel.setSetup(s);
     panel.setDelay(null, summary[String(s) as '1' | '2' | '3']);
+    const line = heldLine(s);
+    if (line) refuse(line);
+  }
+
+  /** One line in an open panel, and nothing sent or spoken. */
+  function refuse(line: string): void {
+    panel.open();
+    panel.clearBody();
+    panel.note(line);
+    panel.setState('done');
   }
 
   function stopCapture(): void {
@@ -275,14 +291,8 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
 
   function press(fromSpace: boolean): void {
     if (pressing) return;
-    const blocked = insecureOriginMessage(defaultOriginFacts());
-    if (blocked) {
-      panel.open();
-      panel.clearBody();
-      panel.note(blocked);
-      panel.setState('done');
-      return;
-    }
+    const blocked = heldLine(setup) ?? insecureOriginMessage(defaultOriginFacts());
+    if (blocked) return void refuse(blocked);
     // A second tap on a tapped question that is still listening ends it by hand.
     if (panel.state() === 'listening' && turn.mode === 'tap') {
       finishByHand();

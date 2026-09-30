@@ -307,6 +307,29 @@ describe('spoken reply', () => {
     expect(h.reply.setup()).toBe(2);
   });
 
+  it('a held setup 2: choosing it says why in one line, and pressing speaks nothing', async () => {
+    const line = 'Setup 2 waits on turning off ElevenLabs training.';
+    const h = harness({ setups: [1], held: { '2': line } });
+    const buttons = [...h.panel.root.querySelectorAll<HTMLButtonElement>('.vr-setups button')];
+    expect(buttons.map((b) => b.disabled)).toEqual([false, false, true]);
+    expect(buttons[1]?.title).toBe(line);
+    buttons[1]?.click();
+    expect(h.reply.setup()).toBe(2);
+    expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(TAP_MS * 2);
+    expect(h.sockets).toEqual([]);
+    expect(h.captures).toEqual([]);
+    expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
+    // Setup 1 is untouched: it opens the socket and listens.
+    buttons[0]?.click();
+    h.mic.dispatchEvent(new Event('pointerup'));
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(TAP_MS);
+    expect(h.sockets.length).toBe(1);
+    expect(h.label()).toBe('Listening');
+  });
+
   it('opens above the feedback widget’s corner buttons rather than under them', () => {
     const rect = (left: number, top: number, w: number, h: number) =>
       ({ left, top, right: left + w, bottom: top + h, width: w, height: h }) as DOMRect;
@@ -355,14 +378,14 @@ describe('spoken-reply audio helpers', () => {
 });
 
 describe('wireBoardVoice with the spoken reply', () => {
-  function mount(setups: number[]) {
+  function mount(setups: number[], held: Record<string, string> = {}) {
     const el = mountShell();
     const opened: FakeSocket[] = [];
     const fetched: string[] = [];
     vi.stubGlobal('fetch', (url: string) => {
       fetched.push(url);
       return Promise.resolve(
-        new Response(JSON.stringify({ setups, timings: {} }), {
+        new Response(JSON.stringify({ setups, held, timings: {} }), {
           headers: { 'content-type': 'application/json' },
         }),
       );
@@ -400,6 +423,15 @@ describe('wireBoardVoice with the spoken reply', () => {
     expect((m.opened[0] as unknown as { url: string }).url).toBe(
       'ws://board.test/workspaces/w-1/voice/converse',
     );
+  });
+
+  it('mounts the spoken mic for a held setup alone, so the panel can say why', async () => {
+    const line = 'Setup 2 waits on turning off ElevenLabs training.';
+    const m = mount([], { '2': line });
+    await vi.advanceTimersByTimeAsync(0);
+    m.el('board-mic').dispatchEvent(new Event('pointerdown'));
+    expect(document.querySelector('#vr-panel .vr-body')?.textContent).toBe(line);
+    expect(m.opened).toEqual([]);
   });
 
   it('keeps the plain mic when the server can speak no setup', async () => {

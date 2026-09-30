@@ -12,6 +12,7 @@ import {
   SPOKEN_SETUPS,
   SPOKEN_SETUP_NAMES,
   SPOKEN_SETUP_TITLES,
+  type SpokenHeldSetups,
   type SpokenSetup,
   type SpokenTimingRow,
 } from '@claude-workspaces/core/spoken-reply';
@@ -45,6 +46,8 @@ export interface SpokenPanelOpts {
   anchor: HTMLElement;
   /** The setups this server can run; the others are shown, and disabled. */
   setups: readonly SpokenSetup[];
+  /** Of `setups`, the ones held back, with why — the button's title. */
+  held?: SpokenHeldSetups;
   onStop(): void;
   onClose(): void;
   onPickSetup(setup: SpokenSetup): void;
@@ -136,9 +139,10 @@ export function createSpokenPanel(opts: SpokenPanelOpts): SpokenPanel {
     b.dataset.setup = String(s);
     const can = opts.setups.includes(s);
     b.disabled = !can;
-    b.title = can
-      ? SPOKEN_SETUP_TITLES[s]
-      : `${SPOKEN_SETUP_TITLES[s]} — not set up on this server`;
+    const held = opts.held?.[String(s) as '1' | '2' | '3'];
+    b.title =
+      held ??
+      (can ? SPOKEN_SETUP_TITLES[s] : `${SPOKEN_SETUP_TITLES[s]} — not set up on this server`);
     b.addEventListener('click', () => opts.onPickSetup(s));
     buttons.set(s, b);
     group.append(b);

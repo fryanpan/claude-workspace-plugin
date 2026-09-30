@@ -14,7 +14,11 @@
  *
  * `BoardVoiceDeps` is the whole list of what the mic may reach.
  */
-import type { SpokenSetup, SpokenTimingSummary } from '@claude-workspaces/core/spoken-reply';
+import type {
+  SpokenHeldSetups,
+  SpokenSetup,
+  SpokenTimingSummary,
+} from '@claude-workspaces/core/spoken-reply';
 import type { BootLocation } from '../boot-env.ts';
 import { type VoiceAck, type VoiceCaptureOpts, createVoiceCapture } from '../voice-capture.ts';
 import { type BoardState, fetchJson, send } from './board-actions.ts';
@@ -110,27 +114,31 @@ export function wireBoardVoice(deps: BoardVoiceDeps): void {
   const spoken = deps.spoken;
   if (!spoken) return;
   const base = `/workspaces/${encodeURIComponent(workspaceId)}/voice`;
-  void fetchJson<{ setups?: SpokenSetup[]; timings?: SpokenTimingSummary }>(`${base}/timings`).then(
-    (r) => {
-      const setups = r?.setups ?? [];
-      if (setups.length === 0) return;
-      // Space is a singleton: the plain capture goes before the spoken one mounts.
-      capture.destroy();
-      const protocol = spoken.protocol ?? window.location.protocol;
-      const host = spoken.host ?? window.location.host;
-      createSpokenReply({
-        document,
-        button: el('board-mic'),
-        url: `${protocol === 'https:' ? 'wss' : 'ws'}://${host}${base}/converse`,
-        setups,
-        timings: r?.timings ?? {},
-        author,
-        getContext,
-        onNavigate: navigate,
-        ...(spoken.openSocket ? { openSocket: spoken.openSocket } : {}),
-        ...(spoken.startCapture ? { startCapture: spoken.startCapture } : {}),
-        ...(spoken.playbackContext ? { playbackContext: spoken.playbackContext } : {}),
-      });
-    },
-  );
+  void fetchJson<{
+    setups?: SpokenSetup[];
+    held?: SpokenHeldSetups;
+    timings?: SpokenTimingSummary;
+  }>(`${base}/timings`).then((r) => {
+    const setups = r?.setups ?? [];
+    const held = r?.held ?? {};
+    if (setups.length === 0 && Object.keys(held).length === 0) return;
+    // Space is a singleton: the plain capture goes before the spoken one mounts.
+    capture.destroy();
+    const protocol = spoken.protocol ?? window.location.protocol;
+    const host = spoken.host ?? window.location.host;
+    createSpokenReply({
+      document,
+      button: el('board-mic'),
+      url: `${protocol === 'https:' ? 'wss' : 'ws'}://${host}${base}/converse`,
+      setups,
+      held,
+      timings: r?.timings ?? {},
+      author,
+      getContext,
+      onNavigate: navigate,
+      ...(spoken.openSocket ? { openSocket: spoken.openSocket } : {}),
+      ...(spoken.startCapture ? { startCapture: spoken.startCapture } : {}),
+      ...(spoken.playbackContext ? { playbackContext: spoken.playbackContext } : {}),
+    });
+  });
 }

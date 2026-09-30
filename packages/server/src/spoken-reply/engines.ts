@@ -37,6 +37,10 @@ export function elevenLabsTrainingOff(env: Record<string, string | undefined>): 
   return env[ELEVENLABS_TRAINING_OFF_VAR]?.trim() === '1';
 }
 
+/** What the page shows when setup 2 is chosen while held. */
+export const ELEVENLABS_HELD_LINE =
+  'Setup 2 waits on turning off ElevenLabs training — see the ElevenLabs training card on this task.';
+
 export interface SpokenKeySources {
   env: Record<string, string | undefined>;
   /** Keychain reads; a test passes one that answers nothing. */
@@ -61,6 +65,7 @@ export function createSpokenEngines(
       2: eleven && cleared ? createElevenLabsVoice({ apiKey: eleven }) : null,
     },
     gemini: gemini ? createGeminiLive({ apiKey: gemini }) : null,
+    ...(eleven && !cleared ? { held: { '2': ELEVENLABS_HELD_LINE } } : {}),
   };
   const on = availableSetups(engines);
   log(
