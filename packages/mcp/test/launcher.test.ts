@@ -25,11 +25,15 @@ const NODELESS_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 function run(
   command: string,
   args: string[],
-  { stdin, timeoutMs = 20_000 }: { stdin?: string; timeoutMs?: number } = {},
+  {
+    stdin,
+    timeoutMs = 20_000,
+    env = {},
+  }: { stdin?: string; timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, args, {
-      env: { PATH: NODELESS_PATH, HOME: process.env.HOME ?? '' },
+      env: { PATH: NODELESS_PATH, HOME: process.env.HOME ?? '', ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -80,8 +84,29 @@ describe('plugin MCP launcher', () => {
     expect(`${stderr}`).toMatch(/ENOENT|not found|no such file/i);
   });
 
-  it('completes an MCP initialize handshake with no node on PATH', async () => {
-    const { stdout } = await run('/bin/sh', [LAUNCHER, BUNDLE], { stdin: INITIALIZE });
+  // Both children the launcher can pick on a node-less PATH: the full child
+  // (the rollback lever), and the node relay, which answers initialize itself
+  // when no server answers — CW_BASE_URL names a closed port so no discovery
+  // file is read, and a compiler that does not exist keeps the compiled relay
+  // out of it.
+  it.each([
+    ['full child', { CW_MCP_RELAY: '0' }],
+    [
+      'node relay',
+      {
+        CW_RELAY_SWIFTC: '/nonexistent/swiftc',
+        CW_RELAY_CACHE_DIR: mkdtempSync(join(tmpdir(), 'cw-launcher-relay-')),
+        CW_BASE_URL: 'http://127.0.0.1:9',
+        CW_RELAY_INIT_WAIT_MS: '0',
+      },
+    ],
+  ])('completes an MCP initialize handshake with no node on PATH: %s', async (name, env) => {
+    const { stdout, stderr } = await run('/bin/sh', [LAUNCHER, BUNDLE], {
+      stdin: INITIALIZE,
+      env,
+    });
+    // Which child answered: only the relay prints this banner.
+    expect(stderr.includes('[relay] node relay started')).toBe(name === 'node relay');
 
     const line = stdout.split('\n').find((l) => l.trim().startsWith('{'));
     expect(
