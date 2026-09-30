@@ -1,4 +1,6 @@
-# Claude Workspaces Plugin v0.2.0
+# Claude Workspaces Plugin
+
+[![Latest release](https://img.shields.io/github/v/release/fryanpan/claude-workspaces-plugin)](https://github.com/fryanpan/claude-workspaces-plugin/releases/latest)
 
 ## Warning
 
@@ -10,9 +12,11 @@ With that said, please take a look and poke around.  Feel free to borrow parts t
 
 ## What's The Workspace Plugin For?
 
-I've been [working with a team of agents from my phone](https://fryanpan.com/posts/agent-team/) (and Mac Mini) for most of this year.  As I've started more projects in parallel, I've regularly felt the pain of trying to keep up with  as the user interface.
+I've been [working with a team of agents from my phone](https://fryanpan.com/posts/agent-team/) (and Mac Mini) for most of this year.  As I've started more projects in parallel, I've regularly felt the pain of trying to keep up with many scrolling chat tabs as the user interface.
 
-Since late Spring 2026, the original foundations in this repo made it easy to collaboratively edit all these artifacts with Claude Code:
+## Early Foundations
+
+Around April 2026, earlier versions of this repo helped me get out of chat and collaboratively edit all these artifacts with Claude Code:
 
 - **Markdown docs** with Mermaid diagrams (like Markdown artifacts in Claude Desktop)
 - **Mockups** of web or mobile interfaces (like Claude Design)
@@ -60,8 +64,8 @@ This has reduced my communication overhead a lot.
 On long projects, agents tended to go off track, stop early, or sit silently waiting. I used a few common techniques to keep them moving:
 
 - **Continuous reprioritization**: Agents continuously reprioritize tasks according to high level goals I've set
-- **Done criteria** each task specifies done criteria that a separate agent verifies
-- **Stall check** pings agents to tell them to keep going if they're not done yet
+- **Done criteria**: each task specifies done criteria that a separate agent verifies
+- **Stall check**: pings agents to tell them to keep going if they're not done yet
 - **Scheduled tasks**: Slightly more reliable and flexible than the default scheduled tasks in Claude Code (and the tasks can have done criteria)
 
 Experiments 1-3 together have roughly doubled my average productivity.  For most of 2026, I've been doing about 10x as much as I might in a week in 2024.  Since Aug 2026, with this new harness, it's averaging more like 20x or so.
