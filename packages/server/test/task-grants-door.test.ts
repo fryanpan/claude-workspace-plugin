@@ -29,6 +29,9 @@ const CF_RAY = { 'cf-ray': '8a1b2c3d4e5f-SJC' };
 const MEMBER = 'bob@riverbend.example';
 const OWNER_EMAIL = 'owner@harborlight.test';
 
+/** What the board's own page sends with a press of Approve. */
+const SAME_ORIGIN = { origin: `https://${OWNER_HOST}`, 'sec-fetch-site': 'same-origin' };
+
 const AGENT = { id: 'agent-riverbend', name: 'Riverbend Bot', kind: 'agent' as const };
 /** What an agent would claim to be if it tried to pass as the owner. */
 const CLAIMS_OWNER = { id: 'known-bryan', name: 'Bryan', kind: 'known' as const };
@@ -90,14 +93,21 @@ describe('a grant card, answered only by the owner in the browser', () => {
   /** An agent, or anything else on this machine: loopback, no proof. */
   const postLocal = (path: string, body: unknown) =>
     req(path, `localhost:${handle.port}`, json(body));
-  /** The owner's own browser, off the box: Access proved the owner email. */
-  const postOwner = async (path: string, body: unknown) =>
+  /** The owner's own browser, off the box: Access proved the owner email,
+   *  and the browser says the request came from the board's own page. */
+  const postOwner = async (
+    path: string,
+    body: unknown,
+    browser: Record<string, string> = SAME_ORIGIN,
+  ) =>
     req(path, OWNER_HOST, {
       ...json(body),
       headers: {
         'content-type': 'application/json',
         ...CF_RAY,
+        'x-forwarded-proto': 'https',
         'cf-access-jwt-assertion': await signJwt(OWNER_AUD, OWNER_EMAIL),
+        ...browser,
       },
     });
   const postMember = async (path: string, body: unknown) =>
@@ -233,6 +243,41 @@ describe('a grant card, answered only by the owner in the browser', () => {
     expect(settingsNow()).toBe(ORIGINAL);
   });
 
+  it("refuses the owner's proof on a request that is not from the board's own page", async () => {
+    // A page on another local port can carry the owner's session cookie; it
+    // cannot make the browser say same-origin, or send this server's Origin.
+    const variants: Array<Record<string, string>> = [
+      {},
+      { 'sec-fetch-site': 'cross-site' },
+      { 'sec-fetch-site': 'same-site', origin: `https://${OWNER_HOST}` },
+      { 'sec-fetch-site': 'same-origin' },
+    ];
+    for (const browser of variants) {
+      const res = await postOwner(
+        grantPath(),
+        { decision: 'approve', allowRules: [PUSH, TAG, OWN] },
+        browser,
+      );
+      expect(res.status, JSON.stringify(browser)).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toBe('same-origin-only');
+    }
+    expect(settingsNow()).toBe(ORIGINAL);
+  });
+
+  it('404s a card reached through a board the task is not on', async () => {
+    const other = (
+      (await (await postLocal('/workspaces', { name: 'Saltmarsh notes' })).json()) as {
+        workspace: { id: string };
+      }
+    ).workspace.id;
+    const res = await postOwner(
+      `/workspaces/${encodeURIComponent(other)}/tasks/${taskId}/review-items/${itemId}/grant`,
+      { decision: 'approve', allowRules: [PUSH, TAG, OWN] },
+    );
+    expect(res.status).toBe(404);
+    expect(settingsNow()).toBe(ORIGINAL);
+  });
+
   it("the owner's Approve adds exactly the listed lines and closes the card", async () => {
     const res = await postOwner(grantPath(), {
       decision: 'approve',
@@ -285,6 +330,35 @@ describe('a grant card, answered only by the owner in the browser', () => {
       allowRules: [TAG],
     });
     expect(res.status).toBe(200);
+    expect(settingsNow()).toBe(ORIGINAL);
+  });
+
+  it('refuses an Approve on a closed task before touching the settings', async () => {
+    // Its lines would be written after the close already released the task,
+    // so nothing would take them back until the next boot.
+    const closed = (
+      (await (
+        await postLocal(`${scope()}/tasks`, {
+          title: 'Tag the Saltmarsh build',
+          body: 'Agent can tag the build so that the Saltmarsh release names the right commit.',
+          author: AGENT,
+        })
+      ).json()) as { task: { id: string } }
+    ).task.id;
+    const filed = (await (
+      await postLocal(`${scope()}/tasks/${closed}/review-items`, {
+        author: AGENT,
+        review: { review_type: 'grant', headline: 'Allow tags', allowRules: [TAG] },
+      })
+    ).json()) as { item: { id: string } };
+    const archived = await postLocal(`${scope()}/tasks/${closed}/archive`, { author: AGENT });
+    expect(archived.status).toBe(200);
+    const res = await postOwner(`${scope()}/tasks/${closed}/review-items/${filed.item.id}/grant`, {
+      decision: 'approve',
+      allowRules: [TAG],
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('task-closed');
     expect(settingsNow()).toBe(ORIGINAL);
   });
 });

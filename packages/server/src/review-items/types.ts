@@ -62,7 +62,9 @@ export type AnswerTaskReviewResult =
       error: 'not-found' | 'unknown-review-item' | 'unknown-option' | 'not-a-decision';
     }
   /** An agent answering an item filed for a done-when owner line. */
-  | { ok: false; error: 'not-a-person'; message: string };
+  | { ok: false; error: 'not-a-person'; message: string }
+  /** A secret or grant item answered through any door but its own. */
+  | { ok: false; error: 'secret-item' | 'grant-item'; message: string };
 
 export type RequestInfoOnReviewResult =
   | { ok: true; task: Task; item: TaskReviewItem }

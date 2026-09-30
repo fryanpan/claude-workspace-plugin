@@ -24,6 +24,7 @@ import {
   type BoardPromptMigration,
   endBoardPromptBeforeMarkdown,
 } from './prompt-markdown-migration.ts';
+import { type AnswerDoor, answerDoorRefusal } from './review-items/answer-doors.ts';
 import { TaskDecisionStore } from './review-items/decisions.ts';
 import {
   type OwnerItemDeps,
@@ -2880,11 +2881,13 @@ export class TaskStore {
       answeredWith?: string;
       via?: WriteVia;
       openParts?: string[];
+      /** Set only by the door that owns a secret or grant item; every other
+       *  caller is refused one (`review-items/answer-doors.ts`). */
+      door?: AnswerDoor;
     },
   ): AnswerTaskReviewResult {
-    const task = this.getTask(taskId);
-    const refused = task ? refuseOwnerAnswer(task, reviewItemId, opts.actor) : undefined;
-    if (refused) return { ok: false, error: 'not-a-person', message: refused };
+    const refused = this.answerTaskReviewRefusal(taskId, reviewItemId, opts);
+    if (refused) return refused;
     const res = this.reviewItems.answerTaskReview(taskId, reviewItemId, text, opts);
     // An item filed for an owner line carries its answer to the line.
     if (res.ok) {
@@ -2897,6 +2900,27 @@ export class TaskStore {
       );
     }
     return res;
+  }
+
+  /**
+   * Why `answerTaskReview` would refuse this answer before writing anything,
+   * or undefined. A door with a write of its own to make first — the grant
+   * door writes the owner's settings — asks this, so a refusal cannot come
+   * after that write has landed.
+   */
+  answerTaskReviewRefusal(
+    taskId: string,
+    reviewItemId: string,
+    opts: { actor: { id: string; name: string; kind?: string }; door?: AnswerDoor },
+  ): Extract<AnswerTaskReviewResult, { ok: false }> | undefined {
+    const task = this.getTask(taskId);
+    if (!task) return { ok: false, error: 'not-found' };
+    const refused = refuseOwnerAnswer(task, reviewItemId, opts.actor);
+    if (refused) return { ok: false, error: 'not-a-person', message: refused };
+    const item = this.listReviewItems(taskId).find((r) => r.id === reviewItemId);
+    if (!item) return { ok: false, error: 'unknown-review-item' };
+    const wrongDoor = answerDoorRefusal(item.review.shape, opts.door);
+    return wrongDoor ? { ok: false, ...wrongDoor } : undefined;
   }
 
   requestMoreInfoOnReview(
