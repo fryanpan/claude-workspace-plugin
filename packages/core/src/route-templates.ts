@@ -44,6 +44,7 @@
  */
 export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   // top-level static (no dynamic segment at all)
+  ['api', 'agent-token'],
   ['api', 'auth', 'logout'],
   ['api', 'auth', 'profile'],
   ['api', 'auth', 'session'],
