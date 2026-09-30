@@ -1,0 +1,52 @@
+name: Release
+
+# One GitHub release per plugin version, cut when that version reaches main.
+#
+# Main IS the release point for anyone outside this machine: the marketplace
+# serves the plugin straight from main, so a peer's `claude plugin update`
+# picks a version up the moment its PR merges, whether or not prod has
+# redeployed. Tying the release to a deploy instead would date it by when one
+# server restarted rather than by when users could have it.
+#
+# The version is the one in packages/plugin/.claude-plugin/plugin.json, the
+# site check:plugin-version already forces every plugin PR to move. If the tag
+# v<version> already exists the run does nothing, so a re-run, a manual
+# dispatch or a push that did not bump the version is harmless. The notes are
+# GitHub's generated list of PRs merged since the previous release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/plugin/.claude-plugin/plugin.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release for this version if it does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version packages/plugin/.claude-plugin/plugin.json)
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to do."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --generate-notes \
+            --latest
+          echo "Created release $tag at $GITHUB_SHA."

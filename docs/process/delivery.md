@@ -70,6 +70,12 @@ and the version did not, it **copies nothing and reports success** — silent on
 both ends. That is how 25 feature commits sat undelivered between 2026-05-09
 and 2026-08-10.
 
+When a new version reaches main, `.github/workflows/release.yml` tags it
+`v<version>` and publishes a GitHub release listing the PRs merged since the
+previous release. Main is the release point because the marketplace serves
+the plugin from main, so a release marks when users could first install a
+version, not when prod redeployed.
+
 Bump the patch on every PR that touches `packages/plugin/**`, in all three
 places, to the same value:
 
