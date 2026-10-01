@@ -22,6 +22,9 @@
  * Stop does, so the sentence being said still becomes a note, and then the
  * server writes whatever notes the page can no longer (`voice-feedback-keep.ts`).
  *
+ * A NOTE THAT CANNOT BE PLACED OR READ gets one question, and its answer edits
+ * that note (`voice-feedback-question.ts`).
+ *
  * WHO MAY OPEN ONE. The upgrade refuses share visitors outright, because a
  * session spends a transcription engine and the model on the owner's keys;
  * a page that could not sign in to write arrives `readOnly` and is told so.
@@ -36,8 +39,15 @@ import {
 } from '@claude-workspaces/core';
 import { isCategoryAuthor } from './task-owner.ts';
 import type { EngineTurn, TranscriptionEngine } from './transcribe.ts';
-import { type VoiceNoteThreads, keepSession } from './voice-feedback-keep.ts';
-import type { LiveComment, Session, VoiceTimers, VoiceWs } from './voice-feedback-session.ts';
+import { type VoiceNoteThreads, keepLater } from './voice-feedback-keep.ts';
+import { type QuestionVoice, VoiceQuestions } from './voice-feedback-question.ts';
+import {
+  type LiveComment,
+  type Session,
+  type VoiceTimers,
+  type VoiceWs,
+  newSession,
+} from './voice-feedback-session.ts';
 import {
   VoiceLog,
   clipPath,
@@ -54,13 +64,14 @@ import {
   parseTidyReply,
   tidyDollars,
 } from './voice-feedback-tidy.ts';
-import { VoiceTurns } from './voice-feedback-turns.ts';
 
 export type { VoiceTimers, VoiceWs } from './voice-feedback-session.ts';
 
 export interface VoiceFeedbackDeps {
   engines: readonly TranscriptionEngine[];
   tidy: TidyComplete | null;
+  /** Says a clarifying question aloud; none, and the page only shows it. */
+  voice?: QuestionVoice | null;
   dataDir: string;
   /** Longest a heard word waits to become a note when the talk never pauses. */
   cadenceMs?: number;
@@ -91,8 +102,15 @@ export class VoiceFeedbackRelay {
   private readonly timers: VoiceTimers;
   private readonly cadenceMs: number;
   private readonly pauseMs: number;
+  private readonly questions: VoiceQuestions;
 
   constructor(private readonly deps: VoiceFeedbackDeps) {
+    this.questions = new VoiceQuestions({
+      voice: deps.voice ?? null,
+      send: (s, msg) => this.send(s.ws, msg),
+      emit: (s, c) => this.emit(s, c),
+      ...(deps.log ? { log: deps.log } : {}),
+    });
     this.timers = deps.timers ?? {
       set: (fn, ms) => setTimeout(fn, ms),
       clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
@@ -160,30 +178,15 @@ export class VoiceFeedbackRelay {
     const { dataDir } = this.deps;
     const { docId } = ws.data;
     const { segment, wav } = openNextSegment(dataDir, docId, MEETING_SAMPLE_RATE);
-    const s: Session = {
+    const s = newSession({
       ws,
-      engine: null,
       wav,
       log: new VoiceLog(dataDir, docId),
       segment,
       // A proven identity outranks the page's claim, as on the thread routes.
       author: ws.data.author ?? (isCategoryAuthor(msg.author) ? null : (msg.author ?? null)),
       targets,
-      turns: new VoiceTurns(),
-      comments: new Map(),
-      open: null,
-      pinned: undefined,
-      seq: 0,
-      cursorMs: 0,
-      timer: null,
-      since: null,
-      inflight: null,
-      switching: Promise.resolve(),
-      ending: null,
-      closed: false,
-      usd: 0,
-      ticks: 0,
-    };
+    });
     // Registered before the engine opens, so audio sent during the handshake
     // lands in the recording; the engine hears from its first frame on.
     this.sessions.set(ws, s);
@@ -278,6 +281,9 @@ export class VoiceFeedbackRelay {
   private async runTick(s: Session, words: string, endMs: number): Promise<void> {
     const startMs = s.cursorMs;
     s.cursorMs = endMs;
+    // "The second one": the answer to the question waiting, and nothing more.
+    if (this.questions.heard(s, words)) return;
+    const asked = this.questions.asked(s);
     const input: TidyInput = {
       targets: s.targets,
       open: s.open
@@ -287,10 +293,12 @@ export class VoiceFeedbackRelay {
             target: s.open.target,
             fixed: s.open.fixed,
             ...(s.open.chosen ? { chosen: true } : {}),
+            ...(s.open.clarified ? { clarified: s.open.clarified } : {}),
           }
         : null,
       ...(s.pinned !== undefined ? { pinned: s.pinned } : {}),
       words,
+      ...(asked ? { asked } : {}),
     };
     let comments: TidyComment[] | null = null;
     if (this.deps.tidy) {
@@ -322,6 +330,10 @@ export class VoiceFeedbackRelay {
       const p = parts[k];
       if (p) this.place(s, c, p.words, p.startMs, p.endMs);
     });
+    // The words after a question had their one chance to answer it.
+    if (asked) this.questions.clear(s);
+    const last = apportioned.comments.at(-1);
+    if (last?.ask && s.open) this.questions.offer(s, s.open, last.ask, s.open.raw);
   }
 
   private place(s: Session, c: TidyComment, words: string, startMs: number, endMs: number): void {
@@ -355,6 +367,8 @@ export class VoiceFeedbackRelay {
   private settle(s: Session, c: LiveComment): void {
     if (c.final) return;
     c.final = true;
+    // The talk moved on: a question about this note is passed by.
+    if (s.ask?.key === c.key) this.questions.clear(s);
     if (s.open === c) s.open = null;
     this.emit(s, c);
     const where = describeTarget(s.targets, c.target);
@@ -410,6 +424,9 @@ export class VoiceFeedbackRelay {
         s.log.write(`- Comment ${msg.key} posted as thread ${msg.threadId}\n`);
         return;
       }
+      case 'answer':
+        if (s.ask?.key === msg.key) this.questions.answer(s, msg.choice);
+        return;
       case 'stop':
         void this.finish(s, 'stop');
         return;
@@ -456,6 +473,7 @@ export class VoiceFeedbackRelay {
       if (s.inflight) await s.inflight;
       void s.engine?.close();
     }
+    this.questions.clear(s);
     s.closed = true;
     if (s.timer !== null) this.timers.clear(s.timer);
     if (s.open) this.settle(s, s.open);
@@ -474,15 +492,7 @@ export class VoiceFeedbackRelay {
       return;
     }
     if (how === 'revoked') return;
-    await this.keep(s, how === 'gone' ? (this.deps.keepGraceMs ?? VOICE_KEEP_GRACE_MS) : 0);
-  }
-
-  private async keep(s: Session, graceMs: number): Promise<void> {
-    const { keep } = this.deps;
-    if (!keep || s.comments.size === 0) return;
-    if (graceMs > 0) await new Promise<void>((r) => this.timers.set(() => r(), graceMs));
-    await keepSession(keep, s).catch((err) =>
-      this.deps.log?.(`[voice-feedback] keeping notes failed: ${String(err)}`),
-    );
+    const graceMs = how === 'gone' ? (this.deps.keepGraceMs ?? VOICE_KEEP_GRACE_MS) : 0;
+    if (this.deps.keep) await keepLater(this.deps.keep, s, graceMs, this.timers, this.deps.log);
   }
 }

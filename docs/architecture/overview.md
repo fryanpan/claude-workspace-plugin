@@ -652,6 +652,15 @@ its clip starts, edits it, and creates only a note no thread holds. The
 socket carries the upgrade's proven identity for that write; with none, the
 speaker the page named at `start`.
 
+A note whose element or meaning the tidy cannot settle gets one question.
+`voice-feedback-ask.ts` decides whether the tidy's proposed question is
+worth asking (never on a pinned note, never twice, two or three distinct
+choices) and matches a short spoken answer without a model call;
+`voice-feedback-question.ts` sends the question, says it in the spoken
+reply's voice, and turns the answer into an edit of the same note, so the
+page re-anchors or rewrites the thread it already made rather than adding
+one.
+
 **The board mic's spoken reply.** Holding the board mic can get a spoken
 answer rather than a line of text: Claude writes a short overview into a
 panel above the mic and says its first two sentences, or asks one question
