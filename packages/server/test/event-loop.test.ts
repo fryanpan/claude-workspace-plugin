@@ -196,7 +196,7 @@ describe('LoopLagMonitor naming the background pass', () => {
   function monitored() {
     const clock = fakeClock();
     const lines: string[] = [];
-    const passes = new BackgroundPasses();
+    const passes = new BackgroundPasses(clock.now);
     const m = new LoopLagMonitor({
       periodMs: 250,
       thresholdMs: 1000,
@@ -214,7 +214,9 @@ describe('LoopLagMonitor naming the background pass', () => {
     passes.run('stall-tick', () => clock.advance(1_900));
     m.tick();
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('blocked 1650ms — nothing in flight; in pass: stall-tick');
+    expect(lines[0]).toContain(
+      'blocked 1650ms — nothing in flight; in pass: stall-tick (held 1900ms)',
+    );
     expect(lines[0]).not.toContain('a timer, a GC');
   });
 
@@ -236,10 +238,20 @@ describe('LoopLagMonitor naming the background pass', () => {
     expect(lines[0]).not.toContain('idle-eviction');
   });
 
+  it('says a pass that ran beside a block held the loop for almost none of it', () => {
+    const { clock, lines, passes, m } = monitored();
+    // The poll's sweep issues its stats and returns; something else then holds
+    // the loop. The line must not read as though the poll did.
+    passes.run('file-poll', () => clock.advance(2));
+    clock.advance(3_000);
+    m.tick();
+    expect(lines[0]).toContain('nothing in flight; in pass: file-poll (held 2ms)');
+  });
+
   it('names a pass beside the requests in flight', () => {
     const clock = fakeClock();
     const lines: string[] = [];
-    const passes = new BackgroundPasses();
+    const passes = new BackgroundPasses(clock.now);
     const m = new LoopLagMonitor({
       periodMs: 250,
       thresholdMs: 1000,
@@ -250,17 +262,24 @@ describe('LoopLagMonitor naming the background pass', () => {
     });
     passes.run('file-poll', () => clock.advance(2_000));
     m.tick();
-    expect(lines[0]).toContain('in flight: GET /workspaces (2000ms); in pass: file-poll');
+    expect(lines[0]).toContain(
+      'in flight: GET /workspaces (2000ms); in pass: file-poll (held 2000ms)',
+    );
   });
 });
 
 describe('BackgroundPasses', () => {
   it('holds an async pass open until its promise settles', async () => {
-    const passes = new BackgroundPasses();
+    const clock = fakeClock();
+    const passes = new BackgroundPasses(clock.now);
     let finish!: () => void;
-    const done = passes.run('stall-prepare', () => new Promise<void>((r) => (finish = r)));
-    expect(passes.drain()).toEqual(['stall-prepare']);
-    // Still running, so the next read names it again.
+    const done = passes.run('stall-prepare', () => {
+      clock.advance(4);
+      return new Promise<void>((r) => (finish = r));
+    });
+    // The first slice is timed; the slices after its awaits are not.
+    expect(passes.drain()).toEqual(['stall-prepare (held 4ms)']);
+    // Still running, so the next read names it again, with no new hold.
     expect(passes.drain()).toEqual(['stall-prepare']);
     finish();
     await done;
@@ -269,15 +288,26 @@ describe('BackgroundPasses', () => {
   });
 
   it('ends a pass that throws, and a rejected one', async () => {
-    const passes = new BackgroundPasses();
+    const passes = new BackgroundPasses(fakeClock().now);
     expect(() =>
       passes.run('memory-sample', () => {
         throw new Error('boom');
       }),
     ).toThrow('boom');
     await passes.run('ready-tick', () => Promise.reject(new Error('no'))).catch(() => {});
-    expect(passes.drain()).toEqual(['memory-sample', 'ready-tick']);
+    expect(passes.drain()).toEqual(['memory-sample (held 0ms)', 'ready-tick (held 0ms)']);
     expect(passes.drain()).toEqual([]);
+  });
+
+  it('reports the longest hold of a name since the last read, then forgets it', () => {
+    const clock = fakeClock();
+    const passes = new BackgroundPasses(clock.now);
+    passes.run('file-poll', () => clock.advance(3));
+    passes.run('file-poll', () => clock.advance(40));
+    passes.run('file-poll', () => clock.advance(7));
+    expect(passes.drain()).toEqual(['file-poll (held 40ms)']);
+    passes.run('file-poll', () => clock.advance(1));
+    expect(passes.drain()).toEqual(['file-poll (held 1ms)']);
   });
 
   it('counts overlapping runs of one name, and an end called twice once', () => {

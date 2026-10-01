@@ -56,7 +56,7 @@ import { statStampSync } from './file-stamp.ts';
 import { showFile } from './git-diff.ts';
 import { gitConflictHint } from './git-provenance.ts';
 import { isWithinRoot } from './safe-path.ts';
-import { boundFiles, isDataless, redactBoundPath } from './slow-fs.ts';
+import { type BoundStatResult, boundFiles, isDataless, redactBoundPath } from './slow-fs.ts';
 
 /**
  * Per-doc binding to a markdown file on disk. Maintained by
@@ -484,6 +484,25 @@ const FILE_POLL_ACTIVE_MS = 60_000;
 const IDLE_SWEEP_BUDGET = 128;
 
 /**
+ * A poll stat slower than this earns a line naming its doc (never its path).
+ *
+ * A twelfth of the bound-read deadline: 250ms in production. A healthy local
+ * stat answers in well under a millisecond, so anything past this is the disk
+ * or the file's provider, and it is far enough below the 3s deadline that a
+ * disk going slow shows in the log before anything is quarantined. Derived
+ * from the deadline so the suite's timing scale keeps the two in proportion.
+ *
+ * The time is measured to the stat's ANSWER as the main thread receives it,
+ * so a loop held by something else also makes every stat in flight read as
+ * slow. Read the line beside the `[loop] blocked` report, whose pass names
+ * now say how long each pass held the loop.
+ */
+export const SLOW_POLL_STAT_MS = DOC_STORE_TIMINGS.boundReadDeadlineMs / 12;
+
+/** At most one slow-stat line per backoff window; the rest are counted into it. */
+const SLOW_POLL_LOG_EVERY_MS = DOC_STORE_TIMINGS.boundReadRetryMs;
+
+/**
  * How many copies of ONE doc's own content to keep in `clobber-backups/`.
  *
  * Generous on purpose: the file this exists to preserve is the one a person
@@ -592,6 +611,8 @@ export class FileBindings {
   private pollTicker: ReturnType<typeof setInterval> | null = null;
   /** Where the idle rotation of the shared sweep left off. */
   private idleCursor = 0;
+  /** When the last slow-stat line went out, and how many slow stats since. */
+  private slowStats = { loggedAt: Number.NEGATIVE_INFINITY, unlogged: 0 };
   /** Idle → active transitions since boot, by the caller that caused them. */
   private activations = new Map<string, number>();
   /**
@@ -1556,11 +1577,20 @@ export class FileBindings {
     // enough to park the event loop for the whole server — see slow-fs. A
     // stat still in flight is not re-issued: a stalled one never returns, and
     // re-issuing it every tick is how the overdue bound would be exhausted.
+    //
+    // That per-binding guard is also what keeps one hung file from holding up
+    // the rest of the sweep: the stats run side by side, so a file that never
+    // answers parks its own binding and nothing else. It is let go at the
+    // slow-fs deadline (3s) and then quarantined for a minute, so it costs one
+    // pool thread per path per minute. Skipping whole ticks while any stat is
+    // in flight would do the opposite and stop every doc behind the slowest.
     if (binding.statInFlight) return;
     binding.statInFlight = true;
+    const startedAt = performance.now();
     void boundFiles
       .statMtime(binding.path)
       .then((res) => {
+        this.noteSlowStat(docId, performance.now() - startedAt, res);
         if (res.status !== 'ok') return; // quarantined, busy, or never answered
         if (!res.exists) return; // the ordinary case: a deleted worktree
         this.applyPolledStat(docId, binding, res.mtimeMs, res.size);
@@ -1568,6 +1598,27 @@ export class FileBindings {
       .finally(() => {
         binding.statInFlight = false;
       });
+  }
+
+  /**
+   * One line when a poll stat was slow, naming the doc and how many slow
+   * stats went unlogged since the previous line. Rate-limited because a slow
+   * disk makes every stat of a sweep slow at once: 128 idle stats a tick
+   * would otherwise be 256 lines a second.
+   */
+  private noteSlowStat(docId: string, ms: number, res: BoundStatResult): void {
+    if (ms < SLOW_POLL_STAT_MS) return;
+    const now = performance.now();
+    if (now - this.slowStats.loggedAt < SLOW_POLL_LOG_EVERY_MS) {
+      this.slowStats.unlogged++;
+      return;
+    }
+    const outcome = res.status === 'ok' ? '' : ` (${res.reason})`;
+    const more = this.slowStats.unlogged;
+    this.slowStats = { loggedAt: now, unlogged: 0 };
+    console.error(
+      `[file-poll] ${docId}: stat took ${Math.round(ms)}ms${outcome}; ${more} other slow stats since the last line`,
+    );
   }
 
   /**
