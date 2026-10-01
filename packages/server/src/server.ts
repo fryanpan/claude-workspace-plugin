@@ -157,6 +157,10 @@ import {
 } from './routes/tasks.ts';
 import { createUpgradeStream } from './routes/upgrade-stream.ts';
 import {
+  type VoiceAgentLlmRoutesContext,
+  handleVoiceAgentLlmRoute,
+} from './routes/voice-agent-llm.ts';
+import {
   type LibraryRoutesContext,
   handleLibraryRoutes,
   libraryRunOutputSource,
@@ -179,6 +183,7 @@ import { SharingGate } from './share/sharing-gate.ts';
 import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './sharing-notice.ts';
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
+import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -1539,6 +1544,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // The board mic's spoken reply: the same router's answer, heard and said
   // by the engines `server-deps.ts` built (none here unless injected).
   const spokenTimings = new SpokenTimings(join(dataDir, SPOKEN_TIMINGS_FILE));
+  // Setup 4's live sockets, by the token ElevenLabs hands back to the
+  // custom-LLM route (`routes/voice-agent-llm.ts`).
+  const agentCallbacks = new AgentCallbacks();
   const spokenRelay = new SpokenReplyRelay({
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
     board: {
@@ -1551,6 +1559,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         })),
     },
     timings: spokenTimings,
+    agentCallbacks,
     parseContext: parseVoiceContext,
   });
 
@@ -2290,6 +2299,13 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     j,
   };
 
+  /** Setup 4's custom-LLM route — armed only while the agent is built. */
+  const voiceAgentLlmRoutesCtx: VoiceAgentLlmRoutesContext = {
+    callbacks: agentCallbacks,
+    llmSecret: opts.spokenReply?.agent?.llmSecret ?? null,
+    j,
+  };
+
   /** The archive family — the four archive/unarchive routes and the
    *  review-only delete the board delete two positions below still calls. */
   const archiveRoutesCtx: ArchiveRoutesContext = {
@@ -2903,6 +2919,19 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           browserProvedNobody,
           provenIdentityFor,
           accessIdentityFor,
+        });
+        if (handled) return handled;
+      }
+
+      // --- ElevenLabs' agent asking for setup 4's reply --- see
+      // ./routes/voice-agent-llm.ts. It answers one exact path, so where it
+      // sits changes nothing; it is beside Recall's webhook because both are
+      // a vendor's backend calling in on the callback hostname.
+      {
+        const handled = await handleVoiceAgentLlmRoute(voiceAgentLlmRoutesCtx, {
+          req,
+          pathname,
+          shareVisitor: visitor !== null,
         });
         if (handled) return handled;
       }

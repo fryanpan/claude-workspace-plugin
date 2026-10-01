@@ -119,6 +119,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/signin` | GET | `routes/shell-static.ts` | trusted-local |  |
 | `/sw.js` | GET | `routes/shell-static.ts` | trusted-local |  |
 | `/sw.js.map` | GET | `routes/shell-static.ts` | trusted-local |  |
+| `/voice-agent/v1/chat/completions` | POST | `routes/voice-agent-llm.ts` | recall-callback |  |
 | `/widget-auth` | GET | `routes/auth-share.ts` | trusted-local |  |
 | `/widget.esm.js` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/widget.iife.js` | GET | `routes/shell-static.ts` | share-scope |  |

@@ -190,6 +190,9 @@ export function createOriginPolicy(ctx: OriginPolicyContext): {
 export interface RequestAdmissionOptions {
   trustedHosts?: string[];
   meetingBotWebhookSecret?: string;
+  /** Setup 4 is configured when `agent` is set — the callback host then
+   *  admits its custom-LLM route. */
+  spokenReply?: { agent?: object | null };
 }
 
 /** What the gate reads. Everything here is long-lived; the request and the
@@ -680,10 +683,11 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
       } else if (decision.kind === 'recall-callback') {
         // Recall's dedicated hostname. No Access token is demanded and
         // none could be presented: this caller is a vendor's backend.
-        // What stands in for it is that the hostname serves TWO routes
+        // What stands in for it is that the hostname serves THREE routes
         // and each one carries its own credential — a 128-bit per-bot
         // token in the websocket path, a Svix signature over the webhook
-        // body — verified by the routes themselves one layer in. So the
+        // body, setup 4's bearer secret on its custom-LLM route — verified
+        // by the routes themselves one layer in. So the
         // gate's whole job here is to refuse everything else, and it is
         // an allowlist rather than a denylist: a route added to this
         // server tomorrow is closed on this hostname by default.
@@ -703,11 +707,12 @@ export function createRequestAdmission(ctx: RequestAdmissionContext): RequestAdm
           !recallCallbackAllows(pathname, req.method, {
             relayConfigured: recallRelay.configured(),
             webhookSecretSet: Boolean(opts.meetingBotWebhookSecret),
+            voiceAgentConfigured: Boolean(opts.spokenReply?.agent),
           })
         ) {
           return j(404, { error: 'not_found' });
         }
-        // Nothing else: no `visitor`, no scope, no accessEmail. The two
+        // Nothing else: no `visitor`, no scope, no accessEmail. The three
         // routes below authenticate themselves.
       } else if (decision.kind === 'widget-door') {
         // The tailnet hostname under access-only (middleware/widget-door.ts).

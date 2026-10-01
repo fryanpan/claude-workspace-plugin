@@ -38,7 +38,14 @@
  *    Admitting it unconditionally would put that unsigned-accept mode on the
  *    public internet with nothing in front of it at all.
  *
- * Both live under ONE `/recall/` prefix so the surface is greppable and so a
+ * 3. `POST /voice-agent/v1/chat/completions` — ElevenLabs' agent asking for
+ *    setup 4's spoken reply (`spoken-reply/agent-llm.ts`). Not Recall, but the
+ *    same kind of caller: a vendor's backend that cannot present an Access
+ *    token. Its credential is a bearer secret the route checks in constant
+ *    time, plus a per-socket token in the body. Admitted only while setup 4
+ *    is configured, so a server without the secret has no such path here.
+ *
+ * Recall's two live under ONE `/recall/` prefix so the surface is greppable and so a
  * tunnel or WAF rule can be written against a path prefix rather than a list
  * that drifts. The status webhook used to be `/api/recall/status`; it moved
  * here with the hostname, and the old path is gone rather than shimmed
@@ -56,6 +63,8 @@
  * nothing type-checks (see docs/process/learnings.md).
  */
 
+import { VOICE_AGENT_LLM_PATH } from '../spoken-reply/agent-llm.ts';
+
 /**
  * Which of Recall's own credentials this server is actually holding. Both
  * default to false at the call site's discretion; neither may be inferred
@@ -66,6 +75,8 @@ export interface RecallCallbackCredentials {
   relayConfigured: boolean;
   /** `RECALL_WEBHOOK_SECRET` is set, so the route verifies the signature. */
   webhookSecretSet: boolean;
+  /** Setup 4's agent and LLM secret are configured. Absent reads as false. */
+  voiceAgentConfigured?: boolean;
 }
 
 /** The websocket token exactly as `mintToken` produces it: 128 bits of hex. */
@@ -75,9 +86,9 @@ const RECALL_WS_PATH = /^\/recall\/[0-9a-f]{32}$/;
 export const RECALL_STATUS_PATH = '/recall/status';
 
 /**
- * Is this one of the two requests the callback hostname exists to serve?
+ * Is this one of the requests the callback hostname exists to serve?
  *
- * True for exactly the two Recall callbacks above, and only while the
+ * True for exactly the three callbacks above, and only while the
  * credential each of them carries is configured. False for everything else,
  * including near-misses: a short or non-hex token, a trailing slash, anything
  * under the token, a doubled leading slash, and the wrong method on either
@@ -98,6 +109,9 @@ export function recallCallbackAllows(
     return true;
   }
   if (creds.webhookSecretSet && verb === 'POST' && pathname === RECALL_STATUS_PATH) {
+    return true;
+  }
+  if (creds.voiceAgentConfigured === true && verb === 'POST' && pathname === VOICE_AGENT_LLM_PATH) {
     return true;
   }
   return false;

@@ -175,9 +175,9 @@ export interface TrustedHostOpts {
    * `recall.<domain>` (`CW_RECALL_CALLBACK_HOST`).
    *
    * The FOURTH list, and by far the narrowest grant: not the product, not the
-   * share surface, not the app shell — two routes, each of which carries its
-   * own credential (a 128-bit per-bot token in the path; a Svix signature
-   * over the webhook body). Everything else on it is 404. See
+   * share surface, not the app shell — three routes, each of which carries
+   * its own credential (a 128-bit per-bot token in the path; a Svix signature
+   * over the webhook body; setup 4's bearer secret, for ElevenLabs' backend). Everything else on it is 404. See
    * middleware/recall-callback-gate.ts for the allowlist and why each route
    * is armed only while its credential is configured.
    *
@@ -192,7 +192,7 @@ export interface TrustedHostOpts {
    *   backend has no browser and no way to acquire a token, so an Access
    *   application in front of this hostname would refuse every real caller —
    *   which is the whole reason the exemptions this replaces existed. The
-   *   credentials the two routes carry are what authenticates them.
+   *   credentials the three routes carry are what authenticates them.
    * - **No `viaProxy` requirement.** That veto exists so a tunnel visitor
    *   cannot claim `Host: localhost` and be served the product; there is no
    *   product here to serve. Requiring it would also break any deployment
@@ -423,7 +423,7 @@ export function isShareLinkHost(host: string | null | undefined, opts: TrustedHo
  * `collab`; `proxiedTrustedHosts` classifies `proxied-local`. All three are
  * grants to PEOPLE, gated by something a person can present. This one is a
  * grant to a VENDOR'S BACKEND, gated by credentials only that backend holds,
- * and it reaches two routes. Keeping it a fourth door is what stops the
+ * and it reaches three routes. Keeping it a fourth door is what stops the
  * unauthenticated one from ever being the door people use.
  */
 export function isRecallCallbackHost(
@@ -484,7 +484,7 @@ export type HostDecision =
   | { kind: 'share-link' } // the share hostname: JWT (share aud) + membership
   | { kind: 'collab' } // Access-fronted collaboration host: JWT + collabScope
   | { kind: 'proxied-local' } // Access-fronted operator host: JWT, then local
-  | { kind: 'recall-callback' } // the bot callback host: two routes, nothing else
+  | { kind: 'recall-callback' } // the vendor callback host: three routes, nothing else
   | { kind: 'widget-door' } // the tailnet host under access-only: widget routes, token each
   | { kind: 'deny'; reason: 'unknown_host' }; // anything else: refuse
 
