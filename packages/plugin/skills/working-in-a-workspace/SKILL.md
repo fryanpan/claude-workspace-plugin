@@ -101,7 +101,7 @@ Write each entry so a reader can check it alone:
 - Write one outcome in one entry. Do not join two outcomes with "and".
 - Do not write the steps you will do. Write the result the steps must give.
 
-**Mark a line only a person can judge when you write it:** `{text, needs: 'owner'}`. Use it for how something looks or reads to them, or for a device only they have. The line asks nobody while you build. The person is not flagged for work that is not ready. `needs` stays on a line whose `id` you keep; `needs: null` clears it.
+**Mark a line only a person can judge when you write it:** `{text, needs: 'owner'}`. Use it for how something looks or reads to them, or for a device only they have. The line asks nobody while you build, and it holds no other task. The person is not flagged for work that is not ready. `needs` stays on a line whose `id` you keep; `needs: null` clears it.
 
 **Report what you found with `report_done_when`.** Give one entry for each line you checked: `{id, verdict, proof?}`.
 
@@ -141,6 +141,21 @@ Write each entry so a reader can check it alone:
   1. The outcome, in one line.
   2. The task's link (`?task=<taskId>` on the board URL).
   3. Any blocker, in one line.
+
+### Keep building while a person checks
+
+Bias toward building. Waiting on a person holds only the line that asks them, never the next task.
+
+- **An owner check never holds another task.** An owner check is a `needs: 'owner'` line, a person's try-out on their device, or a pick between options that are all built. Never put an `after` edge or `block_task` on it. Build the next task on a sensible default, keep the choice switchable, and name the default in the task note.
+- **A mock review on UI work is not a gate.** Put the mock on the real surface, report its line `owner`, and build the feature behind it in the same PR. Their comments arrive as rework. An agent-filed UI change with no answer yet still waits for that first answer (Picking Up Work).
+- **Wait only for** spend they have not approved, a permission only they hold, an irreversible or outward-facing action, or a fork where both arms are expensive and the answer changes what gets built.
+
+| Excuse | Reality |
+| --- | --- |
+| "Their pick could waste the work" | The options are built and switchable. Build for the default, or for all of them. Rework costs less than idle builders. |
+| "Their pick might make this task moot" | Then archive it. Waiting a day costs more than the build. |
+| "I'll build the mock and wait to build the real UI" | Build both. The review becomes rework. |
+| "The edge is a real dependency, not one invented for the nudge" | A person's answer is not a task. The edge hides ready work from every builder. |
 
 ### Check in every 30 minutes
 
