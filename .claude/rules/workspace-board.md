@@ -93,6 +93,8 @@ board task that proposed it; what follows is the operating rule.
   state is idle capacity plus filed review items naming what it is blocked
   on — not a backlog pick. A `ready_idle` nudge naming a backlog task is
   awareness, not a dispatch order.
+  An owner check or a mock review never holds the next task; the rule is
+  "Keep building while a person checks" in `working-in-a-workspace`.
 - **Complex tasks clear a human gate first.** When an agent files a task that
   is complex by the usual risk assessment — or includes UI design — its
   acceptance criteria must include "review ticket body (and mocks, for UI)
