@@ -35,6 +35,7 @@
  * hydrate that asked for it can use them instead of opening the file again —
  * consumed on first use, never served twice.
  */
+import type { BigIntStats } from 'node:fs';
 import { readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, sep } from 'node:path';
@@ -64,11 +65,8 @@ export function redactBoundPath(path: string): string {
 }
 
 /**
- * The deadline and the backoff live in `doc-store-timings.ts` with every other
- * cadence a bound doc runs on, and for the same reason: the suite would
- * otherwise spend its wall clock waiting them out. Production values are
- * three seconds and one minute.
- *
+ * The deadline and the backoff live in `doc-store-timings.ts`, scaled with
+ * every other cadence a bound doc runs on. Three seconds and one minute.
  * Three seconds is far above any healthy local or network read (a warm
  * cloud-sync file answers in single-digit milliseconds) and far below the
  * supervisor's own patience, so a stalled file parks its doc without ever
@@ -94,10 +92,9 @@ const RETRY_MS = DOC_STORE_TIMINGS.boundReadRetryMs;
  * N bound docs all N stats are outstanding the moment the loop ends no matter
  * how fast each one resolves — nothing can settle until the loop yields. The
  * first four won every tick and the rest were refused `busy`, deterministically,
- * by position in a Map. On a fast local disk the next tick usually recovered
- * it; on a slower filesystem it did not, and an external edit to a bound file
- * could go unnoticed indefinitely. Measured on one test file: 1,338 refusals
- * with a warm local stat, 12,448 once each stat was made to take 30ms.
+ * by position in a Map, and on a slow filesystem an external edit could go
+ * unnoticed indefinitely (one test file: 1,338 refusals with a warm stat,
+ * 12,448 once each stat took 30ms).
  *
  * Gating on overdue calls instead means healthy traffic is never refused —
  * it cannot be, because a healthy call is never overdue. What remains is the
@@ -171,6 +168,8 @@ class BoundFileReader {
    * deadline and back down if the call ever does land.
    */
   private leaked = 0;
+  /** The poll's stat. A field only so a test can hold one pending. */
+  private statFile = (path: string): Promise<BigIntStats> => stat(path, { bigint: true });
   /** Just-completed reads, waiting to be consumed by the hydrate that asked. */
   private readonly fresh = new Map<
     string,
@@ -201,10 +200,9 @@ class BoundFileReader {
    * may be one of the bad ones, and the whole reason this file exists is that
    * finding out the blocking way costs the process.
    *
-   * Refusing on a global signal parks a doc that may have been perfectly
-   * healthy. That is the cheap side of the trade — the doc keeps its `.ydoc`
-   * content and the next hydrate after the backoff tries again — and it is
-   * rare by construction, because a healthy call is never overdue.
+   * Refusing on a global signal can park a healthy doc. That is the cheap
+   * side of the trade (it keeps its `.ydoc` and is tried again later), and it
+   * is rare, because a healthy call is never overdue.
    */
   busy(): boolean {
     return this.leaked >= BOUND_READ_MAX_OVERDUE;
@@ -259,12 +257,10 @@ class BoundFileReader {
   }
 
   /**
-   * The result of a read that completed a moment ago, consumed once.
-   *
-   * This is the handoff from a prewarm to the synchronous hydrate it exists
-   * to protect: the bytes are already in memory, so the attach performs no
-   * syscall on the bound path at all. Consumed rather than cached so a second
-   * hydrate reads the file again instead of trusting bytes it never asked for.
+   * The result of a read that completed a moment ago, consumed once: the
+   * handoff from a prewarm to the synchronous hydrate it protects, so the
+   * attach makes no syscall on the bound path. Consumed rather than cached so
+   * a second hydrate reads the file again instead of trusting old bytes.
    */
   takeFresh(path: string): Extract<BoundReadResult, { status: 'ok' }> | undefined {
     const hit = this.fresh.get(path);
@@ -342,7 +338,7 @@ class BoundFileReader {
   async statMtime(path: string): Promise<BoundStatResult> {
     const blocked = this.gate(path);
     if (blocked) return blocked;
-    const raced = await this.race('stat', path, () => stat(path, { bigint: true }));
+    const raced = await this.race('stat', path, () => this.statFile(path));
     if (raced.kind === 'late') return { status: 'unavailable', reason: 'timeout' };
     if (raced.kind === 'failed') {
       if (isEnoent(raced.err)) return { status: 'ok', exists: false };
@@ -366,9 +362,8 @@ class BoundFileReader {
   }
 
   /**
-   * Tests only: forget the quarantine and the held bytes.
-   *
-   * Neither counter is cleared, and that is the point. A read still parked
+   * Tests only: forget the quarantine and the held bytes. Neither counter is
+   * cleared, and that is the point. A read still parked
    * in `open` owns its pool thread whatever this object says, so zeroing
    * `leaked` here would both report a pool that had not been given back and
    * re-open the gate that number now controls — and the parked read would
@@ -379,6 +374,11 @@ class BoundFileReader {
     this.fresh.clear();
     this.stalledUntil.clear();
     this.unusableLoggedAt.clear();
+  }
+
+  /** Tests only: run `statMtime`'s syscall through `fn`; no argument restores it. */
+  useStatForTests(fn?: (path: string) => Promise<BigIntStats>): void {
+    this.statFile = fn ?? ((path) => stat(path, { bigint: true }));
   }
 
   private gate(path: string): { status: 'unavailable'; reason: 'backoff' | 'busy' } | undefined {
