@@ -26,6 +26,13 @@ import { noteParts } from './note-links.ts';
  *                  `display: none` on screen and visible only on paper,
  *                  where there is no margin and nothing to tap.
  *
+ * THE NUMBER PAIRS THEM (the owner, 2026-10-01: "the margin notes are not very
+ * clear right now about what they're referring to"). Every anchor carries its
+ * superscript number in the text at every width, and the margin caption and
+ * the popover start with the same number, drawn from `data-cw-fn-n` by the
+ * stylesheet so it is never part of the note's own text. Pointing at either
+ * half shades both numbers.
+ *
  * All three read the same DOM the plugin decorated (`.cw-fn[data-cw-fn]`),
  * so they cannot disagree about what the notes are or how they are numbered.
  * All three draw a note through `drawNote`, so a source written as a markdown
@@ -159,18 +166,6 @@ export function mountFootnoteNotes(opts: FootnoteNotesOptions): FootnoteNotesHan
     }
   }
 
-  // Marks THIS editor as one whose notes have a margin to go to. Every
-  // `createEditor` draws the same `.cw-fn` decorations — a task body, a live
-  // redline — and only the document editor mounts this module, so a rule that
-  // hid the superscript on `.cw-fn` alone took the citation off screen in the
-  // editors that have no margin to put it in instead.
-  //
-  // On the CONTAINER, not on the prose root: ProseMirror owns the class
-  // attribute of its own DOM node and rewrites it wholesale whenever the
-  // view's attribute props change, which would drop this one without a word.
-  container.classList.add('cw-fn-margined');
-  scope.onCleanup(() => container.classList.remove('cw-fn-margined'));
-
   const cards = new Map<string, { card: NoteCard; note: string; unsure: boolean }>();
 
   const sources = document.createElement('section');
@@ -198,6 +193,7 @@ export function mountFootnoteNotes(opts: FootnoteNotesOptions): FootnoteNotesHan
    *  re-wiring on every redraw would stack duplicate listeners. */
   function noteEl(n: string): HTMLElement {
     const el = document.createElement('div');
+    el.dataset.cwFnN = n;
     scope.listen(el, 'mouseenter', () => hover(n));
     scope.listen(el, 'mouseleave', () => hover(null));
     scope.listen(el, 'focusin', () => hover(n));
@@ -273,8 +269,10 @@ export function mountFootnoteNotes(opts: FootnoteNotesOptions): FootnoteNotesHan
     for (const el of prose.querySelectorAll('.cw-fn-on, .cw-fn-fact-on')) {
       el.classList.remove('cw-fn-on', 'cw-fn-fact-on');
     }
+    for (const { card } of cards.values()) card.el.classList.remove('cw-fn-note-on');
     const n = hoverN ?? openN;
     if (n === null) return;
+    cards.get(n)?.card.el.classList.add('cw-fn-note-on');
     const id = CSS.escape(n);
     for (const el of prose.querySelectorAll(`.cw-fn[data-cw-fn="${id}"]`)) {
       el.classList.add('cw-fn-on');
@@ -355,6 +353,7 @@ export function mountFootnoteNotes(opts: FootnoteNotesOptions): FootnoteNotesHan
     if (!f) return;
     openN = n;
     openNote = f.note;
+    pop.dataset.cwFnN = n;
     drawNote(pop, f.note);
     pop.classList.toggle('cw-fn-pop-unsure', f.unsure);
     pop.hidden = false;
