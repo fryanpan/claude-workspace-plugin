@@ -185,6 +185,17 @@ jobs:
   # four shards' lcov, merged, reports each package's numbers to the line
   # exactly as one unsharded run does. `scripts/coverage.ts` documents the
   # contrast with bun, whose denominator does move.
+  #
+  # The shards split by file count, not by duration, and that is not what made
+  # shard 4 the long pole. Vitest queues every `dom` file before any `node`
+  # one, so `check-mock-render.test.ts` (node, 56s) started only after its
+  # shard's dom files drained and ran alone to +119s while the other shards
+  # finished by +88s. `scripts/vitest-sequencer.ts` starts the browser-gated
+  # files first instead, which simulated over run 36844754479's per-file
+  # times brings the slowest shard from 123s to ~91s while leaving vitest's
+  # own file-to-shard split alone. A duration-balanced split would buy ~8s more and needs a
+  # timing table that goes stale; more shards would buy runners, not time,
+  # once `comments-in-view.test.ts` (71s) is the floor.
   client:
     runs-on: ubuntu-latest
     permissions:
