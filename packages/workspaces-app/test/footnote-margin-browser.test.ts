@@ -24,7 +24,9 @@
  * THE NUMBER. Each run shows a small superscript number and its card starts
  * with the same one, so the reader can tell which note belongs to which line.
  * `paired` reads both numbers as the browser drew them; at 430 a tap on note 3
- * opens a card that starts with 3.
+ * opens a card that starts with 3. `lift` walks a column through the
+ * painted number: it sat on the baseline (0.15) while the run's 0px font
+ * made `vertical-align: super` raise it by almost nothing.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -167,6 +169,10 @@ describe.skipIf(CHROME === null)('margin notes stay beside their lines while scr
         // Every run shows its number, and every card starts with it.
         expect(p.superscripts).toBe(p.notes);
         expect(p.paired).toBe(p.notes);
+        // …raised clear of the baseline, as a superscript is, and in the
+        // text's own colour.
+        expect(p.lift).toBeGreaterThan(0.3);
+        expect(p.numberColour).toBe(p.textColour);
         expect(p.scrollHeight).toBeGreaterThan(2 * p.clientHeight);
         expect(p.scrolling.length).toBeGreaterThan(20);
         for (const r of [...p.scrolling, ...p.settled]) expect(r.beside).toBeGreaterThan(0);
@@ -193,6 +199,8 @@ describe.skipIf(CHROME === null)('margin notes stay beside their lines while scr
       expect(p.cards).toBe(0);
       expect(p.superscripts).toBe(p.notes);
       expect(p.popNumber).toBe('"3"');
+      expect(p.lift).toBeGreaterThan(0.3);
+      expect(p.numberColour).toBe(p.textColour);
     },
     BROWSER_CASE_MS,
   );

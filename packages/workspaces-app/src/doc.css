@@ -5043,7 +5043,13 @@ body.redline-mode .ProseMirror del.cw-del {
    number is what ties the line to its note, in the margin and in the popover
    alike (Bryan, 2026-10-01). Revealed in full while the caret is inside it,
    so a note can be edited where it lives. The number's line-height is 0, so
-   it never makes the line taller. */
+   it never makes the line taller.
+
+   Raised by `top`, not `vertical-align: super`: super is measured from the
+   PARENT's font, and the run's is 0, so the number floated barely above the
+   baseline. A relative offset moves only the paint, so the line keeps its
+   height. The text colour, not muted: the small size is subtlety enough
+   (Bryan, 2026-10-01). */
 .cw-fn {
   font-size: 0;
   letter-spacing: 0;
@@ -5051,10 +5057,11 @@ body.redline-mode .ProseMirror del.cw-del {
 .cw-fn::after {
   content: attr(data-cw-fn);
   display: inline;
-  font: 400 10px / 0 var(--sans);
-  vertical-align: super;
-  color: var(--fg-muted);
-  padding: 0 2px;
+  font: 400 11px / 0 var(--sans);
+  position: relative;
+  top: -0.75em;
+  color: var(--fg);
+  padding: 0 1px 0 2px;
   cursor: pointer;
 }
 .cw-fn-on::after {
