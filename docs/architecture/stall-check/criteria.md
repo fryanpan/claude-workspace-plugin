@@ -191,7 +191,10 @@ So the question is asked of the WORK. A task in flight with a registered
 dispatch has a worktree; `changedFilesInWorktree` (`git-diff.ts`) lists what
 that worktree has changed since the merge base with the default branch,
 committed and uncommitted alike; and a changed-file list answers "does this
-touch a screen" as a fact. The rule over one path, in `isUiFile`:
+touch a screen" as a fact. On the timer the read happens in the tick's
+`prepare`, through `changedFilesInWorktreeAsync`, because the synchronous
+form waits on about a dozen git processes per worktree and held the loop
+~460ms per dispatch. The rule over one path, in `isUiFile`:
 
 1. a file under a `test`/`tests`/`__tests__`/`spec`/`fixtures` directory, or
    named `*.test.*` / `*.spec.*`, is never a screen — this comes first, and
