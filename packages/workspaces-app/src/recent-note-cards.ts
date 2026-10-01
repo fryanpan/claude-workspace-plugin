@@ -70,6 +70,12 @@ export interface NoteCard {
    * every provenance card has always drawn.
    */
   leaderClass?: string;
+  /**
+   * Place this card the same way at every scroll position: beside its line,
+   * pushed down only by the cards above it (`placeCards`). A footnote's note
+   * asks for it; a provenance card does not.
+   */
+  fixed?: boolean;
 }
 
 export interface RecentNoteCardsOpts {

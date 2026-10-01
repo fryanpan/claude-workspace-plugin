@@ -219,6 +219,9 @@ export function mountFootnoteNotes(opts: FootnoteNotesOptions): FootnoteNotesHan
       el,
       anchor: f.anchor,
       leaderClass: f.unsure ? 'cw-leader-fn-unsure' : 'cw-leader-fn',
+      // A note is a caption on its line: it never follows the scroll, or the
+      // notes in a well-sourced doc pile up and vanish while the reader moves.
+      fixed: true,
     };
     cards.set(f.n, { card, note: f.note, unsure: f.unsure });
     return card;
