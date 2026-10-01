@@ -3658,6 +3658,162 @@ body.doc-voice-on #comment-pill {
   margin-left: auto;
 }
 
+/* ================= INTERVIEW MODE (doc/doc-interview.ts) =================
+   "Interview me" on a plan: an Interview button above the voice-comment mic
+   and a card above it with the question, the words heard and the three
+   commands. Calm, like the board's reply panel: one steady dot names the
+   state, nothing pulses, and nothing moves — the label and the main button
+   are sized for their widest words, the commands keep their slots when
+   disabled, and the card keeps one height while its body scrolls. Hidden
+   while a voice comment records: both want the microphone. */
+.doc-interview-btn {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--doc-dock-h, 0px) + 72px + var(--safe-bottom));
+  z-index: 900;
+  height: 32px;
+  min-width: 92px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.14);
+  font: 600 13px / 1 var(--sans);
+  cursor: pointer;
+}
+.doc-interview-btn:hover,
+.doc-interview-btn.on {
+  border-color: var(--accent);
+}
+body.doc-voice-on .doc-interview-btn {
+  display: none;
+}
+.doc-interview {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--doc-dock-h, 0px) + 116px + var(--safe-bottom));
+  z-index: 901;
+  box-sizing: border-box;
+  width: 380px;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  font: 14px / 1.45 var(--sans);
+}
+.doc-interview[hidden] {
+  display: none;
+}
+.doc-interview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.doc-interview-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--border);
+}
+.doc-interview[data-phase="listening"] .doc-interview-dot {
+  background: var(--red-strong);
+  border-color: var(--red-strong);
+}
+.doc-interview[data-phase="asking"] .doc-interview-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.doc-interview[data-phase="thinking"] .doc-interview-dot {
+  border-color: var(--accent);
+}
+.doc-interview-state {
+  flex: 1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.doc-interview-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+.doc-interview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+.doc-interview-body p {
+  margin: 0 0 8px;
+}
+.doc-interview-question {
+  font-size: 15px;
+  font-weight: 600;
+}
+.doc-interview-you,
+.doc-interview-note {
+  color: var(--fg-muted);
+}
+.doc-interview-you:empty,
+.doc-interview-note:empty,
+.doc-interview-detail:empty {
+  display: none;
+}
+.doc-interview-detail {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.doc-interview-foot {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.doc-interview-foot button {
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: 13px / 1 var(--sans);
+  cursor: pointer;
+}
+.doc-interview-primary {
+  /* Wide enough for "Answer", its widest word. */
+  width: 76px;
+  font-weight: 600;
+  margin-right: auto;
+}
+.doc-interview-cmd {
+  width: 64px;
+}
+.doc-interview-foot button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 720px) {
+  .doc-interview {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+
 /* ================= FULL-SCREEN THREAD VIEW =================
    Tapping a highlight in the doc opens this — Notion's "Diskussion"
    pattern. Focused single-thread view, dismissable with X or Esc. */
