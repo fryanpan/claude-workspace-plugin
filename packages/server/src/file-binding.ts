@@ -51,6 +51,7 @@ import {
 } from './doc-origin-repo.ts';
 import { DOC_STORE_TIMINGS } from './doc-store-timings.ts';
 import type { LiveDoc } from './doc-store.ts';
+import { backgroundPasses } from './event-loop.ts';
 import { statStampSync } from './file-stamp.ts';
 import { showFile } from './git-diff.ts';
 import { gitConflictHint } from './git-provenance.ts';
@@ -1712,7 +1713,10 @@ export class FileBindings {
    */
   private ensureFilePollTicker(): void {
     if (this.pollTicker) return;
-    const timer = setInterval(() => this.sweepFilePolls(), FILE_POLL_MS);
+    const timer = setInterval(
+      () => backgroundPasses.run('file-poll', () => this.sweepFilePolls()),
+      FILE_POLL_MS,
+    );
     // Don't let the poll keep the process (or a test runner) alive.
     timer.unref?.();
     this.pollTicker = timer;

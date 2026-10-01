@@ -117,7 +117,7 @@ import {
   type SocketEditor,
   editSessionEvent,
 } from './edit-sessions.ts';
-import { type TimeSlice, timeSlice } from './event-loop.ts';
+import { type TimeSlice, backgroundPasses, timeSlice } from './event-loop.ts';
 import {
   CONTENT_REVISION_ORIGIN,
   LiveDocFanout,
@@ -882,7 +882,8 @@ export class DocStore {
       // A pass still yielding its way through a big sweep owns the next one.
       if (this.sweeping) return;
       this.sweeping = true;
-      this.evictIdleDocs()
+      backgroundPasses
+        .run('idle-eviction', () => this.evictIdleDocs())
         .then((gone) => {
           if (gone.length > 0) console.error(`[doc-store] evicted ${gone.length} idle doc(s)`);
         })
@@ -1622,7 +1623,7 @@ export class DocStore {
     if (this.parkTicker || this.stopped) return;
     const timer = setInterval(() => {
       try {
-        this.retryParkedSources();
+        backgroundPasses.run('park-retry', () => this.retryParkedSources());
       } catch (err) {
         console.error('[doc-store] parked-doc retry failed:', err);
       }

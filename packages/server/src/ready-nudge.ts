@@ -73,6 +73,7 @@
  * which is the cheaper failure by a wide margin.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { backgroundPasses } from './event-loop.ts';
 import type { HoldReason, UndeterminedRow } from './ready-gate.ts';
 import { type ReadyMark, freedRows, readyMark } from './ready-release.ts';
 import type { ParallelismCapChange } from './tasks.ts';
@@ -763,7 +764,7 @@ export class ReadyWorkNudger {
   /** Arm the timer. Unref'd, so it can never hold a dying process open. */
   start(tickMs: number = READY_TICK_DEFAULT_MS): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), tickMs);
+    this.timer = setInterval(() => backgroundPasses.run('ready-tick', () => this.tick()), tickMs);
     this.timer.unref?.();
   }
 

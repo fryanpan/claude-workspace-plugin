@@ -28,7 +28,8 @@
  * 404 took a minute, and you have to already suspect it to notice. Two pieces:
  *
  *   - {@link LoopLagMonitor} watches for the gap a blocked turn leaves in its
- *     own schedule, and reports it with whatever was in flight at the time.
+ *     own schedule, and reports it with whatever was in flight at the time —
+ *     requests, and the named background passes ({@link backgroundPasses}).
  *   - {@link timeSlice} is what a long pass uses to stay answerable, so the
  *     next unbounded loop has a house pattern to reach for instead of
  *     inventing one.
@@ -103,6 +104,73 @@ export class InflightRegistry {
 }
 
 /**
+ * The timer-driven passes running now, by name.
+ *
+ * "Nothing in flight" was the whole report for a block no request explains,
+ * and prod wrote that line every ten minutes, idle or busy, while two
+ * ten-minute timers were the suspects. A pass that enters here is named in the
+ * report instead, so a block identifies itself. (It was the stall tick's git
+ * reads; see `changedFilesInWorktreeAsync`.)
+ *
+ * A pass is remembered from the moment it enters until the monitor's next
+ * read, not only while it runs. A synchronous pass that blocks the loop has
+ * always FINISHED by the time the monitor's late tick runs — the block is what
+ * kept that tick from running — so a registry of live passes alone would be
+ * empty at exactly the moment it is asked.
+ */
+export class BackgroundPasses {
+  /** Live passes, counted, so two overlapping runs of one name nest. */
+  private readonly live = new Map<string, number>();
+  /** Every pass that entered since the last `drain`. */
+  private seen = new Set<string>();
+
+  /** Record a pass; the returned function ends it. Extra calls are ignored. */
+  enter(name: string): () => void {
+    this.live.set(name, (this.live.get(name) ?? 0) + 1);
+    this.seen.add(name);
+    let ended = false;
+    return () => {
+      if (ended) return;
+      ended = true;
+      const n = (this.live.get(name) ?? 1) - 1;
+      if (n > 0) this.live.set(name, n);
+      else this.live.delete(name);
+    };
+  }
+
+  /**
+   * Run `fn` as the pass `name`. A promise it returns keeps the pass open
+   * until it settles, so an async pass is named across every slice of it.
+   */
+  run<T>(name: string, fn: () => T): T {
+    const end = this.enter(name);
+    let result: T;
+    try {
+      result = fn();
+    } catch (err) {
+      end();
+      throw err;
+    }
+    if (result instanceof Promise) {
+      result.then(end, end);
+    } else {
+      end();
+    }
+    return result;
+  }
+
+  /** Every pass live now or at any moment since the previous call, sorted. */
+  drain(): string[] {
+    const out = new Set([...this.seen, ...this.live.keys()]);
+    this.seen = new Set(this.live.keys());
+    return [...out].sort();
+  }
+}
+
+/** The process's one registry: the passes are timers, and so is the monitor. */
+export const backgroundPasses = new BackgroundPasses();
+
+/**
  * How often the monitor wakes.
  *
  * It has to be well under the supervisor's 10 s patience for the report to
@@ -137,6 +205,9 @@ export interface LoopLagMonitorOptions {
   inflight?: () => InflightRequest[];
   /** The process counters a report compares across the block. */
   sample?: () => ProcessSample;
+  /** The background passes seen since the previous tick. Read on EVERY tick,
+   *  so a pass that ran ten minutes ago is not blamed for this block. */
+  passes?: () => string[];
 }
 
 /**
@@ -200,6 +271,7 @@ export class LoopLagMonitor {
   private readonly stamp: () => string;
   private readonly inflight: () => InflightRequest[];
   private readonly sample: () => ProcessSample;
+  private readonly passes: () => string[];
   /** The counters as the previous tick read them. */
   private last: ProcessSample;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -216,6 +288,7 @@ export class LoopLagMonitor {
     this.stamp = opts.stamp ?? (() => new Date().toISOString());
     this.inflight = opts.inflight ?? (() => []);
     this.sample = opts.sample ?? processSample;
+    this.passes = opts.passes ?? (() => backgroundPasses.drain());
     this.last = this.sample();
     this.dueAt = this.now() + this.periodMs;
   }
@@ -234,9 +307,10 @@ export class LoopLagMonitor {
     this.dueAt = at + this.periodMs;
     const before = this.last;
     this.last = this.sample();
+    const passes = this.passes();
     if (blockedMs < this.thresholdMs) return blockedMs > 0 ? blockedMs : 0;
     this.reported++;
-    this.log(`${this.lineFor(blockedMs, at)}; ${countersLine(before, this.last)}`);
+    this.log(`${this.lineFor(blockedMs, at, passes)}; ${countersLine(before, this.last)}`);
     return blockedMs;
   }
 
@@ -274,12 +348,18 @@ export class LoopLagMonitor {
    * every handler at once. The empty case therefore gets a sentence rather
    * than an empty list, because "nothing in flight" is a FINDING and reads as
    * missing data otherwise.
+   *
+   * A named background pass is reported beside the requests, and when one
+   * ran, the guess at "a timer, a GC, or the OS" gives way to its name.
    */
-  private lineFor(blockedMs: number, at: number): string {
+  private lineFor(blockedMs: number, at: number, passes: string[]): string {
     const held = this.inflight();
     const head = `${this.stamp()} [loop] blocked ${Math.round(blockedMs)}ms`;
+    const inPass = passes.length > 0 ? `in pass: ${passes.join(', ')}` : '';
     if (held.length === 0) {
-      return `${head} — nothing in flight; a timer, a GC, or the OS descheduling this process`;
+      return inPass
+        ? `${head} — nothing in flight; ${inPass}`
+        : `${head} — nothing in flight; a timer, a GC, or the OS descheduling this process`;
     }
     const oldestFirst = [...held].sort((a, b) => a.startedAt - b.startedAt);
     const named = oldestFirst
@@ -288,7 +368,7 @@ export class LoopLagMonitor {
       .join(', ');
     const rest = oldestFirst.length - NAMED_INFLIGHT;
     const more = rest > 0 ? `, +${rest} more` : '';
-    return `${head} — in flight: ${named}${more}`;
+    return `${head} — in flight: ${named}${more}${inPass ? `; ${inPass}` : ''}`;
   }
 }
 

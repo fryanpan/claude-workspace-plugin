@@ -1,3 +1,4 @@
+import { backgroundPasses } from './event-loop.ts';
 /**
  * The `[doc-store] mem` line: what this process costs, sampled often enough
  * to catch a burst, and what the server did in the window that cost it.
@@ -210,7 +211,10 @@ export class MemoryLog {
 
   start(): void {
     if (this.ticker) return;
-    const timer = setInterval(() => this.sample(), this.sampleMs);
+    const timer = setInterval(
+      () => backgroundPasses.run('memory-sample', () => this.sample()),
+      this.sampleMs,
+    );
     timer.unref?.();
     this.ticker = timer;
   }

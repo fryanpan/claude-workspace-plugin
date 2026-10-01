@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { InflightRegistry, LoopLagMonitor, SLICE_BUDGET_MS, timeSlice } from '../src/event-loop.ts';
+import {
+  BackgroundPasses,
+  InflightRegistry,
+  LoopLagMonitor,
+  SLICE_BUDGET_MS,
+  timeSlice,
+} from '../src/event-loop.ts';
 
 /**
  * The clock is injected everywhere in this module precisely so these cases
@@ -182,6 +188,109 @@ describe('LoopLagMonitor', () => {
     m.stop();
     m.stop();
     expect(m.reportCount()).toBe(0);
+  });
+});
+
+describe('LoopLagMonitor naming the background pass', () => {
+  /** A monitor over its own registry, and a clock the test moves. */
+  function monitored() {
+    const clock = fakeClock();
+    const lines: string[] = [];
+    const passes = new BackgroundPasses();
+    const m = new LoopLagMonitor({
+      periodMs: 250,
+      thresholdMs: 1000,
+      now: clock.now,
+      log: (l) => lines.push(l),
+      passes: () => passes.drain(),
+    });
+    return { clock, lines, passes, m };
+  }
+
+  it('names a synchronous pass that blocked, although it has finished by the report', () => {
+    const { clock, lines, passes, m } = monitored();
+    // The pass runs and returns inside the block; the monitor's late tick is
+    // the first thing to run after it.
+    passes.run('stall-tick', () => clock.advance(1_900));
+    m.tick();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('blocked 1650ms — nothing in flight; in pass: stall-tick');
+    expect(lines[0]).not.toContain('a timer, a GC');
+  });
+
+  it('keeps the old sentence when no pass ran', () => {
+    const { clock, lines, m } = monitored();
+    clock.advance(1_900);
+    m.tick();
+    expect(lines[0]).toContain('nothing in flight; a timer, a GC, or the OS descheduling');
+  });
+
+  it('does not blame a pass that ran before the previous tick', () => {
+    const { clock, lines, passes, m } = monitored();
+    passes.run('idle-eviction', () => {});
+    clock.advance(250);
+    m.tick(); // on time: reads, and forgets, the eviction
+    clock.advance(1_900);
+    m.tick();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain('idle-eviction');
+  });
+
+  it('names a pass beside the requests in flight', () => {
+    const clock = fakeClock();
+    const lines: string[] = [];
+    const passes = new BackgroundPasses();
+    const m = new LoopLagMonitor({
+      periodMs: 250,
+      thresholdMs: 1000,
+      now: clock.now,
+      log: (l) => lines.push(l),
+      inflight: () => [{ method: 'GET', path: '/workspaces', startedAt: 0 }],
+      passes: () => passes.drain(),
+    });
+    passes.run('file-poll', () => clock.advance(2_000));
+    m.tick();
+    expect(lines[0]).toContain('in flight: GET /workspaces (2000ms); in pass: file-poll');
+  });
+});
+
+describe('BackgroundPasses', () => {
+  it('holds an async pass open until its promise settles', async () => {
+    const passes = new BackgroundPasses();
+    let finish!: () => void;
+    const done = passes.run('stall-prepare', () => new Promise<void>((r) => (finish = r)));
+    expect(passes.drain()).toEqual(['stall-prepare']);
+    // Still running, so the next read names it again.
+    expect(passes.drain()).toEqual(['stall-prepare']);
+    finish();
+    await done;
+    expect(passes.drain()).toEqual(['stall-prepare']);
+    expect(passes.drain()).toEqual([]);
+  });
+
+  it('ends a pass that throws, and a rejected one', async () => {
+    const passes = new BackgroundPasses();
+    expect(() =>
+      passes.run('memory-sample', () => {
+        throw new Error('boom');
+      }),
+    ).toThrow('boom');
+    await passes.run('ready-tick', () => Promise.reject(new Error('no'))).catch(() => {});
+    expect(passes.drain()).toEqual(['memory-sample', 'ready-tick']);
+    expect(passes.drain()).toEqual([]);
+  });
+
+  it('counts overlapping runs of one name, and an end called twice once', () => {
+    const passes = new BackgroundPasses();
+    const a = passes.enter('file-poll');
+    const b = passes.enter('file-poll');
+    a();
+    a();
+    passes.drain();
+    expect(passes.drain()).toEqual(['file-poll']);
+    b();
+    passes.drain();
+    expect(passes.drain()).toEqual([]);
   });
 });
 
