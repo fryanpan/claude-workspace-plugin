@@ -191,7 +191,10 @@ export function renderMockHost(args: {
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    `<title>${title}</title>` +
+    // `<` escaped: a browser ends <title> at `</title/>` or `</title x>`,
+    // which TITLE does not stop at, and this page is unsandboxed on the
+    // board's origin. Entities in the mock's title still read as written.
+    `<title>${title.replace(/</g, '&lt;')}</title>` +
     '<style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}' +
     `iframe{border:0;width:100%;height:100%;display:block}${boardLink.style}</style></head><body>` +
     boardLink.anchor +

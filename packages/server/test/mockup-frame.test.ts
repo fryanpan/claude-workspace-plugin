@@ -107,6 +107,52 @@ describe('the frame and host helpers', () => {
     expect(html).toContain('data-items="[[&quot;t-1&quot;,&quot;r-1&quot;]]"');
   });
 
+  it("keeps a mock's title from ending the host page's <title> and running on the board origin", async () => {
+    // The host page is served unsandboxed on the board's origin. A browser
+    // ends <title> at `</title/>` or `</title x>`, neither of which the
+    // title regex treats as the end, so the captured text carried a live
+    // `<script>` into the host. Parsed by a spec tokenizer, not grepped.
+    const scriptsIn = async (page: string): Promise<string[]> => {
+      const found: string[] = [];
+      await new HTMLRewriter()
+        .on('script', { element: (el) => void found.push(el.getAttribute('src') ?? 'inline') })
+        .transform(new Response(page))
+        .text();
+      return found;
+    };
+    for (const title of [
+      'Stand</title/><script>steal()</script>',
+      'Stand</title x><script>steal()</script>',
+      'Stand</title\n/><img src=x onerror=steal()>',
+    ]) {
+      const html = renderMockHost({
+        workspaceId: 'w-stand',
+        docId: 'd-mock',
+        html: `<html><head><title>${title}</title></head><body></body></html>`,
+        url: new URL('http://b.test/workspaces/w-stand/mockups/d-mock'),
+        items: [],
+        visitor: false,
+      });
+      expect(await scriptsIn(html)).toEqual(['/widget/mock-host.js']);
+      const imgs: string[] = [];
+      await new HTMLRewriter()
+        .on('img', { element: () => void imgs.push('img') })
+        .transform(new Response(html))
+        .text();
+      expect(imgs).toEqual([]);
+    }
+    // An ordinary title, entities included, still reads as written.
+    const plain = renderMockHost({
+      workspaceId: 'w-stand',
+      docId: 'd-mock',
+      html: '<title>Lemons &amp; limes</title>',
+      url: new URL('http://b.test/workspaces/w-stand/mockups/d-mock'),
+      items: [],
+      visitor: false,
+    });
+    expect(plain).toContain('<title>Lemons &amp; limes</title>');
+  });
+
   it("draws the link back to the board for a share visitor and nothing over the owner's mock", () => {
     const args = {
       workspaceId: 'board one',
