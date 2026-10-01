@@ -1333,6 +1333,19 @@ kernel-wide socket CREATION failing, and its cause is still unknown.**
   2,700 → 300 resident took the heap to 25MB and the full GC to ~4ms. The
   `[loop] blocked` line now carries CPU, major faults and heap across the
   block, so the next one is attributed from prod's own log, not inferred.
+- **The ten-minute block was git, not the heap (2026-10-01).** The line kept
+  coming after that fix: 1.1-1.9s every ten minutes, nothing in flight, CPU a
+  third to a tenth of the wall time. The stall tick's UI gate ran
+  `changedFilesInWorktree` for every open dispatch inside its synchronous
+  snapshot, about a dozen `spawnSync` git processes per worktree, and the
+  process waits on a child without spending CPU. Reproduced with four
+  dispatches against clones of this repo: 1.85-1.96s per tick on 40-50ms of
+  CPU, against 2-9ms with none. The 2,700-doc measurement above found nothing
+  because it registered no dispatches. The timer's `prepare` now reads the
+  worktrees with each git process awaited (`changedFilesInWorktreeAsync`), and
+  the same tick's longest block measured 3-10ms. The `[loop] blocked` line
+  also names the background pass that ran (`in pass: stall-tick`), so the
+  next one says which timer it was.
 
 ## Multi-agent workflow implementation (balloons + suggestions pattern)
 

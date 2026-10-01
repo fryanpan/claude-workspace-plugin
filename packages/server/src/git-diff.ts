@@ -1,15 +1,33 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import type { DiffFileStatus } from '@claude-workspaces/core';
 
 /**
  * Git plumbing for diff reviews. Every call shells out with an argv array
  * (never a shell string) and passes `--` separators, so repo paths and refs
  * can't smuggle options. Refs beginning with `-` are rejected outright.
+ *
+ * The reads are written ONCE, as generators that yield each git argv and are
+ * handed back its result, and run two ways: `runSync` with `spawnSync`, and
+ * `runAsync` with `execFile`. The async driver exists for the stall tick: it
+ * reads every dispatched builder's worktree, about a dozen git processes
+ * each, and with `spawnSync` four dispatches held the loop for 1.9s in a
+ * local reproduction while the process itself used 40ms of CPU — the rest
+ * was waiting on git. One body of logic, so the two drivers cannot answer
+ * differently.
  */
 
 const MAX_GIT_BUFFER = 64 * 1024 * 1024;
 
-function git(repo: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
+interface GitResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+/** A git read: yields each argv (without `-C <repo>`), receives its result. */
+type GitSteps<T> = Generator<string[], T, GitResult>;
+
+function gitSync(repo: string, args: string[]): GitResult {
   const res = spawnSync('git', ['-C', repo, ...args], {
     encoding: 'utf8',
     maxBuffer: MAX_GIT_BUFFER,
@@ -19,6 +37,48 @@ function git(repo: string, args: string[]): { ok: boolean; stdout: string; stder
     stdout: typeof res.stdout === 'string' ? res.stdout : '',
     stderr: typeof res.stderr === 'string' ? res.stderr : '',
   };
+}
+
+/**
+ * How long one awaited git process may run. A sync read that hangs wedges the
+ * whole server, which is loud; an async one that hangs would leave its caller
+ * pending forever, and the stall tick skips every tick while its last
+ * `prepare` is still pending. Killed, the read answers "cannot tell".
+ */
+const GIT_ASYNC_TIMEOUT_MS = 30_000;
+
+function gitAsync(repo: string, args: string[]): Promise<GitResult> {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['-C', repo, ...args],
+      {
+        encoding: 'utf8',
+        maxBuffer: MAX_GIT_BUFFER,
+        timeout: GIT_ASYNC_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+      },
+      (err, stdout, stderr) => {
+        resolve({
+          ok: err === null,
+          stdout: typeof stdout === 'string' ? stdout : '',
+          stderr: typeof stderr === 'string' ? stderr : '',
+        });
+      },
+    );
+  });
+}
+
+function runSync<T>(repo: string, steps: GitSteps<T>): T {
+  let next = steps.next();
+  while (!next.done) next = steps.next(gitSync(repo, next.value));
+  return next.value;
+}
+
+async function runAsync<T>(repo: string, steps: GitSteps<T>): Promise<T> {
+  let next = steps.next();
+  while (!next.done) next = steps.next(await gitAsync(repo, next.value));
+  return next.value;
 }
 
 /** A ref we're willing to hand to git: no leading '-', no whitespace/NUL. */
@@ -37,8 +97,12 @@ export function isObjectId(s: string): boolean {
 
 /** Resolve a ref to a full commit hash, or null if it doesn't name a commit. */
 export function resolveCommit(repo: string, ref: string): string | null {
+  return runSync(repo, resolveCommitSteps(ref));
+}
+
+function* resolveCommitSteps(ref: string): GitSteps<string | null> {
   if (!isSafeRef(ref)) return null;
-  const res = git(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  const res = yield ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`];
   const hash = res.stdout.trim();
   return res.ok && isObjectId(hash) ? hash : null;
 }
@@ -107,13 +171,15 @@ function parseNumstat(stdout: string): Map<string, NumstatEntry> {
  * Rename detection on, per-file line counts joined in. Copies (C) are
  * treated as additions.
  */
-export function diffFiles(
-  repo: string,
-  base: string,
-  target: string | null,
-): { ok: true; files: DiffFileEntry[] } | { ok: false; error: string } {
+export function diffFiles(repo: string, base: string, target: string | null): DiffFilesResult {
+  return runSync(repo, diffFilesSteps(base, target));
+}
+
+type DiffFilesResult = { ok: true; files: DiffFileEntry[] } | { ok: false; error: string };
+
+function* diffFilesSteps(base: string, target: string | null): GitSteps<DiffFilesResult> {
   const range = target ? [base, target] : [base];
-  const ns = git(repo, ['diff', '--name-status', '-z', '-M', ...range, '--']);
+  const ns = yield ['diff', '--name-status', '-z', '-M', ...range, '--'];
   if (!ns.ok) return { ok: false, error: ns.stderr.trim() || 'git diff failed' };
 
   const files: DiffFileEntry[] = [];
@@ -145,7 +211,7 @@ export function diffFiles(
   // Working-tree mode: untracked files never show up in `git diff` — append
   // them as additions so a brand-new file the agent just wrote is reviewable.
   if (!target) {
-    const untracked = git(repo, ['ls-files', '--others', '--exclude-standard', '-z']);
+    const untracked = yield ['ls-files', '--others', '--exclude-standard', '-z'];
     if (untracked.ok) {
       const known = new Set(files.map((f) => f.relPath));
       for (const path of untracked.stdout.split('\0')) {
@@ -157,7 +223,7 @@ export function diffFiles(
   }
 
   // Join in line counts; numstat reports "-\t-" for binary files.
-  const num = git(repo, ['diff', '--numstat', '-z', '-M', ...range, '--']);
+  const num = yield ['diff', '--numstat', '-z', '-M', ...range, '--'];
   if (num.ok) {
     const counts = parseNumstat(num.stdout);
     for (const f of files) {
@@ -176,7 +242,7 @@ export function diffFiles(
     // `-w` covers indentation and trailing space but NOT added/removed blank
     // lines, which every formatter also produces — `--ignore-blank-lines` is
     // a separate flag and both are needed to describe "a formatter ran".
-    const ws = git(repo, [
+    const ws = yield [
       'diff',
       '-w',
       '--ignore-blank-lines',
@@ -185,7 +251,7 @@ export function diffFiles(
       '-M',
       ...range,
       '--',
-    ]);
+    ];
     if (ws.ok) {
       const survives = parseNumstat(ws.stdout);
       for (const f of files) {
@@ -202,7 +268,7 @@ export function diffFiles(
 
 /** Read a file's bytes at a commit. Returns null when the path doesn't exist there. */
 export function showFile(repo: string, commit: string, relPath: string): string | null {
-  const res = git(repo, ['show', `${commit}:${relPath}`]);
+  const res = gitSync(repo, ['show', `${commit}:${relPath}`]);
   return res.ok ? res.stdout : null;
 }
 
@@ -228,7 +294,11 @@ export function textLooksBinary(text: string): boolean {
  * as no evidence rather than as a verdict.
  */
 export function defaultBaseRef(repo: string): string | null {
-  const head = git(repo, ['rev-parse', '--abbrev-ref', 'origin/HEAD']);
+  return runSync(repo, defaultBaseRefSteps());
+}
+
+function* defaultBaseRefSteps(): GitSteps<string | null> {
+  const head = yield ['rev-parse', '--abbrev-ref', 'origin/HEAD'];
   const named = head.stdout.trim();
   const candidates = new Set<string>();
   if (head.ok && named.length > 0 && isSafeRef(named)) candidates.add(named);
@@ -243,13 +313,13 @@ export function defaultBaseRef(repo: string): string | null {
   // whole read exists to remove, arriving by a different door.
   let best: { ref: string; mergeBase: string } | null = null;
   for (const ref of candidates) {
-    if (resolveCommit(repo, ref) === null) continue;
-    const mb = git(repo, ['merge-base', 'HEAD', ref]);
+    if ((yield* resolveCommitSteps(ref)) === null) continue;
+    const mb = yield ['merge-base', 'HEAD', ref];
     const mergeBase = mb.stdout.trim();
     if (!mb.ok || !isObjectId(mergeBase)) continue;
     if (
       best === null ||
-      (best.mergeBase !== mergeBase && isAncestor(repo, best.mergeBase, mergeBase))
+      (best.mergeBase !== mergeBase && (yield* isAncestorSteps(best.mergeBase, mergeBase)))
     )
       best = { ref, mergeBase };
   }
@@ -257,8 +327,8 @@ export function defaultBaseRef(repo: string): string | null {
 }
 
 /** Is `a` an ancestor of `b` (or the same commit)? */
-function isAncestor(repo: string, a: string, b: string): boolean {
-  return git(repo, ['merge-base', '--is-ancestor', a, b]).ok;
+function* isAncestorSteps(a: string, b: string): GitSteps<boolean> {
+  return (yield ['merge-base', '--is-ancestor', a, b]).ok;
 }
 
 export interface WorktreeChanges {
@@ -310,17 +380,32 @@ export interface WorktreeChanges {
  * it could not see.
  */
 export function changedFilesInWorktree(repo: string, since?: string): WorktreeChanges | null {
-  const ref = defaultBaseRef(repo);
+  return runSync(repo, changedFilesSteps(since));
+}
+
+/**
+ * `changedFilesInWorktree` without holding the loop: the same reads, each git
+ * process awaited rather than waited on. The stall tick's timer path uses it.
+ */
+export function changedFilesInWorktreeAsync(
+  repo: string,
+  since?: string,
+): Promise<WorktreeChanges | null> {
+  return runAsync(repo, changedFilesSteps(since));
+}
+
+function* changedFilesSteps(since?: string): GitSteps<WorktreeChanges | null> {
+  const ref = yield* defaultBaseRefSteps();
   if (ref === null) return null;
-  const mb = git(repo, ['merge-base', 'HEAD', ref]);
+  const mb = yield ['merge-base', 'HEAD', ref];
   const mergeBase = mb.stdout.trim();
   if (!mb.ok || !isObjectId(mergeBase)) return null;
   const usable =
     since !== undefined &&
-    resolveCommit(repo, since) !== null &&
-    isAncestor(repo, mergeBase, since) &&
-    isAncestor(repo, since, 'HEAD');
-  const diff = diffFiles(repo, usable && since !== undefined ? since : mergeBase, null);
+    (yield* resolveCommitSteps(since)) !== null &&
+    (yield* isAncestorSteps(mergeBase, since)) &&
+    (yield* isAncestorSteps(since, 'HEAD'));
+  const diff = yield* diffFilesSteps(usable && since !== undefined ? since : mergeBase, null);
   if (!diff.ok) return null;
   const files: string[] = [];
   for (const file of diff.files) {

@@ -23,6 +23,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { backgroundPasses } from './event-loop.ts';
 import { type TaskStore, eventsLogPath } from './tasks.ts';
 
 /** Goal 4.4 (decided 2026-08-13): 99% uptime. */
@@ -156,10 +157,12 @@ export class UptimeMonitor {
       appendMarker(this.dataDir, ws.id, SERVER_STARTED_EVENT, now);
     }
     this.timer = setInterval(() => {
-      const ts = Date.now();
-      for (const ws of this.tasks.listWorkspaces()) {
-        appendMarker(this.dataDir, ws.id, SERVER_TICK_EVENT, ts);
-      }
+      backgroundPasses.run('uptime-tick', () => {
+        const ts = Date.now();
+        for (const ws of this.tasks.listWorkspaces()) {
+          appendMarker(this.dataDir, ws.id, SERVER_TICK_EVENT, ts);
+        }
+      });
     }, this.tickMs);
     // Never hold the process (or a test runner) open.
     this.timer.unref?.();

@@ -12,7 +12,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { changedFilesInWorktree, defaultBaseRef } from '../src/git-diff.ts';
+import {
+  changedFilesInWorktree,
+  changedFilesInWorktreeAsync,
+  defaultBaseRef,
+} from '../src/git-diff.ts';
 import { type BuilderWorktree, makeBuilderWorktree } from './builder-worktree-fixture.ts';
 
 const made: BuilderWorktree[] = [];
@@ -204,5 +208,52 @@ describe('what the read returns', () => {
     ]);
     execFileSync('git', ['-C', wt.path, 'checkout', '-q', 'builder']);
     expect(changedFilesInWorktree(wt.path)?.files).toEqual(['src/mine.ts']);
+  });
+});
+
+describe('the read that does not hold the loop', () => {
+  // The stall tick's timer path reads through `changedFilesInWorktreeAsync`.
+  // Both drivers run one body of logic, so these cases pin that they answer
+  // alike across every branch that body takes — the dispatch baseline, the
+  // trunk fallback, a rename, and the two shapes of "cannot tell".
+  const same = async (path: string, since?: string) => {
+    const sync = changedFilesInWorktree(path, since);
+    const async = await changedFilesInWorktreeAsync(path, since);
+    expect(async).toEqual(sync);
+    return async;
+  };
+
+  it('answers what the synchronous read answers, baseline and fallback alike', async () => {
+    const wt = worktree({ 'packages/app/src/board.css': '.first{}\n' });
+    wt.commit('the previous occupant');
+    const baseline = run(wt, 'rev-parse', 'HEAD');
+    wt.edit({ 'packages/server/src/clock.ts': 'export const t = 1;\n' });
+    expect((await same(wt.path, baseline))?.from).toBe('dispatch');
+    expect((await same(wt.path))?.from).toBe('trunk');
+    expect((await same(wt.path, 'f'.repeat(40)))?.from).toBe('trunk');
+  });
+
+  it('names both ends of a rename', async () => {
+    const wt = worktree({}, { 'packages/app/src/old.css': '.a{}\n' });
+    mkdirSync(join(wt.path, 'packages/server'), { recursive: true });
+    run(wt, 'mv', 'packages/app/src/old.css', 'packages/server/new.css');
+    wt.commit('move it');
+    expect((await same(wt.path))?.files.sort()).toEqual([
+      'packages/app/src/old.css',
+      'packages/server/new.css',
+    ]);
+  });
+
+  it('cannot tell outside a repo, or with no remote branch', async () => {
+    const plain = mkdtempSync(join(tmpdir(), 'ws-norepo-'));
+    const bare = mkdtempSync(join(tmpdir(), 'ws-noremote-'));
+    execFileSync('git', ['-C', bare, 'init', '-q']);
+    try {
+      expect(await same(plain)).toBeNull();
+      expect(await same(bare)).toBeNull();
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 });

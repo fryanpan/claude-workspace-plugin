@@ -81,6 +81,7 @@
  * one duplicate wake, which is much the cheaper failure.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { backgroundPasses } from './event-loop.ts';
 import type { ParallelismCapSummary } from './ready-nudge.ts';
 import {
   STALL_MOVED_WITHIN_DEFAULT_MS,
@@ -1003,23 +1004,28 @@ export class StallNudger {
     this.timer.unref?.();
   }
 
-  /** The timer's pass: `prepare`, then `tick`. Never throws, like `tick`. */
+  /**
+   * The timer's pass: `prepare`, then `tick`. Never throws, like `tick`.
+   * Each half is a named background pass, so a loop block inside either one
+   * says which (`event-loop.ts`).
+   */
   timedTick(): Promise<void> {
     const prepare = this.opts.prepare;
     if (!prepare) {
-      this.tick();
+      backgroundPasses.run('stall-tick', () => this.tick());
       return Promise.resolve();
     }
     if (this.preparing) return Promise.resolve();
     this.preparing = true;
-    return prepare()
+    return backgroundPasses
+      .run('stall-prepare', prepare)
       .catch((err) => {
         this.report(
           `[stall-nudge] prepare failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       })
       .then(() => {
-        if (!this.stopped) this.tick();
+        if (!this.stopped) backgroundPasses.run('stall-tick', () => this.tick());
       })
       .finally(() => {
         this.preparing = false;

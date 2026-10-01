@@ -46,7 +46,7 @@ import { lastBoardActivityAt } from './board-activity.ts';
 import { commentOfEvent, handedToAgent, recordDelivery } from './comment-receipt.ts';
 import type { DispatchRegistry } from './dispatch-registry.ts';
 import type { DocStore } from './doc-store.ts';
-import { changedFilesInWorktree } from './git-diff.ts';
+import { changedFilesInWorktree, changedFilesInWorktreeAsync } from './git-diff.ts';
 import { taskDeepLink } from './home-brief.ts';
 import { KEEP_MOVING_VERDICTS_FILENAME, KeepMovingRecorder } from './keep-moving-verdict.ts';
 import type { ReviewItemRow } from './keep-moving.ts';
@@ -1027,27 +1027,26 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
    * the next tick sees whatever the builder has written since — and a
    * worktree serving rows on two boards is read once per board, which is the
    * price of each board's snapshot being its own.
+   *
+   * `prepared` is the timer's path: every worktree already read, without
+   * holding the loop, by `readChangedWork` in the tick's `prepare`. The
+   * synchronous read below spawns about a dozen git processes per worktree
+   * and WAITS on each — 1.9s of loop for four dispatches, in a reproduction
+   * where the process itself spent 40ms of CPU — so on that path a worktree
+   * missing from the map (a dispatch registered since `prepare` ran) answers
+   * no evidence for one tick rather than paying for it inline.
    */
-  function changedFilesReader(): (taskId: string) => ChangedWork | undefined {
-    const open = dispatches.list();
-    // Two live dispatches in one checkout are one pile of edits with no way
-    // to say whose, and a stylesheet written for either would convict both.
-    // Ambiguous evidence is no evidence: both rows go unjudged.
-    const sharers = new Map<string, number>();
-    for (const d of open) sharers.set(d.worktreePath, (sharers.get(d.worktreePath) ?? 0) + 1);
-    const worktreeOf = new Map(
-      open
-        .filter((d) => sharers.get(d.worktreePath) === 1)
-        .map((d) => [d.taskId, { path: d.worktreePath, since: d.baseCommit }]),
-    );
+  function changedFilesReader(
+    prepared?: ReadonlyMap<string, ChangedWork | undefined>,
+  ): (taskId: string) => ChangedWork | undefined {
+    const worktreeOf = soleDispatchWorktrees();
     const byWorktree = new Map<string, ChangedWork | undefined>();
     return (taskId) => {
       const dispatch = worktreeOf.get(taskId);
       if (dispatch === undefined) return undefined;
       const { path: worktreePath, since } = dispatch;
-      // Two dispatches on one worktree with different starting lines are two
-      // different questions, so the baseline is part of the key.
-      const path = `${worktreePath}\u0000${since ?? ''}`;
+      const path = changedWorkKey(worktreePath, since);
+      if (prepared !== undefined) return prepared.get(path);
       if (!byWorktree.has(path)) {
         // A worktree that has vanished, is not a repo, or whose git fails
         // reads as no evidence — never as "changed nothing". Throwing here
@@ -1063,7 +1062,52 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
       return byWorktree.get(path);
     };
   }
-  const stallSnapshot = (workspace: BoardWorkspace): StallSnapshot => {
+  /** Two dispatches on one worktree with different starting lines are two
+   *  different questions, so the baseline is part of the key. */
+  const changedWorkKey = (worktreePath: string, since: string | undefined): string =>
+    `${worktreePath}\u0000${since ?? ''}`;
+  /** Each open dispatch's checkout and baseline, by task, for the dispatches
+   *  that hold their checkout alone. */
+  function soleDispatchWorktrees(): Map<string, { path: string; since: string | undefined }> {
+    const open = dispatches.list();
+    // Two live dispatches in one checkout are one pile of edits with no way
+    // to say whose, and a stylesheet written for either would convict both.
+    // Ambiguous evidence is no evidence: both rows go unjudged.
+    const sharers = new Map<string, number>();
+    for (const d of open) sharers.set(d.worktreePath, (sharers.get(d.worktreePath) ?? 0) + 1);
+    return new Map(
+      open
+        .filter((d) => sharers.get(d.worktreePath) === 1)
+        .map((d) => [d.taskId, { path: d.worktreePath, since: d.baseCommit }]),
+    );
+  }
+  /**
+   * Every sole dispatch's changed files, read with each git process awaited,
+   * one worktree after another. The tick's `prepare` runs this; the tick then
+   * reads the map it leaves in `preparedChangedWork` and spawns nothing.
+   */
+  async function readChangedWork(): Promise<Map<string, ChangedWork | undefined>> {
+    const out = new Map<string, ChangedWork | undefined>();
+    for (const { path, since } of soleDispatchWorktrees().values()) {
+      const key = changedWorkKey(path, since);
+      if (out.has(key)) continue;
+      let work: ChangedWork | undefined;
+      try {
+        work = (await changedFilesInWorktreeAsync(path, since)) ?? undefined;
+      } catch {
+        work = undefined;
+      }
+      out.set(key, work);
+    }
+    return out;
+  }
+  /** What the last `prepare` read, until the snapshot that follows it takes it.
+   *  Unset outside the timer's path, so `nudgeStalls` reads git itself. */
+  let preparedChangedWork: Map<string, ChangedWork | undefined> | undefined;
+  const stallSnapshot = (
+    workspace: BoardWorkspace,
+    prepared?: ReadonlyMap<string, ChangedWork | undefined>,
+  ): StallSnapshot => {
     const verdict = stallVerdict(workspace);
     const capRead = taskStore.parallelismCap(workspace.id);
     // Review items the quality gate is holding past the window — a fourth
@@ -1163,7 +1207,7 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     // over the body was wrong six times out of six.
     const ungatedUi = collectUngatedUiRows(taskStore.listTasks(workspace.id), {
       isAgentName: (name) => taskStore.resolveAgentId(name) !== null,
-      changedWork: changedFilesReader(),
+      changedWork: changedFilesReader(prepared),
       answeredReviewItem: answeredReviewItemOn,
     });
     const sessionLive = taskStore.hasLiveAttachment(workspace.id);
@@ -1300,9 +1344,18 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
     // slice at a time. The snapshot itself is one synchronous pass over every
     // board, and at 3,000 rows it spent about half a second loading the docs
     // an idle sweep had released.
-    prepare: () => docStore.warmForThreadReads(stallReadTargets()),
+    //
+    // The builders' worktrees are read here too, and for a bigger reason:
+    // the UI gate's git reads, done inside the snapshot, held the loop for
+    // ~460ms per open dispatch in a local reproduction, on every tick.
+    prepare: async () => {
+      preparedChangedWork = await readChangedWork();
+      await docStore.warmForThreadReads(stallReadTargets());
+    },
     snapshot: () => {
-      const snapshots = taskStore.listWorkspaces().map(stallSnapshot);
+      const prepared = preparedChangedWork;
+      preparedChangedWork = undefined;
+      const snapshots = taskStore.listWorkspaces().map((ws) => stallSnapshot(ws, prepared));
       keepMoving.observe(snapshots, Date.now());
       doneWhenReady.tick(Date.now());
       return snapshots;

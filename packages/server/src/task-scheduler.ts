@@ -58,6 +58,7 @@ import {
   dueOccurrence,
 } from '@claude-workspaces/core/task-schedule';
 import type { Task } from '@claude-workspaces/core/task-wire';
+import { backgroundPasses } from './event-loop.ts';
 import { type RunRecordStore, observeRunRecord } from './task-run-record.ts';
 import { scheduledRows } from './task-scheduler-rows.ts';
 import type { BoardWorkspace, CreateTaskOpts, CreateTaskResult } from './tasks.ts';
@@ -241,7 +242,10 @@ export class TaskScheduler {
 
   start(tickMs: number = SCHEDULER_TICK_DEFAULT_MS): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), tickMs);
+    this.timer = setInterval(
+      () => backgroundPasses.run('task-scheduler', () => this.tick()),
+      tickMs,
+    );
     this.timer.unref?.();
   }
 
