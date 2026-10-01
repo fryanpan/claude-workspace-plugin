@@ -45,9 +45,9 @@ All status updates and other chatter stream somewhere else, where I can summariz
 
 ### 2. Reduce overhead between humans and agents by having a shared space designed for all of us
 
-In SaaS tools, I had to deal with a UX that was built for the masses but not for me and MCPs that were fragile and missing key functionality from the UX.  And if I wanted to try out a new way to work, it was hard to extend SaaS tools and cobble things together.
+In SaaS tools, I had to deal with a UX that was built for the masses but not for me and MCPs that are fragile and missing key functionality from the UX.  And if I wanted to try out a new way to work, it was hard to extend SaaS tools and cobble things together.
 
-So for now, I decided to ditch all the SaaS tools!
+So for now, I've ditched all SaaS tools!
 
 This workspace plugin spins up a local server that lets me do all of the following from the web app:
 
