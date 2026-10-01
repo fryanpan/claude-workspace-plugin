@@ -11,6 +11,7 @@ import { isCategoryAuthor } from '../task-owner.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { SpokenAnswerer, type SpokenBoard } from './answer.ts';
+import { SpokenInterview, type SpokenInterviewDeps } from './interview.ts';
 import { type SpokenEngines, SpokenSession, availableSetups } from './session.ts';
 import type { SpokenTimings } from './timings.ts';
 
@@ -29,6 +30,9 @@ export interface SpokenReplyRelayDeps {
   board: SpokenBoard;
   timings: SpokenTimings;
   parseContext(raw: unknown): VoiceContext | undefined;
+  /** Interview mode's docs and timing record; absent, "interview me" is
+   *  routed like anything else said. */
+  interview?: SpokenInterviewDeps;
 }
 
 export class SpokenReplyRelay {
@@ -62,7 +66,11 @@ export class SpokenReplyRelay {
     };
     const session = new SpokenSession({
       engines: this.deps.engines,
-      answerer: new SpokenAnswerer(this.deps.board, workspaceId),
+      answerer: new SpokenAnswerer(
+        this.deps.board,
+        workspaceId,
+        this.deps.interview ? new SpokenInterview(this.deps.interview, workspaceId) : undefined,
+      ),
       timings: this.deps.timings,
       provenActor,
       readOnly: ws.data.readOnly === true,
