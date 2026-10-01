@@ -30,6 +30,7 @@ import {
   type SpokenSetup,
   type SpokenTimingSummary,
   parseSpokenServerMessage,
+  spokenSetupKey,
 } from '@claude-workspaces/core/spoken-reply';
 import { defaultOriginFacts, insecureOriginMessage } from '../voice-capture.ts';
 import {
@@ -135,8 +136,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   const doc = opts.document;
   const now = opts.now ?? (() => performance.now());
   const storage = opts.storage === undefined ? readStorage() : opts.storage;
-  const heldLine = (s: SpokenSetup): string | undefined =>
-    opts.held?.[String(s) as '1' | '2' | '3'];
+  const heldLine = (s: SpokenSetup): string | undefined => opts.held?.[spokenSetupKey(s)];
   const available = SPOKEN_SETUPS.filter((s) => opts.setups.includes(s) || heldLine(s));
   let summary = opts.timings;
 
@@ -219,7 +219,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     onChoice: (text) => choose(text),
   });
   panel.setSetup(setup);
-  panel.setDelay(null, summary[String(setup) as '1' | '2' | '3']);
+  panel.setDelay(null, summary[spokenSetupKey(setup)]);
 
   function pickSetup(s: SpokenSetup): void {
     if (!available.includes(s)) return;
@@ -228,7 +228,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       storage?.setItem(SETUP_KEY, String(s));
     } catch {}
     panel.setSetup(s);
-    panel.setDelay(null, summary[String(s) as '1' | '2' | '3']);
+    panel.setDelay(null, summary[spokenSetupKey(s)]);
     const line = heldLine(s);
     if (line) refuse(line);
   }
@@ -392,7 +392,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     if (questionEnd === null) return;
     turn.timed = true;
     const delayMs = Math.max(0, at - questionEnd);
-    panel.setDelay(delayMs, summary[String(setup) as '1' | '2' | '3']);
+    panel.setDelay(delayMs, summary[spokenSetupKey(setup)]);
     sendMsg({
       type: 'timing',
       delayMs,
@@ -459,7 +459,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         return;
       case 'timings':
         summary = m.summary;
-        panel.setDelay(undefined, summary[String(setup) as '1' | '2' | '3']);
+        panel.setDelay(undefined, summary[spokenSetupKey(setup)]);
         return;
       case 'error':
         stopCapture();
