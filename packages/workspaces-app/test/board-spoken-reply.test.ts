@@ -1,159 +1,18 @@
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wireBoardVoice } from '../src/board/board-voice.ts';
-import type { PlaybackContext, SpokenCaptureOpts } from '../src/board/spoken-reply-audio.ts';
 import { frameRms, pcm16ToFloat } from '../src/board/spoken-reply-audio.ts';
-import {
-  SETUP_KEY,
-  type SpokenReplyOpts,
-  type SpokenSocket,
-  TAP_MS,
-  createSpokenReply,
-} from '../src/board/spoken-reply-client.ts';
+import { SETUP_KEY, TAP_MS } from '../src/board/spoken-reply-client.ts';
 import { boardState, mountShell, task } from './support/board-region-harness.ts';
+import {
+  FakeSocket,
+  fakePlayback,
+  spokenHarness as harness,
+} from './support/spoken-reply-harness.ts';
 
 /**
  * The board mic's spoken reply, driven end to end on the page with the
- * server, the microphone and the speaker replaced: a socket whose frames the
- * test reads and answers, a capture that emits the frames the test says, and
- * an audio context whose clock the test holds.
+ * server, the microphone and the speaker replaced (`support/spoken-reply-harness.ts`).
  */
-
-class FakeSocket implements SpokenSocket {
-  binaryType = '';
-  readyState = 0;
-  onopen: (() => void) | null = null;
-  onmessage: ((ev: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
-  sent: Array<string | ArrayBufferLike | ArrayBufferView> = [];
-  send(d: string | ArrayBufferLike | ArrayBufferView): void {
-    this.sent.push(d);
-  }
-  close(): void {
-    this.readyState = 3;
-    this.onclose?.();
-  }
-  open(): void {
-    this.readyState = 1;
-    this.onopen?.();
-  }
-  json(): Array<Record<string, unknown>> {
-    return this.sent
-      .filter((d): d is string => typeof d === 'string')
-      .map((d) => JSON.parse(d) as Record<string, unknown>);
-  }
-  frames(): number {
-    return this.sent.filter((d) => typeof d !== 'string').length;
-  }
-  reply(m: SpokenServerMessage): void {
-    this.onmessage?.({ data: JSON.stringify(m) });
-  }
-  audio(samples: number[]): void {
-    const b = new Uint8Array(samples.length * 2);
-    const v = new DataView(b.buffer);
-    samples.forEach((s, i) => v.setInt16(i * 2, s, true));
-    this.onmessage?.({ data: b.buffer });
-  }
-}
-
-function fakePlayback() {
-  const started: number[] = [];
-  let stopped = 0;
-  const ctx = {
-    currentTime: 1,
-    state: 'running',
-    resume: async () => {},
-    destination: {} as AudioNode,
-    createBuffer: (_c: number, length: number, sampleRate: number) =>
-      ({ length, sampleRate, copyToChannel: () => {} }) as unknown as AudioBuffer,
-    createBufferSource: () =>
-      ({
-        buffer: null,
-        connect: () => {},
-        start: (t: number) => started.push(t),
-        stop: () => {
-          stopped++;
-        },
-        onended: null,
-      }) as unknown as AudioBufferSourceNode,
-  };
-  return {
-    ctx: ctx as unknown as PlaybackContext,
-    started,
-    get stopped() {
-      return stopped;
-    },
-  };
-}
-
-function harness(over: Partial<SpokenReplyOpts> = {}) {
-  const el = mountShell();
-  const sockets: FakeSocket[] = [];
-  const captures: SpokenCaptureOpts[] = [];
-  let captureStops = 0;
-  let clock = 1000;
-  const play = fakePlayback();
-  const store = new Map<string, string>();
-  const navigated: string[] = [];
-  const reply = createSpokenReply({
-    document,
-    button: el('board-mic'),
-    url: 'ws://board.test/workspaces/w-1/voice/converse',
-    setups: [1, 2],
-    timings: {},
-    author: { id: 'u-1', name: 'Alice', kind: 'known' },
-    getContext: () => ({ taskId: 't-1' }),
-    onNavigate: (u) => navigated.push(u),
-    openSocket: () => {
-      const s = new FakeSocket();
-      sockets.push(s);
-      return s;
-    },
-    startCapture: async (o) => {
-      captures.push(o);
-      return {
-        ok: true,
-        capture: {
-          stop: () => {
-            captureStops++;
-          },
-        },
-      };
-    },
-    captureContext: () => undefined,
-    playbackContext: () => play.ctx,
-    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
-    now: () => clock,
-    ...over,
-  });
-  const mic = el('board-mic');
-  return {
-    reply,
-    panel: reply.panel,
-    mic,
-    sockets,
-    get socket() {
-      const s = sockets.at(-1);
-      if (!s) throw new Error('no socket');
-      return s;
-    },
-    captures,
-    get captureStops() {
-      return captureStops;
-    },
-    play,
-    store,
-    navigated,
-    tick: (ms: number) => {
-      clock += ms;
-    },
-    /** One 50 ms frame, loud or quiet. */
-    frame: (loud: boolean) =>
-      captures.at(-1)?.onFrame(new Int16Array(800).fill(loud ? 3000 : 0), loud),
-    text: () => reply.panel.root.textContent ?? '',
-    label: () => reply.panel.root.querySelector('.vr-state')?.textContent,
-  };
-}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -227,80 +86,6 @@ describe('spoken reply', () => {
     expect(timing?.replyMs).toBe(20);
     expect(Math.round(Number(timing?.delayMs))).toBe(550);
     expect(timing?.noteLeadMs).toBeUndefined();
-  });
-
-  it('each note lands just before its point is heard, in a row laid out for it', async () => {
-    const h = harness();
-    h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
-    h.socket.open();
-    h.mic.dispatchEvent(new Event('pointerup'));
-    h.socket.reply({
-      type: 'reply',
-      spoken: 'Moved "Sign-in" from todo to done. Waiting on you: “approve the mock”.',
-      detail: [],
-      points: [
-        { say: 'Moved "Sign-in" from todo to done.', note: '“Sign-in”: todo → done' },
-        { say: 'Waiting on you: “approve the mock”.', note: 'Waiting on you: “approve the mock”' },
-      ],
-      asking: false,
-      route: 'fast-path-action',
-    });
-    const rows = [...h.panel.root.querySelectorAll<HTMLElement>('.vr-notes li')];
-    const unlanded = () => rows.map((r) => r.classList.contains('vr-unlanded'));
-    // Both rows exist, with their text, before either note lands.
-    expect(rows.map((r) => r.textContent)).toEqual([
-      '“Sign-in”: todo → done',
-      'Waiting on you: “approve the mock”',
-    ]);
-    expect(unlanded()).toEqual([true, true]);
-    const layout = [...h.panel.root.querySelectorAll('.vr-body *')];
-
-    // Point 0: its note, then its audio — one second of it.
-    h.socket.reply({ type: 'note', point: 0, text: '“Sign-in”: todo → done' });
-    expect(unlanded()).toEqual([true, true]);
-    h.socket.reply({ type: 'audio-start', sampleRate: 24000 });
-    h.socket.audio(new Array(24000).fill(4000));
-    expect(unlanded()).toEqual([false, true]);
-    // Point 1's note arrives with point 0 still playing: it waits.
-    h.socket.reply({ type: 'note', point: 1, text: 'Waiting on you: “approve the mock”' });
-    h.socket.audio(new Array(2400).fill(4000));
-    h.tick(879);
-    await vi.advanceTimersByTimeAsync(879);
-    expect(unlanded()).toEqual([false, true]);
-    h.tick(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(unlanded()).toEqual([false, false]);
-    // Landing changed which rows show, not which elements are there.
-    expect([...h.panel.root.querySelectorAll('.vr-body *')]).toEqual(layout);
-
-    h.socket.reply({ type: 'audio-end' });
-    await vi.advanceTimersByTimeAsync(2000);
-    const timing = h.socket.json().find((m) => m.type === 'timing');
-    // Point 0 shows as its audio is queued, 30 ms ahead; point 1 NOTE_LEAD_MS ahead.
-    expect(timing?.noteLeadMs).toEqual([-30, -150]);
-  });
-
-  it('stopping shows every note still waiting', async () => {
-    const h = harness();
-    h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
-    h.socket.open();
-    h.mic.dispatchEvent(new Event('pointerup'));
-    h.socket.reply({
-      type: 'reply',
-      spoken: 'One. Two.',
-      detail: [],
-      points: [{ say: 'One.' }, { say: 'Two.', note: 'Two' }],
-      asking: false,
-      route: 'x',
-    });
-    h.socket.reply({ type: 'audio-start', sampleRate: 24000 });
-    h.socket.audio(new Array(24000).fill(4000));
-    h.socket.reply({ type: 'note', point: 1, text: 'Two' });
-    h.panel.root.querySelector<HTMLButtonElement>('.vr-stop')?.click();
-    const row = h.panel.root.querySelector('.vr-notes li');
-    expect(row?.classList.contains('vr-unlanded')).toBe(false);
   });
 
   it('a tap: the listener ends the question, and a second tap ends it by hand', async () => {
