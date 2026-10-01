@@ -8,6 +8,7 @@ import {
 } from '@claude-workspaces/core';
 import type { PcmCaptureOpts, PcmCaptureStart } from './voice-audio.ts';
 import type { PostedComment, VoicePoster } from './voice-post.ts';
+import type { QuestionSpeaker } from './voice-speak.ts';
 
 /**
  * One recording: the microphone streamed to the server's voice relay, and
@@ -25,6 +26,13 @@ import type { PostedComment, VoicePoster } from './voice-post.ts';
  * the thread routes rather than having the server post means a spoken comment
  * carries the identity and sign-in of the widget that heard it, exactly as a
  * typed one does.
+ *
+ * When the server cannot tell which element a note is about, or what it
+ * means, it asks once (`ask`): the question is shown with its choices and,
+ * where the server has a voice, said aloud — the microphone is held while it
+ * is, so the question is not heard back as the answer. A tapped choice goes
+ * back as `answer`; a spoken one is just more words. Either way the server
+ * sends the same note again, edited, and the thread is edited in place.
  *
  * No DOM here beyond the socket, so a test drives it with a fake socket, a
  * fake microphone and a recording poster (`voice-ui.ts` draws what it holds).
@@ -55,6 +63,15 @@ export interface VoiceComment {
   reopening?: boolean;
 }
 
+/** The one question asked about a note of this recording. */
+export interface VoiceAsk {
+  /** The note's page key. */
+  key: string;
+  question: string;
+  choices: string[];
+  about: 'anchor' | 'meaning';
+}
+
 export interface SocketLike {
   binaryType: string;
   readyState: number;
@@ -83,6 +100,8 @@ export interface VoiceSessionDeps {
   onChange: () => void;
   /** A write was refused; the words to show, or null to say nothing. */
   refusedNote?: () => string | null;
+  /** Plays a question the server says aloud; none, and it is only shown. */
+  speaker?: QuestionSpeaker;
   timers?: { set: (fn: () => void, ms: number) => unknown; clear: (h: unknown) => void };
 }
 
@@ -109,6 +128,10 @@ export class VoiceSession {
   pinned: number | null | undefined = undefined;
   /** Something to tell the person — a refusal, a failure. */
   note: string | null = null;
+  /** The question waiting for an answer, if any. */
+  ask: VoiceAsk | null = null;
+  /** The question is being said: the microphone is held. */
+  speaking = false;
 
   private ws: SocketLike | null = null;
   private capture: { stop(): void } | null = null;
@@ -229,6 +252,22 @@ export class VoiceSession {
     this.change();
   }
 
+  /** A choice tapped, or `null` to keep the note as it is. */
+  answer(choice: number | null): void {
+    const a = this.ask;
+    const c = a ? this.comments.get(a.key) : undefined;
+    if (!a || !c) return;
+    this.ask = null;
+    this.hush();
+    this.sendJson({ type: 'answer', key: c.wire, choice });
+    this.change();
+  }
+
+  private hush(): void {
+    this.speaking = false;
+    this.deps.speaker?.stop();
+  }
+
   /** The person moved a comment to the element they meant. */
   move(key: string, target: number | null): void {
     const c = this.comments.get(key);
@@ -273,6 +312,7 @@ export class VoiceSession {
 
   private frame(pcm: Int16Array): void {
     if (!this.ws || (this.state !== 'recording' && this.state !== 'connecting')) return;
+    if (this.speaking) return;
     if (!this.ready) {
       if (this.buffered.length < MAX_BUFFERED) this.buffered.push(pcm);
       return;
@@ -281,6 +321,10 @@ export class VoiceSession {
   }
 
   private onMessage(data: unknown): void {
+    if (data instanceof ArrayBuffer) {
+      if (this.speaking) this.deps.speaker?.push(new Uint8Array(data));
+      return;
+    }
     const m = parseVoiceServerMessage(data);
     if (!m) return;
     switch (m.type) {
@@ -302,6 +346,28 @@ export class VoiceSession {
         return;
       case 'comment':
         this.comment(m);
+        return;
+      case 'ask': {
+        const key = `${this.take}.${m.key}`;
+        this.ask =
+          m.question && this.comments.has(key)
+            ? { key, question: m.question, choices: m.choices.slice(0, 3), about: m.about }
+            : null;
+        if (!this.ask) this.hush();
+        this.change();
+        return;
+      }
+      case 'ask-audio':
+        if (m.on && this.ask && this.deps.speaker) {
+          this.speaking = true;
+          this.deps.speaker.begin(m.sampleRate ?? 24_000);
+        } else if (!m.on && this.speaking) {
+          this.deps.speaker?.finish(() => {
+            this.speaking = false;
+            this.change();
+          });
+        }
+        this.change();
         return;
       case 'error':
         this.note = m.message;
@@ -408,6 +474,8 @@ export class VoiceSession {
     this.buffered = [];
     this.pinned = undefined;
     this.pending = '';
+    this.ask = null;
+    this.hush();
     for (const c of this.comments.values()) c.reopening = false;
     if (note) this.note = note;
     this.change();
