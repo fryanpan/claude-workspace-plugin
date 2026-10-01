@@ -311,3 +311,94 @@ describe('placeCards', () => {
     expect(ys[2]).toBe(4100);
   });
 });
+
+describe('placeCards with fixed cards (footnote notes)', () => {
+  const clientHeight = 800;
+  const band = (scrollTop: number) => {
+    const { floorY, viewport } = foldWithStrips({
+      scrollTop,
+      clientHeight,
+      gap: 8,
+      minY: 0,
+      band: { top: 0, bottom: 0 },
+    });
+    return {
+      floorY,
+      minY: 0,
+      viewport,
+      visible: { top: scrollTop, bottom: scrollTop + clientHeight },
+    };
+  };
+  const note = (anchorY: number, height = 50) => ({
+    anchorY,
+    anchorBottom: anchorY,
+    height,
+    fixed: true,
+  });
+  const card = (anchorY: number, height = 100) => ({ anchorY, anchorBottom: anchorY + 20, height });
+  const overlaps = (ys: number[], hs: number[]): boolean =>
+    ys.some((y, i) =>
+      ys.some(
+        (z, j) => j > i && Math.min(y + (hs[i] as number), z + (hs[j] as number)) > Math.max(y, z),
+      ),
+    );
+
+  // A run of notes a line apart, some above, some on and some below the band.
+  const run = [100, 130, 160, 190, 900, 930, 960, 1700, 1730].map((y) => note(y));
+
+  it('places every note the same way at every scroll position', () => {
+    const at0 = placeCards(run, 8, band(0));
+    for (const scrollTop of [150, 600, 920, 1500, 2000]) {
+      expect(placeCards(run, 8, band(scrollTop))).toEqual(at0);
+    }
+  });
+
+  it('stacks notes a line apart wherever they are, so none ever lands on another', () => {
+    const ys = placeCards(run, 8, band(600));
+    expect(
+      overlaps(
+        ys,
+        run.map((n) => n.height),
+      ),
+    ).toBe(false);
+    // Beside its line, or pushed down by the one above: never lifted.
+    expect(ys[0]).toBe(100);
+    expect(ys[1]).toBe(158);
+  });
+
+  it('keeps a note whose line just left the top beside that line', () => {
+    // A comment card here is pushed clear of the band. A note stays put, so
+    // it does not vanish while part of it is still in view.
+    const [y] = placeCards([note(590)], 8, band(600));
+    expect(y).toBe(590);
+  });
+
+  it('keeps comment cards above the band clear of each other and of the notes', () => {
+    const items = [card(500), card(520), note(540), card(560)];
+    const ys = placeCards(items, 8, band(600));
+    expect(
+      overlaps(
+        ys,
+        items.map((i) => i.height),
+      ),
+    ).toBe(false);
+    // And still off the band the reader can see.
+    for (const [i, y] of ys.entries()) {
+      const it = items[i];
+      if (!it || 'fixed' in it) continue;
+      expect(y + it.height).toBeLessThanOrEqual(600);
+    }
+  });
+
+  it('keeps a comment card below the band off the notes there', () => {
+    const items = [note(1405), card(1410)];
+    const ys = placeCards(items, 8, band(600));
+    expect(
+      overlaps(
+        ys,
+        items.map((i) => i.height),
+      ),
+    ).toBe(false);
+    expect(ys[0]).toBe(1405);
+  });
+});

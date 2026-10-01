@@ -167,6 +167,8 @@ interface RenderedNoteCard {
   el: HTMLElement;
   /** The card's own leader class, when it asked for one. */
   leaderClass?: string;
+  /** Placed the same at every scroll position (`placeCards`). */
+  fixed?: boolean;
 }
 
 interface RenderedSuggestionBalloon {
@@ -411,6 +413,7 @@ export function mountMarkupMargin(opts: MarkupMarginOpts): MarkupMarginHandle {
           if (n) {
             r.anchor = n.anchor;
             r.leaderClass = n.leaderClass;
+            r.fixed = n.fixed;
           }
         }
       }
@@ -467,6 +470,7 @@ export function mountMarkupMargin(opts: MarkupMarginOpts): MarkupMarginHandle {
         anchor: n.anchor,
         el: n.el,
         leaderClass: n.leaderClass,
+        fixed: n.fixed,
       };
     });
     rendered = [...nextDel, ...nextComments, ...nextSuggestions, ...nextNotes];
@@ -541,6 +545,7 @@ export function mountMarkupMargin(opts: MarkupMarginOpts): MarkupMarginHandle {
         anchorY: top,
         anchorBottom: Math.max(top, anchorBottom),
         height: b.el.offsetHeight,
+        fixed: b.kind === 'note' && b.fixed === true,
       };
     });
     // Floor stacking positions below the floating toggle, but keep the TRUE

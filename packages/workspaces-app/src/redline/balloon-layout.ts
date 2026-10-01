@@ -34,7 +34,7 @@ export interface BalloonViewport {
 }
 
 export function layoutBalloons(
-  items: Array<{ anchorY: number; height: number }>,
+  items: Array<{ anchorY: number; height: number; fixed?: boolean }>,
   gap: number,
   viewport?: BalloonViewport,
 ): number[] {
@@ -66,6 +66,11 @@ export function layoutBalloons(
   for (let i = order.length - 1; i >= 0; i--) {
     const { item, index } = order[i];
     if (item.anchorY > fold) continue;
+    // A fixed card is never lifted; it is a ceiling for the cards above it.
+    if (item.fixed) {
+      ceiling = Math.min(ceiling, result[index] - gap);
+      continue;
+    }
     const y = result[index];
     const lifted = Math.min(y, ceiling - item.height);
     result[index] = Math.max(lifted, Math.min(y, viewport.top));
@@ -136,6 +141,9 @@ export interface CardItem {
   /** Content-space bottom of it — equal to `anchorY` where nothing measured. */
   anchorBottom: number;
   height: number;
+  /** A caption that never moves with the scroll position: a footnote's
+   *  source note. See `placeCards`. */
+  fixed?: boolean;
 }
 
 /**
@@ -162,6 +170,22 @@ export interface CardItem {
  * half of the same rule — a card being pushed down by four cards the reader
  * cannot see is displaced by nothing they can point at.
  *
+ * A FIXED card is placed the same way at every scroll position: at its
+ * anchor, pushed down only by the cards above it, never lifted to the fold,
+ * floored under a strip or pushed clear of the band. That is a footnote's
+ * source note. It has no composer to keep reachable, and a doc can hold one
+ * on nearly every paragraph. Placing those by the viewport broke them in two
+ * ways. Notes off screen were each placed alone, so neighbours a line apart
+ * came into view on top of one another and stayed that way until the reader
+ * stopped scrolling. A note whose line had just left the top was pushed
+ * clear of the band, so it vanished while part of it was still in view, and
+ * it was missing when that line scrolled back in. Fixed cards are always in
+ * the stack, so they are stacked against each other wherever they are.
+ *
+ * The cards that are not fixed must still not land on one: those below the
+ * band join the same stack from the band's edge, and those above it are
+ * placed upward clear of every box already placed.
+ *
  * `visible` omitted is a layout that could not be measured (happy-dom, a
  * hidden pane): every card is treated as on screen, which is what this column
  * did before the fold existed at all.
@@ -172,39 +196,61 @@ export function placeCards(
   m: { floorY: number; minY: number; viewport?: BalloonViewport; visible?: VisibleBand },
 ): number[] {
   const visible = m.visible;
-  if (!visible) {
-    return layoutBalloons(
-      items.map((it) => ({ anchorY: Math.max(m.floorY, it.anchorY), height: it.height })),
-      gap,
-      m.viewport,
-    );
-  }
+  const floored = (it: CardItem): { anchorY: number; height: number; fixed?: boolean } =>
+    it.fixed
+      ? { anchorY: Math.max(m.minY, it.anchorY), height: it.height, fixed: true }
+      : { anchorY: Math.max(m.floorY, it.anchorY), height: it.height };
+  if (!visible) return layoutBalloons(items.map(floored), gap, m.viewport);
   const onScreen = items.map((it) => it.anchorBottom > visible.top && it.anchorY < visible.bottom);
+  const above = items.map((it, i) => !it.fixed && !onScreen[i] && it.anchorBottom <= visible.top);
   const result = new Array<number>(items.length);
 
-  const stacked: Array<{ anchorY: number; height: number }> = [];
+  // Everything but the non-fixed cards above the band goes through one stack.
+  // A card below the band enters it at the band's edge or lower, so it can
+  // never be pushed into view and can never push an on-screen card: it comes
+  // after all of them in anchor order.
+  const stacked: Array<{ anchorY: number; height: number; fixed?: boolean }> = [];
   const stackedIndex: number[] = [];
   for (const [i, it] of items.entries()) {
-    if (!onScreen[i]) continue;
-    stacked.push({ anchorY: Math.max(m.floorY, it.anchorY), height: it.height });
+    if (above[i]) continue;
+    if (it.fixed || onScreen[i]) stacked.push(floored(it));
+    else {
+      stacked.push({
+        anchorY: Math.max(m.minY, it.anchorY, visible.bottom + gap),
+        height: it.height,
+      });
+    }
     stackedIndex.push(i);
   }
   const ys = layoutBalloons(stacked, gap, m.viewport);
-  for (const [n, i] of stackedIndex.entries()) result[i] = ys[n] as number;
+  const boxes: Array<{ top: number; bottom: number }> = [];
+  for (const [n, i] of stackedIndex.entries()) {
+    const y = ys[n] as number;
+    result[i] = y;
+    boxes.push({ top: y, bottom: y + (items[i] as CardItem).height });
+  }
 
-  for (const [i, it] of items.entries()) {
-    if (onScreen[i]) continue;
-    const y = Math.max(m.minY, it.anchorY);
-    // Clear of the band in the direction its own text lies. `min`/`max` and
-    // not an assignment: a card already well outside stays where its text is.
-    // Near the top of a document there is no room above the fold, so the
-    // answer is negative — above the document itself, where the scroller
-    // clips it. The caller must not clamp it back to zero: that put a sliver
-    // of the card on screen beside text it does not mark.
-    result[i] =
-      it.anchorBottom <= visible.top
-        ? Math.min(y, visible.top - it.height - gap)
-        : Math.max(y, visible.bottom + gap);
+  // Above the band, nearest the band first: each sits at its anchor or higher,
+  // clear of the band and of every box already placed. Near the top of a
+  // document there is no room above the fold, so the answer is negative —
+  // above the document itself, where the scroller clips it. The caller must
+  // not clamp it back to zero: that put a sliver of the card on screen beside
+  // text it does not mark.
+  const order = items
+    .map((it, i) => ({ it, i }))
+    .filter(({ i }) => above[i])
+    .sort((a, b) => b.it.anchorY - a.it.anchorY);
+  let ceiling = visible.top - gap;
+  for (const { it, i } of order) {
+    let y = Math.min(Math.max(m.minY, it.anchorY), ceiling - it.height);
+    for (;;) {
+      const hit = boxes.find((b) => y < b.bottom + gap && y + it.height + gap > b.top);
+      if (!hit) break;
+      y = hit.top - gap - it.height;
+    }
+    result[i] = y;
+    boxes.push({ top: y, bottom: y + it.height });
+    ceiling = y - gap;
   }
   return result;
 }
