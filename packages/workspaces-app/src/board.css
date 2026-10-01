@@ -2401,6 +2401,28 @@ html:has(.board-walk-cred-form) {
   display: block;
   margin-bottom: 2px;
 }
+.vr-notes {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent);
+}
+.vr-notes .vr-kicker {
+  display: block;
+  margin-bottom: 2px;
+}
+.vr-notes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.vr-notes li {
+  margin: 0 0 4px;
+}
+/* Laid out but not yet landed: the row keeps its height, so nothing moves. */
+.vr-notes.vr-unlanded,
+.vr-notes li.vr-unlanded {
+  visibility: hidden;
+}
 .vr-detail {
   margin: 0;
   padding-left: 18px;

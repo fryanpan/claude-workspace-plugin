@@ -681,6 +681,16 @@ checked by `agent-llm.ts`), on the vendor callback hostname. The billed
 engines are built only in `server-deps.ts`; a test server gets none, so every
 setup reads as not set up and the plain mic stays.
 
+Each spoken sentence is a point, and a point worth keeping carries a note:
+its written wording, chosen in `spoken-reply/notes.ts` (what is waiting on
+the listener, or a change the board just made). `spoken-reply/speak-points.ts`
+says the points one voice call at a time and sends each note just before its
+point's first audio; Gemini Live speaks one stream, so there every note goes
+before the tool result that starts the voice. On the page,
+`board/spoken-reply-notes.ts` shows each note as its point starts to play, in
+a row the reply laid out for it, and `board/spoken-reply-turn.ts` builds the
+turn's `timing` report, which now carries each note's lead.
+
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's
 source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and

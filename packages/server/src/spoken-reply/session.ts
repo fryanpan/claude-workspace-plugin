@@ -9,7 +9,8 @@
  *    about, pushed to its latest (`max_endpoint_delay_ms` 3000) so a person
  *    thinking mid-sentence is less likely to be cut off. The words go to the
  *    answerer (the board mic's router), and the spoken part goes to the
- *    setup's voice: Soniox TTS for 1, ElevenLabs Flash for 2.
+ *    setup's voice point by point (`speak-points.ts`), each point's note
+ *    sent just before its audio: Soniox TTS for 1, ElevenLabs Flash for 2.
  *  - Setup 3 streams the same PCM to Gemini Live, which calls back into the
  *    same answerer through its `ask_board` tool and speaks the result.
  *  - Setup 4 streams it to an ElevenLabs agent, which takes the turns and
@@ -38,9 +39,10 @@ import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
 import { AgentTurns } from './agent-turns.ts';
-import { type SpokenAnswerer, replyMessage } from './answer.ts';
+import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
+import { speakPoints } from './speak-points.ts';
 import type { SpokenTimings } from './timings.ts';
 import type { SpokenVoice } from './tts.ts';
 
@@ -165,6 +167,7 @@ export class SpokenSession {
           ...(msg.endpointMs !== undefined ? { endpointMs: msg.endpointMs } : {}),
           ...(msg.replyMs !== undefined ? { replyMs: msg.replyMs } : {}),
           ...(msg.audioMs !== undefined ? { audioMs: msg.audioMs } : {}),
+          ...(msg.noteLeadMs !== undefined ? { noteLeadMs: msg.noteLeadMs } : {}),
           at: Date.now(),
         });
         this.deps.sendJson({ type: 'timings', summary: this.deps.timings.summary() });
@@ -355,26 +358,21 @@ export class SpokenSession {
     const voice =
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     if (!answer.spoken || !voice) return;
-    await this.speak(voice, answer.spoken, turn);
+    await this.speak(voice, answer, turn);
   }
 
-  private async speak(voice: SpokenVoice, text: string, turn: number): Promise<void> {
+  private async speak(voice: SpokenVoice, answer: SpokenAnswer, turn: number): Promise<void> {
     const ctl = new AbortController();
     this.speaking = ctl;
-    let started = false;
     try {
-      await voice.speak(
-        text,
-        (pcm) => {
-          if (ctl.signal.aborted || turn !== this.turn) return;
-          if (!started) {
-            started = true;
-            this.deps.sendJson({ type: 'audio-start', sampleRate: SPOKEN_OUTPUT_RATE });
-          }
-          this.deps.sendAudio(pcm);
-        },
-        ctl.signal,
-      );
+      await speakPoints({
+        voice,
+        points: answer.points,
+        signal: ctl.signal,
+        live: () => turn === this.turn,
+        sendJson: this.deps.sendJson,
+        sendAudio: this.deps.sendAudio,
+      });
     } catch (err) {
       if (!ctl.signal.aborted) {
         this.deps.sendJson({
@@ -383,7 +381,6 @@ export class SpokenSession {
         });
       }
     } finally {
-      if (started) this.deps.sendJson({ type: 'audio-end' });
       if (this.speaking === ctl) this.speaking = null;
     }
   }
@@ -470,6 +467,12 @@ export class SpokenSession {
     if (turn !== this.turn) return;
     this.replied = true;
     this.deps.sendJson(replyMessage(answer));
+    // The model speaks the answer as one stream, so there is no point to
+    // align a note with: every note goes before the tool result that starts
+    // the voice, which keeps each one ahead of its point.
+    answer.points.forEach((p, i) => {
+      if (p.note) this.deps.sendJson({ type: 'note', point: i, text: p.note });
+    });
     const session = this.gemini ?? (await this.geminiOpening);
     session?.answerTool(id, { spoken: answer.spoken, asking: answer.asking });
   }
@@ -485,6 +488,7 @@ export class SpokenSession {
         type: 'reply',
         spoken: said,
         detail: [],
+        points: [{ say: said }],
         asking: false,
         route: 'gemini',
       });

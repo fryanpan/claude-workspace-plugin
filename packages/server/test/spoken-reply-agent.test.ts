@@ -250,6 +250,7 @@ function driver() {
     answer: async (text) => ({
       spoken: `Heard ${text}.`,
       detail: ['More.'],
+      points: [{ say: `Heard ${text}.` }],
       asking: false,
       route: 'fast-path',
     }),
@@ -283,6 +284,7 @@ describe('setup 4 on one socket', () => {
         type: 'reply',
         spoken: 'Heard status please.',
         detail: ['More.'],
+        points: [{ say: 'Heard status please.' }],
         asking: false,
         route: 'fast-path',
       },

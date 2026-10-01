@@ -9,7 +9,9 @@
  * places, each for a different reader:
  *
  *  - one log line per answer, `[spoken-reply] setup=N delay=…ms`, for
- *    whoever is reading the server's log while trying the setups;
+ *    whoever is reading the server's log while trying the setups. It ends
+ *    with `note-lead=…ms` when the reply had notes: per noted point, when the
+ *    note showed minus when its point's first word played (negative = early);
  *  - `<dataDir>/spoken-reply-timings.jsonl`, one row per answer, so the
  *    numbers survive a restart and can be summarised afterwards;
  *  - `summary()`, served by `GET /workspaces/<ws>/voice/timings` and shown in
@@ -33,6 +35,8 @@ export interface SpokenTimingSample {
   endpointMs?: number;
   replyMs?: number;
   audioMs?: number;
+  /** Per noted point: note shown minus first word played, on the page. */
+  noteLeadMs?: number[];
   at: number;
 }
 
@@ -87,6 +91,7 @@ export class SpokenTimings {
       sample.endpointMs !== undefined ? `endpoint=${sample.endpointMs}ms` : '',
       sample.replyMs !== undefined ? `reply=${sample.replyMs}ms` : '',
       sample.audioMs !== undefined ? `audio=${sample.audioMs}ms` : '',
+      sample.noteLeadMs?.length ? `note-lead=${sample.noteLeadMs.join(',')}ms` : '',
     ].filter((s) => s);
     this.log(
       `[spoken-reply] setup=${sample.setup} delay=${sample.delayMs}ms ${legs.join(' ')}`.trim(),

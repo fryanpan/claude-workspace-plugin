@@ -7,12 +7,16 @@
  * ring while it waits for an answer). The state label is sized for its widest
  * value, so Stop and × never move, and the panel keeps one height from open
  * to close — the body scrolls instead.
+ *
+ * Notes land in place: the reply lays out a row for every noted point, held
+ * invisible until its note lands, so a note appearing moves nothing.
  */
 import {
   SPOKEN_SETUPS,
   SPOKEN_SETUP_NAMES,
   SPOKEN_SETUP_TITLES,
   type SpokenHeldSetups,
+  type SpokenPoint,
   type SpokenSetup,
   type SpokenTimingRow,
 } from '@claude-workspaces/core/spoken-reply';
@@ -63,7 +67,14 @@ export interface SpokenPanel {
   isOpen(): boolean;
   setYou(text: string): void;
   clearBody(): void;
-  reply(r: { spoken: string; detail: readonly string[]; choices?: readonly string[] }): void;
+  reply(r: {
+    spoken: string;
+    detail: readonly string[];
+    choices?: readonly string[];
+    points?: readonly SpokenPoint[];
+  }): void;
+  /** Show point `point`'s note in the row the reply laid out for it. */
+  landNote(point: number, text: string): void;
   note(text: string): void;
   setSetup(setup: SpokenSetup): void;
   /** This answer's delay (`undefined` keeps the one shown), and the setup's
@@ -235,6 +246,19 @@ export function createSpokenPanel(opts: SpokenPanelOpts): SpokenPanel {
     reply(r) {
       body.replaceChildren();
       if (r.spoken) body.append(spokenBlock(r.spoken));
+      const noted = (r.points ?? []).flatMap((p, i) => (p.note ? [{ i, note: p.note }] : []));
+      if (noted.length > 0) {
+        const notes = make('div', 'vr-notes vr-unlanded');
+        const list = make('ul');
+        // The text is laid out now, invisible, so the row has its final height.
+        for (const n of noted) {
+          const li = make('li', 'vr-unlanded', n.note);
+          li.dataset.point = String(n.i);
+          list.append(li);
+        }
+        notes.append(make('span', 'vr-kicker', 'Notes'), list);
+        body.append(notes);
+      }
       if (r.choices && r.choices.length > 0) {
         const row = make('div', 'vr-choices');
         for (const c of r.choices) {
@@ -250,6 +274,13 @@ export function createSpokenPanel(opts: SpokenPanelOpts): SpokenPanel {
         for (const line of r.detail) list.append(make('li', undefined, line));
         body.append(list);
       }
+    },
+    landNote(point, text) {
+      const li = body.querySelector<HTMLElement>(`.vr-notes li[data-point="${point}"]`);
+      if (!li) return;
+      li.textContent = text;
+      li.classList.remove('vr-unlanded');
+      li.closest('.vr-notes')?.classList.remove('vr-unlanded');
     },
     note(text) {
       body.append(make('p', 'vr-note', text));

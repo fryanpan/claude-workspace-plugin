@@ -132,8 +132,9 @@ describe('spoken reply over the converse socket', () => {
     expect(reply?.route).toBe('fast-path');
     expect(reply?.asking).toBe(false);
     expect(String(reply?.spoken)).toStartWith('Harborlight: 1 open');
-    expect(said.at(-1)).toBe(String(reply?.spoken));
-    expect(audio).toEqual([480]);
+    // Said point by point: the two sentences are two calls to the voice.
+    expect(said.slice(-2).join(' ')).toBe(String(reply?.spoken));
+    expect(audio).toEqual([480, 480]);
     ws.close();
   });
 
