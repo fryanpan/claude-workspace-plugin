@@ -1,3 +1,4 @@
+import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
@@ -37,6 +38,19 @@ export interface SpokenAnswer extends ShapedReply {
   choices?: string[];
   route: string;
   navigate?: string;
+}
+
+/** The page's `reply` frame for an answer — every setup sends this one. */
+export function replyMessage(a: SpokenAnswer): SpokenServerMessage {
+  return {
+    type: 'reply',
+    spoken: a.spoken,
+    detail: a.detail,
+    asking: a.asking,
+    ...(a.choices ? { choices: a.choices } : {}),
+    route: a.route,
+    ...(a.navigate ? { navigate: a.navigate } : {}),
+  };
 }
 
 /** How many goals the question names aloud. More than this is "or another". */

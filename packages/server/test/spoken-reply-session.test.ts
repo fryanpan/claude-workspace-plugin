@@ -243,6 +243,17 @@ describe('SpokenSession, setups 1 and 2', () => {
     await waitFor(() => l.opened.length === 1, { describe: 'setup 1 listens' });
   });
 
+  it('an unconfigured setup 4 says what it lacks and opens nothing', () => {
+    const line = 'Setup 4 is not set up on this server yet: it needs the elevenlabs-agent-id card.';
+    const h = harness({ held: { '4': line } });
+    h.session.open();
+    expect(h.json[0]).toEqual({ type: 'ready', setups: [], held: { '4': line }, timings: {} });
+    h.send({ type: 'start', setup: 4, mode: 'tap' });
+    h.session.onAudio(new Uint8Array(4));
+    h.send({ type: 'end' });
+    expect(h.json.slice(1)).toEqual([{ type: 'error', message: line }]);
+  });
+
   it('a setup this server cannot run, and a read-only socket, are refused', () => {
     const h = harness({});
     h.send({ type: 'start', setup: 2, mode: 'hold' });
