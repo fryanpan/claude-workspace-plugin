@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { BrowserFirstSequencer } from './scripts/vitest-sequencer.ts';
 
 // A DOM is not free: creating a happy-dom window costs ~170ms of CPU per test
 // FILE, and vitest builds one per file. Measured 2026-09-10 over packages/core
@@ -42,6 +43,10 @@ export default defineConfig({
       happyDOM: { settings: { navigation: { disableMainFrameNavigation: true } } },
     },
     setupFiles: ['./vitest.setup.ts'],
+    // Files that may launch a browser start first, across both projects; the
+    // default runs every `dom` file before any `node` one. Why, measured:
+    // scripts/vitest-sequencer.ts.
+    sequence: { sequencer: BrowserFirstSequencer },
     // Two projects rather than the `environmentMatchGlobs` that vitest 4
     // removed. Each inherits everything above through `extends: true`; only
     // the file set and the environment differ.
