@@ -384,8 +384,9 @@ describe('placeCards with fixed cards (footnote notes)', () => {
     ).toBe(false);
     // And still off the band the reader can see.
     for (const [i, y] of ys.entries()) {
-      if (items[i]?.fixed) continue;
-      expect(y + (items[i] as { height: number }).height).toBeLessThanOrEqual(600);
+      const it = items[i];
+      if (!it || 'fixed' in it) continue;
+      expect(y + it.height).toBeLessThanOrEqual(600);
     }
   });
 
