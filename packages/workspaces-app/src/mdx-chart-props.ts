@@ -2,7 +2,9 @@
  * The chart an `.mdx` component describes, read out of its literal props by
  * shape rather than by component name: a `series` of x/y `values` (or `data`),
  * or a `data` list of x/y points, is lines; a `data` list of `label`/`value`
- * rows is bars. So another post's chart with the same shape is read too.
+ * rows is bars, and one whose rows carry a `kind` (or a chart whose `type` is
+ * `waterfall`) is a waterfall. So another post's chart with the same shape is
+ * read too.
  *
  * The defaults are the published site's (`Chart.astro`, `LineChart.astro`): a
  * bar chart with no `orientation` is horizontal and one with no `unit` is in
@@ -67,7 +69,29 @@ export interface BarChart extends ChartNotes {
   width?: number;
 }
 
-export type MdxChart = LineChart | BarChart;
+/** One waterfall bar. A start or end is a total, drawn from 0; a step is a
+ *  change, drawn floating from the running total before it to the one after. */
+export interface WaterfallBar {
+  label: string;
+  kind: 'start' | 'step' | 'end';
+  /** The change for a step, the total for a start or an end. */
+  value: number;
+  /** The bar's two ends on the value axis: `from` 0 for a total. */
+  from: number;
+  to: number;
+}
+
+export interface WaterfallChart extends ChartNotes {
+  type: 'waterfall';
+  bars: WaterfallBar[];
+  /** Written straight after every value and tick, as a bar chart's is. */
+  unit: string;
+  baseline?: number;
+  baselineLabel?: string;
+  width?: number;
+}
+
+export type MdxChart = LineChart | BarChart | WaterfallChart;
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -97,6 +121,9 @@ const LINE_PROPS = [
   'yScale',
   'xTickLabels',
 ];
+const WATERFALL_PROPS = ['type', 'title', 'data', 'unit', 'baseline', 'baselineLabel', 'width'];
+const WATERFALL_ROW = ['label', 'value', 'kind'];
+const KINDS: readonly string[] = ['start', 'step', 'end'];
 const SERIES_KEYS = ['label', 'name', 'values', 'data', 'dashed', 'showValue'];
 
 /** The keys of `rec` outside `known`, each written `prefix` + key. */
@@ -113,6 +140,9 @@ function unknownProps(props: Map<string, unknown>, known: readonly string[]): Se
 
 /** The chart `props` describe, or undefined when they describe none. */
 export function chartOf(props: Map<string, unknown>): MdxChart | undefined {
+  // A malformed waterfall draws nothing rather than bars from 0, which would
+  // show each step as a total.
+  if (isWaterfall(props)) return waterfallChartOf(props);
   const bars = barsOf(props.get('data'));
   if (bars) return barChartOf(props, bars.rows, bars.ignored);
   return lineChartOf(props);
@@ -147,6 +177,57 @@ function barChartOf(
     ignored: [...ignored],
     siteIgnores,
   };
+  const width = widthOf(props.get('width'));
+  if (width !== undefined) chart.width = width;
+  return chart;
+}
+
+function isWaterfall(props: Map<string, unknown>): boolean {
+  const type = props.get('type');
+  if (type === 'waterfall') return true;
+  const data = props.get('data');
+  return type === undefined && Array.isArray(data) && data.some((r) => isRec(r) && 'kind' in r);
+}
+
+/** Each row's floating range from the running total, or undefined when a row
+ *  is not a labelled start, step or end with the number its kind needs. */
+function waterfallChartOf(props: Map<string, unknown>): WaterfallChart | undefined {
+  const data = props.get('data');
+  if (!Array.isArray(data) || data.length === 0) return undefined;
+  const ignored = unknownProps(props, WATERFALL_PROPS);
+  const bars: WaterfallBar[] = [];
+  let total = 0;
+  for (const r of data) {
+    if (!isRec(r)) return undefined;
+    const label = strOf(r.label);
+    const kind = strOf(r.kind);
+    if (label === undefined || kind === undefined || !KINDS.includes(kind)) return undefined;
+    unknownKeys(r, WATERFALL_ROW, 'data[].', ignored);
+    const given = numOf(r.value);
+    // An end with no value is the running total; a given one is drawn as written.
+    const value = given ?? (kind === 'end' ? total : undefined);
+    if (value === undefined) return undefined;
+    if (kind === 'step') {
+      bars.push({ label, kind, value, from: total, to: total + value });
+      total += value;
+    } else {
+      bars.push({ label, kind: kind as 'start' | 'end', value, from: 0, to: value });
+      total = value;
+    }
+  }
+  const chart: WaterfallChart = {
+    type: 'waterfall',
+    bars,
+    unit: strOf(props.get('unit')) ?? '%',
+    ignored: [...ignored],
+    siteIgnores: [],
+  };
+  const baseline = numOf(props.get('baseline'));
+  if (baseline !== undefined) {
+    chart.baseline = baseline;
+    const label = strOf(props.get('baselineLabel'));
+    if (label) chart.baselineLabel = label;
+  }
   const width = widthOf(props.get('width'));
   if (width !== undefined) chart.width = width;
   return chart;

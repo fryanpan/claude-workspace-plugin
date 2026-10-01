@@ -5,7 +5,8 @@
  * each line carries its name and last value at its own end inside the plot
  * rather than in a legend below, an indexed chart's reference line is drawn
  * and labelled on the plot, and each dated event is a dashed rule labelled
- * above the plot. Bars are `mdx-chart-bars.ts`.
+ * above the plot. Bars are `mdx-chart-bars.ts`, waterfalls
+ * `mdx-chart-waterfall.ts`.
  *
  * Every string reaches the page as an SVG text node or `textContent`.
  */
@@ -24,8 +25,16 @@ import {
   text,
   tip,
 } from './mdx-chart-svg.ts';
+import { drawWaterfall } from './mdx-chart-waterfall.ts';
 
-export type { ChartPoint, LineSeries, LineChart, BarChart, MdxChart } from './mdx-chart-props.ts';
+export type {
+  ChartPoint,
+  LineSeries,
+  LineChart,
+  BarChart,
+  WaterfallChart,
+  MdxChart,
+} from './mdx-chart-props.ts';
 export { chartOf } from './mdx-chart-props.ts';
 export { niceTicks, seriesColor } from './mdx-chart-svg.ts';
 
@@ -39,7 +48,8 @@ const EVENT_ROW = 14;
  *  `width` prop asked for, else `width`. */
 export function drawChart(chart: MdxChart, width: number): SVGSVGElement {
   const w = Math.max(240, Math.round(chart.width ?? width));
-  return chart.type === 'line' ? drawLines(chart, w) : drawBars(chart, w);
+  if (chart.type === 'line') return drawLines(chart, w);
+  return chart.type === 'bar' ? drawBars(chart, w) : drawWaterfall(chart, w);
 }
 
 /** The name and last value each labelled line carries at its own end. Two that

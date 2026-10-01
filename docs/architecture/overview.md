@@ -1556,10 +1556,12 @@ text node. The two were one file until the drawing had to follow the published
 site's chart: a band shades a stretch of x over the whole plot rather than a
 y range, each line carries its name and last value at its own end instead of a
 legend below, an indexed chart's reference line is drawn and labelled, and the
-component's own `width` decides the drawing's width. The drawing is now three
-files: `mdx-chart.ts` draws lines, `mdx-chart-bars.ts` draws bars, and
-`mdx-chart-svg.ts` holds the SVG helpers both use. None of the three changes the
-picture above. `mdx-chart-props.ts` also uses the site's defaults (horizontal
+component's own `width` decides the drawing's width. The drawing is now four
+files: `mdx-chart.ts` draws lines, `mdx-chart-bars.ts` draws bars,
+`mdx-chart-waterfall.ts` draws a waterfall (a `data` list whose rows carry a
+`kind` of start, step or end, each step floating between running totals), and
+`mdx-chart-svg.ts` holds the SVG helpers they share. None of the four changes
+the picture above. `mdx-chart-props.ts` also uses the site's defaults (horizontal
 bars, percent) and lists every prop the preview does not draw, or that the site
 itself ignores, so `mdx-preview.ts` can print them under the chart.
 

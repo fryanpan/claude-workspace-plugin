@@ -1037,7 +1037,8 @@ body.has-set .doc-switcher-caret {
 }
 /* The site's bar chart sets its names and values at 13px, the values bold;
    with sublabels both step up so the eye reaches them before the period. */
-#editor > .ProseMirror .mdx-chart[data-chart="bar"] text {
+#editor > .ProseMirror .mdx-chart[data-chart="bar"] text,
+#editor > .ProseMirror .mdx-chart[data-chart="waterfall"] text {
   font-size: 13px;
 }
 #editor > .ProseMirror .mdx-chart .mdx-bar-label {
@@ -1094,6 +1095,14 @@ body.has-set .doc-switcher-caret {
 }
 #editor > .ProseMirror .mdx-chart .mdx-baseline-label {
   font-size: 11px;
+}
+/* A waterfall's names sit on their own lines over the grid and the goal rule;
+   a halo in the block's ground keeps them legible where a rule crosses. */
+#editor > .ProseMirror .mdx-chart[data-chart="waterfall"] .mdx-bar-label {
+  paint-order: stroke;
+  stroke: var(--bg-panel);
+  stroke-width: 4px;
+  stroke-linejoin: round;
 }
 #editor > .ProseMirror .mdx-head + .mdx-children {
   margin-top: 4px;

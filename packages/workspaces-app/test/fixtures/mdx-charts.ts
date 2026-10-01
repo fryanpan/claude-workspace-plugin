@@ -44,3 +44,23 @@ export const BARS = (orientation: string): string => `<Chart
   ]}
   highlightIndex={1}
 />`;
+
+/** A waterfall from a start total, six levers down toward a goal line, to an
+ *  end total. The lever names run long, as an article's do. */
+export const WATERFALL: string = `<Chart
+  type="waterfall"
+  title="Harborlight's share, lever by lever"
+  unit="%"
+  baseline={30}
+  baselineLabel="Goal"
+  data={[
+    { label: "Today", value: 48.6, kind: "start" },
+    { label: "Lever one shifts the Riverbend crossings onto the morning ferry", value: -4.2, kind: "step" },
+    { label: "Lever two reprices the Saltmarsh pier for weekday riders", value: -3.1, kind: "step" },
+    { label: "Lever three adds a second boat at peak", value: -5.0, kind: "step" },
+    { label: "Lever four, a new stop, brings riders back", value: 1.5, kind: "step" },
+    { label: "Lever five closes the slow north loop for good", value: -2.8, kind: "step" },
+    { label: "Lever six moves freight to the night crossing only", value: -4.0, kind: "step" },
+    { label: "After all levers", value: 31.0, kind: "end" },
+  ]}
+/>`;
