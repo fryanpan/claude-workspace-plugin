@@ -216,14 +216,91 @@ describe('spoken reply', () => {
     // scheduled 30 ms ahead of the context clock.
     h.socket.audio([0, 0, 0, 0, 4000]);
     expect(h.play.started).toEqual([1.03]);
+    expect(h.panel.root.querySelector('.vr-delay b')?.textContent).toBe('550');
+    // The report waits for the reply to finish, so it can carry the notes' leads.
+    expect(h.socket.json().some((m) => m.type === 'timing')).toBe(false);
+    h.socket.reply({ type: 'audio-end' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(h.label()).toBe('Done');
     const timing = h.socket.json().find((m) => m.type === 'timing');
     expect(timing?.endpointMs).toBe(300);
     expect(timing?.replyMs).toBe(20);
     expect(Math.round(Number(timing?.delayMs))).toBe(550);
-    expect(h.panel.root.querySelector('.vr-delay b')?.textContent).toBe('550');
+    expect(timing?.noteLeadMs).toBeUndefined();
+  });
+
+  it('each note lands just before its point is heard, in a row laid out for it', async () => {
+    const h = harness();
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(TAP_MS);
+    h.socket.open();
+    h.mic.dispatchEvent(new Event('pointerup'));
+    h.socket.reply({
+      type: 'reply',
+      spoken: 'Moved "Sign-in" from todo to done. Waiting on you: “approve the mock”.',
+      detail: [],
+      points: [
+        { say: 'Moved "Sign-in" from todo to done.', note: '“Sign-in”: todo → done' },
+        { say: 'Waiting on you: “approve the mock”.', note: 'Waiting on you: “approve the mock”' },
+      ],
+      asking: false,
+      route: 'fast-path-action',
+    });
+    const rows = [...h.panel.root.querySelectorAll<HTMLElement>('.vr-notes li')];
+    const unlanded = () => rows.map((r) => r.classList.contains('vr-unlanded'));
+    // Both rows exist, with their text, before either note lands.
+    expect(rows.map((r) => r.textContent)).toEqual([
+      '“Sign-in”: todo → done',
+      'Waiting on you: “approve the mock”',
+    ]);
+    expect(unlanded()).toEqual([true, true]);
+    const layout = [...h.panel.root.querySelectorAll('.vr-body *')];
+
+    // Point 0: its note, then its audio — one second of it.
+    h.socket.reply({ type: 'note', point: 0, text: '“Sign-in”: todo → done' });
+    expect(unlanded()).toEqual([true, true]);
+    h.socket.reply({ type: 'audio-start', sampleRate: 24000 });
+    h.socket.audio(new Array(24000).fill(4000));
+    expect(unlanded()).toEqual([false, true]);
+    // Point 1's note arrives with point 0 still playing: it waits.
+    h.socket.reply({ type: 'note', point: 1, text: 'Waiting on you: “approve the mock”' });
+    h.socket.audio(new Array(2400).fill(4000));
+    h.tick(879);
+    await vi.advanceTimersByTimeAsync(879);
+    expect(unlanded()).toEqual([false, true]);
+    h.tick(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(unlanded()).toEqual([false, false]);
+    // Landing changed which rows show, not which elements are there.
+    expect([...h.panel.root.querySelectorAll('.vr-body *')]).toEqual(layout);
+
     h.socket.reply({ type: 'audio-end' });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(h.label()).toBe('Done');
+    await vi.advanceTimersByTimeAsync(2000);
+    const timing = h.socket.json().find((m) => m.type === 'timing');
+    // Point 0 shows as its audio is queued, 30 ms ahead; point 1 NOTE_LEAD_MS ahead.
+    expect(timing?.noteLeadMs).toEqual([-30, -150]);
+  });
+
+  it('stopping shows every note still waiting', async () => {
+    const h = harness();
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(TAP_MS);
+    h.socket.open();
+    h.mic.dispatchEvent(new Event('pointerup'));
+    h.socket.reply({
+      type: 'reply',
+      spoken: 'One. Two.',
+      detail: [],
+      points: [{ say: 'One.' }, { say: 'Two.', note: 'Two' }],
+      asking: false,
+      route: 'x',
+    });
+    h.socket.reply({ type: 'audio-start', sampleRate: 24000 });
+    h.socket.audio(new Array(24000).fill(4000));
+    h.socket.reply({ type: 'note', point: 1, text: 'Two' });
+    h.panel.root.querySelector<HTMLButtonElement>('.vr-stop')?.click();
+    const row = h.panel.root.querySelector('.vr-notes li');
+    expect(row?.classList.contains('vr-unlanded')).toBe(false);
   });
 
   it('a tap: the listener ends the question, and a second tap ends it by hand', async () => {
