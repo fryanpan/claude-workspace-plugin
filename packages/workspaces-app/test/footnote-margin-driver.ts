@@ -62,6 +62,13 @@ export interface FootnoteProbe {
   paired: number;
   /** What the phone's popover starts with after a tap on note 3. */
   popNumber: string | null;
+  /** How far the first run's number is raised: the gap between the bottom of
+   *  its painted box and the bottom of the letter before it, as a share of
+   *  that letter's height. A number sitting on the baseline reads near 0.15. */
+  lift: number | null;
+  /** The number's colour against its paragraph's, as computed. */
+  numberColour: string;
+  textColour: string;
   scrollHeight: number;
   clientHeight: number;
   /** Read every few frames during one continuous gesture, top to foot and
@@ -221,6 +228,13 @@ async function probe(): Promise<string> {
     );
   }).length;
 
+  const first = runs[0] as HTMLElement;
+  first.scrollIntoView({ block: 'center' });
+  await frame();
+  const lift = numberLift(first);
+  const numberColour = getComputedStyle(first, '::after').color;
+  const textColour = getComputedStyle(first.parentElement as HTMLElement).color;
+
   const max = editorEl.scrollHeight - editorEl.clientHeight;
   const hold = (window as { footnoteHold?: string }).footnoteHold;
   if (hold === 'gesture') {
@@ -288,6 +302,9 @@ async function probe(): Promise<string> {
     marginVisible: balloonMarginVisible(),
     paired,
     popNumber,
+    lift,
+    numberColour,
+    textColour,
     notes: notes.size,
     cards: cards.length,
     superscripts: runs.filter((r) => getComputedStyle(r, '::after').display !== 'none').length,
@@ -297,6 +314,36 @@ async function probe(): Promise<string> {
     settled,
   };
   return JSON.stringify(out);
+}
+
+/** A pseudo-element has no box of its own to ask for, but a hit on its paint
+ *  reports its element — so walk a column down through the number and keep
+ *  the rows that land on the run. Measured against the letter just before the
+ *  run, whose box a Range gives. */
+function numberLift(run: HTMLElement): number | null {
+  // The last text before the run in its paragraph — the fact it supports is
+  // usually wrapped in a span of its own, so not simply the previous sibling.
+  const block = run.closest('p, li, td, h1, h2, h3') ?? run.parentElement;
+  if (!block) return null;
+  const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let prev: Text | null = null;
+  for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+    if (run.contains(t)) break;
+    if ((t as Text).length >= 2) prev = t as Text;
+  }
+  if (!prev) return null;
+  const range = document.createRange();
+  range.setStart(prev, prev.length - 2);
+  range.setEnd(prev, prev.length - 1);
+  const letter = range.getBoundingClientRect();
+  const box = run.getBoundingClientRect();
+  const x = box.left + box.width / 2;
+  let bottom: number | null = null;
+  for (let y = letter.top - 15; y < letter.bottom + 5; y += 0.5) {
+    if (document.elementFromPoint(x, y) === run) bottom = y;
+  }
+  if (bottom === null || letter.height === 0) return null;
+  return (letter.bottom - bottom) / letter.height;
 }
 
 declare global {
