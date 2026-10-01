@@ -1,3 +1,4 @@
+import type { SpokenPoint } from '@claude-workspaces/core/spoken-reply';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
@@ -19,7 +20,8 @@ import { capWords } from '../voice-status.ts';
  */
 import type { VoiceHandleResult, VoiceResult } from '../voice.ts';
 import { parseOrdinal, pickByLabel } from '../voice.ts';
-import { type ShapedReply, shapeReply, stripWake } from './reply-shape.ts';
+import { withNotes } from './notes.ts';
+import { shapeReply, stripWake } from './reply-shape.ts';
 
 /** The board as the answerer needs it — the router plus the goal list. */
 export interface SpokenBoard {
@@ -32,7 +34,12 @@ export interface SpokenBoard {
   goals(workspaceId: string): Array<{ id: string; title: string }>;
 }
 
-export interface SpokenAnswer extends ShapedReply {
+export interface SpokenAnswer {
+  spoken: string;
+  /** `spoken`, point by point, each with its note when it earns one. */
+  points: SpokenPoint[];
+  detail: string[];
+  asking: boolean;
   /** When asking, the answers the page may offer as buttons. */
   choices?: string[];
   route: string;
@@ -75,6 +82,17 @@ export function namedGoalAsk(transcript: string): string | null {
   return name && !/^(?:the|my|our)$/.test(name) ? name : null;
 }
 
+/** The router's words, shaped for speech, with each point's note. */
+function shapedAnswer(ack: string, route: string): SpokenAnswer {
+  const { says, ...rest } = shapeReply(ack);
+  return { ...rest, points: withNotes(says, route), route };
+}
+
+/** A one-line answer of the answerer's own, with no note. */
+function plain(spoken: string, route = 'none'): SpokenAnswer {
+  return { spoken, points: spoken ? [{ say: spoken }] : [], detail: [], asking: false, route };
+}
+
 function listOr(labels: string[]): string {
   if (labels.length <= 1) return labels.join('');
   return `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
@@ -99,7 +117,7 @@ export class SpokenAnswerer {
     context: VoiceContext | undefined,
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
-    if (!transcript) return { spoken: '', detail: [], asking: false, route: 'none' };
+    if (!transcript) return plain('');
 
     const pending = this.pendingGoals;
     this.pendingGoals = null;
@@ -125,20 +143,17 @@ export class SpokenAnswerer {
     }
 
     const r = await this.board.handle(this.workspaceId, { transcript, context, actor });
-    if (!r.ok) {
-      return { spoken: 'I can’t find this board.', detail: [], asking: false, route: 'none' };
-    }
+    if (!r.ok) return plain('I can’t find this board.');
     return {
-      ...shapeReply(r.ack),
-      route: r.route,
+      ...shapedAnswer(r.ack, r.route),
       ...(r.navigate ? { navigate: r.navigate } : {}),
     };
   }
 
   private goalAnswer(goalId: string): SpokenAnswer {
     const r = this.board.goalStatus(this.workspaceId, goalId);
-    if (!r) return { spoken: 'That goal is gone.', detail: [], asking: false, route: 'none' };
-    return { ...shapeReply(r.ack), route: r.route };
+    if (!r) return plain('That goal is gone.');
+    return shapedAnswer(r.ack, r.route);
   }
 
   private askWhichGoal(goals: Array<{ id: string; title: string }>): SpokenAnswer {
@@ -151,8 +166,10 @@ export class SpokenAnswerer {
     const named = options.slice(0, NAMED_GOALS).map((o) => o.short);
     if (options.length > NAMED_GOALS) named.push('another');
     const ordinals = ['first', 'second', 'third'].slice(0, Math.min(NAMED_GOALS, options.length));
+    const spoken = `Which goal: ${listOr(named)}?`;
     return {
-      spoken: `Which goal: ${listOr(named)}?`,
+      spoken,
+      points: [{ say: spoken }],
       detail: [`Say ${listOr(ordinals)}, or a goal’s name.`],
       asking: true,
       choices: options.slice(0, NAMED_GOALS).map((o) => o.short),

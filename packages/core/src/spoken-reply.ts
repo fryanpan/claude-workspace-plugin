@@ -51,6 +51,17 @@ export const SPOKEN_OUTPUT_RATE = 24_000;
  *  talking too much; this is the hard cap under the two-sentence rule. */
 export const SPOKEN_MAX_WORDS = 40;
 
+/**
+ * One point of the spoken part — a sentence said aloud — and, when the point
+ * is worth keeping, its note: the written wording of the same point, which may
+ * differ from what is said, since reading and hearing want different words.
+ * The page shows a note as its point starts to play, never after.
+ */
+export interface SpokenPoint {
+  say: string;
+  note?: string;
+}
+
 export interface SpokenAuthor {
   id: string;
   name: string;
@@ -82,6 +93,9 @@ export type SpokenClientMessage =
       replyMs?: number;
       /** Written reply arriving to the first spoken word. */
       audioMs?: number;
+      /** Per noted point, in order: when its note showed minus when its
+       *  point's first word played. Zero or below is the note in step. */
+      noteLeadMs?: number[];
     };
 
 export interface SpokenTimingRow {
@@ -112,6 +126,9 @@ export type SpokenServerMessage =
       spoken: string;
       /** Written only, one line each, below the spoken part. */
       detail: string[];
+      /** `spoken`, point by point, with each point's note when it has one.
+       *  The notes themselves land by `note` frames, in step with the voice. */
+      points?: SpokenPoint[];
       /** The spoken part is a question, and the page waits for its answer. */
       asking: boolean;
       /** When asking, the answers the page may offer as buttons. */
@@ -120,6 +137,9 @@ export type SpokenServerMessage =
       route: string;
       navigate?: string;
     }
+  /** Point `point`'s note, sent just before that point's audio — the page
+   *  shows it as the point starts to play. */
+  | { type: 'note'; point: number; text: string }
   | { type: 'audio-start'; sampleRate: number }
   | { type: 'audio-end' }
   | { type: 'timings'; summary: SpokenTimingSummary }
@@ -137,6 +157,21 @@ function timingField(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_TIMING_MS
     ? Math.round(v)
     : undefined;
+}
+
+const MAX_NOTE_LEADS = 8;
+
+/** A note's lead may be negative (early), so it has its own bound. */
+function noteLeads(v: unknown): number[] | undefined {
+  if (!Array.isArray(v) || v.length === 0 || v.length > MAX_NOTE_LEADS) return undefined;
+  const out: number[] = [];
+  for (const n of v) {
+    if (typeof n !== 'number' || !Number.isFinite(n) || Math.abs(n) > MAX_TIMING_MS) {
+      return undefined;
+    }
+    out.push(Math.round(n));
+  }
+  return out;
 }
 
 function authorOf(raw: unknown): SpokenAuthor | undefined {
@@ -191,12 +226,14 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
       const endpointMs = timingField(m.endpointMs);
       const replyMs = timingField(m.replyMs);
       const audioMs = timingField(m.audioMs);
+      const noteLeadMs = noteLeads(m.noteLeadMs);
       return {
         type: 'timing',
         delayMs,
         ...(endpointMs !== undefined ? { endpointMs } : {}),
         ...(replyMs !== undefined ? { replyMs } : {}),
         ...(audioMs !== undefined ? { audioMs } : {}),
+        ...(noteLeadMs !== undefined ? { noteLeadMs } : {}),
       };
     }
     default:
@@ -219,6 +256,7 @@ export function parseSpokenServerMessage(text: string): SpokenServerMessage | nu
     'heard',
     'turn-end',
     'reply',
+    'note',
     'audio-start',
     'audio-end',
     'timings',

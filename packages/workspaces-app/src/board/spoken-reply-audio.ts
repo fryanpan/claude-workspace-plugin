@@ -140,8 +140,15 @@ export interface SpokenPlayer {
   push(bytes: Uint8Array): void;
   /** No more audio is coming; `onDone` fires once what was queued has played. */
   finish(onDone: () => void): void;
-  /** Silence now, and drop everything queued. */
+  /** Silence now, and drop everything queued (and every unmet `mark`). */
   stop(): void;
+  /**
+   * Call `onStart` with the play time of the first audible sample pushed
+   * after this call, on the `performance.now()` clock — a time that may
+   * still be ahead, since audio is queued behind what is playing. How a
+   * point's note is timed to the point's first word.
+   */
+  mark(onStart: (audibleAt: number) => void): void;
   playing(): boolean;
 }
 
@@ -164,6 +171,7 @@ export function createSpokenPlayer(opts: SpokenPlayerOpts): SpokenPlayer {
   let heardFirst = false;
   let doneTimer: ReturnType<typeof setTimeout> | null = null;
   let active = false;
+  let marks: Array<(audibleAt: number) => void> = [];
 
   const clearDone = (): void => {
     if (doneTimer) clearTimeout(doneTimer);
@@ -198,11 +206,17 @@ export function createSpokenPlayer(opts: SpokenPlayerOpts): SpokenPlayer {
       src.onended = () => {
         sources = sources.filter((s) => s !== src);
       };
-      if (!heardFirst) {
+      if (!heardFirst || marks.length > 0) {
         const i = firstAudible(samples);
         if (i >= 0) {
-          heardFirst = true;
-          opts.onFirstWord(now() + (t + i / rate - ctx.currentTime) * 1000);
+          const audibleAt = now() + (t + i / rate - ctx.currentTime) * 1000;
+          if (!heardFirst) {
+            heardFirst = true;
+            opts.onFirstWord(audibleAt);
+          }
+          const met = marks;
+          marks = [];
+          for (const m of met) m(audibleAt);
         }
       }
       playAt = t + samples.length / rate;
@@ -226,6 +240,10 @@ export function createSpokenPlayer(opts: SpokenPlayerOpts): SpokenPlayer {
       }
       sources = [];
       playAt = 0;
+      marks = [];
+    },
+    mark(onStart) {
+      marks.push(onStart);
     },
     playing: () => active,
   };

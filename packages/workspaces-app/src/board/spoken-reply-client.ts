@@ -16,10 +16,10 @@
  * The kind is only known at release or at `TAP_MS`, so the frames said before
  * then are held and sent behind the `start` that names it.
  *
- * THE DELAY. From the end of the question — the release for a held one, the
- * last frame loud enough to be speech for a tapped one — to the moment the
- * first audible sample of the reply plays. Sent to the server as `timing`,
- * which logs it per setup (`spoken-reply/timings.ts` names where it is read).
+ * THE DELAY is measured in `spoken-reply-turn.ts` and sent to the server as
+ * `timing`, which logs it per setup (`spoken-reply/timings.ts` names where it
+ * is read). Each point's note is shown in step with its point by
+ * `spoken-reply-notes.ts`, and its lead rides the same report.
  */
 import {
   SPOKEN_SETUPS,
@@ -40,7 +40,9 @@ import {
   startSpokenCapture,
 } from './spoken-reply-audio.ts';
 import { wireSpokenHold } from './spoken-reply-hold.ts';
+import { createNoteClock } from './spoken-reply-notes.ts';
 import { type SpokenPanel, createSpokenPanel } from './spoken-reply-panel.ts';
+import { type Turn, newTurn, timingAt } from './spoken-reply-turn.ts';
 
 /** A press released sooner than this is a tap. */
 export const TAP_MS = 300;
@@ -83,31 +85,6 @@ export interface SpokenReply {
   panel: SpokenPanel;
   setup(): SpokenSetup;
   destroy(): void;
-}
-
-interface Turn {
-  mode: SpokenMode | null;
-  /** From a tapped choice, not from the microphone: nothing to time. */
-  fromChoice: boolean;
-  releasedAt: number | null;
-  lastVoiceAt: number | null;
-  turnEndAt: number | null;
-  replyAt: number | null;
-  asking: boolean;
-  timed: boolean;
-}
-
-function newTurn(fromChoice = false): Turn {
-  return {
-    mode: null,
-    fromChoice,
-    releasedAt: null,
-    lastVoiceAt: null,
-    turnEndAt: null,
-    replyAt: null,
-    asking: false,
-    timed: false,
-  };
 }
 
 const OPEN = 1;
@@ -184,6 +161,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       queue = [];
       stopCapture();
       player.stop();
+      notes.flush();
       const s = panel.state();
       if (s !== 'idle' && s !== 'done' && s !== 'stopped') {
         panel.note('The connection closed. Press the mic to try again.');
@@ -220,6 +198,17 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   });
   panel.setSetup(setup);
   panel.setDelay(null, summary[String(setup) as '1' | '2' | '3']);
+  const notes = createNoteClock({ player, land: (i, text) => panel.landNote(i, text), now });
+
+  /** The reply is over: every note shown, and the turn's report sent once. */
+  function settle(): void {
+    notes.flush();
+    const t = turn.pending;
+    if (!t) return;
+    turn.pending = null;
+    const noteLeadMs = notes.leads();
+    sendMsg(noteLeadMs.length > 0 ? { ...t, noteLeadMs } : t);
+  }
 
   function pickSetup(s: SpokenSetup): void {
     if (!available.includes(s)) return;
@@ -261,6 +250,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   function stopSpeaking(): void {
     player.stop();
     sendMsg({ type: 'stop' });
+    settle();
     panel.setState(turn.asking ? 'waiting' : 'stopped');
   }
 
@@ -270,6 +260,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     stopCapture();
     if (speakingNow()) sendMsg({ type: 'stop' });
     player.stop();
+    settle();
     panel.close();
     panel.setState('idle');
   }
@@ -307,6 +298,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       player.stop();
       sendMsg({ type: 'stop' });
     }
+    settle();
     panel.open();
     if (!interrupting && !answering) panel.clearBody();
     if (interrupting) panel.note('Stopped when you started talking.');
@@ -376,6 +368,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     ensureSocket();
     player.wake();
     player.stop();
+    settle();
     stopCapture();
     turn = newTurn(true);
     panel.setYou(text);
@@ -385,23 +378,11 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   }
 
   function recordDelay(at: number): void {
-    if (turn.timed || turn.fromChoice) return;
-    const end =
-      turn.mode === 'hold' || turn.lastVoiceAt === null ? turn.releasedAt : turn.lastVoiceAt;
-    const questionEnd = end ?? turn.turnEndAt;
-    if (questionEnd === null) return;
+    const t = timingAt(turn, at);
+    if (!t) return;
     turn.timed = true;
-    const delayMs = Math.max(0, at - questionEnd);
-    panel.setDelay(delayMs, summary[String(setup) as '1' | '2' | '3']);
-    sendMsg({
-      type: 'timing',
-      delayMs,
-      ...(turn.turnEndAt !== null ? { endpointMs: Math.max(0, turn.turnEndAt - questionEnd) } : {}),
-      ...(turn.turnEndAt !== null && turn.replyAt !== null
-        ? { replyMs: Math.max(0, turn.replyAt - turn.turnEndAt) }
-        : {}),
-      ...(turn.replyAt !== null ? { audioMs: Math.max(0, at - turn.replyAt) } : {}),
-    });
+    turn.pending = t;
+    panel.setDelay(t.delayMs, summary[String(setup) as '1' | '2' | '3']);
   }
 
   function onMessage(data: unknown): void {
@@ -433,10 +414,12 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       case 'reply':
         turn.replyAt = now();
         turn.asking = m.asking;
+        notes.reset();
         panel.reply({
           spoken: m.spoken,
           detail: m.detail,
           ...(m.choices ? { choices: m.choices } : {}),
+          ...(m.points ? { points: m.points } : {}),
         });
         if (!m.spoken) {
           panel.note('Didn’t catch anything.');
@@ -446,12 +429,16 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         }
         if (m.navigate) opts.onNavigate(m.navigate);
         return;
+      case 'note':
+        notes.note(m.point, m.text);
+        return;
       case 'audio-start':
         player.begin(m.sampleRate);
         panel.setState(turn.asking ? 'asking' : 'speaking');
         return;
       case 'audio-end':
         player.finish(() => {
+          settle();
           const s = panel.state();
           if (s === 'speaking') panel.setState('done');
           else if (s === 'asking') panel.setState('waiting');
@@ -462,6 +449,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         panel.setDelay(undefined, summary[String(setup) as '1' | '2' | '3']);
         return;
       case 'error':
+        settle();
         stopCapture();
         pressing = false;
         clearTap();
