@@ -183,6 +183,6 @@ describe('SpokenAnswerer', () => {
   it('nothing heard says nothing', async () => {
     const b = board(GOALS);
     const r = await new SpokenAnswerer(b, 'w1').answer('  ', ACTOR, undefined);
-    expect(r).toEqual({ spoken: '', detail: [], asking: false, route: 'none' });
+    expect(r).toEqual({ spoken: '', points: [], detail: [], asking: false, route: 'none' });
   });
 });
