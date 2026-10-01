@@ -117,12 +117,22 @@ export class InflightRegistry {
  * always FINISHED by the time the monitor's late tick runs — the block is what
  * kept that tick from running — so a registry of live passes alone would be
  * empty at exactly the moment it is asked.
+ *
+ * Each name carries how long `run` held the loop in its synchronous body,
+ * because being named is not being guilty. The file poll ticks every 500ms
+ * and the monitor every 250ms, so the poll is named on any block whose window
+ * its tick fell in, whatever did the blocking. `file-poll (held 2ms)` beside
+ * a 3s block clears it; `held 2900ms` convicts it.
  */
 export class BackgroundPasses {
   /** Live passes, counted, so two overlapping runs of one name nest. */
   private readonly live = new Map<string, number>();
   /** Every pass that entered since the last `drain`. */
   private seen = new Set<string>();
+  /** The longest synchronous hold of each name's `run` since the last `drain`. */
+  private held = new Map<string, number>();
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
 
   /** Record a pass; the returned function ends it. Extra calls are ignored. */
   enter(name: string): () => void {
@@ -141,15 +151,20 @@ export class BackgroundPasses {
   /**
    * Run `fn` as the pass `name`. A promise it returns keeps the pass open
    * until it settles, so an async pass is named across every slice of it.
+   * Only the first slice, the one `fn()` runs before it returns, is timed.
    */
   run<T>(name: string, fn: () => T): T {
     const end = this.enter(name);
+    const start = this.now();
     let result: T;
     try {
       result = fn();
     } catch (err) {
       end();
       throw err;
+    } finally {
+      const ms = this.now() - start;
+      if (ms > (this.held.get(name) ?? -1)) this.held.set(name, ms);
     }
     if (result instanceof Promise) {
       result.then(end, end);
@@ -159,11 +174,20 @@ export class BackgroundPasses {
     return result;
   }
 
-  /** Every pass live now or at any moment since the previous call, sorted. */
+  /**
+   * Every pass live now or at any moment since the previous call, sorted, as
+   * `name (held Nms)`. A bare name is a pass still open from an earlier
+   * window, or one entered through `enter`, so there is no hold to report.
+   */
   drain(): string[] {
     const out = new Set([...this.seen, ...this.live.keys()]);
+    const held = this.held;
     this.seen = new Set(this.live.keys());
-    return [...out].sort();
+    this.held = new Map();
+    return [...out].sort().map((name) => {
+      const ms = held.get(name);
+      return ms === undefined ? name : `${name} (held ${Math.round(ms)}ms)`;
+    });
   }
 }
 
