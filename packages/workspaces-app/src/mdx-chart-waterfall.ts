@@ -2,7 +2,7 @@
  * A waterfall drawn as horizontal rows, top to bottom: a start total, each
  * step floating from the running total before it to the one after, and an end
  * total. Each row's name sits on its own lines above its bar, wrapped to the
- * chart's full width, so a ten-word lever stays readable on a phone; columns
+ * chart's full width and never cut, so a ten-word lever stays whole on a phone; columns
  * would leave each name a column a few words wide. The value axis runs along
  * the bottom, so the reference line is the vertical rule at `baseline`.
  *
@@ -13,7 +13,7 @@
 
 import { BAR_FILL } from './mdx-chart-bars.ts';
 import type { WaterfallBar, WaterfallChart } from './mdx-chart-props.ts';
-import { clip, el, frame, niceTicks, seriesColor, text, tip } from './mdx-chart-svg.ts';
+import { el, frame, niceTicks, seriesColor, text, tip } from './mdx-chart-svg.ts';
 
 /** A decrease, and an increase: the palette's orange and green. */
 export const DECREASE_FILL = seriesColor(1);
@@ -24,8 +24,6 @@ const VALUE_CH = 7.5;
 const LINE_H = 16;
 const BAR_H = 18;
 const ROW_GAP = 14;
-/** A name longer than this many lines is cut with an ellipsis. */
-const MAX_LINES = 3;
 
 export function drawWaterfall(chart: WaterfallChart, w: number): SVGSVGElement {
   const valueLabels = chart.bars.map((b) => valueLabel(b, chart.unit));
@@ -124,25 +122,29 @@ function domainOf(chart: WaterfallChart, pw: number): { lo: number; hi: number; 
   return { lo, hi, ticks };
 }
 
-/** `s` broken at spaces into lines of about `n` characters, at most
- *  `MAX_LINES` of them, the last cut with an ellipsis when words remain. */
+/** `s` broken at spaces into lines of about `n` characters. A name is never
+ *  cut: it takes as many lines as it needs, and a word longer than a line is
+ *  split across lines rather than clipped. */
 export function wrap(s: string, n: number): string[] {
   const width = Math.max(4, n);
   const out: string[] = [];
   let line = '';
-  for (const word of s.split(/\s+/).filter(Boolean)) {
+  for (const whole of s.split(/\s+/).filter(Boolean)) {
+    let word = whole;
+    while (word.length > width) {
+      if (line) out.push(line);
+      out.push(word.slice(0, width));
+      word = word.slice(width);
+      line = '';
+    }
+    if (!word) continue;
     const next = line ? `${line} ${word}` : word;
-    if (next.length <= width || !line) line = next;
+    if (next.length <= width) line = next;
     else {
       out.push(line);
       line = word;
     }
   }
   if (line) out.push(line);
-  if (out.length === 0) return [''];
-  if (out.length <= MAX_LINES) return out.map((l) => clip(l, width, 1));
-  const kept = out.slice(0, MAX_LINES);
-  const last = kept[MAX_LINES - 1] ?? '';
-  kept[MAX_LINES - 1] = `${last.length < width ? last : last.slice(0, width - 1)}…`;
-  return kept.map((l, i) => (i < MAX_LINES - 1 ? clip(l, width, 1) : l));
+  return out.length > 0 ? out : [''];
 }

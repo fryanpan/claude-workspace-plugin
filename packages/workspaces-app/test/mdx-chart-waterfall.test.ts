@@ -84,15 +84,20 @@ describe('reading a waterfall', () => {
     );
   });
 
-  it('wraps a long name at spaces and cuts a fourth line with an ellipsis', () => {
+  it('wraps a long name at spaces and never cuts it, however many lines it takes', () => {
     expect(wrap('Lever one shifts the Riverbend crossings onto the morning ferry', 24)).toEqual([
       'Lever one shifts the',
       'Riverbend crossings onto',
       'the morning ferry',
     ]);
-    const cut = wrap('one two three four five six seven eight nine ten', 9);
-    expect(cut).toHaveLength(3);
-    expect(cut.at(-1)?.endsWith('…')).toBe(true);
+    const ten = 'one two three four five six seven eight nine ten';
+    const lines = wrap(ten, 9);
+    expect(lines.join(' ')).toBe(ten);
+    expect(lines.some((l) => l.includes('…'))).toBe(false);
+    // A word wider than a line is split across lines, not clipped.
+    expect(wrap('Harborlight-Riverbend-Saltmarsh', 12).join('')).toBe(
+      'Harborlight-Riverbend-Saltmarsh',
+    );
   });
 });
 
@@ -116,7 +121,7 @@ function mount(md: string): EditorHandle {
 const num = (e: Element | null | undefined, a: string) => Number(e?.getAttribute(a));
 
 describe('a waterfall block on the doc page', () => {
-  for (const width of [640, 430]) {
+  for (const width of [640, 430, 390]) {
     it(`draws each bar across its running totals, every bar valued, the goal at 30 (${width}px)`, () => {
       mount(`${WATERFALL.replace('unit="%"', `unit="%" width={${width}}`)}\n`);
       const svg = document.querySelector(
@@ -191,10 +196,18 @@ describe('a waterfall block on the doc page', () => {
       // A ten-word lever wraps on a phone rather than being cut, and keeps
       // one line where the chart is wide enough to hold it.
       const names = rows[1]?.querySelectorAll('.mdx-bar-label tspan') ?? [];
-      expect(names.length).toBe(width === 430 ? 2 : 1);
+      expect(names.length).toBe(width <= 430 ? 2 : 1);
       expect([...names].map((t) => t.textContent).join(' ')).toBe(
         'Lever one shifts the Riverbend crossings onto the morning ferry',
       );
+      // Every name is whole across its lines, at most two of them, never cut.
+      const labels = [...WATERFALL.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
+      rows.forEach((row, i) => {
+        const parts = [...row.querySelectorAll('.mdx-bar-label tspan')].map((t) => t.textContent);
+        expect(parts.join(' ')).toBe(labels[i]);
+        expect(parts.length).toBeLessThanOrEqual(2);
+        expect(parts.join('')).not.toContain('…');
+      });
     });
   }
 });
