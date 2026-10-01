@@ -39,6 +39,27 @@ export interface AgentTurnsDeps {
   audioQuietMs?: number;
 }
 
+/** Setup 4's driver for one socket, or null when setup 4 is not configured. */
+export function agentTurnsFor(
+  deps: {
+    engines: { agent?: { live: ElevenLabsAgent } | null };
+    agentCallbacks?: AgentCallbacks;
+    sendJson(msg: SpokenServerMessage): void;
+    sendAudio(pcm: Uint8Array): void;
+  },
+  answer: (text: string) => Promise<SpokenAnswer>,
+): AgentTurns | null {
+  const agent = deps.engines.agent;
+  if (!agent || !deps.agentCallbacks) return null;
+  return new AgentTurns({
+    agent: agent.live,
+    callbacks: deps.agentCallbacks,
+    answer,
+    sendJson: deps.sendJson,
+    sendAudio: deps.sendAudio,
+  });
+}
+
 export class AgentTurns {
   private session: AgentSession | null = null;
   private opening: Promise<AgentSession | null> | null = null;

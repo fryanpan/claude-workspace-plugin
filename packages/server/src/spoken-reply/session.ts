@@ -38,7 +38,7 @@ import type { TranscriptionEngine, TranscriptionSession } from '../transcribe.ts
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
-import { AgentTurns } from './agent-turns.ts';
+import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
 import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
@@ -121,18 +121,8 @@ export class SpokenSession {
   private agentTurns: AgentTurns | null;
 
   constructor(private readonly deps: SpokenSessionDeps) {
-    const agent = deps.engines.agent;
-    this.agentTurns =
-      agent && deps.agentCallbacks
-        ? new AgentTurns({
-            agent: agent.live,
-            callbacks: deps.agentCallbacks,
-            // Read at call time: the speaker and context of the latest start.
-            answer: (text) => deps.answerer.answer(text, this.actor, this.context),
-            sendJson: deps.sendJson,
-            sendAudio: deps.sendAudio,
-          })
-        : null;
+    // Read at call time: the speaker and context of the latest start.
+    this.agentTurns = agentTurnsFor(deps, (t) => deps.answerer.answer(t, this.actor, this.context));
   }
 
   open(): void {
