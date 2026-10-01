@@ -230,22 +230,33 @@ describe('an open card while the text underneath changes', () => {
   });
 });
 
-describe('an editor with no margin of its own', () => {
-  /**
-   * Every `createEditor` draws `.cw-fn` decorations — a task body, a live
-   * redline — and only the document editor mounts this module. The rule that
-   * hides the number where the margin carries the note is keyed on the class
-   * this module adds, so those other editors keep the citation on screen.
-   */
-  it('keeps its superscript under balloon placement, where the doc editor hides it', () => {
-    document.body.dataset.cards = 'balloon';
-    const { container, scope } = mount({ marginVisible: true });
-    const sup = supFor(container, '1');
-    expect(styleOf(sup).getPropertyValue('--cw-fn-sup').trim()).toBe('none');
-    // Unmounting the notes module is the same DOM an editor that never
-    // mounted it has.
-    scope.dispose();
-    expect(styleOf(sup).getPropertyValue('--cw-fn-sup').trim()).toBe('');
+describe('the number that pairs a line with its note', () => {
+  it('starts each margin caption with its own superscript number', () => {
+    const { notes, container } = mount({ marginVisible: true });
+    const cards = notes.cards();
+    expect(cards.map((c) => c.el.dataset.cwFnN)).toEqual(['1', '2']);
+    for (const c of cards) {
+      expect((c.anchor as HTMLElement).dataset.cwFn).toBe(c.el.dataset.cwFnN);
+    }
+    // The number is drawn by the stylesheet, not written into the note.
+    expect(cards[0]?.el.textContent).toBe('Planning Department annual report, 2025, table 4.');
+    expect(supFor(container, '2')).not.toBeNull();
+  });
+
+  it('starts the popover with the number that was tapped', () => {
+    const { container } = mount({ marginVisible: false });
+    tap(supFor(container, '2'));
+    expect(popover(container)?.dataset.cwFnN).toBe('2');
+  });
+
+  it('shades the caption while the reader points at its number in the text, and only it', () => {
+    const { notes, container } = mount({ marginVisible: true });
+    const [one, two] = notes.cards();
+    point(supFor(container, '2'), true);
+    expect(two?.el.classList.contains('cw-fn-note-on')).toBe(true);
+    expect(one?.el.classList.contains('cw-fn-note-on')).toBe(false);
+    point(supFor(container, '2'), false);
+    expect(two?.el.classList.contains('cw-fn-note-on')).toBe(false);
   });
 });
 
@@ -282,15 +293,6 @@ describe('a reader who put the cards inline on a wide screen', () => {
    * to be hidden by a `(min-width: 1101px)` media query anyway, which left
    * the note with no surface at all. Both halves now ask `body[data-cards]`.
    */
-  it('still shows the number in the text, and hides it only where the margin has the note', () => {
-    const { container } = mount({ marginVisible: false });
-    const sup = supFor(container, '1');
-    document.body.dataset.cards = 'inline';
-    expect(styleOf(sup).getPropertyValue('--cw-fn-sup').trim()).toBe('');
-    document.body.dataset.cards = 'balloon';
-    expect(styleOf(sup).getPropertyValue('--cw-fn-sup').trim()).toBe('none');
-  });
-
   it('opens the note on a tap at iPad width, because nothing else is showing it', () => {
     document.body.dataset.cards = 'inline';
     const { container } = mount({ marginVisible: false });

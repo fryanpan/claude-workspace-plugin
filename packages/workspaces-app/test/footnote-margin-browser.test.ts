@@ -20,6 +20,11 @@
  * screens of them, and notes really were beside on-screen lines — so zero
  * overlaps means something. At 430 the margin is not shown, and the reading is
  * that the superscripts still carry the notes there.
+ *
+ * THE NUMBER. Each run shows a small superscript number and its card starts
+ * with the same one, so the reader can tell which note belongs to which line.
+ * `paired` reads both numbers as the browser drew them; at 430 a tap on note 3
+ * opens a card that starts with 3.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -159,7 +164,9 @@ describe.skipIf(CHROME === null)('margin notes stay beside their lines while scr
         expect(p.marginVisible).toBe(true);
         expect(p.notes).toBeGreaterThanOrEqual(20);
         expect(p.cards).toBe(p.notes);
-        expect(p.superscripts).toBe(0);
+        // Every run shows its number, and every card starts with it.
+        expect(p.superscripts).toBe(p.notes);
+        expect(p.paired).toBe(p.notes);
         expect(p.scrollHeight).toBeGreaterThan(2 * p.clientHeight);
         expect(p.scrolling.length).toBeGreaterThan(20);
         for (const r of [...p.scrolling, ...p.settled]) expect(r.beside).toBeGreaterThan(0);
@@ -178,13 +185,14 @@ describe.skipIf(CHROME === null)('margin notes stay beside their lines while scr
   }
 
   it(
-    'leaves the phone layout to the superscripts at 430',
+    'pairs a tapped number with the card it opens at 430',
     async () => {
       const p = await measure(['--preset', 'phone']);
       expect(p.marginVisible).toBe(false);
       expect(p.notes).toBeGreaterThanOrEqual(20);
       expect(p.cards).toBe(0);
       expect(p.superscripts).toBe(p.notes);
+      expect(p.popNumber).toBe('"3"');
     },
     BROWSER_CASE_MS,
   );

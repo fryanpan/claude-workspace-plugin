@@ -56,9 +56,12 @@ export interface FootnoteProbe {
   /** Notes the doc holds, and margin cards found for them. */
   notes: number;
   cards: number;
-  /** Runs whose superscript number is drawn — the phone's half of the
-   *  feature, and none where the margin carries the notes. */
+  /** Runs whose superscript number is drawn — every one, at every width. */
   superscripts: number;
+  /** Notes whose card starts with the number drawn at their run. */
+  paired: number;
+  /** What the phone's popover starts with after a tap on note 3. */
+  popNumber: string | null;
   scrollHeight: number;
   clientHeight: number;
   /** Read every few frames during one continuous gesture, top to foot and
@@ -136,7 +139,7 @@ function read(editorEl: HTMLElement, proseEl: HTMLElement): ScrollReading {
     const ar = a.getBoundingClientRect();
     // The margin card is the `.cw-fn-note` the column placed for this number.
     const card = [...document.querySelectorAll<HTMLElement>('.markup-margin .cw-fn-note')].find(
-      (el) => el.dataset.fnProbe === n,
+      (el) => el.dataset.cwFnN === n,
     );
     const cr = card?.getBoundingClientRect();
     const painted =
@@ -201,18 +204,22 @@ async function probe(): Promise<string> {
   await sleep(300);
   await frame();
 
-  // Tag each card with its number so the reading can pair it with its run.
-  // The column owns the elements and keeps them across relayouts, so the tag
-  // set once survives every step below.
+  // Each card carries the number of the run it belongs to, which is how a
+  // reading pairs the two.
   const proseEl = editor.editor.view.dom;
   const cards = [...document.querySelectorAll<HTMLElement>('.markup-margin .cw-fn-note')];
   const runs = [...proseEl.querySelectorAll<HTMLElement>('.cw-fn[data-cw-fn]')];
   const notes = new Set(runs.map((r) => r.dataset.cwFn));
-  // Cards are appended in note order, one per number.
-  [...notes].forEach((n, i) => {
-    const c = cards[i];
-    if (c && n) c.dataset.fnProbe = n;
-  });
+  const drawn = (el: Element, pseudo: string) => getComputedStyle(el, pseudo).content;
+  // A note is paired when the number drawn at its run is the number drawn at
+  // the start of its card — the reader's way of telling which is which.
+  const paired = [...notes].filter((n) => {
+    const card = cards.find((c) => c.dataset.cwFnN === n);
+    const run = runs.find((r) => r.dataset.cwFn === n);
+    return (
+      card && run && drawn(card, '::before') === `"${n}"` && drawn(run, '::after') === `"${n}"`
+    );
+  }).length;
 
   const max = editorEl.scrollHeight - editorEl.clientHeight;
   const hold = (window as { footnoteHold?: string }).footnoteHold;
@@ -264,8 +271,23 @@ async function probe(): Promise<string> {
   await sleep(250);
   await frame();
 
+  // Where there is no margin, the tapped number opens a card that starts with
+  // the same number. Tap the third, and leave it open for the screenshot.
+  let popNumber: string | null = null;
+  const third = runs.find((r) => r.dataset.cwFn === '3');
+  if (!balloonMarginVisible() && third) {
+    third.scrollIntoView({ block: 'center' });
+    await frame();
+    third.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await frame();
+    const pop = document.querySelector<HTMLElement>('.cw-fn-pop');
+    popNumber = pop ? drawn(pop, '::before') : null;
+  }
+
   const out: FootnoteProbe = {
     marginVisible: balloonMarginVisible(),
+    paired,
+    popNumber,
     notes: notes.size,
     cards: cards.length,
     superscripts: runs.filter((r) => getComputedStyle(r, '::after').display !== 'none').length,
