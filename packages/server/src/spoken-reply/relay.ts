@@ -10,6 +10,7 @@ import type { SpokenHeldSetups, SpokenServerMessage } from '@claude-workspaces/c
 import { isCategoryAuthor } from '../task-owner.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
+import type { AgentCallbacks } from './agent-llm.ts';
 import { SpokenAnswerer, type SpokenBoard } from './answer.ts';
 import { type SpokenEngines, SpokenSession, availableSetups } from './session.ts';
 import type { SpokenTimings } from './timings.ts';
@@ -28,6 +29,8 @@ export interface SpokenReplyRelayDeps {
   engines: SpokenEngines;
   board: SpokenBoard;
   timings: SpokenTimings;
+  /** Setup 4's custom-LLM route reaches each socket's answerer through this. */
+  agentCallbacks?: AgentCallbacks;
   parseContext(raw: unknown): VoiceContext | undefined;
 }
 
@@ -64,6 +67,7 @@ export class SpokenReplyRelay {
       engines: this.deps.engines,
       answerer: new SpokenAnswerer(this.deps.board, workspaceId),
       timings: this.deps.timings,
+      ...(this.deps.agentCallbacks ? { agentCallbacks: this.deps.agentCallbacks } : {}),
       provenActor,
       readOnly: ws.data.readOnly === true,
       parseContext: this.deps.parseContext,

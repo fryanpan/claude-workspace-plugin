@@ -82,9 +82,9 @@
  *   `shareScopeAllows` plus a membership check on a collaboration host. Only
  *   the board's own Yjs socket, where the membership half is the operative
  *   condition.
- * - `recall-callback` — served only on the bot callback host, and carrying
- *   its own credential (an unguessable token in the path, or a Svix
- *   signature over the body).
+ * - `recall-callback` — served only on the vendor callback host, and carrying
+ *   its own credential (an unguessable token in the path, a Svix signature
+ *   over the body, or setup 4's bearer secret).
  * - `open` — answered ABOVE the host guard. A row claiming this must say in
  *   `reason` why reading it is free; `gated` refuses one that does not.
  */

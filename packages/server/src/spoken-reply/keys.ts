@@ -20,9 +20,38 @@ import { type KeychainRunner, readKeychainAccountPassword } from '../share/keych
 export const ELEVENLABS_SECRET = 'elevenlabs-api-key';
 export const GEMINI_SECRET = 'gemini-api-key';
 
+/**
+ * Setup 4's two cards. The agent id names which ElevenLabs agent to talk to;
+ * it is not a secret, but it sits beside the key it is useless without. The
+ * LLM secret is the value ElevenLabs sends back as `Authorization: Bearer`
+ * when it calls `/voice-agent/v1/chat/completions` — the route's only
+ * credential, so it is generated on this machine and pasted into ElevenLabs,
+ * never the other way round.
+ */
+export const ELEVENLABS_AGENT_ID_SECRET = 'elevenlabs-agent-id';
+export const ELEVENLABS_AGENT_LLM_SECRET = 'elevenlabs-agent-llm-secret';
+
 /** Per-launch overrides, the same role `SONIOX_API_KEY` plays for Soniox. */
 export const ELEVENLABS_ENV_VAR = 'ELEVENLABS_API_KEY';
 export const GEMINI_ENV_VAR = 'GEMINI_API_KEY';
+export const ELEVENLABS_AGENT_ID_ENV_VAR = 'ELEVENLABS_AGENT_ID';
+export const ELEVENLABS_AGENT_LLM_ENV_VAR = 'CW_ELEVENLABS_AGENT_LLM_SECRET';
+
+/** The shortest LLM secret accepted: 32 characters, the length of
+ *  `openssl rand -hex 16`. A shorter one reads as not configured. */
+export const AGENT_LLM_SECRET_MIN_CHARS = 32;
+
+/** An ElevenLabs agent id as their dashboard shows one. Anything else is
+ *  not put into a URL. */
+export function validAgentId(id: string | null): id is string {
+  return id !== null && /^[A-Za-z0-9_-]{1,100}$/.test(id);
+}
+
+export function validAgentLlmSecret(secret: string | null): secret is string {
+  return (
+    secret !== null && secret.length >= AGENT_LLM_SECRET_MIN_CHARS && /^[\x21-\x7e]+$/.test(secret)
+  );
+}
 
 /**
  * A secret card's value, decoded — or null when there is none.
