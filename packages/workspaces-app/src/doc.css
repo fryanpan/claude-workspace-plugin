@@ -3870,10 +3870,14 @@ body.doc-voice-on .doc-interview-btn {
   border-left: 2px solid var(--agent-color, var(--accent));
   vertical-align: text-bottom;
 }
-.agent-focus-name {
+/* The id outranks the phone layout's `#editor > .ProseMirror *` max-width,
+   which against the zero-width caret would clip the name to its padding. */
+#editor > .ProseMirror .agent-focus-name {
   position: absolute;
   bottom: 100%;
   left: -2px;
+  width: max-content;
+  max-width: none;
   padding: 1px 5px;
   border-radius: 3px 3px 3px 0;
   background: var(--agent-color, var(--accent));
