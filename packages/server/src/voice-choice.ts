@@ -17,8 +17,14 @@
  * speaker's words (`assigneeFrom`); an assignment that names nobody is a
  * change for the agent.
  */
-import type { VoiceClassified, VoiceClassifyInput, VoiceComplete } from './voice-classifier.ts';
 import {
+  type VoiceClassified,
+  type VoiceClassifyInput,
+  type VoiceComplete,
+  jsonClassifier,
+} from './voice-classifier.ts';
+import {
+  DEFAULT_VOICE_SYSTEM,
   PROMPT_DATA_BEGIN,
   PROMPT_DATA_END,
   type VoiceClassification,
@@ -40,7 +46,10 @@ export const CHOICE_QUESTION = 'What does the speaker want done?';
 /** The edge cases, said once rather than squeezed into every label. */
 export const CHOICE_DEFINITIONS: readonly string[] = [
   'Open means go to, show, find or pull up something that already exists.',
-  'A task or doc that is not listed is on another board or does not exist: pick none, never a similar title.',
+  'A loose description opens the one listed title it means ("ticket sales" can mean a task about ticketing). A task or doc that is not listed does not exist here: pick none, never a title that only shares a word.',
+  'Going to a board, workspace or project by name is "Go to the board"; only a board listed is one.',
+  'A status update is a question about how things are going, what is left or what is waiting. Summarizing, drafting, writing or doing something is none.',
+  'Feedback about the app is about how Workspaces itself works or looks, not about the work on the board.',
   'Two listed titles can share words. Pick one only when the request names it, not its neighbour; when the request fits both or neither, pick none.',
   '"This", "it" and "here" mean the item in view.',
   'Creating, renaming, editing, regrouping, reprioritizing or anything not listed is none.',
@@ -64,7 +73,8 @@ export function voiceChoices(input: VoiceClassifyInput): VoiceChoiceOption[] {
   const options: VoiceChoiceOption[] = [
     {
       id: NONE_OPTION_ID,
-      label: 'None of these: hand the request to the lead agent',
+      label:
+        'None of these: anything else, for the lead agent (do, make, change, research or answer something)',
       classification: { kind: 'change' },
     },
   ];
@@ -83,6 +93,35 @@ export function voiceChoices(input: VoiceClassifyInput): VoiceChoiceOption[] {
     const title = index.docTitles?.[d] ?? d;
     add(`Open the doc ${quote(title)} (on this board)`, { kind: 'lookup', target: 'doc', id: d });
   }
+  add('Give a status update on the board or the item in view', { kind: 'status' });
+  const place = (p: 'home' | 'activity' | 'tasks'): VoiceClassification => ({
+    kind: 'quick',
+    quick: { kind: 'place', place: p },
+  });
+  add('Go to Home on this board (what is waiting on the speaker)', place('home'));
+  add('Go to the Activity feed on this board', place('activity'));
+  add("Go to this board's task list", place('tasks'));
+  for (const b of index.boards ?? []) {
+    add(`Go to the board ${quote(b.name)}`, {
+      kind: 'quick',
+      quick: { kind: 'board', workspaceId: b.id },
+    });
+  }
+  if (input.context?.surface !== 'doc') {
+    add('Start a plan: a new planning doc, talked through by voice', {
+      kind: 'quick',
+      quick: { kind: 'start', start: 'plan' },
+    });
+    add('Start a meeting: live notes for a conversation happening now', {
+      kind: 'quick',
+      quick: { kind: 'start', start: 'meeting' },
+    });
+  }
+  add("Leave feedback about this app, in the speaker's words", {
+    kind: 'quick',
+    quick: { kind: 'feedback' },
+  });
+  add('Explain what the speaker can do by voice', { kind: 'quick', quick: { kind: 'help' } });
   if (resource?.kind === 'task') {
     const inView = `the task in view, ${quote(resource.title)}`;
     for (const status of ['todo', 'in-progress', 'done'] as const) {
@@ -198,6 +237,20 @@ export function parseChoiceReply(raw: string): { id?: string; confidence?: numbe
   } catch {
     return {};
   }
+}
+
+/**
+ * The shipped router's model step: the choice question, unless somebody has
+ * written their own router instructions on the settings page, which only the
+ * JSON prompt reads.
+ */
+export function routerClassifier(complete: VoiceComplete) {
+  const choice = haikuChoiceClassifier(complete);
+  const json = jsonClassifier(complete);
+  return (input: VoiceClassifyInput): Promise<VoiceClassified> =>
+    input.instructions === undefined || input.instructions === DEFAULT_VOICE_SYSTEM
+      ? choice(input)
+      : json(input);
 }
 
 /** Haiku answering the choice question. */

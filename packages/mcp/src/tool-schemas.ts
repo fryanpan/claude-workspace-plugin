@@ -335,6 +335,20 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'answer_voice',
+      description:
+        'Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, so keep it to one or two short sentences, with no preamble. delivered:false means that page has closed: post the answer on the task or a thread instead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: 'The board the request came from.' },
+          queueId: { type: 'string', description: 'From the voice.request line.' },
+          text: { type: 'string', description: 'What to say. One or two short sentences.' },
+        },
+        required: ['workspaceId', 'queueId', 'text'],
+      },
+    },
+    {
       name: 'create_thread',
       description:
         'Open a comment thread on a doc. Pass find to anchor the thread to a phrase, or omit find for a thread about the whole doc. Pass review when you ask a person to decide or to look. `held: true` in the result means the item waits for a revision. Use revise_review_item for the next round, not a new thread.',

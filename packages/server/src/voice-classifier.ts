@@ -29,6 +29,8 @@ export interface VoiceIndex {
   tasks: Array<{ id: string; title: string; status: string; needs?: string }>;
   docIds: string[];
   docTitles?: Record<string, string>;
+  /** The speaker's other boards, for "take me to the Riverbend board". */
+  boards?: Array<{ id: string; name: string }>;
 }
 
 export interface VoiceClassifyInput {

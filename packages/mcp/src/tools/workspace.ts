@@ -765,6 +765,27 @@ export async function handleWorkspaceTool(
           : 'You had no attachment here; the board stream is closed and its watch dropped all the same.',
       });
     }
+    case 'answer_voice': {
+      const { workspaceId, queueId, text } = a as {
+        workspaceId?: string;
+        queueId?: string;
+        text?: unknown;
+      };
+      const words = typeof text === 'string' ? text.trim() : '';
+      if (!workspaceId || !queueId) return err('workspaceId and queueId are required');
+      if (words === '') return err('text is empty — say the answer');
+      const res = (await http(
+        'POST',
+        `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`,
+        { agentId: AUTHOR.id, text: words },
+      )) as { delivered?: boolean };
+      return ok({
+        delivered: res.delivered === true,
+        ...(res.delivered === true
+          ? {}
+          : { note: 'No page is waiting for this answer. Post it on the task or a thread.' }),
+      });
+    }
     case 'request_plugin_refresh': {
       // No arguments reach the process this runs — the server's argv is
       // fixed. Nothing a caller can send gets spawned.

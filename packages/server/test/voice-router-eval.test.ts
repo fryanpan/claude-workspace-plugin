@@ -91,6 +91,8 @@ describe('the report', () => {
       run: {
         observed,
         path: 'model',
+        ack: '',
+        route: 'fast-path',
         asked: true,
         ms: 1,
         ...(confidence !== undefined ? { confidence } : {}),

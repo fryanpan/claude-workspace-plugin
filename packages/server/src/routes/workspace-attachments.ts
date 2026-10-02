@@ -21,6 +21,7 @@
  * Same posture as `middleware/host-guard.ts` and `workspace-path.ts` on the
  * same problem.
  */
+import { isValidAgentId } from '../agent-watches.ts';
 import { attachNotes } from '../attach-notes.ts';
 import { localDay } from '../chat-audit.ts';
 import { clientReleaseStatus } from '../client-release.ts';
@@ -31,6 +32,7 @@ import {
   readReleasedPluginVersion,
 } from '../plugin-release.ts';
 import { sentryWatchPlan } from '../sentry-projects.ts';
+import { LEAD_ANSWER_MAX } from '../spoken-reply/lead-answer.ts';
 import { isAttachmentRuntime } from '../tasks.ts';
 import { matchWorkspaceRoute, safeDecodeSegment } from '../workspace-path.ts';
 import type { WorkspaceRouteRequest, WorkspaceRoutesContext } from './workspace-routes-context.ts';
@@ -73,6 +75,8 @@ export async function handleWorkspaceAttachments(
     j,
     safeJson,
     watchKeyExists,
+    spokenRelay,
+    authorizeAgent,
   } = ctx;
   const { req, pathname, visitor } = rq;
   // --- REST: agent attachments (§4) ---
@@ -335,6 +339,33 @@ export async function handleWorkspaceAttachments(
     const entryId = safeDecodeSegment(wsVoiceAckMatch[2] ?? '');
     const cleared = taskStore.ackVoiceRequest(workspaceId, entryId);
     return j(200, { ok: true, cleared });
+  }
+  // The lead's answer to a spoken request, said on the page that asked
+  // (`spoken-reply/lead-answer.ts`). `delivered: false` means no open page is
+  // waiting for it, and the answer belongs somewhere durable instead.
+  const wsVoiceAnswerMatch = pathname.match(
+    /^\/workspaces\/([^/]+)\/voice-queue\/([^/]+)\/answer$/,
+  );
+  if (wsVoiceAnswerMatch && req.method === 'POST') {
+    if (visitor) return j(403, { error: 'not available to share visitors' });
+    const workspaceId = safeDecodeSegment(wsVoiceAnswerMatch[1] ?? '');
+    const entryId = safeDecodeSegment(wsVoiceAnswerMatch[2] ?? '');
+    const body = await safeJson(req);
+    // Only an agent on this board answers aloud on it, proved the way its
+    // own feed is: on this machine, with its token.
+    const agentId = typeof body?.agentId === 'string' ? body.agentId : '';
+    if (!isValidAgentId(agentId)) return j(400, { error: 'agentId required' });
+    const allowed = authorizeAgent(req, agentId);
+    if (!allowed.ok) return j(allowed.status, allowed.body);
+    if (!taskStore.listAttachments(workspaceId).some((a) => a.agentId === agentId)) {
+      return j(403, { error: 'not attached to this board' });
+    }
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    if (!text) return j(400, { error: 'text required' });
+    if (text.length > LEAD_ANSWER_MAX) {
+      return j(400, { error: `text over ${LEAD_ANSWER_MAX} chars` });
+    }
+    return j(200, { ok: true, delivered: spokenRelay.answerRequest(workspaceId, entryId, text) });
   }
   const wsAgentDetachMatch = pathname.match(/^\/workspaces\/([^/]+)\/agents\/([^/]+)$/);
   if (wsAgentDetachMatch && req.method === 'DELETE') {

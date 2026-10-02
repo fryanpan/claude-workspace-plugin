@@ -140,7 +140,7 @@ describe('the MCP agent-token store', () => {
 });
 
 describe('which paths carry the bearer', () => {
-  it('carries it on the durable watch set, the inbox post, and nothing else', () => {
+  it('carries it on the durable watch set, the spoken answer, the inbox post, and nothing else', () => {
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches')).toBe(true);
     expect(pathNeedsAgentToken('/inbox/rows')).toBe(true);
     // Bryan's own taps are not an agent's to make; they carry no bearer.
@@ -155,6 +155,8 @@ describe('which paths carry the bearer', () => {
     expect(pathNeedsAgentToken('/api/docs/d-1/threads')).toBe(false);
     // Not a prefix match: a path that merely starts the same way is not it.
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches/extra')).toBe(false);
+    expect(pathNeedsAgentToken('/workspaces/w-1/voice-queue/vq-1/answer')).toBe(true);
+    expect(pathNeedsAgentToken('/workspaces/w-1/voice-queue/vq-1/ack')).toBe(false);
   });
 
   it('mints nothing for a path that does not need one', async () => {

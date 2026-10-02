@@ -111,6 +111,13 @@ describe('voiceRequestLine', () => {
       expect(text).toContain('act on it through the task/edit tools');
     });
 
+    it('names the answer_voice call for a queued row, so the lead’s answer is said aloud', () => {
+      const text = voiceRequestLine({ ...sent, queueId: 'vq-1', workspaceId: 'w-1' }) as string;
+      expect(text).toContain('answer_voice(workspaceId="w-1", queueId="vq-1", text)');
+      // No row, no call to name: the original line, unchanged.
+      expect(voiceRequestLine(sent)).not.toContain('answer_voice');
+    });
+
     // A row from a server older than this route field, or one whose route
     // never made it onto the wire, must still reach the agent. Silence is the
     // failure mode with no recovery: the utterance is not replayed.

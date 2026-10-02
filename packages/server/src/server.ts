@@ -214,6 +214,7 @@ import {
 import { ThreadRequestDedup } from './thread-request-dedup.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
+import { routerClassifier } from './voice-choice.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { VoiceRouter, parseVoiceContext } from './voice.ts';
 import { type WebhookLogEntry, createWebhookDispatcher } from './webhooks.ts';
@@ -1479,7 +1480,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // Read per utterance, so an edit on the settings page reaches the next
     // thing spoken without a restart.
     instructions: () => promptStore.read('voice-router'),
-    ...(opts.voiceComplete ? { complete: opts.voiceComplete } : {}),
+    ...(opts.voiceComplete
+      ? opts.voiceRouterArm === 'choice'
+        ? { classify: routerClassifier(opts.voiceComplete) }
+        : { complete: opts.voiceComplete }
+      : {}),
     // What a doc in view HOLDS, read through the one review-item builder this
     // server already has. Voice must not grow a second notion of "what is
     // waiting on a person here": that shape is owned by review-queue.ts and
@@ -2730,6 +2735,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     voiceRouter,
     spokenRelay,
     spokenTimings,
+    authorizeAgent: (req, agentId) =>
+      authorizeAgentCaller({
+        agentId,
+        req,
+        address: server.requestIP(req)?.address,
+        key: agentTokenKeyFor(),
+        requireToken: requireAgentToken,
+      }),
     dataDir,
     clientReleaseRootDir,
     opts,

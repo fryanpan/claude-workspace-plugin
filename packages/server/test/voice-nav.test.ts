@@ -281,7 +281,7 @@ describe('voice navigation (route)', () => {
     completeImpl = () => Promise.resolve(JSON.stringify({ kind: 'lookup' }));
     const body = await say('open my top goal', bare.id);
     expect(body.navigate).toBeUndefined();
-    expect(body.ack).toContain('Nothing here matched');
+    expect(body.ack).toContain("I can't find that here.");
     // It reached the model, exactly as a miss did before.
     expect(calls.n).toBe(1);
     // Home is still a place on an empty board.

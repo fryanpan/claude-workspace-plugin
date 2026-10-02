@@ -132,4 +132,24 @@ describe('wireBoardVoice', () => {
     expect(v.assigned).toEqual(['/review/plan-a']);
     expect(v.state.detailTaskId).toBeNull();
   });
+
+  it('starts a plan or a meeting with the board’s own buttons, without leaving the page', async () => {
+    const start = vi.fn();
+    const v = voice({ start });
+    v.setAck({ ack: 'Starting a plan.', navigate: '/workspaces/w-1?start=plan' });
+    await utter(v, 'make a plan');
+    v.setAck({ ack: 'Starting a meeting.', navigate: '/workspaces/w-1?start=meeting' });
+    await utter(v, 'have a meeting');
+    expect(start.mock.calls).toEqual([['plan'], ['meeting']]);
+    expect(v.assigned).toEqual([]);
+  });
+
+  it('a start on another board is a page load, which starts nothing', async () => {
+    const start = vi.fn();
+    const v = voice({ start });
+    v.setAck({ ack: 'Starting a plan.', navigate: '/workspaces/w-2?start=plan' });
+    await utter(v, 'make a plan');
+    expect(start).not.toHaveBeenCalled();
+    expect(v.assigned).toEqual(['/workspaces/w-2?start=plan']);
+  });
 });

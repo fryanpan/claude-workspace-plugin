@@ -312,6 +312,8 @@ const STATUS_PATTERNS: readonly RegExp[] = [
   /^how (?:are|is) (?:we|it|this|things) (?:doing|going)$/,
   /^catch me up$/,
   /^(?:whats|what's|what is) new$/,
+  // Bryan, 2026-10-02: "what's occurring status" went to the lead's queue.
+  /^(?:whats|what's|what is) (?:occurring|happening|going on)(?: (?:here|now|today))?(?: status)?$/,
 ];
 
 /** "brief status", "status update", "where are we" — a READ of the board, not
@@ -527,7 +529,17 @@ const BOARD_DESTINATIONS: Record<BoardDestination, readonly string[]> = {
     'my tasks',
     'my task list',
   ],
-  activity: ['activity', 'activity pane', 'activity feed', 'activity tab', 'activity view', 'feed'],
+  activity: [
+    'activity',
+    'activities',
+    'activity pane',
+    'activity feed',
+    'activity tab',
+    'activity view',
+    'activity page',
+    'recent activity',
+    'feed',
+  ],
 };
 
 /** "go home" / "take me home" have no "to", so the opener never sees them. */

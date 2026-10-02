@@ -221,6 +221,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['workspaces', ':id', 'huddles'],
   ['workspaces', ':id', 'comment-queue', ':id', 'ack'],
   ['workspaces', ':id', 'voice-queue', ':id', 'ack'],
+  ['workspaces', ':id', 'voice-queue', ':id', 'answer'],
   ['workspaces', ':id', 'voice', 'converse'],
   ['workspaces', ':id', 'voice', 'timings'],
   // Board collections addressed the canonical way — the live event stream

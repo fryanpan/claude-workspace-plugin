@@ -29,7 +29,7 @@ import { haikuChoiceClassifier } from '../packages/server/src/voice-choice.ts';
 import { type VoiceClassifier, jsonClassifier } from '../packages/server/src/voice-classifier.ts';
 import { haikuVoiceComplete } from '../packages/server/src/voice.ts';
 import { EVAL_CREDENTIAL_HELP } from './eval-credential.ts';
-import { ROUTER_CORPUS } from './voice-router-corpus.ts';
+import { ROUTER_CORPUS, isQuickCase } from './voice-router-corpus.ts';
 import {
   type Scored,
   accuracyByKind,
@@ -129,6 +129,12 @@ console.log('\n| page kind | right | of | accuracy |\n|---|---|---|---|');
 for (const k of accuracyByKind(rows)) {
   console.log(`| ${k.kind} | ${k.right} | ${k.total} | ${pct(k.right, k.total)} |`);
 }
+const quickRows = rows.filter((r) => isQuickCase(r.case));
+const quickRight = quickRows.filter((r) => r.right).length;
+console.log(
+  `\nquick actions (open, go, start, feedback, help): ${quickRight} of ${quickRows.length} ` +
+    `(${pct(quickRight, quickRows.length)})`,
+);
 console.log(
   '\n| path | cases | median | p90 | model asked | model median |\n|---|---|---|---|---|---|',
 );
@@ -160,6 +166,7 @@ if (out) {
         usd,
         calls,
         byKind: accuracyByKind(rows),
+        quick: { right: quickRight, total: quickRows.length },
         byPath: latencyByPath(rows),
         classes: misrouteClasses(rows),
         separation: sep,
