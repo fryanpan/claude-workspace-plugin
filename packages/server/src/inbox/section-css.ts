@@ -39,6 +39,7 @@ export const INBOX_SECTION_CSS = `
 @media (hover:none){.inbox-line-acts{display:none}}
 .inbox-row-cursor{box-shadow:inset 3px 0 0 var(--accent)}
 .inbox-row-open{background:color-mix(in srgb,var(--accent) 9%,transparent);border-radius:var(--radius-lg)}
+.inbox-row-open .inbox-line>.board-review-row{background:transparent}
 .inbox-where{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}
 .inbox-icon{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round}
 .inbox-card{padding:0 8px 12px}
