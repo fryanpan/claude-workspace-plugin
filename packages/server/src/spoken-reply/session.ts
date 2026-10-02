@@ -85,6 +85,7 @@ function replyMessage(a: SpokenAnswer): SpokenServerMessage {
     ...(a.choices ? { choices: a.choices } : {}),
     route: a.route,
     ...(a.navigate ? { navigate: a.navigate } : {}),
+    ...(a.decide ? { decide: a.decide } : {}),
   };
 }
 
@@ -142,6 +143,11 @@ export class SpokenSession {
       case 'say':
         this.say(msg.text);
         return;
+      case 'decided': {
+        const answer = this.deps.answerer.decided(msg.id, msg.ok);
+        if (answer) this.sayAside(answer);
+        return;
+      }
       case 'timing':
         this.deps.timings.record({
           setup: this.setup,
@@ -325,6 +331,24 @@ export class SpokenSession {
     const voice = this.setup === 3 ? null : this.deps.engines.voices[this.setup];
     if (!answer.spoken || !voice) return;
     await this.speak(voice, answer, turn);
+  }
+
+  /**
+   * Something to say that nobody asked — a review write that failed. Said
+   * over whatever is playing, unless the speaker is mid-question, when it is
+   * only written.
+   */
+  private sayAside(answer: SpokenAnswer): void {
+    const listening = this.stt !== null || this.sttOpening !== null;
+    if (listening || this.setup === 3) {
+      this.deps.sendJson(replyMessage(answer));
+      return;
+    }
+    this.stopSpeaking();
+    this.turn++;
+    this.deps.sendJson(replyMessage(answer));
+    const voice = this.deps.engines.voices[this.setup];
+    if (answer.spoken && voice) void this.speak(voice, answer, this.turn);
   }
 
   private async speak(voice: SpokenVoice, answer: SpokenAnswer, turn: number): Promise<void> {

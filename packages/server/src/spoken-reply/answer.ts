@@ -1,4 +1,5 @@
-import type { SpokenPoint } from '@claude-workspaces/core/spoken-reply';
+import type { SpokenDecide, SpokenPoint } from '@claude-workspaces/core/spoken-reply';
+import type { ReviewItemRow } from '../review-queue.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
@@ -22,6 +23,7 @@ import type { VoiceHandleResult, VoiceResult } from '../voice.ts';
 import { parseOrdinal, pickByLabel } from '../voice.ts';
 import { withNotes } from './notes.ts';
 import { shapeReply, stripWake } from './reply-shape.ts';
+import { ReviewWalk, type WalkReply } from './review-walk.ts';
 
 /** The board as the answerer needs it — the router plus the goal list. */
 export interface SpokenBoard {
@@ -32,6 +34,11 @@ export interface SpokenBoard {
   goalStatus(workspaceId: string, goalId: string): VoiceResult | undefined;
   /** In priority order. */
   goals(workspaceId: string): Array<{ id: string; title: string }>;
+  /** The Home tab's review queue. Absent: "go through my reviews" goes to
+   *  the router like anything else. */
+  reviewQueue?(workspaceId: string): readonly ReviewItemRow[];
+  /** One model call, for a question about a review item. */
+  explain?: (args: { system: string; user: string }) => Promise<string>;
 }
 
 export interface SpokenAnswer {
@@ -44,6 +51,12 @@ export interface SpokenAnswer {
   choices?: string[];
   route: string;
   navigate?: string;
+  /** A review decision for the page to write (`review-walk.ts`). */
+  decide?: SpokenDecide;
+}
+
+function walkAnswer(w: WalkReply): SpokenAnswer {
+  return { ...w, route: 'review-queue' };
 }
 
 /** How many goals the question names aloud. More than this is "or another". */
@@ -101,11 +114,27 @@ function listOr(labels: string[]): string {
 export class SpokenAnswerer {
   /** The goal question awaiting its answer, per socket. */
   private pendingGoals: Array<{ id: string; label: string }> | null = null;
+  /** The voice review queue, when the board can read its queue. */
+  private readonly walk: ReviewWalk | null;
 
   constructor(
     private readonly board: SpokenBoard,
     private readonly workspaceId: string,
-  ) {}
+  ) {
+    const queue = board.reviewQueue?.bind(board);
+    this.walk = queue
+      ? new ReviewWalk({
+          queue: () => queue(workspaceId),
+          ...(board.explain ? { explain: board.explain } : {}),
+        })
+      : null;
+  }
+
+  /** The page's report on a decision it wrote; something to say, or null. */
+  decided(id: string, ok: boolean): SpokenAnswer | null {
+    const w = this.walk?.decided(id, ok);
+    return w ? walkAnswer(w) : null;
+  }
 
   get asking(): boolean {
     return this.pendingGoals !== null;
@@ -118,6 +147,12 @@ export class SpokenAnswerer {
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
     if (!transcript) return plain('');
+
+    const walked = this.walk ? await this.walk.hear(transcript) : null;
+    if (walked) {
+      this.pendingGoals = null;
+      return walkAnswer(walked);
+    }
 
     const pending = this.pendingGoals;
     this.pendingGoals = null;

@@ -24,6 +24,7 @@ import { type VoiceAck, type VoiceCaptureOpts, createVoiceCapture } from '../voi
 import { type BoardState, fetchJson, send } from './board-actions.ts';
 import { voiceBoardContext } from './board-presence-model.ts';
 import { type SpokenReplyOpts, createSpokenReply } from './spoken-reply-client.ts';
+import { writeSpokenDecision } from './spoken-review-decide.ts';
 
 /** Everything the mic needs from `bootBoard`, and nothing else. */
 export interface BoardVoiceDeps {
@@ -136,6 +137,7 @@ export function wireBoardVoice(deps: BoardVoiceDeps): void {
       author,
       getContext,
       onNavigate: navigate,
+      onDecide: (d) => writeSpokenDecision(d, { workspaceId, author, send }),
       ...(spoken.openSocket ? { openSocket: spoken.openSocket } : {}),
       ...(spoken.startCapture ? { startCapture: spoken.startCapture } : {}),
       ...(spoken.playbackContext ? { playbackContext: spoken.playbackContext } : {}),

@@ -300,6 +300,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['share-scope', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/withdraw', 'POST'],
     ['share-scope', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/withdraw/undo', 'POST'],
   ]),
+  // Off the member allowlist, so trusted-local: the voice queue's undo is
+  // the owner's, and a share visitor's answers keep the ways back they had.
+  ...family('routes/task-review-answer-undo.ts', [
+    ['trusted-local', '/workspaces/:ws/tasks/:taskId/review-items/:itemId/answer/undo', 'POST'],
+  ]),
   // The one route that writes the owner's Claude Code settings. Trusted-local
   // for the secrets row's reason — absent from the member allowlist, so no
   // share visitor reaches it — and the handler additionally demands a person

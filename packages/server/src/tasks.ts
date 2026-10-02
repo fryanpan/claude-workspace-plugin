@@ -52,6 +52,7 @@ import type {
   WithdrawAnswerResult,
   WithdrawReviewItemResult,
 } from './review-items/types.ts';
+import { ReviewAnswerUndo, type UndoTaskReviewAnswerResult } from './review-items/undo-answer.ts';
 import { TaskArchiveStore } from './task-archive.ts';
 import { TaskAuthoringStore } from './task-authoring.ts';
 import {
@@ -1193,6 +1194,9 @@ export interface DecisionAnswerWithdrawnEvent {
   type: 'decision.answer_withdrawn';
   workspaceId: string;
   taskId: string;
+  /** Which of the ticket's review items, when it was one of them rather
+   *  than the ticket's own decision (`review-items/undo-answer.ts`). */
+  reviewItemId?: string;
   /** The answer that was taken back, verbatim. */
   answer: string;
   /** Who had answered — not necessarily who withdrew it. */
@@ -1997,6 +2001,7 @@ export class TaskStore {
   private readonly reviewItems = new ReviewItemStore(reviewItemPersistenceFor(this));
   /** The ticket's OWN decision (the derived `r-legacy` row). */
   private readonly decisions = new TaskDecisionStore(reviewItemPersistenceFor(this));
+  private readonly answerUndo = new ReviewAnswerUndo(reviewItemPersistenceFor(this));
   /** The quality gate's verdicts, on both shapes. */
   private readonly judgements = new ReviewJudgementStore(reviewItemPersistenceFor(this));
   /** Reads across a ticket and a board, plus the judging criteria. */
@@ -2770,6 +2775,16 @@ export class TaskStore {
     opts: { actor: { id: string; name: string; kind?: string } },
   ): WithdrawAnswerResult {
     return this.decisions.withdrawAnswer(taskId, opts);
+  }
+
+  /** Take back the answer on one of the ticket's review items — `r-legacy`
+   *  included, which goes to `withdrawAnswer`. */
+  undoTaskReviewAnswer(
+    taskId: string,
+    reviewItemId: string,
+    opts: { actor: { id: string; name: string; kind?: string } },
+  ): UndoTaskReviewAnswerResult {
+    return this.answerUndo.undoTaskReviewAnswer(taskId, reviewItemId, opts);
   }
 
   requestMoreInfo(
