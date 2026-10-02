@@ -292,6 +292,27 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'post_inbox_rows',
+      description:
+        "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id). Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          pass: {
+            type: 'string',
+            description: 'An id for this pass, letters, digits and . _ : - only, up to 64.',
+          },
+          rows: {
+            type: 'array',
+            description:
+              'One to 40 rows. Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderKey (16 hex), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
+            items: { type: 'object' },
+          },
+        },
+        required: ['pass', 'rows'],
+      },
+    },
+    {
       name: 'post_status',
       description:
         'Share a major milestone update to the activity stream (e.g. build, test, review, or deploy done). Only the first sentence appears in the Home activity feed, cut at 200 characters. The full update may be up to 4000 chars in the task activity feed.',
