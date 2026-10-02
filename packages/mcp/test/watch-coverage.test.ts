@@ -249,6 +249,24 @@ describe('boardsToReattach — what a respawn owes its own boards', () => {
     ).toEqual(['ws-att']);
   });
 
+  it('leaves a dormant row behind: attached, not lead, nothing done there since attaching', () => {
+    // The stranded row: every deploy respawned the session and this brought
+    // the row back, so it could never age out.
+    const rows = [
+      wsRow({ workspaceId: 'ws-dormant', attached: true, lead: false, workedSinceAttach: false }),
+      wsRow({ workspaceId: 'ws-worked', attached: true, lead: false, workedSinceAttach: true }),
+      // A server older than the field: the old behaviour, unchanged.
+      wsRow({ workspaceId: 'ws-unknown', attached: true, lead: false }),
+      // The lead keeps its seat's re-attach whether or not it worked here.
+      wsRow({ workspaceId: 'ws-quiet-lead', attached: true, lead: true, workedSinceAttach: false }),
+    ].map((w) => ({ ...w, heartbeatFresh: false }));
+    expect(boardsToReattach(coverage({ workspaces: rows }))).toEqual([
+      'ws-worked',
+      'ws-unknown',
+      'ws-quiet-lead',
+    ]);
+  });
+
   // POSITIVE CONTROL — a board this session never attached to and does not
   // lead is NOT re-attached. `attachAgent` CLAIMS an empty seat, so attaching
   // on restore to every board a watched doc happens to sit on would have this

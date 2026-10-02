@@ -64,6 +64,21 @@ describe('Soniox voice', () => {
     expect(s.closed).toBe(true);
   });
 
+  it('asks for MP3 when it speaks for a meeting bot', async () => {
+    const s = fakeSocket();
+    const voice = createSonioxVoice({ apiKey: KEY, socketFactory: s.factory, audio: 'mp3' });
+    const said = voice.speak('Hello there.', () => {}, new AbortController().signal);
+    await until(() => s.sent.length === 2);
+    const config = JSON.parse(s.sent[0] ?? '{}');
+    expect([config.audio_format, config.sample_rate, config.bitrate]).toEqual([
+      'mp3',
+      24000,
+      64000,
+    ]);
+    s.push({ stream_id: config.stream_id, audio: '', audio_end: true });
+    await said;
+  });
+
   it('an abort cancels the stream and resolves', async () => {
     const s = fakeSocket();
     const voice = createSonioxVoice({ apiKey: KEY, socketFactory: s.factory });

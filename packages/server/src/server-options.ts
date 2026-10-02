@@ -690,6 +690,13 @@ export interface ServerOptions {
    */
   meetingBot?: RecallClient;
   /**
+   * Whether the owner may say "Claude, …" in a bot meeting and hear an
+   * answer (`meeting-claude.ts`). Off unless `CW_MEETING_CLAUDE=1`, because
+   * it creates every bot with Recall's audio output enabled. The owner is
+   * known by `ownerEmail`; without one it stays off.
+   */
+  meetingClaude?: boolean;
+  /**
    * Shared secret for verifying Recall's status webhooks (Svix format).
    *
    * **The webhook route is armed only while this is set.** Unset, `POST

@@ -725,6 +725,16 @@ records each section's question-to-answer time as a log line and a row in
 `<dataDir>/interview-timings.jsonl`, with no doc text. The doc must be on the
 socket's board, checked as the router checks it.
 
+The same answerer speaks in a bot meeting. `meeting-claude.ts` (a top-level
+server module) reads each final turn `recall-meeting.ts` records and acts only
+when it opens with "Claude," and the speaker's Recall participant email is the
+owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes the whole
+answer into the meeting's notes and says the first sentence into the call
+through Recall's `output_audio`, as MP3 from `tts.ts`. It is off unless
+`CW_MEETING_CLAUDE=1`, because a bot that may speak is created with audio
+output switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the
+live check that Recall plays audio at all.
+
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's
 source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and

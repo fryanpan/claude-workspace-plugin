@@ -131,6 +131,7 @@ export function createSpokenEngines(
       2: eleven && cleared ? createElevenLabsVoice({ apiKey: eleven }) : null,
     },
     gemini: gemini ? createGeminiLive({ apiKey: gemini }) : null,
+    meetingVoice: soniox ? createSonioxVoice({ apiKey: soniox, audio: 'mp3' }) : null,
     agent,
     ...(Object.keys(held).length > 0 ? { held } : {}),
   };
