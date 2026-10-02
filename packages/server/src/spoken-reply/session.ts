@@ -14,7 +14,11 @@
  *    setup's voice point by point (`speak-points.ts`), each point's note
  *    sent just before its audio: Soniox TTS for 1, ElevenLabs Flash for 2.
  *  - Setup 3 streams the same PCM to Gemini Live, which calls back into the
- *    same answerer through its `ask_board` tool and speaks the result.
+ *    same answerer through its `ask_board` tool and speaks the result. A
+ *    tapped question is heard by Soniox too when this server has it: its
+ *    words show as they are said, and its end of speech asks the board and
+ *    ends Gemini's bracketed turn, so the tool call collects an answer
+ *    already on its way.
  *  - Setup 4 streams it to an ElevenLabs agent, which takes the turns and
  *    calls back into the same answerer through this server's custom-LLM
  *    route (`agent-turns.ts`).
@@ -117,6 +121,8 @@ export class SpokenSession {
   private stt: TranscriptionSession | null = null;
   private sttOpening: Promise<TranscriptionSession | null> | null = null;
   private buffered: Uint8Array[] = [];
+  /** Audio held while the listener connects, apart from Gemini's own. */
+  private sttBuffered: Uint8Array[] = [];
   private finals: string[] = [];
   private finishing = false;
   /** A planning doc's turn ends at a confirmed pause (`pause-gate.ts`). */
@@ -134,6 +140,17 @@ export class SpokenSession {
   private replied = false;
   private audioOpen = false;
   private dropAudio = false;
+  /** A tapped setup-3 question heard by Soniox too: its words show as they
+   *  are said, and its end of speech sends the question to the board at once
+   *  and ends Gemini's bracketed turn (`askEarly`). Gemini's own ears were
+   *  measured on staging at about 1.1s from the last word to its tool call,
+   *  with no words shown until then. */
+  private geminiEars = false;
+  private early: {
+    turn: number;
+    cue: FillerCue | null;
+    answer: Promise<SpokenAnswer>;
+  } | null = null;
 
   // Setup 4: its conversation opens at the first setup-4 start.
   private agentTurns: AgentTurns | null;
@@ -200,11 +217,11 @@ export class SpokenSession {
       else if (this.geminiOpening && this.buffered.length < MAX_BUFFERED_FRAMES) {
         this.buffered.push(pcm.slice());
       }
-      return;
+      if (!this.geminiEars) return;
     }
     if (this.stt) this.stt.send(pcm);
-    else if (this.sttOpening && this.buffered.length < MAX_BUFFERED_FRAMES) {
-      this.buffered.push(pcm.slice());
+    else if (this.sttOpening && this.sttBuffered.length < MAX_BUFFERED_FRAMES) {
+      this.sttBuffered.push(pcm.slice());
     }
   }
 
@@ -251,6 +268,7 @@ export class SpokenSession {
       return;
     }
     if (this.setup === 3) {
+      if (this.geminiEars) return void this.finishListening(this.turn);
       void (this.gemini ? Promise.resolve(this.gemini) : this.geminiOpening)?.then((g) => {
         if (!g) return;
         if (this.geminiManual) g.activityEnd();
@@ -280,6 +298,7 @@ export class SpokenSession {
     this.stt = null;
     this.sttOpening = null;
     this.buffered = [];
+    this.sttBuffered = [];
     this.finals = [];
     this.finishing = false;
     this.pause?.cancel();
@@ -318,8 +337,8 @@ export class SpokenSession {
             return null;
           }
           this.stt = session;
-          for (const pcm of this.buffered) session.send(pcm);
-          this.buffered = [];
+          for (const pcm of this.sttBuffered) session.send(pcm);
+          this.sttBuffered = [];
           return session;
         },
         (err: unknown) => {
@@ -351,7 +370,8 @@ export class SpokenSession {
     if (turn !== this.turn) return;
     const text = this.finals.join(' ').trim();
     this.deps.sendJson({ type: 'turn-end', text });
-    await this.answerAndSay(text, turn);
+    if (this.setup === 3) this.askEarly(text, turn);
+    else await this.answerAndSay(text, turn);
   }
 
   /** A choice tapped on the page: answered as if it had been heard. */
@@ -459,11 +479,16 @@ export class SpokenSession {
   private startGemini(): void {
     const live = this.deps.engines.gemini;
     if (!live) return;
-    const manual = this.mode === 'hold';
+    // With Soniox beside it, Soniox's end of speech ends Gemini's turn too, so
+    // Gemini runs bracketed, as for a held question.
+    this.geminiEars = this.mode === 'tap' && this.deps.engines.listener !== null;
+    const manual = this.mode === 'hold' || this.geminiEars;
     this.heardText = '';
     this.saidText = '';
     this.replied = false;
     this.dropAudio = false;
+    this.early = null;
+    if (this.geminiEars) this.startListening();
     if (this.gemini && this.geminiManual === manual) {
       if (manual) this.gemini.activityStart();
       return;
@@ -480,7 +505,8 @@ export class SpokenSession {
         events: {
           onInputText: (t) => {
             this.heardText += t;
-            this.deps.sendJson({ type: 'heard', text: this.heardText.trim() });
+            if (!this.geminiEars)
+              this.deps.sendJson({ type: 'heard', text: this.heardText.trim() });
           },
           onOutputText: (t) => {
             this.saidText += t;
@@ -528,16 +554,45 @@ export class SpokenSession {
     this.geminiOpening = opening;
   }
 
+  /** Setup 3's question, heard by Soniox: asked of the board now, and
+   *  collected by the tool call Gemini makes for the same words. */
+  private askEarly(text: string, turn: number): void {
+    // Gemini's turn is bracketed, and this is its end.
+    void (this.gemini ? Promise.resolve(this.gemini) : this.geminiOpening)?.then((g) => {
+      if (turn === this.turn) g?.activityEnd();
+    });
+    if (!text) return;
+    this.early = {
+      turn,
+      cue: this.armCue(this.cueVoice(), text, turn),
+      answer: this.deps.answerer.answer(text, this.actor, this.context),
+    };
+    this.deps.sendJson({ type: 'working' });
+  }
+
+  /** Gemini says nothing while the board answers, so the cue is said in
+   *  this server's own voice. */
+  private cueVoice(): SpokenVoice | null {
+    return this.deps.engines.voices[1] ?? this.deps.engines.voices[2];
+  }
+
   private async answerGemini(id: string, request: string): Promise<void> {
     const turn = this.turn;
-    const text = this.heardText.trim() || request;
-    this.deps.sendJson({ type: 'turn-end', text });
-    const asked = this.deps.answerer.verbatim ? text : request || text;
-    // Gemini says nothing while the board answers, so the cue is said in
-    // this server's own voice.
-    const cue = this.armCue(this.deps.engines.voices[1] ?? this.deps.engines.voices[2], text, turn);
-    this.deps.sendJson({ type: 'working' });
-    const answer = await this.deps.answerer.answer(asked, this.actor, this.context);
+    const early = this.early?.turn === turn ? this.early : null;
+    this.early = null;
+    let cue = early?.cue ?? null;
+    let pending = early?.answer;
+    if (!pending) {
+      // Gemini called the question over first: Soniox's turn is moot.
+      if (this.geminiEars) this.dropListener();
+      const text = this.heardText.trim() || request;
+      this.deps.sendJson({ type: 'turn-end', text });
+      const asked = this.deps.answerer.verbatim ? text : request || text;
+      cue = this.armCue(this.cueVoice(), text, turn);
+      this.deps.sendJson({ type: 'working' });
+      pending = this.deps.answerer.answer(asked, this.actor, this.context);
+    }
+    const answer = await pending;
     if (turn !== this.turn) return;
     this.replied = true;
     this.deps.sendJson(replyMessage(answer));

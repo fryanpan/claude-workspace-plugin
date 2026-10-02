@@ -337,6 +337,40 @@ describe('SpokenSession, setup 3', () => {
     };
   }
 
+  it('tap with Soniox beside it: words show as said, and its end of speech asks the board before Gemini does', async () => {
+    const g = fakeGemini();
+    const l = fakeListener();
+    const h = harness({ gemini: g.live, listener: l.engine });
+    h.send({ type: 'start', setup: 3, mode: 'tap' });
+    await waitFor(() => l.opened.length === 1 && g.opens.length === 1, { describe: 'both open' });
+    expect(l.opened[0]?.tuning).toEqual({ max_endpoint_delay_ms: 500 });
+    h.session.onAudio(new Uint8Array(1600));
+    await waitFor(() => l.audio.length === 1 && g.sent.includes('audio'), {
+      describe: 'both hear',
+    });
+    l.turn('give me a', false);
+    expect(h.json.at(-1)).toEqual({ type: 'heard', text: 'give me a' });
+    // Gemini's late transcript is not shown over Soniox's.
+    g.events.onInputText('give me a status update');
+    expect(h.types().filter((t) => t === 'heard')).toHaveLength(1);
+    l.turn('give me a status update', true);
+    await waitFor(() => h.types().includes('working'), { describe: 'sent to the board' });
+    expect(h.types().slice(-2)).toEqual(['turn-end', 'working']);
+    // Soniox's end of speech is Gemini's too: its turn is bracketed.
+    expect(g.opens).toEqual([true]);
+    await waitFor(() => g.sent.includes('activityEnd'), { describe: 'Gemini turn ended' });
+    expect(g.sent.filter((x) => x === 'activityStart')).toHaveLength(1);
+    g.events.onToolCall('c1', 'status update');
+    await waitFor(() => g.sent.some((s) => s.startsWith('tool:')), { describe: 'tool answered' });
+    expect(g.sent.at(-1)).toBe('tool:c1:Harborlight: 3 open. Waiting on you: 1 — “b”.');
+    // One question, asked once.
+    expect(h.types().filter((t) => t === 'turn-end' || t === 'working' || t === 'reply')).toEqual([
+      'turn-end',
+      'working',
+      'reply',
+    ]);
+  });
+
   it('hold: brackets the turn, answers the tool call from the board, forwards the voice', async () => {
     const g = fakeGemini();
     const h = harness({ gemini: g.live });
