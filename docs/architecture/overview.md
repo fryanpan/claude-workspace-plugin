@@ -53,7 +53,7 @@ flowchart TB
   subgraph srv["server — one Bun process"]
     edge["HTTP edge<br/>server.ts · routes/ · middleware/ · shells.ts · app-waiting-page.ts · member-home.ts<br/>request-admission · request-attribution<br/>socket-handlers · server-options<br/>connector/ (hosted MCP at /mcp)"]
     docs["Doc store and attachments<br/>doc-store.ts · binds.ts · file-binding.ts · file-stamp.ts<br/>doc-*.ts · doc-origin-repo.ts · doc-key.ts · repo-registry.ts<br/>repo-registry-file.ts · repo-registry-checkouts.ts<br/>doc-thread-merge.ts · doc-identity-plan.ts · doc-identity-migration.ts<br/>doc-identity-renames.ts · doc-identity-journal.ts · doc-identity-check.ts<br/>attachment-backfill.ts<br/>note-list-gap-repair.ts · note-list-gap-corpus.ts<br/>mount-registry.ts · mount-registry-file.ts · mount-scan.ts<br/>mount-reconcile.ts · mount-store.ts · attachment-privacy.ts<br/>mockup-capture.ts · mockup-versions.ts · mockup-live.ts · mockup-widget.ts<br/>mockup-linked-items.ts · mockup-frame.ts · mockup-page-links.ts · app-proxy.ts · app-outage.ts<br/>yjs-protocol.ts · sse.ts · sse-mux.ts · sse-writer.ts"]
-    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review<br/>review-size-prefs"]
+    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review<br/>review-size-prefs · inbox/"]
     meet["Meetings<br/>meetings.ts · meeting-*.ts · notes-*.ts<br/>notes-edit-guard.ts · notes-invented-links.ts · notes-scheme-links.ts<br/>notes-method-*.ts · transcribe-*.ts · recall*.ts"]
     keep["Keep-moving<br/>stall-wiring · stall-gate · stall-nudge<br/>stall-escalation · waiting-unfiled-escalation<br/>waiting-unfiled-review · waiting-unfiled-sidecar<br/>waiting-unfiled-routing · waiting-unfiled-frame<br/>waiting-unfiled-filing<br/>unanswered-thread · keep-moving · owner-ask · waiting-unfiled · blockage-lift<br/>keep-moving-verdict · ui-review-gate<br/>stall-frame-news · wake-sent-sets<br/>ready-nudge · ready-gate · ready-release · board-activity"]
     ident["Identity and sharing<br/>auth/ · share/ · identities.ts<br/>sharing-notice.ts"]
@@ -1748,6 +1748,20 @@ picks is kept per signed-in identity by `review-size-prefs.ts` (the browser's
 copy is only a cache), and the project
 order comes from a hand-edited `review-plan.json` naming the plan board —
 there is no route that sets it.
+
+**Incoming Messages** is a section on the landing page that lists the
+message threads an inbox reader agent judged worth Bryan's time. It is not a
+board feature and adds no edge. `inbox/` holds the store (`rows.json`, with
+the message text kept apart in `bodies.json`, both mode 600, soft delete
+only), the per-field checks the reader's rows pass, the rank and the
+server-drawn section. `routes/inbox.ts` has two gates that never overlap.
+`POST /inbox/rows` is the one write path, open only to the configured
+reader with its own agent token. The MCP verb for it is `post_inbox_rows`
+(`mcp/src/tools/inbox.ts`). The body read and Bryan's taps need an owner
+person proof from the front page's origin. `landing.ts` in the same folder
+draws the section only for that proof. The behaviour is
+`workspaces-app/src/landing-inbox.ts`, inside the landing bundle. Nothing
+here emits an event, so no row reaches an agent's stream.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts
