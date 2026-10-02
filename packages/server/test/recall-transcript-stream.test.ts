@@ -95,6 +95,9 @@ class FakeRecall implements RecallClient {
   checkKeyRegion() {
     return Promise.resolve({ ok: true as const, region: 'us-east-1' as const });
   }
+  outputAudio(): Promise<void> {
+    return Promise.resolve();
+  }
   requestRecordingPermission(): Promise<boolean> {
     return Promise.resolve(false);
   }

@@ -103,6 +103,7 @@ const makeFakes = (): Fakes => {
       leaveCall: async (botId: string) => {
         calls.botsLeft.push(botId);
       },
+      outputAudio: async () => {},
       requestRecordingPermission: async () => false,
       checkKeyRegion: async () => ({ ok: true as const, region: 'us-east-1' as const }),
     } as RecallClient,

@@ -52,6 +52,9 @@ import type { EngineTurn } from './transcribe.ts';
 export interface RecallParticipant {
   id: number;
   name: string | null;
+  /** The platform's email for this person, when Recall has one. Never a
+   *  speaker label: it decides only who may ask Claude (`meeting-claude.ts`). */
+  email?: string | null;
 }
 
 /** A realtime frame this server acts on. Anything else parses to null. */
@@ -106,7 +109,8 @@ function parseParticipant(raw: unknown): RecallParticipant | null {
   const id = rec.id;
   if (typeof id !== 'number' || !Number.isFinite(id)) return null;
   const name = typeof rec.name === 'string' && rec.name.trim() ? rec.name.trim() : null;
-  return { id: Math.trunc(id), name };
+  const email = typeof rec.email === 'string' && rec.email.trim() ? rec.email.trim() : null;
+  return { id: Math.trunc(id), name, email };
 }
 
 /**

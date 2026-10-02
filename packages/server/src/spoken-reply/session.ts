@@ -60,6 +60,8 @@ export interface SpokenEngines {
   listener: TranscriptionEngine | null;
   voices: { 1: SpokenVoice | null; 2: SpokenVoice | null };
   gemini: GeminiLive | null;
+  /** Setup 1's voice as MP3, for a meeting bot to play (`meeting-claude.ts`). */
+  meetingVoice?: SpokenVoice | null;
   /** Setup 4: the agent, and the secret its custom-LLM calls must carry. */
   agent?: { live: ElevenLabsAgent; llmSecret: string } | null;
   /** Built but not run yet, and why — see `SpokenHeldSetups`. */
