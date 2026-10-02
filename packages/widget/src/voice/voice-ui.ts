@@ -20,6 +20,8 @@ import type { VoiceComment, VoiceSession } from './voice-session.ts';
  *   on a phone); a tap on either adds to that note again.
  * - No byline, no counts, no "Posted" label.
  * - Every voice comment keeps its clip (▶) and its raw words at its foot.
+ * - A question about the note being said stands just under the live card,
+ *   over the page rather than in the column, so no card moves for it.
  *
  * Drawn from the session's state every time it changes; placed every frame
  * while there is anything on screen, since the element it stands beside can
@@ -52,6 +54,8 @@ export { clipLength };
 
 export class VoiceView {
   readonly live: HTMLDivElement;
+  /** The one question asked about the live note, with its choices. */
+  readonly ask: HTMLDivElement;
   private lead: HTMLDivElement;
   /** On a phone, the outline round the element the live card is about. */
   private mark: HTMLDivElement;
@@ -83,6 +87,14 @@ export class VoiceView {
       '<span class="vwhere"></span><button class="vmove" type="button">Move</button></div>' +
       '<div class="vpol"></div><div class="vraw"><span></span></div>' +
       '<button class="vkept" type="button"></button>';
+    this.ask = document.createElement('div');
+    this.ask.className = 'vask';
+    this.ask.hidden = true;
+    this.ask.setAttribute('role', 'group');
+    this.ask.addEventListener('click', (ev) => {
+      const b = (ev.target as Element).closest<HTMLButtonElement>('button');
+      if (b) deps.session.answer(b.dataset.i === undefined ? null : Number(b.dataset.i));
+    });
     this.lead = document.createElement('div');
     this.lead.className = 'vlead';
     this.mark = document.createElement('div');
@@ -91,7 +103,7 @@ export class VoiceView {
     this.dots = document.createElement('div');
     const style = document.createElement('style');
     style.textContent = VOICE_CSS;
-    deps.shadow.append(style, this.lead, this.mark, this.dots, this.live);
+    deps.shadow.append(style, this.lead, this.mark, this.dots, this.live, this.ask);
     this.dots.addEventListener('click', (ev) => {
       const key = (ev.target as HTMLElement).closest<HTMLElement>('.vpin')?.dataset.key;
       if (key) deps.session.reopen(key);
@@ -176,12 +188,44 @@ export class VoiceView {
     const kept = this.live.querySelector('.vkept') as HTMLElement;
     kept.textContent = open?.raw ? `“${open.raw}”` : '';
     kept.classList.toggle('open', !!open && this.rawOpen.has(open.key));
+    this.drawAsk(recording);
     // Every new card first, so each one's pager knows them all.
     for (const c of s.comments.values()) this.makeCard(c);
     for (const c of s.comments.values()) this.drawCard(c);
     // Placed now as well as next frame: a card just attached has lost the
     // floating position and has no other until it is placed.
     if (this.place()) this.schedule();
+  }
+
+  private drawAsk(recording: boolean): void {
+    const a = recording && !this.picking ? this.deps.session.ask : null;
+    this.ask.hidden = !a;
+    const html = a
+      ? `<div class="vq">${escape(a.question)}</div><div class="vchoices">${a.choices
+          .map((c, i) => `<button type="button" data-i="${i}">${escape(c)}</button>`)
+          .join('')}<button type="button" class="vkeep">Keep as is</button></div>`
+      : '';
+    // Rewritten only when it changed, as a card is: a render comes with every word.
+    if (this.ask.dataset.html !== html) {
+      this.ask.dataset.html = html;
+      this.ask.innerHTML = html;
+      this.ask.setAttribute('aria-label', a?.question ?? '');
+    }
+  }
+
+  /** Just under the live card, or just over it when the buttons are below. */
+  private placeAsk(room: number): void {
+    if (this.ask.hidden) return;
+    const r = this.live.getBoundingClientRect();
+    if (this.live.hidden || r.height === 0) {
+      this.ask.hidden = true;
+      return;
+    }
+    const h = this.ask.offsetHeight;
+    const y = r.bottom + 6 + h <= room ? r.bottom + 6 : Math.max(8, r.top - 6 - h);
+    Object.assign(this.ask.style, { top: `${y}px`, left: `${r.left}px`, width: `${r.width}px` });
+    // Cards share its z-index, so a card made since would paint over it.
+    if (this.ask.nextElementSibling) this.deps.shadow.append(this.ask);
   }
 
   private makeCard(c: VoiceComment): void {
@@ -432,6 +476,7 @@ export class VoiceView {
       this.lead.dataset.p = lines;
       this.lead.innerHTML = `<svg>${lines}</svg>`;
     }
+    this.placeAsk(room);
     return !this.live.hidden || this.cards.size > 0;
   }
 }

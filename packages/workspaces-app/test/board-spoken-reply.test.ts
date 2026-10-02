@@ -161,7 +161,7 @@ describe('spoken reply', () => {
   it('the setup switch: remembered per device, and a setup the server lacks is disabled', () => {
     const h = harness();
     const buttons = [...h.panel.root.querySelectorAll<HTMLButtonElement>('.vr-setups button')];
-    expect(buttons.map((b) => b.disabled)).toEqual([false, false, true]);
+    expect(buttons.map((b) => b.disabled)).toEqual([false, false, true, true]);
     buttons[1]?.click();
     expect(h.store.get(SETUP_KEY)).toBe('2');
     expect(h.panel.root.querySelector('.vr-setup-name')?.textContent).toBe('Soniox + ElevenLabs');
@@ -173,7 +173,7 @@ describe('spoken reply', () => {
     const line = 'Setup 2 waits on turning off ElevenLabs training.';
     const h = harness({ setups: [1], held: { '2': line } });
     const buttons = [...h.panel.root.querySelectorAll<HTMLButtonElement>('.vr-setups button')];
-    expect(buttons.map((b) => b.disabled)).toEqual([false, false, true]);
+    expect(buttons.map((b) => b.disabled)).toEqual([false, false, true, true]);
     expect(buttons[1]?.title).toBe(line);
     buttons[1]?.click();
     expect(h.reply.setup()).toBe(2);
@@ -190,6 +190,22 @@ describe('spoken reply', () => {
     await vi.advanceTimersByTimeAsync(TAP_MS);
     expect(h.sockets.length).toBe(1);
     expect(h.label()).toBe('Listening');
+  });
+
+  it('an unconfigured setup 4: in the switch, and choosing it names what is missing', async () => {
+    const line = 'Setup 4 is not set up on this server yet: it needs the elevenlabs-agent-id card.';
+    const h = harness({ setups: [1], held: { '4': line } });
+    const buttons = [...h.panel.root.querySelectorAll<HTMLButtonElement>('.vr-setups button')];
+    expect(buttons.map((b) => b.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(buttons[3]?.disabled).toBe(false);
+    buttons[3]?.click();
+    expect(h.reply.setup()).toBe(4);
+    expect(h.panel.root.querySelector('.vr-setup-name')?.textContent).toBe('ElevenLabs Agents');
+    expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(TAP_MS * 2);
+    expect(h.sockets).toEqual([]);
+    expect(h.captures).toEqual([]);
   });
 
   it('opens above the feedback widget’s corner buttons rather than under them', () => {

@@ -86,8 +86,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ],
   ]),
 
-  // The bot callback host: two addresses and nothing else, each carrying its
-  // own credential.
+  // The vendor callback host: three addresses and nothing else, each carrying
+  // its own credential.
   ...family('routes/upgrade-stream.ts', [
     ['recall-callback', '/recall/:token', 'GET'],
     ['loopback-only', '/events/agent/:agentId', 'GET'],
@@ -100,6 +100,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['collab-scope', '/workspaces/:ws/y', 'GET'],
   ]),
   ...family('routes/recall-webhook.ts', [['recall-callback', '/recall/status', 'POST']]),
+  // ElevenLabs' agent asking for setup 4's reply: the callback host's third
+  // address, armed only while setup 4 is configured; its own bearer secret.
+  ...family('routes/voice-agent-llm.ts', [
+    ['recall-callback', '/voice-agent/v1/chat/completions', 'POST'],
+  ]),
 
   ...family('routes/auth-share.ts', [
     ['trusted-local', '/widget-auth', 'GET'],

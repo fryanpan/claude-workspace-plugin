@@ -1,4 +1,8 @@
-import type { SpokenDecide, SpokenPoint } from '@claude-workspaces/core/spoken-reply';
+import type {
+  SpokenDecide,
+  SpokenPoint,
+  SpokenServerMessage,
+} from '@claude-workspaces/core/spoken-reply';
 import type { ReviewItemRow } from '../review-queue.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
@@ -57,6 +61,21 @@ export interface SpokenAnswer {
 
 function walkAnswer(w: WalkReply): SpokenAnswer {
   return { ...w, route: 'review-queue' };
+}
+
+/** The page's `reply` frame for an answer — every setup sends this one. */
+export function replyMessage(a: SpokenAnswer): SpokenServerMessage {
+  return {
+    type: 'reply',
+    spoken: a.spoken,
+    detail: a.detail,
+    points: a.points,
+    asking: a.asking,
+    ...(a.choices ? { choices: a.choices } : {}),
+    route: a.route,
+    ...(a.navigate ? { navigate: a.navigate } : {}),
+    ...(a.decide ? { decide: a.decide } : {}),
+  };
 }
 
 /** How many goals the question names aloud. More than this is "or another". */
