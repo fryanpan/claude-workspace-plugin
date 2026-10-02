@@ -168,9 +168,10 @@ export class MeetingClaude {
 }
 
 /**
- * The server's one meeting Claude, or null when it is off: not switched on
- * (`CW_MEETING_CLAUDE=1`), no owner email to recognise the owner by, or no
- * Recall client to play through.
+ * The server's one meeting Claude, or null when it is off: switched off
+ * (`CW_MEETING_CLAUDE=0`), no owner email to recognise the owner by, or no
+ * Recall client to play through. Says which in one line, so a silent
+ * meeting can be told from a disabled one in the log.
  */
 export function createMeetingClaude(o: {
   enabled: boolean;
@@ -181,10 +182,20 @@ export function createMeetingClaude(o: {
   board: () => SpokenBoard;
   boardOf: (docId: string) => string | undefined;
   ownerId: () => string;
+  log?: (line: string) => void;
 }): MeetingClaude | null {
   const ownerEmail = o.ownerEmail?.trim() ?? '';
   const client = o.client;
-  if (!o.enabled || !ownerEmail || !client) return null;
+  const log = o.log ?? ((line: string) => console.warn(line));
+  const off = !o.enabled
+    ? 'switched off'
+    : !ownerEmail
+      ? 'no owner email'
+      : !client
+        ? 'no Recall client'
+        : null;
+  log(`[meeting-claude] ${off === null ? 'on' : `off: ${off}`}`);
+  if (off !== null || !client) return null;
   return new MeetingClaude({
     ownerEmail,
     answererFor: (docId) => {

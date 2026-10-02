@@ -283,7 +283,8 @@ while (!handle) {
       ...(transcription ? { transcription } : {}),
       spokenReply,
       ...(meetingBot ? { meetingBot } : {}),
-      ...(process.env.CW_MEETING_CLAUDE?.trim() === '1' ? { meetingClaude: true } : {}),
+      // On unless `CW_MEETING_CLAUDE=0` (Bryan, 2026-10-02: on by default).
+      meetingClaude: process.env.CW_MEETING_CLAUDE?.trim() !== '0',
       ...(meetingBotWebhookSecret ? { meetingBotWebhookSecret } : {}),
       ...(notesComposer ? { meetingNotes: { composer: notesComposer, titleNamer } } : {}),
       ...(pluginRefresher ? { pluginRefresher } : {}),

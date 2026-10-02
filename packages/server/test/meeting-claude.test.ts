@@ -171,4 +171,19 @@ describe('the server switch', () => {
     ).toBeNull();
     expect(createMeetingClaude({ ...base, enabled: true, ownerEmail: OWNER })).not.toBeNull();
   });
+
+  it('says in one log line whether it is on, and why not', () => {
+    const lines: string[] = [];
+    const log = (l: string) => lines.push(l);
+    createMeetingClaude({ ...base, enabled: false, ownerEmail: OWNER, log });
+    createMeetingClaude({ ...base, enabled: true, ownerEmail: '', log });
+    createMeetingClaude({ ...base, enabled: true, ownerEmail: OWNER, client: null, log });
+    createMeetingClaude({ ...base, enabled: true, ownerEmail: OWNER, log });
+    expect(lines).toEqual([
+      '[meeting-claude] off: switched off',
+      '[meeting-claude] off: no owner email',
+      '[meeting-claude] off: no Recall client',
+      '[meeting-claude] on',
+    ]);
+  });
 });

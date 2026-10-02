@@ -762,9 +762,9 @@ server module) reads each final turn `recall-meeting.ts` records and acts only
 when it opens with "Claude," and the speaker's Recall participant email is the
 owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes the whole
 answer into the meeting's notes and says the first sentence into the call
-through Recall's `output_audio`, as MP3 from `tts.ts`. It is off unless
-`CW_MEETING_CLAUDE=1`, because a bot that may speak is created with audio
-output switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the
+through Recall's `output_audio`, as MP3 from `tts.ts`. It is on unless
+`CW_MEETING_CLAUDE=0`, and a bot that may speak is created with audio output
+switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the
 live check that Recall plays audio at all.
 
 **Editing the words on a page.** The reader can change a page's text in
