@@ -45,6 +45,7 @@ import type { prose } from '@claude-workspaces/core';
 import { SPOKEN_MAX_WORDS } from '@claude-workspaces/core/spoken-reply';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
+import { answerPart } from './interview-answer.ts';
 import {
   type PlanGap,
   findPlanGaps,
@@ -83,8 +84,8 @@ export interface InterviewDocs {
   /** A question is out on `docId`: hold the meeting notes' copy of what is
    *  said next (`MeetingEars.hold`). The three are absent off a meeting. */
   hold?(docId: string): void;
-  /** The answer was written into the plan: the notes never get it. */
-  placed?(docId: string): void;
+  /** `written` went into the plan: the notes never get the turns it holds. */
+  placed?(docId: string, written: string): void;
   /** No answer was written: the notes get what was held. */
   release?(docId: string): void;
 }
@@ -312,7 +313,10 @@ export class SpokenInterview {
   }
 
   private async write(run: Running, text: string): Promise<InterviewReply> {
-    const markdown = answerMarkdown(text);
+    // Only what answers the question goes in; the rest stays with the notes.
+    const kept = await answerPart(this.deps.complete, questionFor(this.slot(run)), text);
+    if (!kept) return this.quiet(run);
+    const markdown = answerMarkdown(kept);
     let gap = this.slot(run);
     let res = this.deps.docs.writeUnder(run.docId, gap.headingId, markdown);
     if (res === 'gone') {
@@ -329,14 +333,14 @@ export class SpokenInterview {
     if (res === 'failed') return this.question(run, 'I couldn’t write that.');
     if (res === 'gone')
       return this.settle(run, 'gone', `${spokenHeading(gap)} is gone from the doc.`);
-    this.deps.docs.placed?.(run.docId);
+    this.deps.docs.placed?.(run.docId, kept);
     run.filledMs += this.now() - run.askedAt;
     this.recordAnswer(run, 'edit');
     return this.settle(
       run,
       'placed',
       `Written under ${spokenHeading(gap)}.`,
-      wordCount(text),
+      wordCount(kept),
       text,
     );
   }

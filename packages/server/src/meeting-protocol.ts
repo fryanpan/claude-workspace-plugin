@@ -1164,7 +1164,11 @@ export class MeetingRelay {
             return;
           }
           ears.heard(docId, numbered);
-          ears.toNotes(docId, () => notes?.onTurn(numbered, spokenAt));
+          ears.toNotes(docId, () => notes?.onTurn(numbered, spokenAt), {
+            turn: turnId,
+            text: turn.text,
+            final: turn.final,
+          });
         },
         onError: (message) => {
           // Scrubbed first: the vendor wrote this text, not us.

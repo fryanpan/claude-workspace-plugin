@@ -56,8 +56,8 @@ describe('MeetingEars', () => {
     ears.started('d-a');
     const got: string[] = [];
     ears.hold('d-a');
-    ears.toNotes('d-a', () => got.push('answer'));
-    ears.placed('d-a');
+    ears.toNotes('d-a', () => got.push('answer'), { turn: 1, text: 'answer', final: true });
+    ears.placed('d-a', 'The answer.');
     ears.toNotes('d-a', () => got.push('second answer'));
     ears.toNotes('d-a', () => got.push('more of it'));
     expect(got).toEqual([]);

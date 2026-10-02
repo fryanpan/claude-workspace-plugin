@@ -2789,6 +2789,16 @@ meeting path transcribes and writes notes but never speaks.
   meeting's socket closes. At every later pause somebody spoke into, the plan
   is read again with everything said since the last question, and the voice
   asks only when the reading names a question.
+- **Only the answer is written** (`interview-answer.ts`). The same meeting
+  wrote all 67 words after the question into the plan, Bryan's remarks
+  about the tool included. Now a false start (a clause broken off on a dash
+  or an ellipsis before a new sentence) is dropped, and one model call names
+  which of the remaining sentences answer the question, by number, so the
+  plan gets the speaker's own words and never a paraphrase. If none answers,
+  nothing is written. If the model fails, every sentence but the false starts
+  is written. The notes hold now drops only the turns the written words
+  contain (`MeetingEars.placed`), so a remark the plan was not given still
+  reaches the notes.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 
