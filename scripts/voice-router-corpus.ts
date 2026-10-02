@@ -9,7 +9,8 @@
  * a neighbouring task or doc with shared words, a thing that only exists on
  * the similarly named Harborlight Ops board — are marked `near`.
  */
-import type { GoalKey, TaskKey } from './voice-router-fixture.ts';
+import type { BoardKey, GoalKey, TaskKey } from './voice-router-fixture.ts';
+import { QUICK_CORPUS } from './voice-router-quick-corpus.ts';
 
 export type PageKind = 'board' | 'task' | 'doc' | 'review-item' | 'meeting' | 'mock';
 export const PAGE_KINDS: readonly PageKind[] = [
@@ -35,6 +36,10 @@ export type Outcome =
   | { comment: TaskKey | string }
   | { answer: string; option?: string }
   | { brief: true }
+  | { board: BoardKey }
+  | { start: 'plan' | 'meeting' }
+  | { feedback: true }
+  | { help: true }
   | { agent: true };
 
 export interface RouterCase {
@@ -74,7 +79,7 @@ export const ROUTER_CORPUS: RouterCase[] = [
   c('board', BOARD, 'open my top goal', { open: 'crossing' }),
   c('board', BOARD, 'add a task to repaint the Saltmarsh signs', AGENT),
   c('board', BOARD, 'open the tide table task', AGENT, { near: true }),
-  c('board', BOARD, 'open the Harborlight Ops board', AGENT, { near: true }),
+  c('board', BOARD, 'open the Harborlight Ops board', { board: 'ops' }, { near: true }),
   c('board', BOARD, 'move the parking signs task to the top of the list', AGENT),
   c('board', BOARD, 'find the crew rota', AGENT, { near: true }),
   c('board', BOARD, 'pull up the thing about ticket sales', { open: 'ticketing' }),
@@ -212,4 +217,12 @@ export const ROUTER_CORPUS: RouterCase[] = [
   c('mock', MOCK, 'send this to Riverbend for review', AGENT),
   c('mock', MOCK, 'open the timetable', { open: 'timetable' }),
   c('mock', MOCK, 'mark the mock approved', AGENT),
+  ...QUICK_CORPUS,
 ];
+
+/** Whether a case's expected outcome is a quick action — done on the page,
+ *  with no agent: open something, go somewhere, start, feedback, help. */
+export function isQuickCase(rc: RouterCase): boolean {
+  const e = rc.expect;
+  return 'open' in e || 'board' in e || 'start' in e || 'feedback' in e || 'help' in e;
+}

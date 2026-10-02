@@ -32,16 +32,16 @@ const ASSUMED_REPLY = { choice: 'o2', probabilities: { none: 0.05, o1: 0.07, o2:
 
 describe('buildJevRequest', () => {
   it('asks ONE choice question over every route plus none, with the definitions', () => {
-    const req = buildJevRequest(INPUT, voiceChoices(INPUT));
+    const options = voiceChoices(INPUT);
+    const req = buildJevRequest(INPUT, options);
     expect(req.question.type).toBe('choice');
-    expect(req.question.options).toEqual([
-      { id: NONE_OPTION_ID, label: 'None of these: hand the request to the lead agent' },
-      { id: 'o1', label: 'Open the task “Harborlight ferry timetable” (todo, on this board)' },
-      {
-        id: 'o2',
-        label: 'Open the task “Harborlight ferry ticketing” (in-progress, on this board)',
-      },
-    ]);
+    // Every option, by its id and label and nothing else, none first.
+    expect(req.question.options).toEqual(options.map((o) => ({ id: o.id, label: o.label })));
+    expect(req.question.options[0]?.id).toBe(NONE_OPTION_ID);
+    expect(req.question.options).toContainEqual({
+      id: 'o2',
+      label: 'Open the task “Harborlight ferry ticketing” (in-progress, on this board)',
+    });
     expect(req.question.definitions).toBe(CHOICE_DEFINITIONS.join('\n'));
     expect(req.input).toBe(
       'The speaker is on the board.\nThe speaker said: "open the ticketing task"',

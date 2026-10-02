@@ -231,7 +231,12 @@ describe('voice routing (§3.8)', () => {
         author: PERSON,
       });
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+      const body = (await r.json()) as {
+        route: string;
+        ack: string;
+        navigate?: string;
+        detail?: string[];
+      };
       expect(body.route).toBe('fast-path');
       expect(body.navigate).toBe(`/workspaces/${boardId}?task=${taskId}`);
       expect(body.ack).toContain('the results page task');
@@ -282,11 +287,17 @@ describe('voice routing (§3.8)', () => {
         transcript: 'open the flux capacitor task',
         author: PERSON,
       });
-      const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+      const body = (await r.json()) as {
+        route: string;
+        ack: string;
+        navigate?: string;
+        detail?: string[];
+      };
       expect(body.route).toBe('fast-path');
       expect(body.navigate).toBeUndefined();
       expect(body.ack).toContain('open the flux capacitor task');
-      expect(body.ack).toContain('no lead agent is registered for this workspace');
+      expect(body.ack).toContain("I can't find that here.");
+      expect(body.detail?.join(' ')).toContain('No lead agent is registered for this workspace');
       expect(body.ack.toLowerCase()).not.toContain('lookup');
       // Nothing delivered: no queue row for a lead that does not exist. (The
       // positive control is the lead-live case below, where the same call
@@ -307,10 +318,10 @@ describe('voice routing (§3.8)', () => {
         author: PERSON,
       });
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { route: string; ack: string };
+      const body = (await r.json()) as { route: string; ack: string; detail?: string[] };
       expect(body.route).toBe('agent-queued');
       expect(body.ack).toContain('rework these into different groupings');
-      expect(body.ack.toLowerCase()).toContain('queued');
+      expect(body.ack).toContain('Saved for later.');
       // "Queued" is grounded: the request is on disk, not just promised.
       const qPath = voiceQueuePath(dataDir, boardId);
       expect(existsSync(qPath)).toBe(true);
@@ -361,9 +372,9 @@ describe('voice routing (§3.8)', () => {
       });
       off();
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { route: string; ack: string };
+      const body = (await r.json()) as { route: string; ack: string; detail?: string[] };
       expect(body.route).toBe('agent');
-      expect(body.ack).toContain('workspace agent');
+      expect(body.ack).toContain('On it.');
       const ev = seen.find((e) => e.type === 'voice.request');
       expect(ev).toBeDefined();
       if (ev?.type === 'voice.request') {
@@ -380,10 +391,10 @@ describe('voice routing (§3.8)', () => {
         author: PERSON,
       });
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { route: string; ack: string };
+      const body = (await r.json()) as { route: string; ack: string; detail?: string[] };
       expect(body.route).toBe('agent');
       expect(body.ack).toContain('take me to the expansion budget decision');
-      expect(body.ack.toLowerCase()).toContain('fast path unavailable');
+      expect(body.detail).toContain('Fast path unavailable.');
     });
 
     it('garbage from the model is a fast-path failure, never a crash', async () => {
@@ -435,11 +446,16 @@ describe('voice routing (§3.8)', () => {
         });
         off();
         expect(r.status).toBe(200);
-        const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+        const body = (await r.json()) as {
+          route: string;
+          ack: string;
+          navigate?: string;
+          detail?: string[];
+        };
         expect(body.route).toBe('agent');
         expect(body.navigate).toBeUndefined();
         expect(body.ack).toContain('open the flux capacitor task');
-        expect(body.ack).toContain('lead agent');
+        expect(body.ack).toContain('On it.');
         expect(body.ack.toLowerCase()).not.toContain('lookup');
         const ev = seen.find((e) => e.type === 'voice.request');
         expect(ev).toBeDefined();
@@ -459,11 +475,15 @@ describe('voice routing (§3.8)', () => {
         agentStream = null;
         completeImpl = missing;
         const r = await voice({ transcript: 'find the crawler budget note', author: PERSON });
-        const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+        const body = (await r.json()) as {
+          route: string;
+          ack: string;
+          navigate?: string;
+          detail?: string[];
+        };
         expect(body.route).toBe('agent-queued');
         expect(body.navigate).toBeUndefined();
-        expect(body.ack).toContain('lead agent');
-        expect(body.ack.toLowerCase()).toContain('queued');
+        expect(body.ack).toContain('Saved for later.');
         expect(handle.tasks.listQueuedVoice(boardId).map((q) => q.transcript)).toContain(
           'find the crawler budget note',
         );
@@ -478,7 +498,12 @@ describe('voice routing (§3.8)', () => {
         const off = handle.tasks.onEvent((ev) => seen.push(ev));
         const r = await voice({ transcript: 'the results page', author: PERSON });
         off();
-        const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+        const body = (await r.json()) as {
+          route: string;
+          ack: string;
+          navigate?: string;
+          detail?: string[];
+        };
         expect(body.route).toBe('fast-path');
         expect(body.navigate).toBe(`/workspaces/${boardId}?task=${taskId}`);
         expect(body.ack).not.toContain('lead agent');
@@ -505,7 +530,7 @@ describe('voice routing (§3.8)', () => {
         (e) => e.transcript === 'rework these into different groupings',
       );
       expect(queued?.route).toBe('agent-queued');
-      expect(queued?.ack?.toLowerCase()).toContain('queued');
+      expect(queued?.ack).toContain('Saved for later.');
       const looked = voiceEvents.find((e) => e.transcript === 'the results page task');
       expect(looked?.route).toBe('fast-path');
     });
@@ -876,7 +901,12 @@ describe('voice routing (§3.8)', () => {
         author: PERSON,
       });
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { route: string; ack: string; navigate?: string };
+      const body = (await r.json()) as {
+        route: string;
+        ack: string;
+        navigate?: string;
+        detail?: string[];
+      };
       expect(['agent', 'agent-queued']).toContain(body.route);
       expect(body.ack).toContain('mark this done');
       expect(body.navigate).toBeUndefined();

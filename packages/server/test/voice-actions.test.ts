@@ -120,10 +120,15 @@ describe('voice actions (§3.8): status and assignee, on the speaker’s authori
     transcript: string,
     context: unknown,
     author: unknown = PERSON,
-  ): Promise<{ route: string; ack: string; navigate?: string }> => {
+  ): Promise<{ route: string; ack: string; navigate?: string; detail?: string[] }> => {
     const r = await voice(workspaceId, { transcript, context, author });
     expect(r.status).toBe(200);
-    return (await r.json()) as { route: string; ack: string; navigate?: string };
+    return (await r.json()) as {
+      route: string;
+      ack: string;
+      navigate?: string;
+      detail?: string[];
+    };
   };
 
   const classify = (reply: Record<string, unknown>): void => {
@@ -337,8 +342,9 @@ describe('voice actions (§3.8): status and assignee, on the speaker’s authori
       const body = await say(boardId, 'mark this done', { surface: 'task', taskId: blockedTaskId });
 
       expect(body.route).toBe('agent');
-      // The speaker is told WHY it went to the agent, by name.
-      expect(body.ack).toContain('Land the schema migration');
+      // WHY it went to the agent is written, by name — never said.
+      expect(body.detail?.join(' ')).toContain('Land the schema migration');
+      expect(body.ack).not.toContain('Land the schema migration');
       expect(handle.tasks.getTask(blockedTaskId)?.status).toBe('todo');
       expect(transitionsFor(boardId, blockedTaskId)).toHaveLength(0);
     });
@@ -487,8 +493,8 @@ describe('voice actions (§3.8): status and assignee, on the speaker’s authori
 
       expect(body.route).toBe('agent');
       expect(body.ack).toContain('rewrite the goal list');
-      expect(body.ack).toContain('Sent to the workspace agent.');
-      expect(body.ack).not.toContain('Fast path unavailable');
+      expect(body.ack).toContain('On it.');
+      expect(body.detail ?? []).not.toContain('Fast path unavailable.');
     });
 
     it('and it QUEUES on a board with nobody attached', async () => {
@@ -499,7 +505,7 @@ describe('voice actions (§3.8): status and assignee, on the speaker’s authori
       });
 
       expect(body.route).toBe('agent-queued');
-      expect(body.ack.toLowerCase()).toContain('queued');
+      expect(body.ack).toContain('Saved for later.');
       const qPath = voiceQueuePath(dataDir, quietBoardId);
       expect(existsSync(qPath)).toBe(true);
       expect(readFileSync(qPath, 'utf8')).toContain('rewrite the goal list');

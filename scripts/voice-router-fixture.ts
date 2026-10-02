@@ -37,7 +37,18 @@ export const DOCS: Record<string, string> = {
   'weekly-sync': 'Riverbend weekly sync notes',
   'booking-mock': 'Harborlight booking page mock',
   'signage-review': 'Saltmarsh signage review',
+  'daily-digest': 'Harborlight daily digest',
+  'issues-minutes': 'Riverbend issues list meeting minutes',
 };
+
+/** The other boards a speaker can be taken to, by key. Harborlight Ops is
+ *  also the near-miss board. */
+export const BOARDS = {
+  ops: 'Harborlight Ops',
+  teamlead: 'Harborlight Team Lead',
+  crew: 'Riverbend Crew',
+} as const;
+export type BoardKey = keyof typeof BOARDS;
 
 export const GOALS = { crossing: 'Open the second ferry crossing', wait: 'Cut ticket wait times' };
 export type GoalKey = keyof typeof GOALS;
@@ -84,6 +95,7 @@ export interface RouterFixture {
   workspaceId: string;
   taskIds: Record<TaskKey, string>;
   goalIds: Record<GoalKey, string>;
+  boardIds: Record<BoardKey, string>;
   /** Open review items by REAL doc id (a task's discussion resolved). */
   reviewItems: Map<string, VoiceThreadReviewItem[]>;
   docTitle: (docId: string) => string | undefined;
@@ -117,9 +129,14 @@ export function buildRouterFixture(): RouterFixture {
     }
   }
   // The near-miss board: a similar name, and things Harborlight does not have.
-  const ops = store.createWorkspace('Harborlight Ops', { leadAgentId: LEAD.id });
+  const ops = store.createWorkspace(BOARDS.ops, { leadAgentId: LEAD.id });
   store.createTask(ops.id, { title: 'Tide table refresh', actor: LEAD });
   store.attachDoc(ops.id, 'ops-rota');
+  const boardIds: Record<BoardKey, string> = {
+    ops: ops.id,
+    teamlead: store.createWorkspace(BOARDS.teamlead).id,
+    crew: store.createWorkspace(BOARDS.crew).id,
+  };
 
   const reviewItems = new Map<string, VoiceThreadReviewItem[]>();
   for (const [key, items] of Object.entries(REVIEW_ITEMS)) {
@@ -132,6 +149,7 @@ export function buildRouterFixture(): RouterFixture {
     workspaceId: ws.id,
     taskIds,
     goalIds,
+    boardIds,
     reviewItems,
     docTitle: (docId) => titles[docId],
   };

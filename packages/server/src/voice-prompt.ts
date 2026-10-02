@@ -21,6 +21,7 @@
  * third — the speaker's own words licensing a write — is `voice-action.ts`.
  */
 import type { Ref, TaskStatus } from './tasks.ts';
+import type { QuickAction } from './voice-quick.ts';
 
 export type VoiceSurface = 'board' | 'doc' | 'task';
 
@@ -309,6 +310,11 @@ export type VoiceAction = (typeof VOICE_ACTIONS)[number];
 
 export type VoiceClassification =
   | { kind: 'change' }
+  /** A quick action the page does at once (`voice-quick.ts`); only the
+   *  choice classifier names one. */
+  | { kind: 'quick'; quick: QuickAction }
+  /** "How are things going?" — the lead's to answer, or the brief. */
+  | { kind: 'status' }
   | { kind: 'lookup'; target?: 'task' | 'doc'; id?: string }
   | {
       kind: 'action';

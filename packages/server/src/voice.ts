@@ -39,11 +39,12 @@
 import { type ReviewPayload, isReviewItemOpen } from '@claude-workspaces/core';
 import type { EnvLike } from '@claude-workspaces/core/env-names';
 import { type AnswerCoverage, threadOpenParts, ticketOpenParts } from './answer-coverage.ts';
+import { BOARD_FEEDBACK_DOC_ID } from './doc-ids.ts';
 import { readKeychainPassword } from './share/keychain.ts';
 import { resolveKeySlotFrom } from './summarize.ts';
 import { resolveAssignee } from './task-owner.ts';
 import { taskBodyDocId, taskIdOfBodyDoc } from './task-projection.ts';
-import type { Task, TaskStore, VoiceRoute } from './tasks.ts';
+import { type Task, type TaskStore, type VoiceRoute, isRetired } from './tasks.ts';
 import {
   type VoiceActionPlan,
   type VoiceActor,
@@ -62,6 +63,23 @@ import {
   reviewItemKey,
   sameOriginPath,
 } from './voice-prompt.ts';
+import {
+  AGENT_ACK,
+  FEEDBACK_ASK,
+  FEEDBACK_SAVED_ACK,
+  HELP_DETAIL,
+  HELP_SPOKEN,
+  type OtherBoard,
+  QUEUED_ACK,
+  type QuickAction,
+  START_ACK,
+  boardAsk,
+  feedbackAsk,
+  helpAsk,
+  openingAck,
+  startAsk,
+  startPath,
+} from './voice-quick.ts';
 import {
   type BoardDestination,
   type ScoredCandidate,
@@ -188,6 +206,12 @@ export interface VoiceResult {
   ack: string;
   /** Where the client should take the speaker (fast-path lookup hits only). */
   navigate?: string;
+  /** Written under the reply, never said: why it went where it went, or
+   *  examples. Keeps the spoken part to what happened. */
+  detail?: string[];
+  /** The queue row an agent request was written to. The lead answers it by
+   *  this id, and a spoken-reply socket waiting on it says the answer. */
+  queueId?: string;
 }
 
 export type VoiceHandleResult =
@@ -287,6 +311,10 @@ export class VoiceRouter {
     string,
     { candidates: ScoredCandidate[]; at: number; anchor: string }
   >();
+  /** "I want to leave feedback" — asked "what's the feedback?", so the next
+   *  thing this speaker says on the same page is it. Same window and anchor
+   *  rules as `pendingChoices`. */
+  private pendingFeedback = new Map<string, { at: number; anchor: string }>();
   private now: () => number;
 
   constructor(opts: {
@@ -830,54 +858,85 @@ export class VoiceRouter {
     /** Title matches below the confidence floor: the model is shown THESE
      *  rather than the whole board, and validated exactly as before. */
     let narrowTo: ScoredCandidate[] | undefined;
+    /** A quick action the words named with no model (`voice-quick.ts`). */
+    let quick: QuickAction | undefined;
+    /** Feedback words already cut from the utterance, or the whole of it. */
+    let feedbackBody: string | undefined;
+    /** A status question for a live lead: no model, and no brief. */
+    let forLead = false;
+    const others = this.otherBoards(workspaceId);
     try {
       direct = this.answerPendingChoice(workspaceId, transcript, actor, context);
-      if (!direct && statusAsk(transcript)) {
-        direct = this.statusResult(workspaceId, workspace.name, resource);
+      if (!direct && this.takePendingFeedback(workspaceId, actor, context)) {
+        quick = { kind: 'feedback' };
+        feedbackBody = transcript;
       }
-      // The board's own places and a goal by its rank come BEFORE the title
-      // index: "the homepage" and "my top goal" are not titles, and both
-      // used to fall through to a model that had nothing to match them to
-      // and a lead agent that cannot drive a browser (Bryan, 2026-08-29).
-      if (!direct) {
-        const nav = boardDestinationAsk(transcript, [workspace.name]);
-        if (nav !== null) direct = this.openBoardDestination(workspaceId, transcript, nav);
+      if (!direct && !quick && statusAsk(transcript)) {
+        if (this.tasks.hasLiveLeadAttachment(workspaceId)) forLead = true;
+        else direct = this.statusResult(workspaceId, workspace.name, resource);
       }
-      if (!direct) {
-        const at = goalOrdinalAsk(transcript, workspace.goals.length, [workspace.name]);
-        const goal = at === null ? undefined : workspace.goals[at];
-        if (goal) {
-          direct = this.openCandidate(workspaceId, transcript, {
-            id: goal.id,
-            kind: 'goal',
-            title: goal.title,
-          });
+      if (!direct && !quick && !forLead) {
+        const fb = feedbackAsk(transcript);
+        if (fb) {
+          quick = { kind: 'feedback' };
+          feedbackBody = fb.body;
+        } else if (helpAsk(transcript)) quick = { kind: 'help' };
+        else {
+          const start = context?.surface === 'doc' ? null : startAsk(transcript);
+          if (start) quick = { kind: 'start', start };
         }
       }
-      if (!direct) {
-        const name = navigationAsk(transcript, [workspace.name]);
-        if (name !== null) {
-          const r = resolveByTitle(name, this.titleIndex(workspaceId));
-          if (r.kind === 'hit') direct = this.openCandidate(workspaceId, transcript, r.match);
-          else if (r.kind === 'ambiguous')
-            direct = this.askWhich(workspaceId, transcript, actor, context, r.matches);
-          else narrowTo = r.top;
+      if (quick || forLead) {
+        // Decided above; nothing below may claim the words.
+      } else {
+        // The board's own places and a goal by its rank come BEFORE the title
+        // index: "the homepage" and "my top goal" are not titles, and both
+        // used to fall through to a model that had nothing to match them to
+        // and a lead agent that cannot drive a browser (Bryan, 2026-08-29).
+        if (!direct) {
+          const nav = boardDestinationAsk(transcript, [workspace.name]);
+          if (nav !== null) direct = this.openBoardDestination(workspaceId, transcript, nav);
         }
-      }
-      // A spoken pick or answer on the review item in view needs no model
-      // either: the words are the speaker's, the option is the store's. A
-      // pick with no item to land on is answered with a question, not a
-      // guess — and not a model call either, which could only guess too.
-      if (!direct) {
-        const picked = this.directPick(transcript, context, resource);
-        if (picked && 'direct' in picked) direct = picked.direct;
-        else if (picked) classification = picked.classification;
+        if (!direct) {
+          const hit = boardAsk(transcript, others);
+          if (hit) quick = { kind: 'board', workspaceId: hit.board.id };
+        }
+        if (!direct && !quick) {
+          const at = goalOrdinalAsk(transcript, workspace.goals.length, [workspace.name]);
+          const goal = at === null ? undefined : workspace.goals[at];
+          if (goal) {
+            direct = this.openCandidate(workspaceId, transcript, {
+              id: goal.id,
+              kind: 'goal',
+              title: goal.title,
+            });
+          }
+        }
+        if (!direct && !quick) {
+          const name = navigationAsk(transcript, [workspace.name]);
+          if (name !== null) {
+            const r = resolveByTitle(name, this.titleIndex(workspaceId));
+            if (r.kind === 'hit') direct = this.openCandidate(workspaceId, transcript, r.match);
+            else if (r.kind === 'ambiguous')
+              direct = this.askWhich(workspaceId, transcript, actor, context, r.matches);
+            else narrowTo = r.top;
+          }
+        }
+        // A spoken pick or answer on the review item in view needs no model
+        // either: the words are the speaker's, the option is the store's. A
+        // pick with no item to land on is answered with a question, not a
+        // guess — and not a model call either, which could only guess too.
+        if (!direct && !quick) {
+          const picked = this.directPick(transcript, context, resource);
+          if (picked && 'direct' in picked) direct = picked.direct;
+          else if (picked) classification = picked.classification;
+        }
       }
     } catch (err) {
       console.error('[voice] direct read failed:', err instanceof Error ? err.message : err);
     }
 
-    if (direct || classification) {
+    if (direct || classification || quick || forLead) {
       // Answered, or resolved to an action, without the model.
     } else if (this.classify) {
       const keep = narrowTo?.length
@@ -901,6 +960,7 @@ export class VoiceRouter {
           })),
         docIds: workspace.docIds.filter((d) => !keep || keep.has(d)),
         docTitles,
+        boards: others,
       };
       try {
         const instructions = this.instructions?.();
@@ -950,7 +1010,22 @@ export class VoiceRouter {
           console.error('[voice] action failed:', err instanceof Error ? err.message : err);
         }
         if (outcome.kind === 'answered') answered = outcome.result;
-        else if (outcome.note) deferNote = ` ${outcome.note}`;
+        else if (outcome.note) deferNote = outcome.note;
+      }
+    }
+
+    // How things are going is the lead's to say when the lead is there to
+    // say it; otherwise the board's own brief answers rather than nobody.
+    if (classification?.kind === 'status') {
+      if (this.tasks.hasLiveLeadAttachment(workspaceId)) forLead = true;
+      else direct = this.statusResult(workspaceId, workspace.name, resource);
+    }
+    if (!quick && classification?.kind === 'quick') quick = classification.quick;
+    if (quick && !direct) {
+      try {
+        direct = await this.runQuick(workspaceId, transcript, actor, context, quick, feedbackBody);
+      } catch (err) {
+        console.error('[voice] quick action failed:', err instanceof Error ? err.message : err);
       }
     }
 
@@ -992,7 +1067,10 @@ export class VoiceRouter {
       // a board with no lead is a promise to nobody.
       result = {
         route: 'fast-path',
-        ack: `${heard(transcript)} Nothing here matched, and no lead agent is registered for this workspace — attach an agent to take the seat, then say it again.`,
+        ack: `${heard(transcript)} I can't find that here.`,
+        detail: [
+          'No lead agent is registered for this workspace — attach an agent to take the seat, then say it again.',
+        ],
       };
     } else {
       // A change — or an unclassifiable utterance, an action the guardrail or
@@ -1009,7 +1087,12 @@ export class VoiceRouter {
       // any bystander's, because the ack names the lead and the queue drains
       // only for it.
       const lookupMiss = classification?.kind === 'lookup';
-      const note = fastPathDown ? ' (Fast path unavailable.)' : '';
+      // Why it went to the agent is written, never said (Bryan, 2026-10-02:
+      // a reply that narrates its own routing is noise).
+      const detail = [
+        ...(deferNote ? [deferNote] : []),
+        ...(fastPathDown ? ['Fast path unavailable.'] : []),
+      ];
       // Written down FIRST, and whether or not anyone is listening. The queue
       // is the record; the emit below is an optimisation on top of it. It used
       // to be the other way round — the live branch kept nothing — which made
@@ -1019,30 +1102,17 @@ export class VoiceRouter {
         ...(context !== undefined ? { context } : {}),
         actor,
       });
-      const live = lookupMiss
-        ? this.tasks.hasLiveLeadAttachment(workspaceId)
-        : this.tasks.hasLiveAttachment(workspaceId);
-      if (lookupMiss) {
-        result = live
-          ? {
-              route: 'agent',
-              ack: `${heard(transcript)} Nothing here matched — sent to the lead agent.`,
-            }
-          : {
-              route: 'agent-queued',
-              ack: `${heard(transcript)} Nothing here matched — lead agent away, queued for its next attach.`,
-            };
-      } else if (live) {
-        result = {
-          route: 'agent',
-          ack: `${heard(transcript)} Sent to the workspace agent.${deferNote}${note}`,
-        };
-      } else {
-        result = {
-          route: 'agent-queued',
-          ack: `${heard(transcript)} Agent away — queued for its next attach.${deferNote}${note}`,
-        };
-      }
+      const live =
+        lookupMiss || forLead
+          ? this.tasks.hasLiveLeadAttachment(workspaceId)
+          : this.tasks.hasLiveAttachment(workspaceId);
+      if (lookupMiss) detail.unshift('Nothing here matched.');
+      result = {
+        route: live ? 'agent' : 'agent-queued',
+        ack: `${heard(transcript)} ${live ? AGENT_ACK : QUEUED_ACK}`,
+        ...(detail.length > 0 ? { detail } : {}),
+        ...(queueId !== false ? { queueId } : {}),
+      };
     }
 
     // Every utterance is audited, whatever happened to it (§3.6). For the
@@ -1063,6 +1133,96 @@ export class VoiceRouter {
       this.tasks.markVoiceEmitted(workspaceId, queueId);
     }
     return { ok: true, ...result };
+  }
+
+  /** Every other live board, by name: where "take me to the … board" can go. */
+  private otherBoards(workspaceId: string): OtherBoard[] {
+    return this.tasks
+      .listWorkspaces()
+      .filter((w) => w.id !== workspaceId && !isRetired(w))
+      .map((w) => ({ id: w.id, name: w.name }));
+  }
+
+  /** Whether this utterance answers a standing "what's the feedback?". */
+  private takePendingFeedback(
+    workspaceId: string,
+    actor: VoiceActor,
+    context: VoiceContext | undefined,
+  ): boolean {
+    const key = `${workspaceId}\0${actor.id}`;
+    const pending = this.pendingFeedback.get(key);
+    if (!pending) return false;
+    this.pendingFeedback.delete(key);
+    return this.now() - pending.at <= CHOICE_WINDOW_MS && pending.anchor === choiceAnchor(context);
+  }
+
+  /**
+   * Do a quick action, or decline it (`undefined`: the agent gets the words).
+   * Every ack is `voice-quick.ts`'s, six words or fewer.
+   */
+  private async runQuick(
+    workspaceId: string,
+    transcript: string,
+    actor: VoiceActor,
+    context: VoiceContext | undefined,
+    quick: QuickAction,
+    feedbackBody: string | undefined,
+  ): Promise<VoiceResult | undefined> {
+    const say = (ack: string, more: Partial<VoiceResult> = {}): VoiceResult => ({
+      route: 'fast-path',
+      ack: `${heard(transcript)} ${ack}`,
+      ...more,
+    });
+    switch (quick.kind) {
+      case 'place':
+        return this.openBoardDestination(workspaceId, transcript, quick.place);
+      case 'board': {
+        // Named by the classifier or the detector, checked here like any id:
+        // a live board that is not this one.
+        const board = this.otherBoards(workspaceId).find((b) => b.id === quick.workspaceId);
+        const navigate = board
+          ? sameOriginPath(`/workspaces/${encodeURIComponent(board.id)}`)
+          : undefined;
+        return board && navigate ? say(openingAck(board.name), { navigate }) : undefined;
+      }
+      case 'start': {
+        if (context?.surface === 'doc') return undefined;
+        const navigate = sameOriginPath(startPath(workspaceId, quick.start));
+        return navigate ? say(START_ACK[quick.start], { navigate }) : undefined;
+      }
+      case 'help':
+        return say(HELP_SPOKEN, { detail: [...HELP_DETAIL] });
+      case 'feedback': {
+        const body = (feedbackBody ?? transcript).trim();
+        if (!body) {
+          this.pendingFeedback.set(`${workspaceId}\0${actor.id}`, {
+            at: this.now(),
+            anchor: choiceAnchor(context),
+          });
+          return say(FEEDBACK_ASK);
+        }
+        if (!this.docStore) return undefined;
+        const docStore = this.docStore;
+        // The one doc every board's feedback widget writes to, as a new
+        // thread in the speaker's own words.
+        const outcome = await this.once(
+          workspaceId,
+          `feedback|${actor.id}|${body}`,
+          `${heard(transcript)} ${FEEDBACK_SAVED_ACK}`,
+          async () =>
+            (await docStore.postComment(
+              BOARD_FEEDBACK_DOC_ID,
+              null,
+              actor,
+              body,
+              { kind: 'subject' },
+              NO_GENERATE,
+            )) !== null,
+        );
+        // About the app, not this board's work: nothing for its agent.
+        return outcome.kind === 'answered' ? { ...outcome.result, route: 'fast-path' } : undefined;
+      }
+    }
   }
 
   /** Every task, doc and goal on the board with the words a person would
@@ -1119,8 +1279,7 @@ export class VoiceRouter {
   ): VoiceResult | undefined {
     const navigate = this.navigationFor(workspaceId, c);
     if (!navigate) return undefined;
-    const what = c.kind === 'goal' ? `goal "${c.title}"` : `"${c.title}"`;
-    return { route: 'fast-path', ack: `${heard(transcript)} Opening ${what}.`, navigate };
+    return { route: 'fast-path', ack: `${heard(transcript)} ${openingAck(c.title)}`, navigate };
   }
 
   /**
@@ -1355,7 +1514,7 @@ export class VoiceRouter {
       if (task && navigate) {
         return {
           route: 'fast-path',
-          ack: `${heard(transcript)} Lookup — opening task "${task.title}".`,
+          ack: `${heard(transcript)} ${openingAck(task.title)}`,
           navigate,
         };
       }
@@ -1372,7 +1531,7 @@ export class VoiceRouter {
       if (navigate) {
         return {
           route: 'fast-path',
-          ack: `${heard(transcript)} Lookup — opening ${c.id}.`,
+          ack: `${heard(transcript)} ${openingAck(this.docTitle?.(workspaceId, c.id) ?? c.id)}`,
           navigate,
         };
       }
