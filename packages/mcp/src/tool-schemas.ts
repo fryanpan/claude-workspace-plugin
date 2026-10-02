@@ -305,7 +305,7 @@ export const TOOL_LIST: ListToolsResult = {
           rows: {
             type: 'array',
             description:
-              'Up to 40 rows (at least one unless run is given). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderKey (16 hex), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
+              'Up to 40 rows (at least one unless run is given). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderId (the sender\'s own id as the source gives it: the email address, the Slack user id, or the phone number; the server hashes it into the sender key and never stores it, so never compute a hash yourself), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
             items: { type: 'object' },
           },
           run: {

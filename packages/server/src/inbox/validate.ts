@@ -9,6 +9,7 @@
  */
 import type { InboxConfig } from './config.ts';
 import { rebuildLink } from './links.ts';
+import { senderKeyFor } from './sender-key.ts';
 import { checkLineText, checkSenderLabel, cleanBody } from './text-checks.ts';
 import {
   ASK_KINDS,
@@ -26,6 +27,7 @@ const ROW_KEYS = new Set([
   'source',
   'workspace',
   'senderLabel',
+  'senderId',
   'senderKey',
   'senderKnown',
   'purpose',
@@ -91,6 +93,26 @@ function statedOk(raw: string, receivedAt: number): boolean {
   return at >= day - DAY_MS && at <= receivedAt + STATED_AHEAD_MS;
 }
 
+/** The row's sender key: the server's hash of `senderId`, or a legacy
+ *  `senderKey` the reader computed itself. Exactly one of the two. No
+ *  refusal names the id's value. */
+function senderKeyOf(
+  r: Record<string, unknown>,
+  source: InboxSource,
+): { ok: true; key: string } | { ok: false; reason: string } {
+  const hasId = r.senderId !== undefined;
+  const hasKey = r.senderKey !== undefined;
+  if (hasId && hasKey) return { ok: false, reason: 'senderId and senderKey are both given' };
+  if (hasId) {
+    const key = senderKeyFor(source, r.senderId);
+    return key === null ? { ok: false, reason: 'senderId' } : { ok: true, key };
+  }
+  if (!hasKey) return { ok: false, reason: 'senderId is required' };
+  return typeof r.senderKey === 'string' && SENDER_KEY.test(r.senderKey)
+    ? { ok: true, key: r.senderKey }
+    : { ok: false, reason: 'senderKey' };
+}
+
 export function validateRow(raw: unknown, ctx: ValidateContext): RowVerdict {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return refuse('not an object');
   const r = raw as Record<string, unknown>;
@@ -106,7 +128,8 @@ export function validateRow(raw: unknown, ctx: ValidateContext): RowVerdict {
 
   const sender = checkSenderLabel(r.senderLabel);
   if (!sender.ok) return refuse(`senderLabel: ${sender.reason}`);
-  if (typeof r.senderKey !== 'string' || !SENDER_KEY.test(r.senderKey)) return refuse('senderKey');
+  const senderKey = senderKeyOf(r, source);
+  if (!senderKey.ok) return refuse(senderKey.reason);
   if (typeof r.senderKnown !== 'boolean') return refuse('senderKnown');
   const purpose = checkLineText(r.purpose, 140);
   if (!purpose.ok) return refuse(`purpose: ${purpose.reason}`);
@@ -149,7 +172,7 @@ export function validateRow(raw: unknown, ctx: ValidateContext): RowVerdict {
       source,
       workspace: ws.key,
       senderLabel: sender.value,
-      senderKey: r.senderKey,
+      senderKey: senderKey.key,
       senderKnown: r.senderKnown,
       purpose: purpose.value,
       askKind: r.askKind,
