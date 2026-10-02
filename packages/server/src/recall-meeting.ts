@@ -35,6 +35,7 @@ import {
   isTerminalBotState,
   meetingPlatformOf,
 } from '@claude-workspaces/core';
+import type { MeetingClaude } from './meeting-claude.ts';
 import {
   type MeetingNotesDeps,
   type MeetingNotesSession,
@@ -43,7 +44,12 @@ import {
 import type { ActiveMeeting, MeetingStore } from './meetings.ts';
 import { raceDeadline } from './race-deadline.ts';
 import type { BotStatusEvent } from './recall-status.ts';
-import { SpeakerNamer, TurnAllocator, parseRecallFrame } from './recall-turns.ts';
+import {
+  type RecallParticipant,
+  SpeakerNamer,
+  TurnAllocator,
+  parseRecallFrame,
+} from './recall-turns.ts';
 import type { RecallClient } from './recall.ts';
 
 /** The engine name written into the meeting record for a bot meeting. */
@@ -97,6 +103,8 @@ export interface RecallMeetingDeps {
    * does — the invite must not be offered, not merely warned about.
    */
   unreachable?: string | null;
+  /** "Claude, …" from the owner, answered into the call. Absent: bots never speak. */
+  claude?: MeetingClaude | null;
 }
 
 export type InviteRefusal =
@@ -290,6 +298,7 @@ export class RecallMeetingRelay {
         meetingUrl,
         realtimeUrl: `${wsBase}/recall/${token}`,
         permissionDeniedTimeoutSec: PERMISSION_DENIED_TIMEOUT_SEC,
+        speaks: this.deps.claude?.speaks ?? false,
         ...(args.botName !== undefined ? { botName: args.botName } : {}),
       });
       rec.botId = bot.id;
@@ -370,6 +379,7 @@ export class RecallMeetingRelay {
 
     const turn = rec.turns.allocate(frame);
     if (turn.final) meeting.recordTurn(turn.turn, turn.text, turn.speaker);
+    if (turn.final && rec.botId) this.askClaude(rec, frame.participant, turn.text);
     // Every frame, partial included: a partial is speech in progress, which
     // is exactly the evidence that defers the notes composer's pause tick.
     rec.notes?.onTurn(turn);
@@ -529,6 +539,7 @@ export class RecallMeetingRelay {
   private async endMeeting(rec: BotRecord, state: MeetingBotState): Promise<void> {
     if (rec.ending) return;
     rec.ending = true;
+    if (rec.botId) this.deps.claude?.forget(rec.botId);
     rec.state = state;
     rec.updatedAt = this.now();
     const meeting = rec.meeting;
@@ -561,7 +572,22 @@ export class RecallMeetingRelay {
     this.byToken.delete(rec.token);
   }
 
+  private askClaude(rec: BotRecord, who: RecallParticipant, text: string): void {
+    const claude = this.deps.claude;
+    if (!claude) return;
+    const notes = rec.notes;
+    const heard = claude.heard({
+      docId: rec.docId,
+      botId: rec.botId,
+      speaker: { name: who.name, email: who.email ?? null },
+      text,
+      note: (markdown) => notes?.noteAside(markdown),
+    });
+    this.track(heard.then(() => undefined));
+  }
+
   private forget(rec: BotRecord): void {
+    if (rec.botId) this.deps.claude?.forget(rec.botId);
     this.byToken.delete(rec.token);
     if (rec.botId) this.byBotId.delete(rec.botId);
     if (this.byDoc.get(rec.docId) === rec) this.byDoc.delete(rec.docId);

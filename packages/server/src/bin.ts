@@ -283,6 +283,7 @@ while (!handle) {
       ...(transcription ? { transcription } : {}),
       spokenReply,
       ...(meetingBot ? { meetingBot } : {}),
+      ...(process.env.CW_MEETING_CLAUDE?.trim() === '1' ? { meetingClaude: true } : {}),
       ...(meetingBotWebhookSecret ? { meetingBotWebhookSecret } : {}),
       ...(notesComposer ? { meetingNotes: { composer: notesComposer, titleNamer } } : {}),
       ...(pluginRefresher ? { pluginRefresher } : {}),

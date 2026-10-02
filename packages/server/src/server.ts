@@ -14,7 +14,7 @@ import {
 } from '@claude-workspaces/core';
 import { createAccessDeps } from './access-deps.ts';
 import { releaseActivityLock } from './activity-lock.ts';
-import { isOwnerActor } from './actor-identity.ts';
+import { isOwnerActor, ownerIdentityIds } from './actor-identity.ts';
 import { AgentNoteLog } from './agent-note-log.ts';
 import { AgentNoteRing } from './agent-notes.ts';
 import { AgentWatches } from './agent-watches.ts';
@@ -60,6 +60,7 @@ import { Identities } from './identities.ts';
 import { createIdentitySetup } from './identity-setup.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
+import { createMeetingClaude } from './meeting-claude.ts';
 import { meetingFilingFor } from './meeting-home.ts';
 import { type LookupDoc, boardLookupDocs } from './meeting-lookup.ts';
 import { withServerNotesSinks } from './meeting-notes-doc.ts';
@@ -184,6 +185,7 @@ import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './shari
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
 import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
+import type { SpokenBoard } from './spoken-reply/answer.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -682,6 +684,17 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // bot has no socket to any browser. Transient: live fan-out, no buffer,
     // no id, so the replay window stays the doc's (see SseBus).
     broadcastTransient: (docId, payload) => sse.broadcastTransient(docId, payload),
+    // "Claude, …" from the owner in a bot meeting. The board it answers from
+    // is the spoken reply's, built further down, so it is read when asked.
+    claude: createMeetingClaude({
+      enabled: opts.meetingClaude === true,
+      ownerEmail: opts.ownerEmail,
+      client: opts.meetingBot ?? null,
+      voice: opts.spokenReply?.meetingVoice ?? null,
+      board: () => spokenBoard,
+      boardOf: (docId) => backTargetFor(docId)?.id,
+      ownerId: () => ownerIdentityIds()[0] ?? 'owner',
+    }),
   });
   /**
    * Calendar meeting-join, beside the relay whose invite path a join click
@@ -1549,17 +1562,18 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // Setup 4's live sockets, by the token ElevenLabs hands back to the
   // custom-LLM route (`routes/voice-agent-llm.ts`).
   const agentCallbacks = new AgentCallbacks();
+  const spokenBoard: SpokenBoard = {
+    handle: (workspaceId, req) => voiceRouter.handle(workspaceId, req),
+    goalStatus: (workspaceId, goalId) => voiceRouter.goalStatus(workspaceId, goalId),
+    goals: (workspaceId) =>
+      (taskStore.getWorkspace(workspaceId)?.goals ?? []).map((g) => ({
+        id: g.id,
+        title: g.title,
+      })),
+  };
   const spokenRelay = new SpokenReplyRelay({
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
-    board: {
-      handle: (workspaceId, req) => voiceRouter.handle(workspaceId, req),
-      goalStatus: (workspaceId, goalId) => voiceRouter.goalStatus(workspaceId, goalId),
-      goals: (workspaceId) =>
-        (taskStore.getWorkspace(workspaceId)?.goals ?? []).map((g) => ({
-          id: g.id,
-          title: g.title,
-        })),
-    },
+    board: spokenBoard,
     timings: spokenTimings,
     agentCallbacks,
     parseContext: parseVoiceContext,
