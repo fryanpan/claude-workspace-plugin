@@ -58,6 +58,9 @@ export interface SpokenAnswer {
   navigate?: string;
   /** A review decision for the page to write (`review-walk.ts`). */
   decide?: SpokenDecide;
+  /** The queue row the lead will answer; its answer is said on this socket
+   *  (`lead-answer.ts`). Never sent to the page. */
+  awaiting?: string;
 }
 
 function walkAnswer(w: WalkReply): SpokenAnswer {
@@ -115,10 +118,11 @@ export function namedGoalAsk(transcript: string): string | null {
   return name && !/^(?:the|my|our)$/.test(name) ? name : null;
 }
 
-/** The router's words, shaped for speech, with each point's note. */
-function shapedAnswer(ack: string, route: string): SpokenAnswer {
+/** The router's words, shaped for speech, with each point's note. The
+ *  router's own `detail` is written under them and never said. */
+export function shapedAnswer(ack: string, route: string, detail: string[] = []): SpokenAnswer {
   const { says, ...rest } = shapeReply(ack);
-  return { ...rest, points: withNotes(says, route), route };
+  return { ...rest, detail: [...rest.detail, ...detail], points: withNotes(says, route), route };
 }
 
 /** A one-line answer of the answerer's own, with no note. */
@@ -142,6 +146,8 @@ export class SpokenAnswerer {
     private readonly workspaceId: string,
     /** Interview mode (`interview.ts`), asked before anything else. */
     private readonly interview?: SpokenInterview,
+    /** Told the queue row of every request the router gave the lead. */
+    private readonly onAwaiting?: (queueId: string) => void,
   ) {
     const queue = board.reviewQueue?.bind(board);
     this.walk = queue
@@ -223,9 +229,11 @@ export class SpokenAnswerer {
 
     const r = await this.board.handle(this.workspaceId, { transcript, context, actor });
     if (!r.ok) return plain('I can’t find this board.');
+    if (r.queueId) this.onAwaiting?.(r.queueId);
     return {
-      ...shapedAnswer(r.ack, r.route),
+      ...shapedAnswer(r.ack, r.route, r.detail),
       ...(r.navigate ? { navigate: r.navigate } : {}),
+      ...(r.queueId ? { awaiting: r.queueId } : {}),
     };
   }
 

@@ -433,11 +433,15 @@ export class SpokenSession {
     return this.cue;
   }
 
-  /** A failed review write, said unasked — only written while the speaker talks. */
-  private sayAside(answer: SpokenAnswer | null): void {
+  /** Said unasked — a failed review write, or the lead's answer arriving
+   *  later (`lead-answer.ts`); only written while the speaker talks. Setups
+   *  3 and 4 speak through their own sessions, so an aside there borrows
+   *  setup 1's or 2's voice when this server has one. */
+  sayAside(answer: SpokenAnswer | null): void {
     if (!answer) return;
+    const { voices } = this.deps.engines;
     const voice =
-      this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
+      this.setup === 1 || this.setup === 2 ? voices[this.setup] : (voices[1] ?? voices[2]);
     const say = voice && answer.spoken && this.stt === null && this.sttOpening === null;
     if (say) this.stopSpeaking();
     this.deps.sendJson(replyMessage(answer));

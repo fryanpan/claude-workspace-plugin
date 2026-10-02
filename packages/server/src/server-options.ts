@@ -647,6 +647,14 @@ export interface ServerOptions {
    */
   voiceComplete?: VoiceComplete;
   /**
+   * Which question the voice router asks `voiceComplete`: `choice` (one pick
+   * among the routes, quick actions included — `voice-choice.ts`) or `json`,
+   * the original classification prompt, which is the default so a test's
+   * scripted completer keeps answering the prompt it was written for. bin.ts
+   * passes `choice`, the arm the router eval scores highest.
+   */
+  voiceRouterArm?: 'json' | 'choice';
+  /**
    * Live-meeting transcription engine. **No default**, the same seam rule as
    * the summarizer and the voice completer above — and with the largest bill
    * of the three attached, because a streaming session is charged by the

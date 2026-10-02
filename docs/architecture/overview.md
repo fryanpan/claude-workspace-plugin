@@ -145,9 +145,14 @@ the type `VoiceRouter` asks (`VoiceClassifier`) and the shipped one,
 `jsonClassifier`, over `voice-prompt.ts`. `voice-choice.ts` asks the same
 decision as one choice question over the routes plus "none", and
 `voice-jev.ts` builds that question for TypeSafe's Jev with an injected
-transport and no address. Neither is wired into the server: they are arms
-of the router eval (`scripts/voice-router-eval.ts`), so the choice prompt is
-not a `prompt-catalog.ts` row until one ships.
+transport and no address. Production asks the choice question
+(`routerClassifier`, chosen by `voiceRouterArm` in `bin.ts`) unless the owner
+has rewritten the router prompt on the settings page, which only the JSON
+prompt reads; test servers keep the JSON arm. Both are arms of the router
+eval (`scripts/voice-router-eval.ts`). The choice question offers the quick
+actions as options: `voice-quick.ts` holds those actions, which the page does
+with no agent (another board, a plan or a meeting, feedback about the app,
+help), their word-only detectors, and every ack of six words or fewer.
 
 **Model prompts are a subsystem, not a scatter of literals.** Every set of
 words this server sends to a model is one row of `prompt-catalog.ts`, and
@@ -689,6 +694,9 @@ server, `routes/upgrade-stream.ts` hands `WS /workspaces/<ws>/voice/converse`
 to `spoken-reply/` (a new top-level server directory): `relay.ts` keeps one
 `session.ts` per socket, `answer.ts` cuts the router's answer into a spoken and
 a written part and adds the one question the router lacks ("which goal?"),
+`lead-answer.ts` holds each socket's requests to the lead until the lead
+answers through `POST /workspaces/<ws>/voice-queue/<id>/answer` (MCP
+`answer_voice`) and says that answer on the socket that asked,
 `tts.ts` and `gemini-live.ts` are the vendor adapters, `keys.ts` reads their
 keys from the Keychain at runtime, and `timings.ts` logs each answer's delay
 from the end of the question to the first spoken word per setup. Setup 4 runs

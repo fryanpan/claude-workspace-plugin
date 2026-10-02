@@ -13870,7 +13870,7 @@ function agentTokenPath(agentId) {
   return `/api/agents/${encodeURIComponent(agentId)}/token`;
 }
 function pathNeedsAgentToken(path) {
-  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path);
+  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path);
 }
 function createAgentTokenStore(deps) {
   let token = null;
@@ -14693,7 +14693,8 @@ function voiceRequestLine(p) {
   if (p.route === "fast-path-action") {
     return `${said} — the fast path ALREADY applied this to the board on the speaker's behalf; ` + `they were told: "${told}". Do NOT redo it — reconcile your own picture of the board ` + "with what changed, and pick up only whatever the utterance asked for beyond it.";
   }
-  return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"`;
+  const answer = p.queueId ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ""}", queueId="${p.queueId}", text) in one or two short spoken sentences.` : "";
+  return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}`;
 }
 
 // packages/mcp/src/channel-messages.ts
@@ -15830,6 +15831,19 @@ var TOOL_LIST = {
           }
         },
         required: ["text"]
+      }
+    },
+    {
+      name: "answer_voice",
+      description: "Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, so keep it to one or two short sentences, with no preamble. delivered:false means that page has closed: post the answer on the task or a thread instead.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workspaceId: { type: "string", description: "The board the request came from." },
+          queueId: { type: "string", description: "From the voice.request line." },
+          text: { type: "string", description: "What to say. One or two short sentences." }
+        },
+        required: ["workspaceId", "queueId", "text"]
       }
     },
     {
@@ -20325,6 +20339,19 @@ async function handleWorkspaceTool(name, a, ctx) {
         note: detached ? "Off this board: list_agents no longer shows you, and a restart will not re-attach or re-watch it. attach_agent brings you back." : "You had no attachment here; the board stream is closed and its watch dropped all the same."
       });
     }
+    case "answer_voice": {
+      const { workspaceId, queueId, text } = a;
+      const words = typeof text === "string" ? text.trim() : "";
+      if (!workspaceId || !queueId)
+        return err2("workspaceId and queueId are required");
+      if (words === "")
+        return err2("text is empty — say the answer");
+      const res = await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`, { agentId: AUTHOR.id, text: words });
+      return ok2({
+        delivered: res.delivered === true,
+        ...res.delivered === true ? {} : { note: "No page is waiting for this answer. Post it on the task or a thread." }
+      });
+    }
     case "request_plugin_refresh": {
       return ok2(await http("POST", "/api/plugin/refresh"));
     }
@@ -20813,7 +20840,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.278";
+var PLUGIN_VERSION = "0.1.279";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -7,13 +7,16 @@
  * — land in a list, which is how the eval sees where Alice's words went.
  * Status and assignee moves are read back off the task store itself.
  */
+import { BOARD_FEEDBACK_DOC_ID } from '../packages/server/src/doc-ids.ts';
 import { taskBodyDocId, taskIdOfBodyDoc } from '../packages/server/src/task-projection.ts';
 import type { VoiceClassifier } from '../packages/server/src/voice-classifier.ts';
-import type { VoiceContext } from '../packages/server/src/voice-prompt.ts';
+import type { VoiceClassification, VoiceContext } from '../packages/server/src/voice-prompt.ts';
+import { FEEDBACK_ASK, HELP_SPOKEN } from '../packages/server/src/voice-quick.ts';
 import { type VoiceDocStore, VoiceRouter, statusAsk } from '../packages/server/src/voice.ts';
 import type { Outcome, RouterCase } from './voice-router-corpus.ts';
 import {
   ALICE,
+  type BoardKey,
   type RouterFixture,
   type TaskKey,
   buildRouterFixture,
@@ -25,6 +28,9 @@ export type RouterPath = 'server' | 'model' | 'agent';
 export interface CaseRun {
   observed: Outcome | { other: string };
   path: RouterPath;
+  /** What the router said back, before the page shapes it for speech. */
+  ack: string;
+  route: string;
   /** Whether the classifier was asked at all. */
   asked: boolean;
   ms: number;
@@ -52,9 +58,20 @@ function keyOfTask(fx: RouterFixture, taskId: string): string {
   return (Object.entries(fx.taskIds).find(([, id]) => id === taskId)?.[0] ?? taskId) as string;
 }
 
-/** A navigation, as the fixture key it opens. */
-function openedKey(fx: RouterFixture, navigate: string): string {
+/** A navigation, as the outcome it is: a start, another board, or the
+ *  fixture key it opens. */
+function navigated(fx: RouterFixture, navigate: string): Outcome {
   const url = new URL(navigate, 'http://board.test');
+  const start = url.searchParams.get('start');
+  if (start === 'plan' || start === 'meeting') return { start };
+  const board = (Object.entries(fx.boardIds) as Array<[BoardKey, string]>).find(
+    ([, id]) => url.pathname === `/workspaces/${encodeURIComponent(id)}`,
+  );
+  if (board) return { board: board[0] };
+  return { open: openedKey(fx, url) };
+}
+
+function openedKey(fx: RouterFixture, url: URL): string {
   const task = url.searchParams.get('task');
   if (task) return keyOfTask(fx, task);
   const goal = url.searchParams.get('goal');
@@ -65,12 +82,43 @@ function openedKey(fx: RouterFixture, navigate: string): string {
   return tail === encodeURIComponent(fx.workspaceId) ? 'tasks' : tail;
 }
 
+/**
+ * A classifier that names the case's expected outcome: what a perfect model
+ * would say. It isolates what the router does with a right answer — its ack
+ * and its executors — from whether any model gets there.
+ */
+export function oracleClassifier(c: RouterCase, fx: RouterFixture): VoiceClassifier {
+  const e = c.expect;
+  const said =
+    (classification: VoiceClassification): VoiceClassifier =>
+    async () => ({
+      classification,
+    });
+  if ('board' in e)
+    return said({ kind: 'quick', quick: { kind: 'board', workspaceId: fx.boardIds[e.board] } });
+  if ('start' in e) return said({ kind: 'quick', quick: { kind: 'start', start: e.start } });
+  if ('feedback' in e) return said({ kind: 'quick', quick: { kind: 'feedback' } });
+  if ('help' in e) return said({ kind: 'quick', quick: { kind: 'help' } });
+  if ('brief' in e) return said({ kind: 'status' });
+  if ('open' in e) {
+    const place = e.open;
+    if (place === 'home' || place === 'tasks' || place === 'activity') {
+      return said({ kind: 'quick', quick: { kind: 'place', place } });
+    }
+    const task = fx.taskIds[place as TaskKey];
+    if (task) return said({ kind: 'lookup', target: 'task', id: task });
+    return said({ kind: 'lookup', target: 'doc', id: place });
+  }
+  return said({ kind: 'change' });
+}
+
 export async function runCase(
   c: RouterCase,
-  classify: VoiceClassifier | undefined,
+  classifier: VoiceClassifier | 'oracle' | undefined,
   clock: () => number = () => performance.now(),
 ): Promise<CaseRun> {
   const fx = buildRouterFixture();
+  const classify = classifier === 'oracle' ? oracleClassifier(c, fx) : classifier;
   const writes: Write[] = [];
   const docStore: VoiceDocStore = {
     async postComment(docId, threadId) {
@@ -121,6 +169,8 @@ export async function runCase(
   const run = (observed: CaseRun['observed']): CaseRun => ({
     observed,
     path,
+    ack: res.ack,
+    route: res.route,
     asked,
     ms,
     ...(classifierMs !== undefined ? { classifierMs } : {}),
@@ -130,6 +180,7 @@ export async function runCase(
 
   const write = writes[0];
   if (write) {
+    if (write.docId === BOARD_FEEDBACK_DOC_ID) return run({ feedback: true });
     if (write.threadId !== null) {
       const item = fx.reviewItems.get(write.docId)?.find((i) => i.threadId === write.threadId);
       const option = item?.options?.find((o) => o.id === write.optionId)?.label;
@@ -146,8 +197,9 @@ export async function runCase(
     }
     if (was && was.assignee !== t.assignee) return run({ assign: key, to: t.assignee });
   }
-  if (res.navigate) return run({ open: openedKey(fx, res.navigate) });
-  if (/Did you mean/.test(res.ack)) return run({ ask: true });
+  if (res.navigate) return run(navigated(fx, res.navigate));
+  if (/Did you mean/.test(res.ack) || res.ack.endsWith(FEEDBACK_ASK)) return run({ ask: true });
+  if (res.ack.endsWith(HELP_SPOKEN)) return run({ help: true });
   // A read answered with no navigation and no write is the spoken brief
   // exactly when the router's own status predicate claimed the words.
   if (statusAsk(c.said)) return run({ brief: true });
@@ -170,5 +222,9 @@ export function describeOutcome(o: CaseRun['observed']): string {
   if ('answer' in o) return `answer ${o.answer}${o.option ? ` (${o.option})` : ''}`;
   if ('ask' in o) return 'ask which';
   if ('brief' in o) return 'status brief';
+  if ('board' in o) return `board ${o.board}`;
+  if ('start' in o) return `start ${o.start}`;
+  if ('feedback' in o) return 'app feedback';
+  if ('help' in o) return 'help';
   return 'agent';
 }

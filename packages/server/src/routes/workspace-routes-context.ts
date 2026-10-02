@@ -2,6 +2,7 @@ import type { DocType, User } from '@claude-workspaces/core';
 import type { AgentWatches } from '../agent-watches.ts';
 import type { AttachMountsBrief } from '../attach-mounts.ts';
 import type { AttachmentPrivacyStore } from '../attachment-privacy.ts';
+import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { ChatAudit } from '../chat-audit.ts';
 import type { DocStore } from '../doc-store.ts';
 import type { HomeBriefStore } from '../home-brief.ts';
@@ -53,6 +54,9 @@ export interface WorkspaceRoutesContext {
    *  made a person wait. */
   spokenRelay: SpokenReplyRelay;
   spokenTimings: SpokenTimings;
+  /** Whether this request speaks for `agentId`: on this machine, with its
+   *  token (`auth/agent-token.ts`), the check the agent's own feed uses. */
+  authorizeAgent(req: Request, agentId: string): AgentCallerVerdict;
 
   /** The data dir — load reports, the event log and huddle files hang off it. */
   dataDir: string;

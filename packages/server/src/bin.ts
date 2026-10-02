@@ -278,7 +278,7 @@ while (!handle) {
       ...(answerCoverage ? { answerCoverage } : {}),
       promptStore,
       ...(effortEstimator ? { effortEstimator } : {}),
-      ...(voiceComplete ? { voiceComplete } : {}),
+      ...(voiceComplete ? { voiceComplete, voiceRouterArm: 'choice' as const } : {}),
       ...(voiceFeedbackTidy ? { voiceFeedbackTidy } : {}),
       ...(transcription ? { transcription } : {}),
       spokenReply,

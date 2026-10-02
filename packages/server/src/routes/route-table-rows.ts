@@ -358,6 +358,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/workspaces/:ws/agents/:agentId/heartbeat', 'POST'],
     ['trusted-local', '/workspaces/:ws/comment-queue/:id/ack', 'POST'],
     ['trusted-local', '/workspaces/:ws/voice-queue/:id/ack', 'POST'],
+    ['trusted-local', '/workspaces/:ws/voice-queue/:id/answer', 'POST'],
   ]),
 
   ...family('routes/archive.ts', [

@@ -40,6 +40,9 @@ export interface VoiceRequestPayload {
   actor?: { id?: string; name?: string };
   /** Where the speaker was standing when they said it. */
   context?: { surface?: string; docId?: string; taskId?: string; visibleHeading?: string };
+  /** The queue row: what `answer_voice` answers. */
+  queueId?: string;
+  workspaceId?: string;
 }
 
 /** Mirrors mcp.ts's helper of the same name. Duplicated rather than shared
@@ -90,5 +93,10 @@ export function voiceRequestLine(p: VoiceRequestPayload): string | null {
     );
   }
 
-  return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"`;
+  // The speaker heard only "On it." The answer they are waiting for is the
+  // lead's, said aloud on their page when it comes back through answer_voice.
+  const answer = p.queueId
+    ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ''}", queueId="${p.queueId}", text) in one or two short spoken sentences.`
+    : '';
+  return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}`;
 }

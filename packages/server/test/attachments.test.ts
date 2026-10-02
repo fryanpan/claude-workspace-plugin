@@ -861,7 +861,7 @@ describe('attachment routes + lead-addressed delivery', () => {
       })
     ).json()) as { route: string; ack: string };
     expect(voice.route).toBe('agent-queued');
-    expect(voice.ack).toContain('queued');
+    expect(voice.ack).toContain('Saved for later.');
 
     // And the queued note is still there for whoever does show up — the
     // whole point of refusing to fake the delivery.
