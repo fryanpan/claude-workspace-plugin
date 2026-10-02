@@ -3746,6 +3746,11 @@ body.doc-voice-on .doc-interview-btn {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
   font: 14px / 1.45 var(--sans);
 }
+/* A meeting's Make Plan and Review row, floated into the right margin on a
+   wide layout, sits under the card's corner: the card clears it. */
+body:has(.doc-floats.is-floating > .plan-float:not([hidden])) .doc-interview {
+  bottom: calc(var(--doc-dock-h, 0px) + 160px + var(--safe-bottom));
+}
 .doc-interview[hidden] {
   display: none;
 }
