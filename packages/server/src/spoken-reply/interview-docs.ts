@@ -1,7 +1,8 @@
 /**
  * The doc store and the board, narrowed to what an interview may do: check a
- * doc is on the board, read its outline, append under one heading, and put
- * the agent's cursor on the words it is asking about.
+ * doc is on the board, read its outline, append under one heading, put the
+ * agent's cursor on the words it is asking about, and, in a planning
+ * meeting, hold the notes' copy of an answer (`meeting-ears.ts`).
  *
  * The write is `applyBlockEdits` with `insert_under_heading` — the verb
  * `insert_blocks_under_heading` reaches over HTTP — under an author id of its
@@ -13,6 +14,7 @@ import { AGENT_FOCUS_FIELD, type AgentFocus } from '@claude-workspaces/core/spok
 import type { Awareness } from 'y-protocols/awareness';
 import type { BlockEditsAuthor, BlockEditsResult, DocOutline } from '../doc-outline-ops.ts';
 import type { InterviewDocs, InterviewWrite } from './interview.ts';
+import type { MeetingEars } from './meeting-ears.ts';
 
 export const INTERVIEW_AUTHOR: BlockEditsAuthor = {
   author: 'voice-interview',
@@ -31,9 +33,18 @@ export function interviewDocs(
   docStore: InterviewDocStore,
   /** The board's doc ids — `taskStore.getWorkspace(ws)?.docIds`. */
   boardDocIds: (workspaceId: string) => readonly string[] | undefined,
+  /** Where a planning meeting's notes are held while a question is out. */
+  ears?: MeetingEars,
 ): InterviewDocs {
   let seq = 0;
   return {
+    ...(ears
+      ? {
+          hold: (docId: string) => ears.hold(docId),
+          placed: (docId: string) => ears.placed(docId),
+          release: (docId: string) => ears.release(docId),
+        }
+      : {}),
     onBoard: (workspaceId, docId) => boardDocIds(workspaceId)?.includes(docId) === true,
     outline: (docId) => docStore.readOutline(docId)?.blocks ?? null,
     writeUnder: (docId, headingId, markdown): InterviewWrite => {

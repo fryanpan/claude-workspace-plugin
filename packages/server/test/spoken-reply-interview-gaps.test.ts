@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import type { prose } from '@claude-workspaces/core';
 import { findPlanGaps, questionFor } from '../src/spoken-reply/interview-gaps.ts';
 import { INTERVIEW_TIMINGS_FILE, InterviewLog } from '../src/spoken-reply/interview-log.ts';
-import { answerMarkdown } from '../src/spoken-reply/interview.ts';
+import { answerMarkdown } from '../src/spoken-reply/interview-phrases.ts';
 
 let n = 0;
 function h(text: string, level = 2): prose.OutlineEntry {

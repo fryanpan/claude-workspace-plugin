@@ -73,3 +73,26 @@ export function interviewCommand(transcript: string): InterviewCommand | null {
   for (const [cmd, re] of PATTERNS) if (re.test(s)) return cmd;
   return null;
 }
+
+/** "Any questions?" at the end of what was said, however it is put. */
+const INVITE =
+  /(?:^|\s)(?:(?:(?:do|did|would) you have|have you got|you got|any)\s+(?:any\s+)?(?:more |other |further )?questions?(?: for me| so far| about (?:this|that|it|the plan))?|what questions do you have(?: for me)?|anything (?:you want )?to ask(?: me)?)$/;
+
+/** Whether the speaker just asked the planning voice for its questions. */
+export function asksForQuestions(transcript: string): boolean {
+  return INVITE.test(normalize(transcript));
+}
+
+/** The longest answer written, in characters. */
+export const MAX_ANSWER_CHARS = 4000;
+
+/** A spoken answer as one markdown paragraph: a leading `#`, `-`, `>` or
+ *  `1.` would otherwise make it a heading, a list or a quote. */
+export function answerMarkdown(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim().slice(0, MAX_ANSWER_CHARS);
+  return flat.replace(/^([#>*+-]|\d+[.)])/, '\\$1');
+}
+
+export function wordCount(text: string): number {
+  return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}

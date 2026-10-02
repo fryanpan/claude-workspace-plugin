@@ -71,6 +71,9 @@ export interface DocMeetingMount {
    * again at the moment of the tap.
    */
   speakers?: DocSpeakersCache;
+  /** Told each time this page's recording starts or stops — the planning
+   *  voice hears a plan's meeting only while it records. */
+  onRecording?: (fn: (recording: boolean) => void) => void;
 }
 
 export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
@@ -122,6 +125,7 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
   // strip, because the zone is built first and the strip takes it as an
   // option.
   const mounted: { strip?: MeetingStripHandle } = {};
+  const recordingWatchers: Array<(recording: boolean) => void> = [];
   const liveZone = createMeetingLiveZone({
     parent: editorMount,
     prose: editor.editor.view.dom,
@@ -205,6 +209,9 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
     loadTranscript: () => loadDocTranscript(docId),
     postName: (meetingId, speaker, name) => postSpeakerName({ docId, meetingId, speaker, name }),
     liveZone: zone,
+    onRecordingChange: (recording) => {
+      for (const fn of recordingWatchers) fn(recording);
+    },
   });
   mounted.strip = strip;
   scope.onCleanup(() => strip.destroy());
@@ -224,6 +231,10 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
     liveZone,
     speakers,
     renameSpeaker: (label, name) => strip.renameSpeaker(label, name),
+    onRecording: (fn) => {
+      recordingWatchers.push(fn);
+      if (strip.state().kind === 'recording') fn(true);
+    },
     ...(watchLeadPresence ? { watchLeadPresence } : {}),
   };
 }
