@@ -15,8 +15,10 @@ export interface FakeSession {
   recording: number;
   pinned: number | null | undefined;
   note: string | null;
+  ask: VoiceSession['ask'];
   setResolved: ReturnType<typeof vi.fn>;
   reopen: ReturnType<typeof vi.fn>;
+  answer: ReturnType<typeof vi.fn>;
 }
 
 export const CLIP = '/workspaces/w-1/docs/d-1/voice-feedback/seg-1.wav#t=12.4,31';
@@ -50,8 +52,10 @@ export function setup() {
     recording: 1,
     pinned: undefined,
     note: null,
+    ask: null,
     setResolved: vi.fn(async () => {}),
     reopen: vi.fn(),
+    answer: vi.fn(),
   };
   const moved: string[] = [];
   let now = 1_000;

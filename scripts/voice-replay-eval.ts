@@ -115,7 +115,7 @@ async function replay(
   const frames: Array<{ type: string; key?: string; text?: string }> = [];
   const ws: VoiceWs = {
     data: { docId: 'riverbend-status', workspaceId: 'riverbend' },
-    send: (p) => frames.push(JSON.parse(p)),
+    send: (p) => frames.push(JSON.parse(String(p))),
     close: () => {},
   };
   try {

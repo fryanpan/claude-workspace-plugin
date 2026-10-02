@@ -18,6 +18,7 @@
 import { type TokenUsage, type VoiceTarget, dollars } from '@claude-workspaces/core';
 import { readKeychainPassword } from './share/keychain.ts';
 import { authHeader, resolveCredentialSlotFrom } from './summarize.ts';
+import { type AskProposal, readAskProposal } from './voice-feedback-ask.ts';
 
 export const TIDY_MODEL = 'claude-haiku-4-5-20251001';
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -34,6 +35,8 @@ export interface TidyOpen {
   fixed: boolean;
   /** The person tapped this earlier note to add to it. */
   chosen?: boolean;
+  /** What the person said it means, when they answered a question about it. */
+  clarified?: string;
 }
 
 export interface TidyInput {
@@ -43,6 +46,8 @@ export interface TidyInput {
   pinned?: number | null;
   /** The words heard since the last tick. */
   words: string;
+  /** The question just asked about the open comment, which these words may answer. */
+  asked?: { question: string; choices: string[] };
 }
 
 export interface TidyComment {
@@ -50,6 +55,8 @@ export interface TidyComment {
   continues: boolean;
   text: string;
   target: number | null;
+  /** The model could not tell the element or the meaning: its question. */
+  ask?: AskProposal;
 }
 
 export interface TidyReply {
@@ -71,8 +78,13 @@ Decide:
 If the open comment says fixed, keep its element. If it says chosen, the person picked it to add to: the new words continue it unless they plainly move to another element or problem. If a pinned element is given, the first NEW comment is about it.
 If the new words carry no feedback (filler, thinking aloud), return {"comments":[]}.
 
+4. Ask, rarely. Only for the LAST comment, and only when a careful reader could not act on it: the words point without naming ("this one", "that", "it") and two or three catalog elements fit equally well, or the comment has two readings that would lead to different changes ("make it pop": bigger, or bolder?). Then add "ask": a question of at most ten words, and two or three choices. For an element question each choice is {"label":"<short name>","element":"<id>"}; for a meaning question each is {"label":"<two to four words>","text":"<the whole comment rewritten for that reading>"}. Still give your best "element" and "text". Never ask when one reading is clearly likelier, when the open comment is fixed or chosen, or when the words name the element or say what to change. Most comments get no question.
+If <asked> is given, the person was just asked that question about the open comment. If the new words answer it, continue the open comment with the answer applied — the element they chose, or the meaning they chose — and never ask again. <clarified> is an answer they already gave: keep it.
+
 Reply with JSON only, no prose:
 {"comments":[{"continues":true,"text":"...","element":"e12"}]}
+or, with a question:
+{"comments":[{"continues":false,"text":"...","element":"e3","ask":{"question":"Which Save button?","choices":[{"label":"Save in the header","element":"e3"},{"label":"Save in the footer","element":"e9"}]}}]}
 Only the first comment may have "continues": true, and only when a comment is open.`;
 
 function describe(t: VoiceTarget): string {
@@ -89,12 +101,19 @@ export function buildTidyPrompt(input: TidyInput): { system: string; user: strin
   if (input.open) {
     const where = input.open.target === null ? 'page' : `e${input.open.target}`;
     const flags = `${input.open.fixed ? ' fixed' : ''}${input.open.chosen ? ' chosen' : ''}`;
-    parts.push(`<open element="${where}"${flags}><said>${input.open.raw}</said></open>`);
+    const clarified = input.open.clarified ? `<clarified>${input.open.clarified}</clarified>` : '';
+    parts.push(
+      `<open element="${where}"${flags}><said>${input.open.raw}</said>${clarified}</open>`,
+    );
   } else {
     parts.push('<open>none</open>');
   }
   if (input.pinned !== undefined) {
     parts.push(`<pinned>${input.pinned === null ? 'page' : `e${input.pinned}`}</pinned>`);
+  }
+  if (input.asked) {
+    const choices = input.asked.choices.map((c) => `<choice>${c}</choice>`).join('');
+    parts.push(`<asked question="${input.asked.question}">${choices}</asked>`);
   }
   parts.push(`<new_words>${input.words}</new_words>`);
   return { system: TIDY_SYSTEM, user: parts.join('\n') };
@@ -126,10 +145,12 @@ export function parseTidyReply(text: string, input: TidyInput): TidyComment[] | 
     if (typeof m.text !== 'string' || !m.text.trim()) continue;
     const id = typeof m.element === 'string' ? /^e(\d+)$/.exec(m.element)?.[1] : undefined;
     const target = id !== undefined && known.has(Number(id)) ? Number(id) : null;
+    const ask = readAskProposal(m.ask, known);
     out.push({
       continues: out.length === 0 && m.continues === true && input.open !== null,
       text: m.text.trim(),
       target,
+      ...(ask ? { ask } : {}),
     });
   }
   return out;

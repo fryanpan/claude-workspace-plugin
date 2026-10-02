@@ -24,6 +24,7 @@ import {
   VoiceSession,
   type VoiceSessionDeps,
 } from '@claude-workspaces/widget/voice-session';
+import { createQuestionSpeaker } from '@claude-workspaces/widget/voice-speak';
 import { api } from '../doc-path.ts';
 import type { EditorHandle } from '../editor.ts';
 import type { MountScope } from '../mount-scope.ts';
@@ -78,6 +79,11 @@ export function mountDocVoice(opts: DocVoiceOptions): DocVoice {
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   /** The relay's socket, so leaving the page can close it at once. */
   let socket: SocketLike | null = null;
+  /** Says a question aloud; its context is made in the mic's tap. */
+  const speaker = createQuestionSpeaker(() => {
+    const Ctor = window.AudioContext;
+    return Ctor ? new Ctor() : null;
+  });
 
   const session = new VoiceSession({
     url: `${wsProto}://${location.host}${api(`docs/${enc(docId)}/voice`)}`,
@@ -94,6 +100,7 @@ export function mountDocVoice(opts: DocVoiceOptions): DocVoice {
     author: () => user,
     catalog: () => targets.catalog(),
     anchorFor: (t) => targets.anchorFor(t),
+    speaker,
     onChange: () => draw(),
     timers,
   });
@@ -183,6 +190,7 @@ export function mountDocVoice(opts: DocVoiceOptions): DocVoice {
       canMove: !!open && open.target !== null && !picking && state === 'recording',
       passage,
       notice: session.note ?? notice,
+      ask: session.ask,
     });
   }
 
@@ -264,11 +272,17 @@ export function mountDocVoice(opts: DocVoiceOptions): DocVoice {
   // --- controls ---------------------------------------------------------------
 
   scope.listen(view.mic, 'click', () => {
-    if (session.state === 'idle') void session.start();
-    else {
+    if (session.state === 'idle') {
+      speaker.wake();
+      void session.start();
+    } else {
       picking = null;
       session.stop();
     }
+  });
+  scope.listen(view.ask, 'click', (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>('button');
+    if (b) session.answer(b.dataset.i === undefined ? null : Number(b.dataset.i));
   });
   scope.listen(view.move, 'click', () => {
     const open = openNote();

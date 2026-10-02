@@ -1,0 +1,85 @@
+{
+  "about": "Sample voice notes on a synthetic board page, each labelled with whether a careful reader would need to ask before acting on it. Riverbend register; no real names.",
+  "targets": [
+    { "i": 0, "tag": "header", "text": "Riverbend" },
+    { "i": 1, "tag": "button", "text": "Save", "parent": 0 },
+    { "i": 2, "tag": "h1", "text": "Weekly plan" },
+    { "i": 3, "tag": "section", "text": "Pantry", "hint": "card" },
+    { "i": 4, "tag": "span", "text": "done", "hint": "chip", "parent": 3 },
+    { "i": 5, "tag": "section", "text": "Garden", "hint": "card" },
+    { "i": 6, "tag": "span", "text": "done", "hint": "chip", "parent": 5 },
+    { "i": 7, "tag": "div", "text": "Goal 66%", "hint": "goal-bar" },
+    { "i": 8, "tag": "footer", "text": "Harborlight" },
+    { "i": 9, "tag": "button", "text": "Save", "parent": 8 },
+    { "i": 10, "tag": "button", "text": "Cancel", "parent": 8 },
+    { "i": 11, "tag": "p", "text": "Updated two days ago", "hint": "meta" }
+  ],
+  "notes": [
+    { "id": "clear-header", "words": "the header is too tall", "ask": false },
+    {
+      "id": "clear-goal",
+      "words": "the goal bar should say how many tasks are left",
+      "ask": false
+    },
+    { "id": "clear-cancel", "words": "the cancel button should be red not grey", "ask": false },
+    {
+      "id": "clear-pantry-chip",
+      "words": "the done chip on the pantry card is the wrong green",
+      "ask": false
+    },
+    { "id": "clear-title", "words": "the weekly plan title should be bigger", "ask": false },
+    {
+      "id": "clear-meta",
+      "words": "the updated two days ago line is hard to read make it darker",
+      "ask": false
+    },
+    {
+      "id": "clear-page",
+      "words": "this whole page feels cramped put more space between the cards",
+      "ask": false
+    },
+    {
+      "id": "clear-footer-save",
+      "words": "the save button in the footer should say save changes",
+      "ask": false
+    },
+    { "id": "clear-pinned", "words": "this one is too small", "pinned": 9, "ask": false },
+    {
+      "id": "anchor-save",
+      "words": "the save button is too small",
+      "ask": true,
+      "about": "anchor"
+    },
+    {
+      "id": "anchor-chip",
+      "words": "the done chip is hard to see",
+      "ask": true,
+      "about": "anchor"
+    },
+    { "id": "anchor-card", "words": "this card needs a due date", "ask": true, "about": "anchor" },
+    {
+      "id": "anchor-that-one",
+      "words": "that one should be blue like the other save button",
+      "ask": true,
+      "about": "anchor"
+    },
+    {
+      "id": "meaning-pop",
+      "words": "the goal bar should pop more",
+      "ask": true,
+      "about": "meaning"
+    },
+    {
+      "id": "meaning-lighter",
+      "words": "the weekly plan title should be lighter",
+      "ask": true,
+      "about": "meaning"
+    },
+    {
+      "id": "meaning-fix-meta",
+      "words": "the updated line is wrong",
+      "ask": true,
+      "about": "meaning"
+    }
+  ]
+}

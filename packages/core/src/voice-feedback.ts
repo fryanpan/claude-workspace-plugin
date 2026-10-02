@@ -55,6 +55,10 @@ export type VoiceClientMessage =
   /** The page posted comment `key` as this thread — recorded in the log, and
    *  where the server looks first if the page goes before the note is done. */
   | { type: 'posted'; key: string; threadId: string }
+  /** The person answered the question asked about note `key` by tapping a
+   *  choice: its index in `VoiceAskFrame.choices`, or `null` for "keep it as
+   *  it is". An answer said aloud needs no frame — it is words like any other. */
+  | { type: 'answer'; key: string; choice: number | null }
   | { type: 'stop' };
 
 /** A spoken comment as the server currently understands it. */
@@ -75,6 +79,22 @@ export interface VoiceCommentFrame {
   final: boolean;
 }
 
+/**
+ * The one question asked about a note whose element or meaning the server
+ * could not tell (`voice-feedback-ask.ts`). The answer, said or tapped, edits
+ * that same note — it never starts another. A frame with `question: ''` takes
+ * the question down: answered, skipped, or passed by.
+ */
+export interface VoiceAskFrame {
+  type: 'ask';
+  key: string;
+  question: string;
+  /** Two or three short answers, offered as buttons. */
+  choices: string[];
+  /** What was unclear: which element, or what the note means. */
+  about: 'anchor' | 'meaning';
+}
+
 export type VoiceServerMessage =
   | { type: 'ready'; segment: number }
   | { type: 'unavailable'; reason: string }
@@ -86,6 +106,11 @@ export type VoiceServerMessage =
    */
   | { type: 'heard'; text: string; pending: string }
   | VoiceCommentFrame
+  | VoiceAskFrame
+  /** The question is being said: binary frames of PCM16 mono at `sampleRate`
+   *  follow until `on: false`. The page holds its microphone meanwhile, so
+   *  the question is not heard back as the answer. */
+  | { type: 'ask-audio'; on: boolean; sampleRate?: number }
   | { type: 'stopped' }
   | { type: 'error'; message: string };
 
@@ -216,6 +241,15 @@ export function parseVoiceClientMessage(raw: unknown): VoiceClientMessage | null
       return target === undefined || !key ? null : { type: 'move', key, target };
     case 'reopen':
       return key ? { type: 'reopen', key } : null;
+    case 'answer': {
+      const choice =
+        m.choice === null
+          ? null
+          : Number.isInteger(m.choice) && (m.choice as number) >= 0 && (m.choice as number) < 3
+            ? (m.choice as number)
+            : undefined;
+      return key && choice !== undefined ? { type: 'answer', key, choice } : null;
+    }
     case 'posted':
       return key && typeof m.threadId === 'string' && ID_RE.test(m.threadId)
         ? { type: 'posted', key, threadId: m.threadId }
@@ -240,7 +274,17 @@ export function parseVoiceServerMessage(raw: unknown): VoiceServerMessage | null
         ? (m as unknown as VoiceCommentFrame)
         : null;
     }
-    if (['ready', 'unavailable', 'heard', 'stopped', 'error'].includes(m.type as string)) {
+    if (m.type === 'ask') {
+      return typeof m.key === 'string' &&
+        typeof m.question === 'string' &&
+        Array.isArray(m.choices) &&
+        m.choices.every((c) => typeof c === 'string')
+        ? (m as unknown as VoiceAskFrame)
+        : null;
+    }
+    if (
+      ['ready', 'unavailable', 'heard', 'stopped', 'error', 'ask-audio'].includes(m.type as string)
+    ) {
       return m as unknown as VoiceServerMessage;
     }
     return null;

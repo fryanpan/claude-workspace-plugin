@@ -8,6 +8,7 @@ import { hostCapture, startPcmCapture } from './voice-audio.ts';
 import { makeContext } from './voice-loader.ts';
 import { widgetPoster } from './voice-post.ts';
 import { type SocketLike, VoiceSession, type VoiceSessionDeps } from './voice-session.ts';
+import { createQuestionSpeaker } from './voice-speak.ts';
 import { collectTargets } from './voice-targets.ts';
 import { VoiceView } from './voice-ui.ts';
 
@@ -120,6 +121,8 @@ export function mountVoiceMode(
   // Inside a served mock's frame the microphone is the host page's, and it
   // arrives through the socket this session opened (`hostCapture`).
   let socket: SocketLike | null = null;
+  // Its own context, made in the mic's tap: the capture's is closed with it.
+  const speaker = createQuestionSpeaker(() => makeContext() ?? null);
   const session = new VoiceSession({
     url,
     openSocket: (u) => {
@@ -145,6 +148,7 @@ export function mountVoiceMode(
     author: () => widget.user,
     catalog,
     anchorFor,
+    speaker,
     onChange: () => draw(),
     refusedNote: () => {
       if (!widget.signInToWrite || widget.authToken) return null;
@@ -272,9 +276,10 @@ export function mountVoiceMode(
       session.stop();
     }
   };
-  button.addEventListener('click', () =>
-    toggle(session.state === 'idle' ? makeContext() : undefined),
-  );
+  button.addEventListener('click', () => {
+    if (session.state === 'idle') speaker.wake();
+    toggle(session.state === 'idle' ? makeContext() : undefined);
+  });
   draw();
   const mode = { session, view, toggle };
   mounted.set(widget, mode);

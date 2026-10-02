@@ -501,6 +501,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         ? [opts.transcription as TranscriptionEngine]
         : [],
     tidy: opts.voiceFeedbackTidy ?? null,
+    // A clarifying question is said in the board reply's setup-1 voice.
+    voice: opts.spokenReply?.voices[1] ?? null,
     dataDir,
     // Read when a page has gone, long after `docStore` below exists.
     keep: {

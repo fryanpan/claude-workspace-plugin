@@ -23,7 +23,7 @@
  */
 import type { Anchor, Thread, User, VoiceNote, WriteVia } from '@claude-workspaces/core';
 import { mayTouchFrom } from './mockup-frame.ts';
-import type { Session } from './voice-feedback-session.ts';
+import type { Session, VoiceTimers } from './voice-feedback-session.ts';
 import { clipPath } from './voice-feedback-store.ts';
 
 /** A note as the relay ends it. */
@@ -179,4 +179,20 @@ export async function keepSession(threads: VoiceNoteThreads, s: Session): Promis
     s.log.write(`- Not written, no speaker known: ${list(kept.unwritten)}\n`);
   }
   return kept;
+}
+
+/** `keepSession` once `graceMs` has passed, so a write the page sent as it
+ *  went lands first and is found rather than repeated. Never throws. */
+export async function keepLater(
+  threads: VoiceNoteThreads,
+  s: Session,
+  graceMs: number,
+  timers: VoiceTimers,
+  log?: (line: string) => void,
+): Promise<void> {
+  if (s.comments.size === 0) return;
+  if (graceMs > 0) await new Promise<void>((r) => timers.set(() => r(), graceMs));
+  await keepSession(threads, s).catch((err) =>
+    log?.(`[voice-feedback] keeping notes failed: ${String(err)}`),
+  );
 }

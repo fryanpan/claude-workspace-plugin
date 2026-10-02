@@ -308,3 +308,50 @@ describe('voice comments on a review doc — nothing heard', () => {
     expect(t.posts).toHaveLength(0);
   });
 });
+
+describe('voice comments on a review doc — the one clarifying question', () => {
+  it('shows the question by the live card, and a tapped answer edits the same comment', async () => {
+    const t = mount();
+    const socket = await t.startRecording();
+    const start = socket.json().find((m) => m.type === 'start') as {
+      targets: Array<{ i: number; text: string }>;
+    };
+    const one = start.targets.find((x) => x.text.startsWith('Week one'))?.i ?? null;
+    const two = start.targets.find((x) => x.text.startsWith('Week two'))?.i ?? null;
+    const frame = (target: number | null) => ({
+      type: 'comment',
+      key: 'v1',
+      text: 'This week needs a date.',
+      raw: 'this week needs a date',
+      clip: CLIP,
+      target,
+      final: false,
+    });
+    socket.recv(frame(one));
+    await vi.waitFor(() => expect(t.posts).toHaveLength(1));
+    expect(t.voice.view.ask.hidden, 'CONTROL: no question yet').toBe(true);
+
+    socket.recv({
+      type: 'ask',
+      key: 'v1',
+      question: 'Which week?',
+      choices: ['Week one', 'Week two'],
+      about: 'anchor',
+    });
+    expect(t.voice.view.ask.hidden).toBe(false);
+    expect(t.voice.view.ask.textContent).toBe('Which week?Week oneWeek twoKeep as is');
+    (t.voice.view.ask.querySelector('[data-i="1"]') as HTMLElement).click();
+    expect(socket.json().at(-1)).toEqual({ type: 'answer', key: 'v1', choice: 1 });
+    expect(t.voice.view.ask.hidden).toBe(true);
+
+    // The server sends the same note again, on the chosen passage.
+    socket.recv(frame(two));
+    await vi.waitFor(() => expect(t.posts).toHaveLength(2));
+    expect(t.posts[1]?.url).toMatch(/\/threads\/th-1\/reanchor$/);
+    expect(t.anchoredWords(t.posts[1]?.body.anchor)).toBe('Week two adds reminders for Saltmarsh.');
+    expect(
+      t.posts.filter((p) => p.url.endsWith('/threads')),
+      'one comment, not two',
+    ).toHaveLength(1);
+  });
+});
