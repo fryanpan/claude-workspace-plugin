@@ -777,7 +777,7 @@ export async function handleWorkspaceTool(
       const res = (await http(
         'POST',
         `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`,
-        { text: words },
+        { agentId: AUTHOR.id, text: words },
       )) as { delivered?: boolean };
       return ok({
         delivered: res.delivered === true,

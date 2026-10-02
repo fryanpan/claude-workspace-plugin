@@ -40,6 +40,7 @@ import { type ReviewPayload, isReviewItemOpen } from '@claude-workspaces/core';
 import type { EnvLike } from '@claude-workspaces/core/env-names';
 import { type AnswerCoverage, threadOpenParts, ticketOpenParts } from './answer-coverage.ts';
 import { BOARD_FEEDBACK_DOC_ID } from './doc-ids.ts';
+import { compareSemver } from './plugin-release.ts';
 import { readKeychainPassword } from './share/keychain.ts';
 import { resolveKeySlotFrom } from './summarize.ts';
 import { resolveAssignee } from './task-owner.ts';
@@ -65,6 +66,7 @@ import {
 } from './voice-prompt.ts';
 import {
   AGENT_ACK,
+  ANSWER_VOICE_SINCE,
   FEEDBACK_ASK,
   FEEDBACK_SAVED_ACK,
   HELP_DETAIL,
@@ -872,7 +874,7 @@ export class VoiceRouter {
         feedbackBody = transcript;
       }
       if (!direct && !quick && statusAsk(transcript)) {
-        if (this.tasks.hasLiveLeadAttachment(workspaceId)) forLead = true;
+        if (this.leadAnswersAloud(workspaceId)) forLead = true;
         else direct = this.statusResult(workspaceId, workspace.name, resource);
       }
       if (!direct && !quick && !forLead) {
@@ -1017,7 +1019,7 @@ export class VoiceRouter {
     // How things are going is the lead's to say when the lead is there to
     // say it; otherwise the board's own brief answers rather than nobody.
     if (classification?.kind === 'status') {
-      if (this.tasks.hasLiveLeadAttachment(workspaceId)) forLead = true;
+      if (this.leadAnswersAloud(workspaceId)) forLead = true;
       else direct = this.statusResult(workspaceId, workspace.name, resource);
     }
     if (!quick && classification?.kind === 'quick') quick = classification.quick;
@@ -1133,6 +1135,16 @@ export class VoiceRouter {
       this.tasks.markVoiceEmitted(workspaceId, queueId);
     }
     return { ok: true, ...result };
+  }
+
+  /** A live lead whose session can say an answer back (`answer_voice`). */
+  private leadAnswersAloud(workspaceId: string): boolean {
+    if (!this.tasks.hasLiveLeadAttachment(workspaceId)) return false;
+    const lead = this.tasks.getWorkspace(workspaceId)?.leadAgentId;
+    const version = this.tasks
+      .listAttachments(workspaceId)
+      .find((a) => a.agentId === lead)?.pluginVersion;
+    return version !== undefined && compareSemver(version, ANSWER_VOICE_SINCE) >= 0;
   }
 
   /** Every other live board, by name: where "take me to the … board" can go. */

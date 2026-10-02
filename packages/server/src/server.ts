@@ -31,6 +31,7 @@ import {
 } from './attachment-privacy.ts';
 import { identifyCallerAgent } from './auth/agent-caller.ts';
 import {
+  authorizeAgentCaller,
   createLegacyAgentWarner,
   createRefusedMintWarner,
   agentTokenKey as deriveAgentTokenKey,
@@ -2700,6 +2701,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     voiceRouter,
     spokenRelay,
     spokenTimings,
+    authorizeAgent: (req, agentId) =>
+      authorizeAgentCaller({
+        agentId,
+        req,
+        address: server.requestIP(req)?.address,
+        key: agentTokenKeyFor(),
+        requireToken: requireAgentToken,
+      }),
     dataDir,
     clientReleaseRootDir,
     opts,

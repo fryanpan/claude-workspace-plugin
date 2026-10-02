@@ -21,6 +21,7 @@
  * Same posture as `middleware/host-guard.ts` and `workspace-path.ts` on the
  * same problem.
  */
+import { isValidAgentId } from '../agent-watches.ts';
 import { attachNotes } from '../attach-notes.ts';
 import { localDay } from '../chat-audit.ts';
 import { clientReleaseStatus } from '../client-release.ts';
@@ -75,6 +76,7 @@ export async function handleWorkspaceAttachments(
     safeJson,
     watchKeyExists,
     spokenRelay,
+    authorizeAgent,
   } = ctx;
   const { req, pathname, visitor } = rq;
   // --- REST: agent attachments (§4) ---
@@ -349,6 +351,15 @@ export async function handleWorkspaceAttachments(
     const workspaceId = safeDecodeSegment(wsVoiceAnswerMatch[1] ?? '');
     const entryId = safeDecodeSegment(wsVoiceAnswerMatch[2] ?? '');
     const body = await safeJson(req);
+    // Only an agent on this board answers aloud on it, proved the way its
+    // own feed is: on this machine, with its token.
+    const agentId = typeof body?.agentId === 'string' ? body.agentId : '';
+    if (!isValidAgentId(agentId)) return j(400, { error: 'agentId required' });
+    const allowed = authorizeAgent(req, agentId);
+    if (!allowed.ok) return j(allowed.status, allowed.body);
+    if (!taskStore.listAttachments(workspaceId).some((a) => a.agentId === agentId)) {
+      return j(403, { error: 'not attached to this board' });
+    }
     const text = typeof body?.text === 'string' ? body.text.trim() : '';
     if (!text) return j(400, { error: 'text required' });
     if (text.length > LEAD_ANSWER_MAX) {

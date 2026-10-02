@@ -21,6 +21,7 @@ import {
 } from '../src/spoken-reply/lead-answer.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
 import type { TranscriptionEngine, TranscriptionOpenOpts } from '../src/transcribe.ts';
+import { ANSWER_VOICE_SINCE } from '../src/voice-quick.ts';
 import { type AgentStream, openWorkspaceStream } from './agent-stream.ts';
 import { waitFor } from './wait-for.ts';
 
@@ -111,7 +112,11 @@ describe('the lead’s answer through the real server', () => {
     boardId = ((await ws.json()) as { workspace: { id: string } }).workspace.id;
     // The first agent on an empty seat is the lead; its open stream is what
     // makes it reachable, as the MCP opens it straight after attaching.
-    handle.tasks.attachAgent(boardId, { agentId: 'lead', runtime: 'claude-code-local' });
+    handle.tasks.attachAgent(boardId, {
+      agentId: 'lead',
+      runtime: 'claude-code-local',
+      pluginVersion: ANSWER_VOICE_SINCE,
+    });
     leadStream = await openWorkspaceStream(base, boardId, {}, 'lead');
     expect(handle.tasks.hasLiveLeadAttachment(boardId)).toBe(true);
   });
@@ -162,7 +167,10 @@ describe('the lead’s answer through the real server', () => {
     expect(queueId).not.toBe('');
 
     const answer = 'Ferry fares to Riverbend start at twelve dollars. The noon boat is full.';
-    const r = await post(`/workspaces/${boardId}/voice-queue/${queueId}/answer`, { text: answer });
+    const r = await post(`/workspaces/${boardId}/voice-queue/${queueId}/answer`, {
+      agentId: 'lead',
+      text: answer,
+    });
     expect(await r.json()).toEqual({ ok: true, delivered: true });
     await waitFor(() => asker.frames.some((f) => f.route === LEAD_ANSWER_ROUTE), {
       describe: 'lead answer on the asking socket',
@@ -185,20 +193,41 @@ describe('the lead’s answer through the real server', () => {
     const path = `/workspaces/${boardId}/voice-queue/${queueId}/answer`;
     await waitFor(
       async () =>
-        ((await (await post(path, { text: 'Three open.' })).json()) as { delivered: boolean })
-          .delivered === false,
+        (
+          (await (await post(path, { agentId: 'lead', text: 'Three open.' })).json()) as {
+            delivered: boolean;
+          }
+        ).delivered === false,
       { describe: 'undelivered once the socket closed' },
     );
   });
 
   it('refuses an empty answer and one over the cap', async () => {
     const path = `/workspaces/${boardId}/voice-queue/vq-x/answer`;
-    expect((await post(path, {})).status).toBe(400);
-    expect((await post(path, { text: '  ' })).status).toBe(400);
-    expect((await post(path, { text: 'a'.repeat(LEAD_ANSWER_MAX + 1) })).status).toBe(400);
-    expect(await (await post(path, { text: 'Fine.' })).json()).toEqual({
+    const lead = { agentId: 'lead' };
+    expect((await post(path, lead)).status).toBe(400);
+    expect((await post(path, { ...lead, text: '  ' })).status).toBe(400);
+    expect((await post(path, { ...lead, text: 'a'.repeat(LEAD_ANSWER_MAX + 1) })).status).toBe(400);
+    expect(await (await post(path, { ...lead, text: 'Fine.' })).json()).toEqual({
       ok: true,
       delivered: false,
     });
+  });
+
+  it('answers only for an agent on this board, proved the way its own feed is', async () => {
+    const path = `/workspaces/${boardId}/voice-queue/vq-x/answer`;
+    expect((await post(path, { text: 'Fine.' })).status).toBe(400);
+    // An agent that is not on this board.
+    expect((await post(path, { agentId: 'agent-elsewhere', text: 'Fine.' })).status).toBe(403);
+    // A bearer that does not speak for the agent named.
+    const forged = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer at1.not-signed-by-this-server',
+      },
+      body: JSON.stringify({ agentId: 'lead', text: 'Fine.' }),
+    });
+    expect(forged.status).toBe(403);
   });
 });

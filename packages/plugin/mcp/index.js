@@ -13870,7 +13870,7 @@ function agentTokenPath(agentId) {
   return `/api/agents/${encodeURIComponent(agentId)}/token`;
 }
 function pathNeedsAgentToken(path) {
-  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path);
+  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path);
 }
 function createAgentTokenStore(deps) {
   let token = null;
@@ -20346,7 +20346,7 @@ async function handleWorkspaceTool(name, a, ctx) {
         return err2("workspaceId and queueId are required");
       if (words === "")
         return err2("text is empty — say the answer");
-      const res = await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`, { text: words });
+      const res = await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`, { agentId: AUTHOR.id, text: words });
       return ok2({
         delivered: res.delivered === true,
         ...res.delivered === true ? {} : { note: "No page is waiting for this answer. Post it on the task or a thread." }

@@ -44,6 +44,14 @@ export const QUICK_ACK_MAX_WORDS = 6;
 /** What the agent route says. Never "sent to the agent": the speaker asked
  *  for something, and the reply is that it is being done. */
 export const AGENT_ACK = 'On it.';
+/**
+ * The first plugin release whose sessions have `answer_voice`. A lead on an
+ * older bundle cannot say an answer back until its session restarts, so a
+ * status question is answered by the board's brief instead, as when no lead
+ * is there at all.
+ */
+export const ANSWER_VOICE_SINCE = '0.1.279';
+
 /** Nobody is on the board to do it yet; the request is kept. */
 export const QUEUED_ACK = 'Saved for later.';
 

@@ -147,7 +147,10 @@ describe('answer_voice — the lead answers out loud', () => {
       }),
     );
     expect(last().path).toBe('/workspaces/w-board/voice-queue/vq-live/answer');
-    expect(last().body).toEqual({ text: 'Ferry fares start at twelve.' });
+    expect(last().body).toEqual({
+      agentId: expect.stringMatching(/^agent-/),
+      text: 'Ferry fares start at twelve.',
+    });
     expect(out).toEqual({ delivered: true });
   });
 

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { BOARD_FEEDBACK_DOC_ID } from '../src/doc-ids.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import {
+  ANSWER_VOICE_SINCE,
   FEEDBACK_ASK,
   FEEDBACK_SAVED_ACK,
   HELP_SPOKEN,
@@ -175,8 +176,20 @@ describe('quick actions through the route, with no model', () => {
     const brief = await say('what’s occurring status');
     expect(brief.route).toBe('fast-path');
     expect(brief.ack).toContain('Harborlight');
-    handle.tasks.attachAgent(boardId, { agentId: 'lead', runtime: 'claude-code-local' });
+    // A lead on a bundle without answer_voice could not say the answer back:
+    // the brief still answers until its session restarts.
+    handle.tasks.attachAgent(boardId, {
+      agentId: 'lead',
+      runtime: 'claude-code-local',
+      pluginVersion: '0.1.278',
+    });
     leadStream = await openWorkspaceStream(base, boardId, {}, 'lead');
+    expect((await say('what’s occurring status')).route).toBe('fast-path');
+    handle.tasks.attachAgent(boardId, {
+      agentId: 'lead',
+      runtime: 'claude-code-local',
+      pluginVersion: ANSWER_VOICE_SINCE,
+    });
     const lead = await say('what’s occurring status');
     expect(lead.route).toBe('agent');
     expect(lead.ack).toEndWith('On it.');

@@ -72,8 +72,10 @@ export function agentTokenPath(agentId: string): string {
 /**
  * Whether a REST path is one the server asks the token for.
  *
- * Only the durable watch set; the stream is not a REST call and asks the
- * store directly, and the mint route is fetched by the store itself.
+ * The durable watch set, and the lead's spoken answer (`answer_voice`), which
+ * the server says aloud on a board only for an agent proved to be on it. The
+ * stream is not a REST call and asks the store directly, and the mint route
+ * is fetched by the store itself.
  *
  * The first version of this put the header on EVERY call, reasoning that a
  * route list here is a second place to drift out of step with the server's.
@@ -86,7 +88,10 @@ export function agentTokenPath(agentId: string): string {
  * 401 naming the route once enforcement is on, never a quiet hole.
  */
 export function pathNeedsAgentToken(path: string): boolean {
-  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path);
+  return (
+    /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) ||
+    /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path)
+  );
 }
 
 export function createAgentTokenStore(deps: AgentTokenDeps): AgentTokenStore {

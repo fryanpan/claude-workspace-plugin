@@ -140,7 +140,7 @@ describe('the MCP agent-token store', () => {
 });
 
 describe('which paths carry the bearer', () => {
-  it('carries it on the durable watch set and nothing else', () => {
+  it('carries it on the durable watch set and the spoken answer, and nothing else', () => {
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches')).toBe(true);
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches?x=1')).toBe(true);
     // The merge route has its own operator gate and asks for no token; the
@@ -152,6 +152,8 @@ describe('which paths carry the bearer', () => {
     expect(pathNeedsAgentToken('/api/docs/d-1/threads')).toBe(false);
     // Not a prefix match: a path that merely starts the same way is not it.
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches/extra')).toBe(false);
+    expect(pathNeedsAgentToken('/workspaces/w-1/voice-queue/vq-1/answer')).toBe(true);
+    expect(pathNeedsAgentToken('/workspaces/w-1/voice-queue/vq-1/ack')).toBe(false);
   });
 
   it('mints nothing for a path that does not need one', async () => {
