@@ -19,6 +19,9 @@
  * are delivered as they were (`release`), late but whole and in order. A
  * meeting that ends delivers anything still held before the notes flush.
  *
+ * The same ears serve "Claude, …" in any meeting the page records
+ * (`meeting-ask.ts`), whose detail `note` writes into the meeting's notes.
+ *
  * Nothing here is a vendor, a timer or a file: a map of listeners and a map
  * of held deliveries, keyed by doc id.
  */
@@ -32,15 +35,22 @@ export const MAX_HELD_FRAMES = 2_000;
 interface Room {
   /** Deliveries to the notes composer, held while a question is out. */
   held: Array<() => void> | null;
+  /** Writes lines into the meeting's own notes section. */
+  note: (markdown: string) => void;
 }
 
 export class MeetingEars {
   private readonly listeners = new Map<string, Set<(turn: EngineTurn) => void>>();
   private readonly rooms = new Map<string, Room>();
 
-  /** A meeting on `docId` went live. */
-  started(docId: string): void {
-    if (!this.rooms.has(docId)) this.rooms.set(docId, { held: null });
+  /** A meeting on `docId` went live; `note` writes into its notes. */
+  started(docId: string, note: (markdown: string) => void = () => {}): void {
+    if (!this.rooms.has(docId)) this.rooms.set(docId, { held: null, note });
+  }
+
+  /** Lines for the notes of the meeting on `docId` ("Claude, …"'s detail). */
+  note(docId: string, markdown: string): void {
+    this.rooms.get(docId)?.note(markdown);
   }
 
   /** The meeting on `docId` ended: whatever was held reaches the notes. */

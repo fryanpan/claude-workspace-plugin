@@ -2756,9 +2756,10 @@ meeting path transcribes and writes notes but never speaks.
   its own Soniox listener, so no second microphone and no second
   transcription session is paid for. The page opens that socket by itself
   while it records a plan (`doc/doc-interview.ts`, told by the strip's
-  `onRecordingChange`). The server checks again: `meetingEars` in `server.ts`
-  lends a meeting only when the doc's meta says `huddleKind: 'plan'`, so a
-  discussion never asks anything.
+  `onRecordingChange`). The server checks again: the planning voice asks only
+  when the doc's meta says `huddleKind: 'plan'`, so a discussion never asks
+  anything. A discussion is still lent to the owner's page, for "Claude, …"
+  (next section).
 - **The turn is the ordinary planning-voice turn.** The pause gate
   (`pause-gate.ts`), the interview (`interview.ts`), the voice, the agent's
   cursor (`agentFocus`) and the `[spoken-reply] setup=` timing line are the
@@ -2780,6 +2781,41 @@ meeting path transcribes and writes notes but never speaks.
   order. A meeting's end delivers anything still held before the notes flush,
   and the hold lets go after `MAX_HELD_FRAMES` so an unanswered question
   cannot starve the notes.
+
+## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
+
+A bot meeting answers "Claude, …" into the call (`meeting-claude.ts`). A
+meeting the page records from its microphone, or from the microphone plus
+Mac audio, now answers it too: the same wake phrase, the same owner rule,
+one spoken line through the page's spoken-reply player, and the request,
+the line and the detail written into the meeting's own notes section with
+`noteFor`, the bot path's own format.
+
+- **Who asked is the person signed in on the page.** A bot meeting knows each
+  speaker's email; a mic meeting knows only the page. At the spoken-reply
+  socket's upgrade, `ownerProven` in `server.ts` asks whether the request's
+  own person proof (the Cloudflare Access email, or the signed session
+  cookie) resolves to an owner id with `isOwnerActor({ id })`, the check the
+  grant door makes. A display name, a `start` body, a widget token or an
+  agent token never counts. The answer is stamped on the socket
+  (`ownerProven`) and lasts as long as the connection.
+- **Only the microphone's words can call Claude.** A Mac-audio meeting also
+  carries everybody dialled in, on the `system` stream. The session keeps
+  the page microphone's finals apart (`own`), and the wake phrase is looked
+  for there only, at the start of any sentence (`wakeRequestIn`).
+- **Which meetings a socket hears.** The owner's page hears any meeting
+  recording on its doc; the card stays closed in a discussion, and opens in a
+  plan. Any other page hears only a plan, and there a "Claude, …" goes to the
+  planning voice as an answer like any other words, never to the board.
+- **Through the same router as Talk**, via `SpokenAnswerer.ask`, which skips
+  the interview so the planning voice cannot take the request as an answer.
+  A `navigate` on the answer is dropped: following it would take the page off
+  the meeting it records.
+- **Limits.** Anybody speaking into the owner's microphone in the room is
+  heard as the owner, because one microphone cannot tell voices apart.
+  Words said while the voice is speaking are not heard by it. The notes line
+  waits, as the bot path's does, until the meeting's first note opens its
+  section.
 
 ## A meeting's title (`meeting-namer.ts`, `meeting-titler.ts`)
 

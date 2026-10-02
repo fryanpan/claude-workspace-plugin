@@ -193,6 +193,7 @@ describe('spoken reply over the converse socket', () => {
       visitor: { workspaceId: boardId } as ShareTarget,
       visitorShareId: 's1',
       visitorMemberKey: null,
+      ownerProven: () => false,
       browserProvedNobody: () => true,
       provenAuthor: () => null,
       widgetDoorGrant: null,

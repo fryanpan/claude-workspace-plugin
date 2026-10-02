@@ -33,7 +33,11 @@
  * room is not asked anything. The question plays through this page's
  * spoken-reply player, the same PCM path the Talk card plays, and the card
  * listens again after every reply until the recording stops. Setup 3 has its
- * own ears, so a meeting is heard on setup 1 or 2.
+ * own ears, so a meeting is heard on setup 1 or 2. Any other meeting this
+ * page records is heard the same way with the card closed, so "Claude, …"
+ * from the owner is answered aloud through the same player
+ * (`spoken-reply/meeting-ask.ts`); a server that will not answer here says
+ * so once and the socket closes.
  *
  * Mounted only for a writer on a board whose server names a setup.
  */
@@ -165,7 +169,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   /** The current question has had its silence turn. */
   let silenced = false;
-  /** Hearing this page's planning meeting rather than a microphone. */
+  /** Hearing this page's meeting rather than a microphone. */
   let inMeeting = false;
   /** When the server called the last turn over, for the delay it logs. */
   let turnEndedAt: number | null = null;
@@ -301,7 +305,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   }
 
   function afterSpoken(): void {
-    if (!frame.open) return;
+    if (!frame.open && !inMeeting) return;
     if (asking || inMeeting) listen();
     else {
       frame.phase = 'done';
@@ -364,6 +368,11 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         player.finish(afterSpoken);
         return;
       case 'error':
+        // A meeting heard with no card: the server will not answer here.
+        if (inMeeting && !frame.open) {
+          shut();
+          return;
+        }
         listening = false;
         frame.note = m.message;
         frame.phase = 'done';
@@ -392,12 +401,13 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     listen();
   }
 
-  /** This page started recording a plan's meeting: listen to it. */
+  /** This page started recording: listen to the meeting. A plan's shows the
+   *  card; any other is heard with no card, for "Claude, …" alone. */
   function joinMeeting(): void {
-    if (earsSetup === null || frame.open || !opts.meeting?.isPlan()) return;
+    if (earsSetup === null || frame.open) return;
     inMeeting = true;
-    frame.open = true;
-    frame.question = MEETING_PROMPT;
+    frame.open = opts.meeting?.isPlan() === true;
+    if (frame.open) frame.question = MEETING_PROMPT;
     player.wake();
     ensureSocket();
     listen();
@@ -437,7 +447,10 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   });
   opts.scope.listen(view.button, 'click', () => {
     if (frame.open) shut();
-    else open();
+    else if (inMeeting) {
+      frame.open = true;
+      draw();
+    } else open();
   });
   opts.scope.listen(view.close, 'click', () => shut());
   opts.scope.listen(view.primary, 'click', () => {
