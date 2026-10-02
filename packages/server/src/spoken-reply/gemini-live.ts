@@ -30,10 +30,12 @@ const LIVE_URL =
 export const GEMINI_LIVE_MODEL = 'models/gemini-3.8-live';
 export const ASK_BOARD = 'ask_board';
 const CONNECT_TIMEOUT_MS = 10_000;
-/** Silence before Gemini calls a tapped question over. Above 3s, so a person
- *  who stops to think for three seconds is not cut off; the long-pause
- *  harness on setup 3 holds it there (`spoken-long-pause-gemini.test.ts`). */
-export const GEMINI_SILENCE_MS = 3500;
+/** Silence before Gemini calls a tapped question over: 500 ms, the same
+ *  bound setups 1 and 2 hold (Bryan, 2 Oct: the turn ends on its own about
+ *  half a second after he stops). It was 3,500 so a three-second thinking
+ *  pause was not cut off; it now is, and the long-pause harness on setup 3
+ *  says so (`spoken-long-pause-gemini.test.ts`). */
+export const GEMINI_SILENCE_MS = 500;
 
 export const GEMINI_SYSTEM_INSTRUCTION =
   'You are the voice of a project board. For every request, call ask_board with the ' +
@@ -114,10 +116,12 @@ export function geminiSetup(manual: boolean): Record<string, unknown> {
       realtimeInputConfig: {
         automaticActivityDetection: manual
           ? { disabled: true }
-          : // The long-pause case: a person thinking mid-sentence should not
-            // be cut off, so the end of speech is called late rather than
-            // early, and the slow-answer cue covers the wait that adds.
-            { endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: GEMINI_SILENCE_MS },
+          : // Tap once and walk away: the end of speech is called early, and
+            // the slow-answer cue covers the wait for the board's answer.
+            {
+              endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+              silenceDurationMs: GEMINI_SILENCE_MS,
+            },
       },
     },
   };

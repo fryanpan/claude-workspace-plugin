@@ -88,8 +88,8 @@ describe('Gemini Live adapter', () => {
     expect(hold.realtimeInputConfig).toEqual({ automaticActivityDetection: { disabled: true } });
     expect(tap.realtimeInputConfig).toEqual({
       automaticActivityDetection: {
-        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
-        silenceDurationMs: 3500,
+        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+        silenceDurationMs: 500,
       },
     });
   });

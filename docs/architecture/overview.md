@@ -682,7 +682,7 @@ turns. The wire is `core/spoken-reply.ts`
 (a new top-level core module: the messages and their parsers both ends read).
 On the page, `board/spoken-reply-client.ts` owns the socket and the turn,
 `spoken-reply-panel.ts` the panel's markup and states, `spoken-reply-audio.ts`
-the capture and the player, and `spoken-reply-hold.ts` the press; all four sit
+the capture and the player, and `spoken-reply-tap.ts` the taps; all four sit
 inside `board/`, and `board-voice.ts` mounts them in place of the plain
 capture only when `GET /workspaces/<ws>/voice/timings` names a setup. On the
 server, `routes/upgrade-stream.ts` hands `WS /workspaces/<ws>/voice/converse`

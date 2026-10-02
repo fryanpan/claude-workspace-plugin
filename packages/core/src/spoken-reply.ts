@@ -138,6 +138,9 @@ export type SpokenServerMessage =
   | { type: 'ready'; setups: SpokenSetup[]; held?: SpokenHeldSetups; timings: SpokenTimingSummary }
   | { type: 'heard'; text: string }
   | { type: 'turn-end'; text: string }
+  /** The question reached the answerer, which is working on it: shown until
+   *  the reply arrives, so the speaker can look away. */
+  | { type: 'working' }
   | {
       type: 'reply';
       /** Said aloud: the first two sentences, or the one question. Empty when
@@ -278,6 +281,7 @@ export function parseSpokenServerMessage(text: string): SpokenServerMessage | nu
     'ready',
     'heard',
     'turn-end',
+    'working',
     'reply',
     'note',
     'audio-start',

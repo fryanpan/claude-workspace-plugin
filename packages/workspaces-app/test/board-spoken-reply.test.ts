@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wireBoardVoice } from '../src/board/board-voice.ts';
 import { frameRms, pcm16ToFloat } from '../src/board/spoken-reply-audio.ts';
-import { SETUP_KEY, TAP_MS } from '../src/board/spoken-reply-client.ts';
+import { LATE_STOP_MS, SETUP_KEY } from '../src/board/spoken-reply-client.ts';
 import { boardState, mountShell, task } from './support/board-region-harness.ts';
 import {
   FakeSocket,
@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe('spoken reply', () => {
-  it('a held question: start after TAP_MS with the frames said before it, end on release', async () => {
+  it('a tap on the mic starts a tapped question at once; letting go ends nothing; a second tap does', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
     await vi.advanceTimersByTimeAsync(0);
@@ -33,28 +33,92 @@ describe('spoken reply', () => {
     expect(h.label()).toBe('Listening');
     h.frame(true);
     h.frame(true);
-    await vi.advanceTimersByTimeAsync(TAP_MS);
     h.socket.open();
     const start = h.socket.json()[0];
-    expect(start).toMatchObject({ type: 'start', setup: 1, mode: 'hold' });
+    expect(start).toMatchObject({ type: 'start', setup: 1, mode: 'tap' });
     expect(start?.context).toEqual({ taskId: 't-1' });
     expect(h.socket.frames()).toBe(2);
+    // Holding is not needed: a release, however late, ends nothing.
+    h.tick(5000);
+    h.mic.dispatchEvent(new Event('pointerup'));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.label()).toBe('Listening');
     h.frame(false);
     expect(h.socket.frames()).toBe(3);
-    h.tick(400);
-    h.mic.dispatchEvent(new Event('pointerup'));
+    expect(h.socket.json().some((m) => m.type === 'end')).toBe(false);
+    h.mic.dispatchEvent(new Event('pointerdown'));
     expect(h.socket.json().at(-1)).toEqual({ type: 'end' });
     expect(h.captureStops).toBe(1);
     expect(h.label()).toBe('Heard you');
   });
 
-  it('writes the reply, speaks it, and logs the delay from release to the first audible sample', async () => {
+  it('Space toggles the same way: one tap listens, the next ends it, and a held key repeats nothing', async () => {
+    const h = harness();
+    const key = (type: 'keydown' | 'keyup', repeat = false) =>
+      document.body.dispatchEvent(
+        new KeyboardEvent(type, { code: 'Space', key: ' ', repeat, bubbles: true }),
+      );
+    key('keydown');
+    key('keyup');
+    await vi.advanceTimersByTimeAsync(2000);
+    h.socket.open();
+    expect(h.socket.json()[0]).toMatchObject({ type: 'start', mode: 'tap' });
+    expect(h.label()).toBe('Listening');
+    key('keydown');
+    key('keydown', true);
+    key('keydown', true);
+    expect(h.socket.json().filter((m) => m.type === 'end')).toHaveLength(1);
+    expect(h.socket.json().filter((m) => m.type === 'start')).toHaveLength(1);
+    expect(h.label()).toBe('Heard you');
+  });
+
+  it('once the question reaches the agent the panel says it is being worked on, cue and all, until the reply', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
     h.socket.open();
-    h.frame(true);
-    h.mic.dispatchEvent(new Event('pointerup')); // released at 1000
+    h.socket.reply({ type: 'heard', text: 'give me a' });
+    expect(h.text()).toContain('give me a');
+    expect(h.label()).toBe('Listening');
+    h.socket.reply({ type: 'turn-end', text: 'give me a status update' });
+    expect(h.label()).toBe('Heard you');
+    h.socket.reply({ type: 'working' });
+    expect(h.label()).toBe('Sent · working on it');
+    // The slow-answer cue opens the voice before the reply: still working.
+    h.socket.reply({ type: 'audio-start', sampleRate: 24000 });
+    h.socket.audio([4000]);
+    expect(h.label()).toBe('Sent · working on it');
+    h.socket.reply({
+      type: 'reply',
+      spoken: 'Harborlight: 3 open.',
+      detail: [],
+      asking: false,
+      route: 'fast-path',
+    });
+    expect(h.label()).toBe('Speaking');
+  });
+
+  it('a tap just after the listener ended the question is taken as the stop it was meant to be', async () => {
+    const h = harness();
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    h.socket.open();
+    h.socket.reply({ type: 'turn-end', text: 'where are we' });
+    h.socket.reply({ type: 'working' });
+    h.tick(LATE_STOP_MS - 1);
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    expect(h.socket.json().filter((m) => m.type === 'start')).toHaveLength(1);
+    expect(h.label()).toBe('Sent · working on it');
+    h.tick(1);
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    expect(h.socket.json().filter((m) => m.type === 'start')).toHaveLength(2);
+    expect(h.label()).toBe('Listening');
+  });
+
+  it('writes the reply, speaks it, and logs the delay from the last word to the first audible sample', async () => {
+    const h = harness();
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(0);
+    h.socket.open();
+    h.frame(true); // the last word, at 1000
     h.tick(300);
     h.socket.reply({ type: 'turn-end', text: 'give me a status update' });
     h.tick(20);
@@ -88,23 +152,10 @@ describe('spoken reply', () => {
     expect(timing?.noteLeadMs).toBeUndefined();
   });
 
-  it('a tap: the listener ends the question, and a second tap ends it by hand', async () => {
-    const h = harness();
-    h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(50);
-    h.mic.dispatchEvent(new Event('pointerup'));
-    h.socket.open();
-    expect(h.socket.json()[0]).toMatchObject({ type: 'start', mode: 'tap' });
-    expect(h.label()).toBe('Listening');
-    h.mic.dispatchEvent(new Event('pointerdown'));
-    expect(h.socket.json().at(-1)).toEqual({ type: 'end' });
-    expect(h.label()).toBe('Heard you');
-  });
-
   it('speaking while Claude talks stops it', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.socket.reply({ type: 'reply', spoken: 'One. Two.', detail: [], asking: false, route: 'x' });
@@ -120,7 +171,7 @@ describe('spoken reply', () => {
   it('asks one question, offers its choices, and a tapped choice is sent as said', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.socket.reply({
@@ -146,7 +197,7 @@ describe('spoken reply', () => {
   it('Stop while asking waits for the answer; Stop while speaking stops', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.socket.reply({ type: 'reply', spoken: 'One. Two.', detail: [], asking: false, route: 'x' });
@@ -179,7 +230,7 @@ describe('spoken reply', () => {
     expect(h.reply.setup()).toBe(2);
     expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS * 2);
+    await vi.advanceTimersByTimeAsync(600);
     expect(h.sockets).toEqual([]);
     expect(h.captures).toEqual([]);
     expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
@@ -187,7 +238,7 @@ describe('spoken reply', () => {
     buttons[0]?.click();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     expect(h.sockets.length).toBe(1);
     expect(h.label()).toBe('Listening');
   });
@@ -203,7 +254,7 @@ describe('spoken reply', () => {
     expect(h.panel.root.querySelector('.vr-setup-name')?.textContent).toBe('ElevenLabs Agents');
     expect(h.panel.root.querySelector('.vr-body')?.textContent).toBe(line);
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS * 2);
+    await vi.advanceTimersByTimeAsync(600);
     expect(h.sockets).toEqual([]);
     expect(h.captures).toEqual([]);
   });
@@ -237,7 +288,7 @@ describe('spoken reply', () => {
   it('a server error is shown and ends the turn', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.socket.reply({ type: 'error', message: 'Setup 1 is not set up on this server.' });
     expect(h.label()).toBe('Done');

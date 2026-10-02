@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TAP_MS } from '../src/board/spoken-reply-client.ts';
 import { spokenHarness as harness } from './support/spoken-reply-harness.ts';
 
 /**
@@ -21,9 +20,9 @@ describe('spoken reply notes', () => {
   it('each note lands just before its point is heard, in a row laid out for it', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
-    h.mic.dispatchEvent(new Event('pointerup'));
+    h.frame(true); // the question's last word: the timing runs from here
     h.socket.reply({
       type: 'reply',
       spoken: 'Moved "Sign-in" from todo to done. Waiting on you: “approve the mock”.',
@@ -73,7 +72,7 @@ describe('spoken reply notes', () => {
   it('stopping shows every note still waiting', async () => {
     const h = harness();
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.socket.reply({

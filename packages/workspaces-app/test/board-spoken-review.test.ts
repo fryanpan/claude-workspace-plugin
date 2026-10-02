@@ -1,7 +1,6 @@
 import type { SpokenDecide } from '@claude-workspaces/core/spoken-reply';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reviewReplyRequest } from '../src/board/board-review-model.ts';
-import { TAP_MS } from '../src/board/spoken-reply-client.ts';
 import { writeSpokenDecision } from '../src/board/spoken-review-decide.ts';
 import { spokenHarness as harness } from './support/spoken-reply-harness.ts';
 
@@ -105,7 +104,7 @@ describe('a reply carrying a decision', () => {
       },
     });
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     const decide: SpokenDecide = { id: 'd1', action: 'record', target: TICKET, text: 'Hold' };
@@ -143,7 +142,7 @@ describe('a reply carrying a decision', () => {
       },
     });
     h.mic.dispatchEvent(new Event('pointerdown'));
-    await vi.advanceTimersByTimeAsync(TAP_MS);
+    await vi.advanceTimersByTimeAsync(0);
     h.socket.open();
     h.mic.dispatchEvent(new Event('pointerup'));
     h.socket.reply({
