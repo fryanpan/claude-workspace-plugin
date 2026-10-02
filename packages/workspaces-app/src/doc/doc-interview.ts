@@ -26,10 +26,12 @@
  * Setup 3 is left to Gemini's own turn-taking.
  *
  * IN A PLANNING MEETING it needs no tap. While this page records a plan's
- * meeting (`DocInterviewOpts.meeting`) the card opens by itself and every
- * `start` says `ears: 'meeting'`: the server hears the meeting's own
- * transcript (`spoken-reply/meeting-ears.ts`), so no second microphone is
- * opened and no audio is sent here, and there is no silence turn — a quiet
+ * meeting (`DocInterviewOpts.meeting`) the voice is on by itself and every
+ * `start` says `ears: 'meeting'`. The card stays closed, because the doc's
+ * live zone already shows the transcript; Talk shows or hides it without
+ * stopping the voice, and its × stops the voice. The server hears the
+ * meeting's own transcript (`spoken-reply/meeting-ears.ts`), so no second
+ * microphone is opened and no audio is sent here, and there is no silence turn — a quiet
  * room is not asked anything. The question plays through this page's
  * spoken-reply player, the same PCM path the Talk card plays, and the card
  * listens again after every reply until the recording stops; when the meeting
@@ -129,6 +131,8 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   let silenced = false;
   /** Hearing this page's meeting rather than a microphone. */
   let inMeeting = false;
+  /** That meeting is a plan's: the planning voice is on, its card on a tap. */
+  let planMeeting = false;
   /** The server stopped a reply for a cut-in; that reply's `audio-end`
    *  may still come, and resumes nothing. */
   let cutOff = false;
@@ -161,7 +165,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       queue = [];
       listening = false;
       player.stop();
-      if (frame.open) {
+      if (frame.open || planMeeting) {
         frame.note = 'The connection closed. Tap Talk to go on.';
         frame.phase = 'done';
         draw();
@@ -334,9 +338,11 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         return;
       case 'cut-in':
         // The meeting went on over the voice: silence it, and listen on.
-        // The server is already hearing the new turn, so no `start`.
+        // The server is already hearing the new turn, so no `start`, and
+        // has withdrawn the question, so the card stops showing it.
         player.stop();
         cutOff = true;
+        if (planMeeting) frame.question = MEETING_PROMPT;
         listening = true;
         frame.phase = 'listening';
         frame.heard = '';
@@ -344,7 +350,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         return;
       case 'error':
         // A meeting heard with no card: the server will not answer here.
-        if (inMeeting && !frame.open) {
+        if (inMeeting && !planMeeting && !frame.open) {
           shut();
           return;
         }
@@ -376,13 +382,15 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     listen();
   }
 
-  /** This page started recording: listen to the meeting. A plan's shows the
-   *  card; any other is heard with no card, for "Claude, …" alone. */
+  /** This page started recording: listen to the meeting, with the card
+   *  closed. The doc's live zone already shows what is heard, so a plan's
+   *  card opens only on a tap of Talk; any other meeting is heard for
+   *  "Claude, …" alone. */
   function joinMeeting(): void {
     if (earsSetup === null || frame.open) return;
     inMeeting = true;
-    frame.open = opts.meeting?.isPlan() === true;
-    if (frame.open) frame.question = MEETING_PROMPT;
+    planMeeting = opts.meeting?.isPlan() === true;
+    if (planMeeting) frame.question = MEETING_PROMPT;
     player.wake();
     ensureSocket();
     listen();
@@ -392,6 +400,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     quiet();
     silenced = false;
     inMeeting = false;
+    planMeeting = false;
     turnEndedAt = null;
     if (frame.interviewing) sendMsg({ type: 'say', text: 'that’s enough' });
     else sendMsg({ type: 'stop' });
@@ -421,11 +430,12 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     else if (inMeeting) shut();
   });
   opts.scope.listen(view.button, 'click', () => {
-    if (frame.open) shut();
-    else if (inMeeting) {
-      frame.open = true;
+    // In a meeting Talk shows or hides the card; the voice stays on.
+    if (inMeeting) {
+      frame.open = !frame.open;
       draw();
-    } else open();
+    } else if (frame.open) shut();
+    else open();
   });
   opts.scope.listen(view.close, 'click', () => shut());
   opts.scope.listen(view.primary, 'click', () => {

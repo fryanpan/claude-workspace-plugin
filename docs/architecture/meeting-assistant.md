@@ -2806,13 +2806,18 @@ meeting path transcribes and writes notes but never speaks.
   fail. The turn before the pause read as finished, so it held for 1.2s, and
   the dash was written later, when he broke off because the voice had
   started; those words were the start of the answer turn. What failed is that
-  nothing listened between the pause and the end of the question. Now the socket keeps hearing the meeting until the page's
-  next `start`. A frame with words in it, other than the voice's own words
+  nothing listened between the pause and the end of the question. Now the
+  socket keeps hearing the meeting until the page's next `start`. A frame with words in it, other than the voice's own words
   heard back (at least `ECHO_SHARE` of them), stops the reply whether or not
   it has started playing, sends the page `cut-in` (the player stops at once
   and the card listens on, with no new `start`), withdraws a question in it
   (`SpokenInterview.withdraw`: not in the asked list, its words not taken as
   an answer), and begins the next turn with that frame.
+- **The card stays closed while the meeting records** (`doc-interview.ts`).
+  The doc's live zone already shows what is heard, so an open card showed
+  the same words a second time beside it. The voice is on from the start of
+  the recording either way. Talk shows or hides the card without stopping
+  the voice; the card's × stops it.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 
