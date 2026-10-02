@@ -36,6 +36,7 @@ import {
   createRefusedMintWarner,
   agentTokenKey as deriveAgentTokenKey,
   mintAgentToken,
+  refuseNonLocalAgentCaller,
 } from './auth/agent-token.ts';
 import { lastBoardActivityAt } from './board-activity.ts';
 import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-membership.ts';
@@ -2216,6 +2217,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     bodies: inboxBodies,
     config: () => inboxConfig,
     goalIsLive: (ws, goal) => taskStore.getWorkspace(ws)?.goals.some((g) => g.id === goal) ?? false,
+    refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     authorizeAgent: (req, agentId) =>
       authorizeAgentCaller({
         agentId,

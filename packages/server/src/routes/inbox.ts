@@ -43,6 +43,9 @@ export interface InboxRoutesContext {
   bodies: InboxBodies;
   config: () => InboxConfig;
   goalIsLive: ValidateContext['goalIsLive'];
+  /** A refusal when the caller is not a process on this machine (through
+   *  the edge, from another host, or a page); checked before the body. */
+  refuseNonLocal: (req: Request) => Extract<AgentCallerVerdict, { ok: false }> | null;
   /** Whether this request speaks for `agentId`, with its token required. */
   authorizeAgent: (req: Request, agentId: string) => AgentCallerVerdict;
   j: (status: number, body: unknown) => Response;
@@ -93,6 +96,8 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   const { j, store, bodies } = ctx;
   const { req } = rq;
   if (rq.visitor) return j(403, { error: 'not available to share visitors' });
+  const notLocal = ctx.refuseNonLocal(req);
+  if (notLocal) return j(notLocal.status, notLocal.body);
   const length = Number(req.headers.get('content-length') ?? '0');
   if (!Number.isFinite(length) || length > MAX_POST_BYTES) {
     return j(413, { error: 'too-large' });
