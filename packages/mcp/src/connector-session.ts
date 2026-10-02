@@ -34,6 +34,7 @@ import { createMuxLoop } from './mux-loop.ts';
 import { type Watcher, createSseLoops } from './sse-loop.ts';
 import { TOOL_LIST } from './tool-schemas.ts';
 import { handleDocsTool } from './tools/docs.ts';
+import { handleInboxTool } from './tools/inbox.ts';
 import { handleTaskTool } from './tools/tasks.ts';
 import { handleWorkspaceTool } from './tools/workspace.ts';
 import { SHARED_IDENTITY_REASON, createWatchRegistry, isSharedIdentity } from './watch-registry.ts';
@@ -268,7 +269,7 @@ export function createConnectorSession(deps: ConnectorSessionDeps): ConnectorSes
     sendDueHeartbeats: () => sendDueHeartbeats(),
     watchDoc: (docId) => registry.watchDoc(docId),
     toolContext,
-    handlers: [handleDocsTool, handleTaskTool, handleWorkspaceTool],
+    handlers: [handleDocsTool, handleTaskTool, handleWorkspaceTool, handleInboxTool],
     err,
   });
 

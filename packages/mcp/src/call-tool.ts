@@ -20,11 +20,15 @@
 import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { warnDeprecatedAlias } from './deprecated-aliases.ts';
 import type { DocsToolContext } from './tools/docs.ts';
+import type { InboxToolContext } from './tools/inbox.ts';
 import type { TaskToolContext } from './tools/tasks.ts';
 import type { WorkspaceToolContext } from './tools/workspace.ts';
 
 /** The slice of the process the domain handlers in `tools/` read. */
-export type ToolContext = DocsToolContext & TaskToolContext & WorkspaceToolContext;
+export type ToolContext = DocsToolContext &
+  InboxToolContext &
+  TaskToolContext &
+  WorkspaceToolContext;
 
 /** One domain family. `undefined` means "not one of mine". */
 export type DomainHandler = (

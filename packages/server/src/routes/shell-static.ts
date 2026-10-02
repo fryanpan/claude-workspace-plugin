@@ -143,6 +143,9 @@ export interface ShellStaticContext {
   landingReview: () => Promise<LandingReview>;
   /** The holding-pen board's name, which the landing banner's join names. */
   defaultBoardWorkspaceName: string;
+  /** Incoming Messages for the owner, ranked by the page's project order,
+   *  or '' (inbox/landing.ts). Asked only when `ownerProven`. */
+  landingInbox?: (rankOf: ReadonlyMap<string, number>) => string;
 }
 
 /** The address this request is asking about, and who is asking. */
@@ -159,6 +162,9 @@ export interface ShellStaticRequest {
    *  has one (`request-admission.ts`). Read only to paint the board's way
    *  back to that list and who is signed in. */
   visitorHome: { signedInAs: string } | null;
+  /** A person proof on this request names the owner. Read only to decide
+   *  whether `/` carries Incoming Messages. */
+  ownerProven?: boolean;
 }
 
 export interface ShellStatic {
@@ -183,6 +189,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     withReviewUrl,
     landingReview,
     defaultBoardWorkspaceName,
+    landingInbox,
   } = ctx;
 
   /**
@@ -416,8 +423,11 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
   };
 
   /** `/` — the landing page. Async only for the review bar's loads. */
-  const serveLanding = async (): Promise<Response> => {
+  const serveLanding = async (ownerProven: boolean): Promise<Response> => {
     const review = await landingReview();
+    // Bryan's messages, for Bryan's own session only: never for an agent
+    // reading `/` from this machine, which proves nobody.
+    const inbox = ownerProven && landingInbox ? landingInbox(review.rankOf) : '';
     const model = buildLandingModel(
       collectLandingWorkspaces(docStore, taskStore),
       collectLandingProjects(docStore),
@@ -438,6 +448,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
         defaultBoardWorkspaceName,
         readAppAssetManifest(markdownAppDist),
         review,
+        inbox,
       ),
       { headers: HTML_SHELL_HEADERS },
     );
@@ -449,6 +460,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     pathname,
     visitor,
     visitorHome,
+    ownerProven = false,
   }: ShellStaticRequest): Response | null | Promise<Response> => {
     // --- Static: widget ---
     if (widgetDist && pathname.startsWith('/widget/')) {
@@ -667,7 +679,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     }
 
     // --- Landing ---
-    if (pathname === '/') return serveLanding();
+    if (pathname === '/') return serveLanding(ownerProven);
 
     // --- One project's artifacts, on demand ---
     // The landing page deliberately does not carry these. Work here is

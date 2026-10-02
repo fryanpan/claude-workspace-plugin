@@ -75,7 +75,8 @@ export function agentTokenPath(agentId: string): string {
  * The durable watch set, and the lead's spoken answer (`answer_voice`), which
  * the server says aloud on a board only for an agent proved to be on it. The
  * stream is not a REST call and asks the store directly, and the mint route
- * is fetched by the store itself.
+ * is fetched by the store itself. The inbox reader's post is refused
+ * without one, always.
  *
  * The first version of this put the header on EVERY call, reasoning that a
  * route list here is a second place to drift out of step with the server's.
@@ -90,7 +91,8 @@ export function agentTokenPath(agentId: string): string {
 export function pathNeedsAgentToken(path: string): boolean {
   return (
     /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) ||
-    /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path)
+    /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path) ||
+    path === '/inbox/rows'
   );
 }
 

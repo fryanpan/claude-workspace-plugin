@@ -140,8 +140,11 @@ describe('the MCP agent-token store', () => {
 });
 
 describe('which paths carry the bearer', () => {
-  it('carries it on the durable watch set and the spoken answer, and nothing else', () => {
+  it('carries it on the durable watch set, the spoken answer, the inbox post, and nothing else', () => {
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches')).toBe(true);
+    expect(pathNeedsAgentToken('/inbox/rows')).toBe(true);
+    // Bryan's own taps are not an agent's to make; they carry no bearer.
+    expect(pathNeedsAgentToken('/inbox/rows/ib-abcdefghijkl/state')).toBe(false);
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches?x=1')).toBe(true);
     // The merge route has its own operator gate and asks for no token; the
     // mint route is fetched by the store itself, not through `http`.
