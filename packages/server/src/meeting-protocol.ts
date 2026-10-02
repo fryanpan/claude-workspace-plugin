@@ -61,6 +61,7 @@ import { SILENCE_TIMEOUT_MS } from './meeting-silence.ts';
 import { type MeetingStreamSet, openMeetingStreamSet } from './meeting-stream-set.ts';
 import type { ActiveMeeting, MeetingStore } from './meetings.ts';
 import { raceDeadline } from './race-deadline.ts';
+import type { MeetingEars } from './spoken-reply/meeting-ears.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 
 /** The slice of a Bun `ServerWebSocket` this module needs. */
@@ -169,6 +170,13 @@ export interface MeetingRelayDeps {
    * Absent is `console.error`.
    */
   log?: (line: string) => void;
+  /**
+   * The planning voice's ears (`spoken-reply/meeting-ears.ts`): every frame
+   * heard goes to it, and the notes composer's copy goes through it, so an
+   * answer the voice writes into the plan stays out of the notes. Absent, a
+   * meeting is heard by nothing else.
+   */
+  ears?: MeetingEars;
 }
 
 /**
@@ -1148,7 +1156,15 @@ export class MeetingRelay {
           // progress, which is exactly the evidence that defers a pause tick.
           // Under the meeting's numbering, not the session's: the ids it
           // reports back on `notes_progress` are the ones the strip has.
-          notes?.onTurn({ ...turn, turn: turnId }, spokenAtOf(turn.stream, turn.audioEndMs));
+          const numbered = { ...turn, turn: turnId };
+          const spokenAt = spokenAtOf(turn.stream, turn.audioEndMs);
+          const ears = this.deps.ears;
+          if (!ears) {
+            notes?.onTurn(numbered, spokenAt);
+            return;
+          }
+          ears.heard(docId, numbered);
+          ears.toNotes(docId, () => notes?.onTurn(numbered, spokenAt));
         },
         onError: (message) => {
           // Scrubbed first: the vendor wrote this text, not us.
@@ -1190,6 +1206,7 @@ export class MeetingRelay {
 
     conn.streams = streamSet;
     conn.state = 'live';
+    this.deps.ears?.started(docId);
     // From the moment the meeting is live, not from the first word: a
     // recording that hears nothing at all is exactly the one this window
     // exists to end.
@@ -1294,6 +1311,8 @@ export class MeetingRelay {
     } catch (err) {
       console.error('[meeting] engine close failed:', err);
     }
+    // Whatever a question out held back reaches the notes before they flush.
+    this.deps.ears?.ended(ws.data.docId);
     // AFTER the close: the flush above settles the turn in progress, and the
     // meeting's last sentence belongs in its notes as much as in its file.
     try {

@@ -13,7 +13,9 @@ import { DocStore } from '../src/doc-store.ts';
 import { SpokenAnswerer, type SpokenBoard } from '../src/spoken-reply/answer.ts';
 import { interviewDocs } from '../src/spoken-reply/interview-docs.ts';
 import { InterviewLog, type InterviewRow } from '../src/spoken-reply/interview-log.ts';
+import type { PlanComplete } from '../src/spoken-reply/interview-reader.ts';
 import { SpokenInterview } from '../src/spoken-reply/interview.ts';
+import type { MeetingEars } from '../src/spoken-reply/meeting-ears.ts';
 import { SseBus } from '../src/sse.ts';
 import type { VoiceContext } from '../src/voice-prompt.ts';
 import { createWebhookDispatcher } from '../src/webhooks.ts';
@@ -78,7 +80,14 @@ export interface Fixture {
 }
 
 export async function planFixture(
-  opts: { markdown?: string; onBoard?: boolean } = {},
+  opts: {
+    markdown?: string;
+    onBoard?: boolean;
+    /** The model a reading asks; absent, the gap list only. */
+    complete?: PlanComplete;
+    /** A planning meeting's ears, for the notes hold. */
+    ears?: MeetingEars;
+  } = {},
 ): Promise<Fixture> {
   const docStore = new DocStore({
     dataDir: mkdtempSync(join(tmpdir(), 'cw-interview-')),
@@ -105,10 +114,21 @@ export async function planFixture(
     rows.push(row);
     realRecord(row);
   };
-  const docs = interviewDocs(docStore, (ws) =>
-    ws === WS && opts.onBoard !== false ? [DOC_ID] : [],
+  const docs = interviewDocs(
+    docStore,
+    (ws) => (ws === WS && opts.onBoard !== false ? [DOC_ID] : []),
+    opts.ears,
   );
-  const interview = new SpokenInterview({ docs, log, now: () => clock, newId: () => 'iv-1' }, WS);
+  const interview = new SpokenInterview(
+    {
+      docs,
+      log,
+      now: () => clock,
+      newId: () => 'iv-1',
+      ...(opts.complete ? { complete: opts.complete } : {}),
+    },
+    WS,
+  );
   const answerer = new SpokenAnswerer(ROUTED, WS, interview);
   const actor = { id: 'known-alice', name: 'Alice' };
   return {

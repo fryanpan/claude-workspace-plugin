@@ -195,6 +195,7 @@ import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import type { SpokenBoard } from './spoken-reply/answer.ts';
 import { interviewDocs } from './spoken-reply/interview-docs.ts';
 import { INTERVIEW_TIMINGS_FILE, InterviewLog } from './spoken-reply/interview-log.ts';
+import { MeetingEars } from './spoken-reply/meeting-ears.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -527,6 +528,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     ...(opts.voiceKeepGraceMs !== undefined ? { keepGraceMs: opts.voiceKeepGraceMs } : {}),
     log: (line) => console.log(line),
   });
+  // A planning meeting's transcript, lent to the planning voice on its doc.
+  const meetingEars = new MeetingEars();
   const meetingRelay = new MeetingRelay({
     store: meetingStore,
     engines: Array.isArray(opts.transcription)
@@ -663,6 +666,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         return false;
       }
     },
+    ears: meetingEars,
   });
   /**
    * The bot path into the SAME pipeline. It gets the relay's own notes deps
@@ -1603,11 +1607,17 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     timings: spokenTimings,
     agentCallbacks,
     parseContext: parseVoiceContext,
-    // "interview me" on a plan: its gaps asked aloud, answers written in.
+    // The planning voice: a plan read at each pause, answers written in.
     interview: {
-      docs: interviewDocs(docStore, (ws) => taskStore.getWorkspace(ws)?.docIds),
+      docs: interviewDocs(docStore, (ws) => taskStore.getWorkspace(ws)?.docIds, meetingEars),
       log: new InterviewLog(join(dataDir, INTERVIEW_TIMINGS_FILE)),
+      ...(opts.voiceComplete ? { complete: opts.voiceComplete } : {}),
     },
+    // Only a plan's meeting is heard: a discussion's never asks anything.
+    meetingEars: (docId) =>
+      docStore.peekMeta(docId)?.huddleKind === 'plan' && meetingEars.recording(docId)
+        ? meetingEars.engine(docId)
+        : null,
   });
 
   /** A path segment, decoded, answering itself rather than throwing on `%`. */

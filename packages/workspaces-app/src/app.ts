@@ -376,7 +376,8 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
     // The agent's cursor, the voice mic and the planning voice.
-    mountDocVoices({ docId, user, editor, editorMount, presence: awareness, canWrite, scope });
+    const voice = { docId, user, editor, editorMount, presence: awareness, canWrite, scope };
+    mountDocVoices({ ...voice, ydoc, meeting });
   }
 
   mountDocSpeakerMenu({

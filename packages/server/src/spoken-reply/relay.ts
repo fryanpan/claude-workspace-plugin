@@ -8,6 +8,7 @@
  */
 import type { SpokenHeldSetups, SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { isCategoryAuthor } from '../task-owner.ts';
+import type { TranscriptionEngine } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
@@ -37,6 +38,9 @@ export interface SpokenReplyRelayDeps {
   /** Interview mode's docs and timing record; absent, "interview me" is
    *  routed like anything else said. */
   interview?: SpokenInterviewDeps;
+  /** The planning meeting recording on a doc, for a socket that hears it
+   *  (`meeting-ears.ts`); absent, no socket can. */
+  meetingEars?: (docId: string) => TranscriptionEngine | null;
 }
 
 export class SpokenReplyRelay {
@@ -83,6 +87,7 @@ export class SpokenReplyRelay {
       provenActor,
       readOnly: ws.data.readOnly === true,
       parseContext: this.deps.parseContext,
+      ...(this.deps.meetingEars ? { meetingEars: this.deps.meetingEars } : {}),
       sendJson: send,
       sendAudio: (pcm) => {
         try {

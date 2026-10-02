@@ -436,6 +436,12 @@ export interface MeetingStripOpts {
    * `meeting-tidy-line.ts`.
    */
   tidyUpNotes?: (meetingId: string) => Promise<MeetingTidyOutcome>;
+  /**
+   * The strip started or stopped recording. What reads it is the planning
+   * voice (`doc/doc-interview.ts`), which hears a plan's meeting from the
+   * moment the server says it is live until it is not.
+   */
+  onRecordingChange?: (recording: boolean) => void;
 }
 
 /**
@@ -1524,7 +1530,9 @@ export function mountMeetingStrip(opts: MeetingStripOpts): MeetingStripHandle {
   }
 
   function setState(next: StripState): void {
+    const was = state.kind === 'recording';
     state = next;
+    if (was !== (next.kind === 'recording')) opts.onRecordingChange?.(!was);
     if (next.kind === 'recording') {
       stopClock ??= interval(tickClock, CLOCK_MS);
     } else {

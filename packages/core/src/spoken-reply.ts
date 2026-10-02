@@ -94,6 +94,10 @@ export type SpokenClientMessage =
        *  the server's own `parseVoiceContext`, never trusted here. */
       context?: unknown;
       author?: SpokenAuthor;
+      /** `meeting`: hear the planning meeting recording on the context's doc
+       *  instead of this socket's own audio (the server's `meeting-ears.ts`).
+       *  The page then sends no audio. */
+      ears?: 'meeting';
     }
   | { type: 'end' }
   | { type: 'stop' }
@@ -234,6 +238,7 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
         mode,
         ...(m.context !== undefined ? { context: m.context } : {}),
         ...(author ? { author } : {}),
+        ...(m.ears === 'meeting' ? { ears: 'meeting' as const } : {}),
       };
     }
     case 'end':

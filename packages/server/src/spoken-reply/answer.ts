@@ -185,18 +185,21 @@ export class SpokenAnswerer {
     return this.interview?.active === true;
   }
 
+  /** `meeting`: heard in a planning meeting (`meeting-ears.ts`), where only
+   *  the planning voice answers and everything else is left unsaid. */
   async answer(
     heard: string,
     actor: VoiceActor,
     context: VoiceContext | undefined,
+    meeting = false,
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
-    const interviewed = this.interview?.answer(transcript, context);
+    const interviewed = await this.interview?.answer(transcript, context, meeting);
     if (interviewed) {
       const points = interviewed.spoken ? [{ say: interviewed.spoken }] : [];
       return { ...interviewed, points };
     }
-    if (!transcript) return plain('');
+    if (!transcript || meeting) return plain('');
 
     const walked = this.walk ? await this.walk.hear(transcript) : null;
     if (walked) {

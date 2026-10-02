@@ -23,6 +23,10 @@
  *    calls back into the same answerer through this server's custom-LLM
  *    route (`agent-turns.ts`).
  *
+ * In a planning meeting the page sends no audio: its `start` says `ears:
+ * 'meeting'`, and setups 1 and 2 hear the meeting's own transcript in place
+ * of Soniox (`meeting-ears.ts`), always through the pause gate.
+ *
  * `stop` is the page saying the speaker cut in: the voice is aborted at once
  * and whatever it had not sent is never sent.
  *
@@ -106,6 +110,9 @@ export interface SpokenSessionDeps {
   sendAudio(pcm: Uint8Array): void;
   /** The pause gate's clock; a test passes a fake one. */
   timers?: GateTimers;
+  /** The planning meeting recording on `docId`, as a listener, or null
+   *  when none is (or the doc is not a plan). */
+  meetingEars?: (docId: string) => TranscriptionEngine | null;
 }
 
 const NOBODY: VoiceActor = { id: 'voice-unknown', name: 'unknown', kind: 'known' };
@@ -116,6 +123,8 @@ export class SpokenSession {
   private mode: SpokenMode = 'hold';
   private context: VoiceContext | undefined;
   private actor: VoiceActor = NOBODY;
+  /** This turn hears the planning meeting on its doc, not this socket. */
+  private ears = false;
 
   // Setups 1 and 2: the listener for the current turn.
   private stt: TranscriptionSession | null = null;
@@ -249,12 +258,17 @@ export class SpokenSession {
       });
       return;
     }
+    if (msg.ears === 'meeting' && msg.setup > 2) {
+      this.deps.sendJson({ type: 'error', message: 'A meeting is heard on setup 1 or 2.' });
+      return;
+    }
     this.stopSpeaking();
     this.cue = null;
     this.dropListener();
     this.turn++;
     this.setup = msg.setup;
     this.mode = msg.mode;
+    this.ears = msg.ears === 'meeting';
     this.context = this.deps.parseContext(msg.context);
     this.actor = this.deps.provenActor ?? msg.author ?? NOBODY;
     if (msg.setup === 4) this.agentTurns?.start();
@@ -307,10 +321,14 @@ export class SpokenSession {
   }
 
   private startListening(): void {
-    const listener = this.deps.engines.listener;
-    if (!listener) return;
+    const listener = this.ears ? this.meetingListener() : this.deps.engines.listener;
+    if (!listener) {
+      if (this.ears)
+        this.deps.sendJson({ type: 'error', message: 'No planning meeting is recording here.' });
+      return;
+    }
     const turn = this.turn;
-    if (this.mode === 'tap' && this.deps.answerer.converses(this.context)) {
+    if (this.ears || (this.mode === 'tap' && this.deps.answerer.converses(this.context))) {
       this.pause = new PauseGate(() => void this.finishListening(turn), this.deps.timers);
     }
     const opening = listener
@@ -352,6 +370,12 @@ export class SpokenSession {
         },
       );
     this.sttOpening = opening;
+  }
+
+  private meetingListener(): TranscriptionEngine | null {
+    const c = this.context;
+    if (c?.surface !== 'doc' || !c.docId || !this.deps.answerer.converses(c)) return null;
+    return this.deps.meetingEars?.(c.docId) ?? null;
   }
 
   /** `endpointed`: the listener's end of speech already finalized every word,
@@ -405,7 +429,7 @@ export class SpokenSession {
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     const cue = this.armCue(voice, text, turn);
     if (text) this.deps.sendJson({ type: 'working' });
-    const answer = await this.deps.answerer.answer(text, this.actor, this.context);
+    const answer = await this.deps.answerer.answer(text, this.actor, this.context, this.ears);
     if (turn !== this.turn) return;
     this.deps.sendJson(replyMessage(answer));
     const opened = (await cue?.ready()) === true;

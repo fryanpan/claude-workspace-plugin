@@ -2742,6 +2742,45 @@ three for the same reason it is the most likely to misfire: most of its rule
 is the line separating a correction from somebody changing their mind. Output
 is unchanged on the ticks that carry none of them, which is most of them.
 
+## The planning voice in a planning meeting (`spoken-reply/meeting-ears.ts`, 2026-10-02)
+
+A planning meeting (a huddle of kind `plan`, from the Board's "Make a plan")
+now asks questions out loud. Bryan's first try of the planning voice was in
+one: he talked, paused, asked "any questions?", and nothing was asked,
+because the planning voice ran only on the review doc's Talk card and the
+meeting path transcribes and writes notes but never speaks.
+
+- **The meeting's transcript is the voice's ears.** The relay hands every
+  frame to `MeetingEars.heard`. A spoken-reply socket on the same doc whose
+  `start` says `ears: 'meeting'` opens `MeetingEars.engine(docId)` in place of
+  its own Soniox listener, so no second microphone and no second
+  transcription session is paid for. The page opens that socket by itself
+  while it records a plan (`doc/doc-interview.ts`, told by the strip's
+  `onRecordingChange`). The server checks again: `meetingEars` in `server.ts`
+  lends a meeting only when the doc's meta says `huddleKind: 'plan'`, so a
+  discussion never asks anything.
+- **The turn is the ordinary planning-voice turn.** The pause gate
+  (`pause-gate.ts`), the interview (`interview.ts`), the voice, the agent's
+  cursor (`agentFocus`) and the `[spoken-reply] setup=` timing line are the
+  same ones the Talk card uses. The question plays through the meeting page's
+  spoken-reply player: PCM over the converse socket, the same path as the
+  Talk card. iOS allows that playback without a tap only because the page is
+  already capturing the microphone.
+- **Questions come from reading the plan** (`interview-reader.ts`). At a
+  pause somebody spoke into, one model call (the server's `voiceComplete`)
+  gets the plan, the gap list, what was just said and what was already asked,
+  and names one question and the heading its answer belongs under, or none.
+  "Any questions?" always gets an answer: the best question, or one sentence
+  saying there is none and why. A pause nobody spoke into makes no call.
+- **An answer is written into the plan, not the notes as well.** From the
+  moment a question is asked, the relay's deliveries to the notes composer
+  for that doc are held in `MeetingEars`. If the answer is written under its
+  heading they are dropped, because the plan has them. Otherwise (a bare
+  "yes", "I don't know yet", the socket going) they are delivered late but in
+  order. A meeting's end delivers anything still held before the notes flush,
+  and the hold lets go after `MAX_HELD_FRAMES` so an unanswered question
+  cannot starve the notes.
+
 ## A meeting's title (`meeting-namer.ts`, `meeting-titler.ts`)
 
 A meeting is called what it is about, not when it started. A new one is

@@ -33,6 +33,10 @@ export const PRIMARY_LABELS: Record<InterviewPhase, string> = {
 export const START_PROMPT =
   'Talk through the plan. When you pause, Claude asks what is still open.';
 
+/** The same card, opened by a planning meeting rather than a tap. */
+export const MEETING_PROMPT =
+  'Claude is listening to the meeting. When you pause, it asks what is still open.';
+
 /** The spoken commands, as buttons: label, then what tapping one says. */
 export const COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ['Skip', 'skip'],

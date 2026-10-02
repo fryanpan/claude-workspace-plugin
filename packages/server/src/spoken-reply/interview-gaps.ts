@@ -29,7 +29,9 @@
 import type { prose } from '@claude-workspaces/core';
 import { capWords } from '../voice-status.ts';
 
-export type GapKind = 'empty' | 'placeholder' | 'question' | 'thin';
+/** `read`: not found here but chosen by reading the plan
+ *  (`interview-reader.ts`); its question is the model's, asked as given. */
+export type GapKind = 'empty' | 'placeholder' | 'question' | 'thin' | 'read';
 
 export interface PlanGap {
   /** The section's heading block — where the answer is written. */
@@ -40,6 +42,9 @@ export interface PlanGap {
   asks?: string;
   /** The block holding that question. */
   asksId?: string;
+  /** The words in that block the cursor sits on, when they are not
+   *  `asks` itself (a `read` gap's question is not the plan's words). */
+  quote?: string;
   /** The section's place among the doc's headings, from 0 — what the
    *  timing record names instead of the heading's words. */
   ordinal: number;
@@ -63,7 +68,13 @@ const CORE =
 const SUPPORT =
   /\b(?:risks?|open questions?|questions|dependenc(?:y|ies)|rollout|launch|test(?:ing)?|metrics?|measure|timeline|milestones?|plan|cost|security|alternatives?)\b/i;
 
-const KIND_WEIGHT: Record<GapKind, number> = { empty: 3, placeholder: 3, question: 2, thin: 1 };
+const KIND_WEIGHT: Record<GapKind, number> = {
+  empty: 3,
+  placeholder: 3,
+  question: 2,
+  thin: 1,
+  read: 0,
+};
 
 function words(text: string): number {
   return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
@@ -152,6 +163,8 @@ export function questionFor(gap: PlanGap): string {
       );
       return /\?$/.test(asked) ? `Under ${h}: ${asked}` : `Under ${h}, what about: ${asked}?`;
     }
+    case 'read':
+      return capWords(gap.asks ?? '', QUESTION_WORDS);
   }
 }
 
@@ -162,6 +175,7 @@ export function gapLine(gap: PlanGap): string {
     placeholder: 'placeholder only',
     question: 'open question',
     thin: 'short',
+    read: gap.asks ?? 'asked',
   };
   return `${gap.heading} — ${what[gap.kind]}`;
 }

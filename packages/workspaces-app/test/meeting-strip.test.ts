@@ -321,6 +321,7 @@ function mount(
     loadSpeakers?: () => Promise<DocSpeakers | null>;
     onMeetingChange?: (meetingId: string | null) => void;
     onMeetingEnded?: (meetingId: string) => void;
+    onRecordingChange?: (recording: boolean) => void;
     tidyUpNotes?: (meetingId: string) => Promise<MeetingTidyOutcome>;
     loadTranscript?: () => Promise<{ lines: PanelLine[] } | null>;
     postName?: (meetingId: string, speaker: string, name: string) => Promise<boolean>;
@@ -1012,6 +1013,18 @@ describe('the strip when no words are coming', () => {
     expect(onMeetingEnded).not.toHaveBeenCalled();
     h.sockets[0]?.serve({ type: 'stopped', meetingId: 'm2', endedAt: 2_000 });
     expect(onMeetingEnded.mock.calls.map((c) => c[0])).toEqual(['m2']);
+  });
+
+  it('says when recording starts and stops, once each', async () => {
+    const onRecordingChange = vi.fn();
+    const h = mount(undefined, { onRecordingChange });
+    h.pressStart({ pick: 'Just me' });
+    await settle();
+    h.sockets[0]?.onopen?.();
+    expect(onRecordingChange).not.toHaveBeenCalled();
+    h.sockets[0]?.serve({ type: 'ready', meetingId: 'm4', startedAt: 1_000, engine: 'test' });
+    h.pressStop();
+    expect(onRecordingChange.mock.calls.map((c) => c[0])).toEqual([true, false]);
   });
 
   it('reports an end from a press of Stop, which the server frame never follows', async () => {

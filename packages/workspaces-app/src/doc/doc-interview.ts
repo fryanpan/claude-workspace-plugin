@@ -25,6 +25,16 @@
  * once per question: after the offer it waits for as long as it takes.
  * Setup 3 is left to Gemini's own turn-taking.
  *
+ * IN A PLANNING MEETING it needs no tap. While this page records a plan's
+ * meeting (`DocInterviewOpts.meeting`) the card opens by itself and every
+ * `start` says `ears: 'meeting'`: the server hears the meeting's own
+ * transcript (`spoken-reply/meeting-ears.ts`), so no second microphone is
+ * opened and no audio is sent here, and there is no silence turn — a quiet
+ * room is not asked anything. The question plays through this page's
+ * spoken-reply player, the same PCM path the Talk card plays, and the card
+ * listens again after every reply until the recording stops. Setup 3 has its
+ * own ears, so a meeting is heard on setup 1 or 2.
+ *
  * Mounted only for a writer on a board whose server names a setup.
  */
 import {
@@ -45,7 +55,12 @@ import {
 import { SETUP_KEY, type SpokenSocket } from '../board/spoken-reply-client.ts';
 import type { MountScope } from '../mount-scope.ts';
 import { defaultOriginFacts, insecureOriginMessage } from '../voice-capture.ts';
-import { DocInterviewView, type InterviewFrame, START_PROMPT } from './doc-interview-view.ts';
+import {
+  DocInterviewView,
+  type InterviewFrame,
+  MEETING_PROMPT,
+  START_PROMPT,
+} from './doc-interview-view.ts';
 
 const OPEN = 1;
 /** Frames held while the socket connects: 20s of 50ms frames. */
@@ -71,6 +86,12 @@ export interface DocInterviewOpts {
   /** The secure-context gate; a test passes one that lets it through. */
   blocked?: () => string | null;
   silenceMs?: number;
+  /** The page's meeting: told when it starts and stops recording, and
+   *  whether the doc is a plan. Absent: the card opens only on a tap. */
+  meeting?: {
+    onRecording(fn: (recording: boolean) => void): void;
+    isPlan(): boolean;
+  };
 }
 
 function audioCtor(): typeof AudioContext | undefined {
@@ -116,6 +137,11 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     }
   })();
   const setup = interviewSetup(opts.setups, stored);
+  /** A meeting is heard on setup 1 or 2: setup 3 hears with Gemini. */
+  const earsSetup: SpokenSetup | null =
+    setup === 1 || setup === 2
+      ? setup
+      : (([1, 2] as const).find((s) => opts.setups.includes(s)) ?? null);
   const heldLine = Object.values(opts.held ?? {})[0] ?? 'Spoken replies are not set up here.';
 
   const frame: InterviewFrame = {
@@ -139,6 +165,10 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   /** The current question has had its silence turn. */
   let silenced = false;
+  /** Hearing this page's planning meeting rather than a microphone. */
+  let inMeeting = false;
+  /** When the server called the last turn over, for the delay it logs. */
+  let turnEndedAt: number | null = null;
   const quiet = (): void => {
     if (silenceTimer) clearTimeout(silenceTimer);
     silenceTimer = null;
@@ -186,7 +216,12 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       }
       return playCtx;
     },
-    onFirstWord: () => {},
+    onFirstWord: (at) => {
+      // The meeting's delay, pause to first word, logged per setup.
+      if (!inMeeting || turnEndedAt === null) return;
+      sendMsg({ type: 'timing', delayMs: Math.max(0, Math.round(at - turnEndedAt)) });
+      turnEndedAt = null;
+    },
   });
 
   /** Open the microphone, inside the tap that asked for it. */
@@ -222,7 +257,8 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   }
 
   function listen(): void {
-    if (setup === null) return;
+    const using = inMeeting ? earsSetup : setup;
+    if (using === null) return;
     player.stop();
     listening = true;
     frame.phase = 'listening';
@@ -230,13 +266,14 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     frame.note = null;
     sendMsg({
       type: 'start',
-      setup,
+      setup: using,
       mode: 'tap',
       context: { surface: 'doc', docId: opts.docId },
       author: opts.author,
+      ...(inMeeting ? { ears: 'meeting' as const } : {}),
     });
     quiet();
-    if (setup !== 3 && !silenced) {
+    if (!inMeeting && setup !== 3 && !silenced) {
       silenceTimer = setTimeout(() => {
         silenceTimer = null;
         if (!listening) return;
@@ -265,7 +302,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
 
   function afterSpoken(): void {
     if (!frame.open) return;
-    if (asking) listen();
+    if (asking || inMeeting) listen();
     else {
       frame.phase = 'done';
       draw();
@@ -295,6 +332,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         quiet();
         if (m.text.trim()) silenced = false;
         listening = false;
+        turnEndedAt = performance.now();
         frame.heard = m.text;
         frame.phase = 'thinking';
         draw();
@@ -308,7 +346,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         if (m.spoken) {
           frame.note = null;
           frame.phase = 'asking';
-        } else if (planning && m.asking) {
+        } else if (inMeeting || (planning && m.asking)) {
           // Claude chose to say nothing: listen for the next pause.
           listen();
           return;
@@ -354,9 +392,22 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     listen();
   }
 
+  /** This page started recording a plan's meeting: listen to it. */
+  function joinMeeting(): void {
+    if (earsSetup === null || frame.open || !opts.meeting?.isPlan()) return;
+    inMeeting = true;
+    frame.open = true;
+    frame.question = MEETING_PROMPT;
+    player.wake();
+    ensureSocket();
+    listen();
+  }
+
   function shut(): void {
     quiet();
     silenced = false;
+    inMeeting = false;
+    turnEndedAt = null;
     if (frame.interviewing) sendMsg({ type: 'say', text: 'that’s enough' });
     else sendMsg({ type: 'stop' });
     // A fresh socket next time, so the next Talk starts the planning voice
@@ -379,6 +430,11 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     draw();
   }
 
+  opts.meeting?.onRecording((recording) => {
+    if (opts.scope.disposed) return;
+    if (recording) joinMeeting();
+    else if (inMeeting) shut();
+  });
   opts.scope.listen(view.button, 'click', () => {
     if (frame.open) shut();
     else open();
@@ -416,41 +472,4 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   });
   draw();
   return view;
-}
-
-/**
- * Ask the server which spoken setups it runs, and mount the Interview button
- * only when it names one (or holds one, so choosing it can say why).
- */
-export function wireDocInterview(opts: {
-  docId: string;
-  workspaceId: string;
-  user: { id: string; name: string; kind?: string };
-  scope: MountScope;
-}): void {
-  const base = `/workspaces/${encodeURIComponent(opts.workspaceId)}/voice`;
-  void fetch(`${base}/timings`)
-    .then((r) =>
-      r.ok ? (r.json() as Promise<{ setups?: SpokenSetup[]; held?: SpokenHeldSetups }>) : null,
-    )
-    .catch(() => null)
-    .then((r) => {
-      const setups = r?.setups ?? [];
-      const held = r?.held ?? {};
-      if (opts.scope.disposed || (setups.length === 0 && Object.keys(held).length === 0)) return;
-      const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-      mountDocInterview({
-        docId: opts.docId,
-        workspaceId: opts.workspaceId,
-        author: {
-          id: opts.user.id,
-          name: opts.user.name,
-          ...(opts.user.kind ? { kind: opts.user.kind } : {}),
-        },
-        scope: opts.scope,
-        setups,
-        held,
-        url: `${wsProto}://${location.host}${base}/converse`,
-      });
-    });
 }
