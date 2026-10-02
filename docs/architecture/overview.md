@@ -711,7 +711,9 @@ turn's `timing` report, which now carries each note's lead.
 
 "Go through my reviews" starts the review queue by voice.
 `spoken-reply/review-walk.ts` reads each item's headline and options, answers
-questions about it, and reads a decision back before anything is recorded;
+questions about it, and reads a decision back before anything is recorded.
+The read-back, the yes and the one-utterance undo window are
+`spoken-reply/confirm.ts`, kept apart so a doc follow-up can reuse it;
 `review-words.ts` holds the words it listens for, and `review-speakable.ts`
 the rule for which items stay on the queue for the screen. The server never
 writes the answer itself: the reply carries a `decide`, and
