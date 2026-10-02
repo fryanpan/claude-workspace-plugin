@@ -11,6 +11,7 @@ import { type CommentPillHandle, mountCommentPill } from './doc/doc-comment-pill
 import { mountDocFloats } from './doc/doc-floats.ts';
 import { wireDocGates } from './doc/doc-gates.ts';
 import { mountMeetingHeading } from './doc/doc-heading.ts';
+import { wireDocInterview } from './doc/doc-interview.ts';
 import { mountDocMargin } from './doc/doc-margin.ts';
 import { type DocMeetingMount, mountDocMeeting } from './doc/doc-meeting-mount.ts';
 import { mountPointerPillLayer } from './doc/doc-pointer-pill.ts';
@@ -375,9 +376,10 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       whenSynced: (cb) => client.onReady(cb),
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
-    // The voice mic, for a writer on a board (the address's, not `ctx.workspaceId`).
+    // The voice mic and interview mode, for a writer on a board (the address's, not `ctx.workspaceId`).
     const board = canWrite ? currentWorkspaceId() : null;
     if (board) mountDocVoice({ docId, user, editor, editorMount, scope });
+    if (board) wireDocInterview({ docId, workspaceId: board, user, scope });
   }
 
   mountDocSpeakerMenu({

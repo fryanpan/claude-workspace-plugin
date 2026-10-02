@@ -712,6 +712,22 @@ top-level core module), so the card and the voice queue share one builder. A
 ticket's review item gained the undo it lacked:
 `routes/task-review-answer-undo.ts` over `review-items/undo-answer.ts`.
 
+**Interview mode** rides the same socket. On a review doc, the Interview
+button (`doc/doc-interview.ts`, its markup in `doc-interview-view.ts`) opens
+the spoken-reply socket with `{ surface: 'doc', docId }` as each turn's
+context; saying "interview me" there makes the socket's answerer hand every
+later turn to `spoken-reply/interview.ts` until the interview ends. It reads
+the plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
+open-question and short sections, ranked by heading), holds them as slots in
+`interview-state.ts` (each asked once, then placed, skipped, deferred, gone or
+ended; a silence after a question offers once to skip it), asks one at a time, and
+writes each answer under its heading with `applyBlockEdits`
+(`interview-docs.ts`), so threads keep their anchors. "skip", "come back to
+that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`
+records each section's question-to-answer time as a log line and a row in
+`<dataDir>/interview-timings.jsonl`, with no doc text. The doc must be on the
+socket's board, checked as the router checks it.
+
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's
 source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and
