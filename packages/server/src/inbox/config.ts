@@ -15,8 +15,12 @@
  *
  * With no `readerAgentId` nobody may post: the reader's registration is
  * this one line until the reader session has a schedule row of its own.
+ *
+ * The server reads the file at boot and again whenever its mtime or size
+ * changes (`inboxConfigReader`), so writing it takes effect on the next
+ * post without a restart.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { InboxSource } from './types.ts';
 
@@ -77,21 +81,66 @@ export function parseInboxConfig(raw: unknown): { config: InboxConfig; problems:
 
 export const INBOX_DIRNAME = 'inbox';
 
+/** The file's contents as JSON: `{}` when absent, null when not JSON, which
+ *  is logged in one line ending with what follows from it. */
+function readRaw(path: string, log: (line: string) => void, verdict: string): unknown {
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    log(`[inbox] ${path} is not JSON (${(e as Error).message}); ${verdict}`);
+    return null;
+  }
+}
+
+function fromRaw(raw: unknown, log: (line: string) => void): InboxConfig {
+  const { config, problems } = parseInboxConfig(raw);
+  for (const p of problems) log(`[inbox] config: ${p}; left out`);
+  return config;
+}
+
+const configPath = (dataDir: string) => join(dataDir, INBOX_DIRNAME, 'config.json');
+
 /** The config on disk, or the built-ins alone with nobody allowed to post. */
 export function loadInboxConfig(
   dataDir: string,
   log: (line: string) => void = (l) => console.warn(l),
 ): InboxConfig {
-  const path = join(dataDir, INBOX_DIRNAME, 'config.json');
-  let raw: unknown = {};
-  if (existsSync(path)) {
-    try {
-      raw = JSON.parse(readFileSync(path, 'utf8'));
-    } catch (e) {
-      log(`[inbox] ${path} is not JSON (${(e as Error).message}); nobody may post rows`);
-    }
+  return fromRaw(readRaw(configPath(dataDir), log, 'nobody may post rows') ?? {}, log);
+}
+
+/** What a stat says about the file: changes when it is written, created or
+ *  removed. */
+function stamp(path: string): string {
+  try {
+    const st = statSync(path);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return 'absent';
   }
-  const { config, problems } = parseInboxConfig(raw);
-  for (const p of problems) log(`[inbox] config: ${p}; left out`);
-  return config;
+}
+
+/**
+ * A getter for the current config, re-reading the file when its stamp
+ * moves. The first read is `loadInboxConfig`'s, verdict included: a file
+ * that is not JSON at boot lets nobody post. A later rewrite that is not
+ * JSON keeps the last good config, and is logged once, since the stamp
+ * does not move again until the file is next written. A removed file is
+ * the built-ins alone, as at a boot with no file.
+ */
+export function inboxConfigReader(
+  dataDir: string,
+  log: (line: string) => void = (l) => console.warn(l),
+): () => InboxConfig {
+  const path = configPath(dataDir);
+  let seen = stamp(path);
+  let current = loadInboxConfig(dataDir, log);
+  return () => {
+    const now = stamp(path);
+    if (now === seen) return current;
+    seen = now;
+    const raw = readRaw(path, log, 'keeping the last good config');
+    if (raw !== null) current = fromRaw(raw, log);
+    return current;
+  };
 }

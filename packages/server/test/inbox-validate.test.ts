@@ -5,6 +5,7 @@
  * fails here too.
  */
 import { describe, expect, it } from 'bun:test';
+import { senderKeyFor } from '../src/inbox/sender-key.ts';
 import { type ValidateContext, validateRow } from '../src/inbox/validate.ts';
 import { CONFIG, NOW, row } from './inbox-fixtures.ts';
 
@@ -78,6 +79,14 @@ describe('a hostile row is refused or cleaned', () => {
     ],
     ['a workspace not configured', { workspace: 'elsewhere' }, 'workspace'],
     ['a sender key that is not a hash', { senderKey: 'Alice' }, 'senderKey'],
+    [
+      'a sender id and a sender key both',
+      { senderId: AT_DOMAIN },
+      'senderId and senderKey are both given',
+    ],
+    ['neither a sender id nor a key', { senderKey: undefined }, 'senderId is required'],
+    ['a sender id with a newline', { senderKey: undefined, senderId: 'U01\nU02' }, 'senderId'],
+    ['an empty sender id', { senderKey: undefined, senderId: ' ' }, 'senderId'],
     ['an ask kind not on the list', { askKind: 'urgent!!' }, 'askKind'],
     ['a reply-by not on the list', { replyBy: 'now' }, 'replyBy'],
     ['a message from the far past', { receivedAt: NOW - 15 * 86_400_000 }, 'receivedAt'],
@@ -101,6 +110,17 @@ describe('a hostile row is refused or cleaned', () => {
     // store must guarantee is no control characters and a bounded size.
     expect(v.body).not.toContain('\u0007');
     expect([...v.body].length).toBeLessThanOrEqual(4000);
+  });
+
+  it('a sender id becomes the server’s key and is not kept on the row', () => {
+    const v = validateRow(
+      row({ senderKey: undefined, senderId: ` ${AT_DOMAIN.toUpperCase()}` }),
+      ctx,
+    );
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.row.senderKey).toBe(senderKeyFor('gmail', AT_DOMAIN) ?? '');
+    expect(JSON.stringify(v.row).toLowerCase()).not.toContain(AT_DOMAIN);
   });
 
   it('a goal that is not live is dropped, not refused', () => {

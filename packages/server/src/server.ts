@@ -61,7 +61,7 @@ import { spokenReviewComment } from './huddle.ts';
 import { Identities } from './identities.ts';
 import { createIdentitySetup } from './identity-setup.ts';
 import { InboxBodies } from './inbox/bodies.ts';
-import { loadInboxConfig } from './inbox/config.ts';
+import { inboxConfigReader } from './inbox/config.ts';
 import { inboxSectionFor } from './inbox/landing.ts';
 import { InboxStore } from './inbox/store.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
@@ -1392,8 +1392,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     summarizer,
   });
   /** Incoming Messages: the owner's rows, their bodies in a file of their
-   *  own, and the config naming the reader (inbox/config.ts). */
-  const inboxConfig = loadInboxConfig(dataDir);
+   *  own, and the config naming the reader, re-read when its file changes
+   *  (inbox/config.ts). */
+  const inboxConfig = inboxConfigReader(dataDir);
   const inboxStore = new InboxStore(dataDir);
   const inboxBodies = new InboxBodies(dataDir);
   // One queue over every board, in project order, and the ledger that records
@@ -2107,7 +2108,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     },
     defaultBoardWorkspaceName: DEFAULT_BOARD_WORKSPACE_NAME,
     landingInbox: (rankOf) =>
-      inboxSectionFor({ store: inboxStore, config: inboxConfig, taskStore, rankOf }),
+      inboxSectionFor({ store: inboxStore, config: inboxConfig(), taskStore, rankOf }),
   });
 
   /**
@@ -2215,7 +2216,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   const inboxRoutesCtx: InboxRoutesContext = {
     store: inboxStore,
     bodies: inboxBodies,
-    config: () => inboxConfig,
+    config: inboxConfig,
     goalIsLive: (ws, goal) => taskStore.getWorkspace(ws)?.goals.some((g) => g.id === goal) ?? false,
     runs: taskStore,
     agentName: (agentId) => identities.displayNameFor(agentId) ?? agentId,
