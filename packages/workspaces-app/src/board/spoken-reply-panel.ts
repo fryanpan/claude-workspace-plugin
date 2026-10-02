@@ -20,11 +20,13 @@ import {
   type SpokenSetup,
   type SpokenTimingRow,
 } from '@claude-workspaces/core/spoken-reply';
+import { SPOKEN_TAP_TITLE } from './spoken-reply-tap.ts';
 
 export type SpokenPanelState =
   | 'idle'
   | 'listening'
   | 'sending'
+  | 'working'
   | 'writing'
   | 'speaking'
   | 'asking'
@@ -36,6 +38,7 @@ export const SPOKEN_STATE_LABELS: Record<SpokenPanelState, string> = {
   idle: '',
   listening: 'Listening',
   sending: 'Heard you',
+  working: 'Sent · working on it',
   writing: 'Writing',
   speaking: 'Speaking',
   asking: 'Asking you',
@@ -227,7 +230,11 @@ export function createSpokenPanel(opts: SpokenPanelOpts): SpokenPanel {
       stop.disabled = !(s === 'speaking' || s === 'asking');
       opts.anchor.classList.toggle('voice-active', s === 'listening');
       opts.anchor.title =
-        s === 'speaking' || s === 'asking' ? 'Hold to interrupt' : 'Hold to talk (or hold Space)';
+        s === 'listening'
+          ? 'Tap to finish'
+          : s === 'speaking' || s === 'asking'
+            ? 'Tap to interrupt'
+            : SPOKEN_TAP_TITLE;
     },
     open() {
       root.classList.remove('hidden');

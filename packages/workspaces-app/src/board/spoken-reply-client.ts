@@ -1,5 +1,5 @@
 /**
- * The board mic in spoken mode: hold the mic (or Space), ask, and Claude
+ * The board mic in spoken mode: tap the mic (or Space), ask, and Claude
  * writes a short overview into the panel above the mic and says the first
  * two sentences of it. Speaking while Claude talks stops it.
  *
@@ -9,12 +9,12 @@
  * hand-off to the lead — happens here too; the setup switch changes only who
  * hears and who speaks.
  *
- * A press becomes one of two kinds of question:
- *  - held (Space always; the mic past `TAP_MS`): the question ends on release.
- *  - tapped (the mic released inside `TAP_MS`): the listener decides where the
- *    question ends. A second tap ends it by hand.
- * The kind is only known at release or at `TAP_MS`, so the frames said before
- * then are held and sent behind the `start` that names it.
+ * Every question is tapped (Bryan, 2 Oct: holding is wrong): a tap on the
+ * mic or Space starts it, the listener ends it about half a second after the
+ * last word, and a second tap ends it by hand. Frames said before the socket
+ * opens are held and sent behind the `start`. Once the question reaches the
+ * answerer the panel says it is being worked on until the reply arrives, so
+ * the speaker can look away.
  *
  * THE DELAY is measured in `spoken-reply-turn.ts` and sent to the server as
  * `timing`, which logs it per setup (`spoken-reply/timings.ts` names where it
@@ -41,14 +41,15 @@ import {
   createSpokenPlayer,
   startSpokenCapture,
 } from './spoken-reply-audio.ts';
-import { wireSpokenHold } from './spoken-reply-hold.ts';
 import { createNoteClock } from './spoken-reply-notes.ts';
 import { type SpokenPanel, createSpokenPanel } from './spoken-reply-panel.ts';
+import { wireSpokenTap } from './spoken-reply-tap.ts';
 import { type Turn, newTurn, timingAt } from './spoken-reply-turn.ts';
 
-/** A press released sooner than this is a tap. */
-export const TAP_MS = 300;
-/** Frames held before the socket or the question's kind is known: 20s. */
+/** A tap this soon after the listener ended the question was meant to end
+ *  it, not to ask another. */
+export const LATE_STOP_MS = 1000;
+/** Frames held before the socket is open: 20s. */
 const MAX_HELD_FRAMES = 400;
 export const SETUP_KEY = 'cw.spoken-reply.setup';
 
@@ -140,8 +141,8 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   let captureGen = 0;
   let held: Int16Array[] = [];
   let turn: Turn = newTurn();
-  let pressing = false;
-  let tapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The reply's audio stream is open — the slow-answer cue opens it early. */
+  let audioOpen = false;
 
   const sendRaw = (data: string | Int16Array): void => {
     if (socket && socket.readyState === OPEN) socket.send(data);
@@ -163,6 +164,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       if (socket !== ws) return;
       socket = null;
       queue = [];
+      audioOpen = false;
       stopCapture();
       player.stop();
       notes.flush();
@@ -241,11 +243,6 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     held = [];
   }
 
-  function clearTap(): void {
-    if (tapTimer) clearTimeout(tapTimer);
-    tapTimer = null;
-  }
-
   function speakingNow(): boolean {
     const s = panel.state();
     return s === 'speaking' || s === 'asking' || player.playing();
@@ -259,8 +256,6 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   }
 
   function closePanel(): void {
-    clearTap();
-    pressing = false;
     stopCapture();
     if (speakingNow()) sendMsg({ type: 'stop' });
     player.stop();
@@ -284,16 +279,15 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     held = [];
   }
 
-  function press(fromSpace: boolean): void {
-    if (pressing) return;
+  function press(): void {
     const blocked = heldLine(setup) ?? insecureOriginMessage(defaultOriginFacts());
     if (blocked) return void refuse(blocked);
-    // A second tap on a tapped question that is still listening ends it by hand.
-    if (panel.state() === 'listening' && turn.mode === 'tap') {
+    // A second tap on a question that is still listening ends it by hand.
+    if (panel.state() === 'listening') {
       finishByHand();
       return;
     }
-    pressing = true;
+    if (turn.turnEndAt !== null && now() - turn.turnEndAt < LATE_STOP_MS) return;
     player.wake();
     ensureSocket();
     const interrupting = speakingNow();
@@ -310,6 +304,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     panel.setState('listening');
     stopCapture();
     turn = newTurn();
+    audioOpen = false;
     const gen = captureGen;
     const Ctor = audioCtor();
     const ctx = opts.captureContext ? opts.captureContext() : Ctor ? new Ctor() : undefined;
@@ -329,36 +324,11 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       if (!r.ok) {
         panel.note(r.message);
         panel.setState('done');
-        pressing = false;
-        clearTap();
         return;
       }
       capture = r.capture;
     });
-    if (fromSpace) commit('hold');
-    else {
-      tapTimer = setTimeout(() => {
-        tapTimer = null;
-        if (pressing) commit('hold');
-      }, TAP_MS);
-    }
-  }
-
-  function release(): void {
-    if (!pressing) return;
-    pressing = false;
-    if (panel.state() !== 'listening') return;
-    if (!turn.mode) {
-      clearTap();
-      commit('tap');
-      return;
-    }
-    if (turn.mode === 'hold') {
-      turn.releasedAt = now();
-      stopCapture();
-      sendMsg({ type: 'end' });
-      panel.setState('sending');
-    }
+    commit('tap');
   }
 
   function finishByHand(): void {
@@ -375,6 +345,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     settle();
     stopCapture();
     turn = newTurn(true);
+    audioOpen = false;
     panel.setYou(text);
     panel.clearBody();
     panel.setState('sending');
@@ -417,11 +388,14 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         return;
       case 'turn-end':
         turn.turnEndAt = now();
-        pressing = false;
-        clearTap();
         stopCapture();
         panel.setYou(m.text || '…');
         panel.setState('sending');
+        return;
+      case 'working':
+        if (panel.state() === 'listening' || panel.state() === 'sending') {
+          panel.setState('working');
+        }
         return;
       case 'reply':
         turn.replyAt = now();
@@ -436,6 +410,9 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         if (!m.spoken) {
           panel.note('Didn’t catch anything.');
           panel.setState('done');
+        } else if (audioOpen) {
+          // The cue already opened the voice: the answer continues it.
+          panel.setState(m.asking ? 'asking' : 'speaking');
         } else if (panel.state() !== 'speaking' && panel.state() !== 'asking') {
           panel.setState('writing');
         }
@@ -446,10 +423,15 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
         notes.note(m.point, m.text);
         return;
       case 'audio-start':
+        audioOpen = true;
         player.begin(m.sampleRate);
-        panel.setState(turn.asking ? 'asking' : 'speaking');
+        // A cue before the reply: still being worked on, and the label says so.
+        if (turn.replyAt !== null || panel.state() !== 'working') {
+          panel.setState(turn.asking ? 'asking' : 'speaking');
+        }
         return;
       case 'audio-end':
+        audioOpen = false;
         player.finish(() => {
           settle();
           const s = panel.state();
@@ -464,19 +446,16 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
       case 'error':
         settle();
         stopCapture();
-        pressing = false;
-        clearTap();
         panel.note(m.message);
         panel.setState('done');
         return;
     }
   }
 
-  const input = wireSpokenHold({
+  const input = wireSpokenTap({
     document: doc,
     button: opts.button,
-    onPress: press,
-    onRelease: release,
+    onTap: press,
     onEscape: () => {
       if (!panel.isOpen()) return false;
       closePanel();
