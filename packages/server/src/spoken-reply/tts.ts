@@ -52,15 +52,27 @@ function textSocketFactory(args: Parameters<EngineSocketFactory>[0]): EngineSock
   };
 }
 
+/**
+ * What a Soniox voice sends back. `pcm` is PCM16 for a page to play; `mp3`
+ * is for a meeting bot, because Recall's `output_audio` takes nothing else.
+ * MP3 at 24 kHz and 64 kbps: a 25-word line is about 60KB, well inside
+ * Recall's body cap. Soniox's audio-formats page lists both values.
+ */
+export type SonioxAudio = 'pcm' | 'mp3';
+
 /** The config frame's non-secret fields; the key is added at send time. */
-export function sonioxTtsConfig(streamId: string): Record<string, unknown> {
+export function sonioxTtsConfig(
+  streamId: string,
+  audio: SonioxAudio = 'pcm',
+): Record<string, unknown> {
   return {
     stream_id: streamId,
     model: SONIOX_TTS_MODEL,
     language: 'en',
     voice: SONIOX_TTS_VOICE,
-    audio_format: 'pcm_s16le',
-    sample_rate: SPOKEN_OUTPUT_RATE,
+    ...(audio === 'mp3'
+      ? { audio_format: 'mp3', sample_rate: SPOKEN_OUTPUT_RATE, bitrate: 64_000 }
+      : { audio_format: 'pcm_s16le', sample_rate: SPOKEN_OUTPUT_RATE }),
   };
 }
 
@@ -68,12 +80,13 @@ export function createSonioxVoice(opts: {
   apiKey: string;
   socketFactory?: EngineSocketFactory;
   timeoutMs?: number;
+  audio?: SonioxAudio;
 }): SpokenVoice {
   const makeSocket = opts.socketFactory ?? textSocketFactory;
   const timeoutMs = opts.timeoutMs ?? SPEAK_TIMEOUT_MS;
   let seq = 0;
   return {
-    name: 'soniox',
+    name: opts.audio === 'mp3' ? 'soniox-mp3' : 'soniox',
     speak(text, onAudio, signal) {
       return new Promise<void>((resolve, reject) => {
         if (signal.aborted) return resolve();
@@ -106,7 +119,9 @@ export function createSonioxVoice(opts: {
           url: SONIOX_TTS_URL,
           headers: {},
           onOpen: () => {
-            socket.send(JSON.stringify({ api_key: opts.apiKey, ...sonioxTtsConfig(streamId) }));
+            socket.send(
+              JSON.stringify({ api_key: opts.apiKey, ...sonioxTtsConfig(streamId, opts.audio) }),
+            );
             socket.send(JSON.stringify({ stream_id: streamId, text, text_end: true }));
           },
           onMessage: (raw) => {

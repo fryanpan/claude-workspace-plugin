@@ -98,6 +98,7 @@ const configuredClient = (wsBase = `wss://${CALLBACK_HOST}`): RecallClient =>
       throw new Error('no bot is invited in this suite');
     },
     leaveCall: async () => {},
+    outputAudio: async () => {},
     requestRecordingPermission: async () => false,
   }) as unknown as RecallClient;
 
