@@ -3699,8 +3699,8 @@ body.doc-voice-on #comment-pill {
 }
 
 /* ================= INTERVIEW MODE (doc/doc-interview.ts) =================
-   "Interview me" on a plan: an Interview button above the voice-comment mic
-   and a card above it with the question, the words heard and the three
+   The planning voice: a Talk button above the voice-comment mic and a card
+   above it with the question, the words heard and the three
    commands. Calm, like the board's reply panel: one steady dot names the
    state, nothing pulses, and nothing moves — the label and the main button
    are sized for their widest words, the commands keep their slots when
@@ -3852,6 +3852,36 @@ body.doc-voice-on .doc-interview-btn {
     right: 16px;
     width: auto;
   }
+}
+/* The agent's cursor (doc/agent-focus.ts): the words the planning voice is
+   asking about, tinted in its own colour, with a caret and its name at their
+   start. Steady, like every other mark here — no pulse. */
+.agent-focus {
+  background: color-mix(in srgb, var(--agent-color, var(--accent)) 18%, transparent);
+  box-shadow: inset 0 -2px 0 var(--agent-color, var(--accent));
+  border-radius: 2px;
+}
+.agent-focus-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1.2em;
+  margin-right: -2px;
+  border-left: 2px solid var(--agent-color, var(--accent));
+  vertical-align: text-bottom;
+}
+.agent-focus-name {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  background: var(--agent-color, var(--accent));
+  color: #fff;
+  font: 600 11px / 1.3 var(--sans);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ================= FULL-SCREEN THREAD VIEW =================

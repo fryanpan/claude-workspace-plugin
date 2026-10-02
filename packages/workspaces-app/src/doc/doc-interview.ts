@@ -1,24 +1,28 @@
 /**
- * Interview mode on the review doc: tap Interview, say "interview me", and
- * Claude asks about the plan's gaps one at a time and writes each answer into
- * its section (the server's `spoken-reply/interview.ts`).
+ * The planning voice on the review doc: tap Talk and talk through the plan.
+ * Nobody has to say "interview me" — at each pause Claude asks about the
+ * plan's next open question and writes each answer into its section (the
+ * server's `spoken-reply/interview.ts`), and while it asks, its cursor is on
+ * the words it means in every open view (`agent-focus.ts`).
  *
  * It talks over the board mic's spoken-reply socket,
  * `WS /workspaces/<ws>/voice/converse`, with `{ surface: 'doc', docId }` as
  * the context of every turn, and in the setup the board's switch last chose
  * (`SETUP_KEY`), so the three setups are compared here exactly as they are on
- * the board.
+ * the board. On a doc the server ends each turn only at a confirmed pause
+ * (`pause-gate.ts`), so the card never decides when a sentence is over.
  *
- * HANDS FREE. An interview is a run of question and answer, so once Claude
- * has finished saying a question the card listens again by itself, and the
- * listener's own end of speech ends the answer (`tap` mode); Done ends it by
- * hand. The microphone is opened once, inside the tap that opened the card —
- * Safari opens audio only inside a gesture — and frames are sent only while
- * the card is listening, so Claude's own voice is never sent back.
+ * HANDS FREE. Once Claude has finished saying a question the card listens
+ * again by itself, and when Claude decides to say nothing it listens again at
+ * once; Done ends a turn by hand. The microphone is opened once, inside the
+ * tap that opened the card — Safari opens audio only inside a gesture — and
+ * frames are sent only while the card is listening, so Claude's own voice is
+ * never sent back.
  *
- * SILENCE. When nothing is heard for `SILENCE_MS` after a question, the
- * card ends the turn empty, and the server offers once to skip the question.
- * Only once per question: after the offer it waits for as long as it takes.
+ * SILENCE. When nothing is heard for `SILENCE_MS` the card ends the turn
+ * empty, which is a pause like any other: on opening it asks the first
+ * question, and after a question the server offers once to skip it. Only
+ * once per question: after the offer it waits for as long as it takes.
  * Setup 3 is left to Gemini's own turn-taking.
  *
  * Mounted only for a writer on a board whose server names a setup.
@@ -232,7 +236,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       author: opts.author,
     });
     quiet();
-    if (frame.interviewing && setup !== 3 && !silenced) {
+    if (setup !== 3 && !silenced) {
       silenceTimer = setTimeout(() => {
         silenceTimer = null;
         if (!listening) return;
@@ -261,7 +265,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
 
   function afterSpoken(): void {
     if (!frame.open) return;
-    if (asking && frame.interviewing) listen();
+    if (asking) listen();
     else {
       frame.phase = 'done';
       draw();
@@ -295,15 +299,26 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         frame.phase = 'thinking';
         draw();
         return;
-      case 'reply':
+      case 'reply': {
         asking = m.asking;
-        frame.interviewing = m.route === 'interview' && m.asking;
+        const planning = m.route === 'interview';
+        frame.interviewing = planning && m.asking;
         frame.question = m.spoken || frame.question;
         frame.detail = m.detail;
-        frame.note = m.spoken ? null : 'Didn’t catch anything. Tap Talk to try again.';
-        frame.phase = m.spoken ? 'asking' : 'done';
+        if (m.spoken) {
+          frame.note = null;
+          frame.phase = 'asking';
+        } else if (planning && m.asking) {
+          // Claude chose to say nothing: listen for the next pause.
+          listen();
+          return;
+        } else {
+          frame.note = planning ? null : 'Didn’t catch anything. Tap Talk to try again.';
+          frame.phase = 'done';
+        }
         draw();
         return;
+      }
       case 'audio-start':
         player.begin(m.sampleRate);
         return;
@@ -344,6 +359,12 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     silenced = false;
     if (frame.interviewing) sendMsg({ type: 'say', text: 'that’s enough' });
     else sendMsg({ type: 'stop' });
+    // A fresh socket next time, so the next Talk starts the planning voice
+    // afresh rather than finding it stopped, and the cursor comes off now.
+    const ws = socket;
+    socket = null;
+    queue = [];
+    ws?.close();
     closeCapture();
     player.stop();
     Object.assign(frame, {

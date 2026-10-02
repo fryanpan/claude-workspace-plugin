@@ -3,7 +3,7 @@ import type { BootLocation, BootStorage, BootWindow } from './boot-env.ts';
 import { mountCode } from './code/code-app.ts';
 import { browserDeviceEnv, syncDeviceContext } from './device-context.ts';
 import { fetchDocMeta } from './doc-meta.ts';
-import { currentWorkspaceId, docSocketUrl, workspaceIdFromPath } from './doc-path.ts';
+import { docSocketUrl, workspaceIdFromPath } from './doc-path.ts';
 import { el, showToast } from './doc/chrome-dom.ts';
 import { wireThreadRangeClicks } from './doc/chrome-panels.ts';
 import { marginComposerSlot } from './doc/composer-slot.ts';
@@ -11,7 +11,6 @@ import { type CommentPillHandle, mountCommentPill } from './doc/doc-comment-pill
 import { mountDocFloats } from './doc/doc-floats.ts';
 import { wireDocGates } from './doc/doc-gates.ts';
 import { mountMeetingHeading } from './doc/doc-heading.ts';
-import { wireDocInterview } from './doc/doc-interview.ts';
 import { mountDocMargin } from './doc/doc-margin.ts';
 import { type DocMeetingMount, mountDocMeeting } from './doc/doc-meeting-mount.ts';
 import { mountPointerPillLayer } from './doc/doc-pointer-pill.ts';
@@ -19,7 +18,7 @@ import { wireDocReady } from './doc/doc-ready.ts';
 import { mountDocSaveState } from './doc/doc-save-state.ts';
 import { mountDocSetNav } from './doc/doc-set-nav.ts';
 import { mountDocSpeakerMenu } from './doc/doc-speaker-menu.ts';
-import { mountDocVoice } from './doc/doc-voice.ts';
+import { mountDocVoices } from './doc/doc-voice-mount.ts';
 import { createNotesLinkRefs } from './doc/notes-link-refs.ts';
 import { wireEditViewport } from './edit-viewport.ts';
 import { type EditorHandle, createEditor } from './editor.ts';
@@ -376,10 +375,8 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       whenSynced: (cb) => client.onReady(cb),
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
-    // The voice mic and interview mode, for a writer on a board (the address's, not `ctx.workspaceId`).
-    const board = canWrite ? currentWorkspaceId() : null;
-    if (board) mountDocVoice({ docId, user, editor, editorMount, scope });
-    if (board) wireDocInterview({ docId, workspaceId: board, user, scope });
+    // The agent's cursor, the voice mic and the planning voice.
+    mountDocVoices({ docId, user, editor, editorMount, presence: awareness, canWrite, scope });
   }
 
   mountDocSpeakerMenu({
