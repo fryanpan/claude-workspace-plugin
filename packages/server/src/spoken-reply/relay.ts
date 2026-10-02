@@ -13,6 +13,7 @@ import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
 import { SpokenAnswerer, type SpokenBoard } from './answer.ts';
 import { SpokenInterview, type SpokenInterviewDeps } from './interview.ts';
+import { LeadAnswers } from './lead-answer.ts';
 import { type SpokenEngines, SpokenSession, availableSetups } from './session.ts';
 import type { SpokenTimings } from './timings.ts';
 
@@ -40,6 +41,8 @@ export interface SpokenReplyRelayDeps {
 
 export class SpokenReplyRelay {
   private readonly sessions = new WeakMap<SpokenWs, SpokenSession>();
+  /** Which socket waits for which lead answer. */
+  private readonly leads = new LeadAnswers();
 
   constructor(private readonly deps: SpokenReplyRelayDeps) {}
 
@@ -67,12 +70,13 @@ export class SpokenReplyRelay {
         // The page went; the close handler tidies up.
       }
     };
-    const session = new SpokenSession({
+    const session: SpokenSession = new SpokenSession({
       engines: this.deps.engines,
       answerer: new SpokenAnswerer(
         this.deps.board,
         workspaceId,
         this.deps.interview ? new SpokenInterview(this.deps.interview, workspaceId) : undefined,
+        (queueId) => this.leads.wait(workspaceId, queueId, session, (a) => session.sayAside(a)),
       ),
       timings: this.deps.timings,
       ...(this.deps.agentCallbacks ? { agentCallbacks: this.deps.agentCallbacks } : {}),
@@ -101,7 +105,15 @@ export class SpokenReplyRelay {
   }
 
   onClose(ws: SpokenWs): void {
-    this.sessions.get(ws)?.close();
+    const session = this.sessions.get(ws);
+    session?.close();
+    if (session) this.leads.drop(session);
     this.sessions.delete(ws);
+  }
+
+  /** The lead's answer to a spoken request: said on the socket that asked,
+   *  or false when none is waiting for it. */
+  answerRequest(workspaceId: string, queueId: string, text: string): boolean {
+    return this.leads.answer(workspaceId, queueId, text);
   }
 }
