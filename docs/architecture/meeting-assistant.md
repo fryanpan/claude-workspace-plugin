@@ -2829,6 +2829,13 @@ the line and the detail written into the meeting's own notes section with
   the interview so the planning voice cannot take the request as an answer.
   A `navigate` on the answer is dropped: following it would take the page off
   the meeting it records.
+- **Except asking for questions in a planning meeting.** There, "Claude, any
+  questions?" (any phrasing `asksForQuestions` knows, "any open questions?"
+  included) goes to the planning voice as an invitation
+  (`SpokenAnswerer.invite`): its best question, or one sentence saying there
+  is none. Bryan's went to the router and got a board status brief. Any
+  other "Claude, …" still goes to the router, and a discussion meeting is
+  unchanged.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
   Words said while the voice is speaking are not heard by it. The notes line

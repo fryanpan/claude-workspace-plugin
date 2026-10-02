@@ -20,12 +20,20 @@
  *
  * Fails closed like the bot path: no wake phrase, or not the owner, and
  * nothing is said or written.
+ *
+ * IN A PLANNING MEETING, "Claude, any questions?" is the planning voice's.
+ * Asking the meeting's own assistant for its questions is asking for the
+ * plan's open ones, so it goes to the interview as an invitation
+ * (`SpokenAnswerer.invite`), never to the board router, which answered
+ * Bryan's with a board status brief. Any other "Claude, …" still goes to the
+ * router, and a discussion meeting is unchanged.
  */
 import { noteFor, spokenLine, wakeRequest } from '../meeting-claude.ts';
 import type { TranscriptionEngine } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { SpokenAnswer, SpokenAnswerer } from './answer.ts';
+import { asksForQuestions } from './interview-phrases.ts';
 
 /** A meeting recording on a doc, as a spoken-reply socket may hear it. */
 export interface MeetingRoom {
@@ -80,6 +88,9 @@ export async function meetingAnswer(
   turn: MeetingTurn,
 ): Promise<SpokenAnswer> {
   const request = turn.owner ? wakeRequestIn(turn.own) : null;
+  if (request !== null && turn.room.plan && asksForQuestions(request)) {
+    return answerer.invite(heard, actor, context);
+  }
   if (request !== null) {
     // No `navigate`: following it would take the page off the meeting it
     // is recording.

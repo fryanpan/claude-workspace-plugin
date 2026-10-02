@@ -182,6 +182,36 @@ describe('"Claude, …" in a meeting the page records', () => {
     m.session.close();
   });
 
+  it('in a plan’s meeting, the owner’s "Claude, any open questions?" goes to the planning voice', async () => {
+    const m = await heardMeeting({ plan: true, owner: true });
+    m.listen();
+    await m.say('The berth opens in spring. Claude, any open questions?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the planning voice' });
+    expect(m.replies()[0]).toMatchObject({ route: 'interview', asking: true });
+    expect(m.replies()[0]?.spoken).toBe('I found 4 gaps. First: What goes under Goals?');
+    expect(m.said.some((s) => s.startsWith('Routed:'))).toBe(false);
+    expect(m.notes).toEqual([]);
+    m.session.close();
+  });
+
+  it('in a plan’s meeting, any other "Claude, …" from the owner still goes to the board', async () => {
+    const m = await heardMeeting({ plan: true, owner: true });
+    m.listen();
+    await m.say('Claude, where are we?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the answer' });
+    expect(m.said).toEqual(['Routed: where are we?.']);
+    m.session.close();
+  });
+
+  it('in a discussion, "Claude, any open questions?" is the board’s as before', async () => {
+    const m = await heardMeeting({ plan: false, owner: true });
+    m.listen();
+    await m.say('Claude, any open questions?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the answer' });
+    expect(m.said).toEqual(['Routed: any open questions?.']);
+    m.session.close();
+  });
+
   it('in a plan’s meeting, a non-owner’s "Claude, …" goes to the planning voice, never the board', async () => {
     const m = await heardMeeting({ plan: true, owner: false });
     m.listen();

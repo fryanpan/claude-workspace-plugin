@@ -170,26 +170,28 @@ export class SpokenInterview {
    * and nobody said "interview me". An empty transcript is a silence.
    * `meeting`: heard in a planning meeting, where nothing said is ever the
    * board router's, so the voice stays quiet rather than returning null.
+   * `invited`: somebody asked for its questions, whatever the words.
    */
   async answer(
     transcript: string,
     context: VoiceContext | undefined,
     meeting = false,
+    invited = false,
   ): Promise<InterviewReply | null> {
     this.meeting = meeting;
-    const cmd = interviewCommand(transcript);
+    const cmd = invited && this.run ? 'repeat' : interviewCommand(transcript);
     const run = this.run;
     if (!run) {
       if (cmd === 'start') return this.begin(context, transcript, 'asked');
       const docId = docOf(context);
-      const invited = asksForQuestions(transcript);
+      const asks = invited || asksForQuestions(transcript);
       if (!docId || !this.listensOn(context)) return meeting ? this.hush(true) : null;
       if (meeting && cmd === 'enough') {
         this.over.add(docId);
         return this.say('I’ll stop asking.');
       }
-      if (this.over.has(docId) && !invited) return meeting ? this.hush(true) : null;
-      return this.begin(context, transcript, invited ? 'invited' : 'pause');
+      if (this.over.has(docId) && !asks) return meeting ? this.hush(true) : null;
+      return this.begin(context, transcript, asks ? 'invited' : 'pause');
     }
     const text = transcript.trim();
     if (run.waiting) {

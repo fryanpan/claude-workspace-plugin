@@ -77,7 +77,7 @@ export function interviewCommand(transcript: string): InterviewCommand | null {
 
 /** "Any questions?" at the end of what was said, however it is put. */
 const INVITE =
-  /(?:^|\s)(?:(?:(?:do|did|would) you have|have you got|you got|any)\s+(?:any\s+)?(?:more |other |further )?questions?(?: for me| so far| about (?:this|that|it|the plan))?|what questions do you have(?: for me)?|anything (?:you want )?to ask(?: me)?)$/;
+  /(?:^|\s)(?:(?:(?:do|did|would) you have|have you got|you got|any)\s+(?:any\s+)?(?:more |other |further |open |outstanding )?questions?(?: for me| so far| about (?:this|that|it|the plan))?|what questions do you have(?: for me)?|anything (?:you want )?to ask(?: me)?)$/;
 
 /** Whether the speaker just asked the planning voice for its questions. */
 export function asksForQuestions(transcript: string): boolean {
