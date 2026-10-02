@@ -249,6 +249,23 @@ describe('statusAsk', () => {
       expect(statusAsk(s), s).toBe(true);
     }
   });
+  it('hears the board named, and "what is waiting on me" and "what is left"', () => {
+    for (const s of [
+      "What's the status of the board?",
+      'what is the status of this project',
+      "what's waiting on me",
+      "what's on my plate",
+      "what's left on the board",
+      'what is left to do',
+    ]) {
+      expect(statusAsk(s), s).toBe(true);
+    }
+  });
+  it('does not hear the same openers about one task or another person', () => {
+    expect(statusAsk("what's left on the berth survey")).toBe(false);
+    expect(statusAsk("what's waiting on Bob")).toBe(false);
+    expect(statusAsk("what's the status of the ferry timetable")).toBe(false);
+  });
   it('does not hear a lookup of a doc that happens to be called status', () => {
     expect(statusAsk('open the status doc')).toBe(false);
     expect(statusAsk('mark this done')).toBe(false);
