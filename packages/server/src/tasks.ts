@@ -834,6 +834,15 @@ export interface AgentAttachment {
    *  WORK. A session at its usage limit heartbeats normally for hours — the
    *  outage signature is these two fields disagreeing (§4). */
   lastToolCallAt: number;
+  /** When this record was last written by an attach — the restore's own
+   *  re-attach included. Absent on records written before it existed. */
+  attachedAt?: number;
+  /** When this agent last did work ON THIS BOARD: a board event it authored.
+   *  `lastToolCallAt` cannot answer that — the keepalive heartbeat carries a
+   *  tool call made anywhere to every board this session holds. Equal to
+   *  `attachedAt` until the agent does something here, which is what lets a
+   *  restore tell a dormant row from a working one. */
+  lastBoardWorkAt?: number;
   /** e.g. ['tasks.write', 'docs.edit', 'voice.mutations']. */
   capabilities: string[];
   /** The plugin bundle version this session is RUNNING — not the one its
