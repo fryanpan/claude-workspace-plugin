@@ -165,6 +165,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['loopback-only', '/inbox/rows', 'POST'],
     ['trusted-local', '/inbox/rows/:id/body', 'GET'],
     ['trusted-local', '/inbox/rows/:id/state', 'POST'],
+    ['trusted-local', '/inbox/rows/:id/reply', 'POST'],
   ]),
 
   ...family('routes/mcp-connector.ts', [['loopback-only', '/mcp', 'GET POST DELETE']]),

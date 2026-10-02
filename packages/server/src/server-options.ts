@@ -24,6 +24,7 @@ import type { Deployer } from './deploy.ts';
 import type { WatchFactory } from './dispatch-registry.ts';
 import type { EffortEstimator } from './effort-estimator.ts';
 import type { GoogleOauthApp, RefreshTokenVault } from './google-oauth.ts';
+import type { ReplyTransport } from './inbox/send-transport.ts';
 import type { MeetingNotesOptions } from './meeting-notes.ts';
 import type { CfAccessOptions } from './middleware/cf-access.ts';
 import type { PluginRefresher } from './plugin-refresh.ts';
@@ -473,6 +474,12 @@ export interface ServerOptions {
    * waiting for and so nobody misses.
    */
   pushFetch?: PushFetch;
+  /**
+   * Where Bryan's Send from Incoming Messages goes: the Gmail and Slack
+   * senders over the Keychain credentials by default (inbox/send-transport.ts).
+   * Tests and staging walks inject a fake so nothing ever leaves the machine.
+   */
+  inboxTransport?: ReplyTransport;
   /**
    * Extra hostnames treated as LOCAL (bypass the host gate) beyond loopback,
    * the tailnet name, and this machine's LAN names. Requests arriving on any

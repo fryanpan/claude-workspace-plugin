@@ -290,6 +290,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['icon.svg'],
   ['inbox', 'rows'],
   ['inbox', 'rows', ':id', 'body'],
+  ['inbox', 'rows', ':id', 'reply'],
   ['inbox', 'rows', ':id', 'state'],
   ['manifest.webmanifest'],
   ['mcp'],

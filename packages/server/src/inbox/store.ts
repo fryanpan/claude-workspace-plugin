@@ -10,7 +10,8 @@
  * Two writers, and they never share a verb:
  *  - the reader, through `post` — content, and the two state moves a pass
  *    can see (Bryan replied in the app; a new message arrived);
- *  - Bryan, through `act` — snooze, dismiss, mark answered, reopen, undo.
+ *  - Bryan, through `act` — snooze, dismiss, mark answered, reopen, undo —
+ *    and through `markSent`, once his Send from the page has gone out.
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -25,6 +26,7 @@ import {
   type InboxState,
   MAX_OPEN_ROWS,
   MAX_SNOOZE_MS,
+  type SendChannel,
 } from './types.ts';
 
 interface RowsFile {
@@ -201,6 +203,22 @@ export class InboxStore {
     this.file.lastPass = { at, pass };
     this.save();
     return { ok: true, ids, created, updated };
+  }
+
+  /**
+   * Bryan's Send went out: the row is answered `by: owner-send`, with the
+   * channel and the source's id for the message. The send has already
+   * happened, so a row snoozed meanwhile is answered too; one a pass has
+   * already answered keeps that entry and gains none.
+   */
+  markSent(id: string, sent: { channel: SendChannel; upstreamId: string }): InboxRow | undefined {
+    this.sweep();
+    const row = this.file.rows.find((r) => r.id === id);
+    if (!row) return undefined;
+    if (isRetired(row.state)) return row;
+    this.move(row, 'answered', 'owner-send', this.now(), sent);
+    this.save();
+    return row;
   }
 
   /** Bryan's tap on one row. */

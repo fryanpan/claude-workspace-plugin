@@ -1765,6 +1765,12 @@ draws the section only for that proof. The behaviour is
 `workspaces-app/src/landing-inbox.ts`, inside the landing bundle. Nothing
 here emits an event of its own, so no row reaches an agent's stream; the run
 close emits the ordinary `task.transitioned`, with counts and no row text.
+Bryan's Send is `inbox/reply.ts`: it checks the words and the nonce,
+rebuilds the destination from the row (`reply-target.ts`), and hands it to
+the one transport seam (`send-transport.ts`), behind which `send-gmail.ts`
+and `send-slack.ts` read their Keychain credentials (`send-keychain.ts`).
+`sends.ts` keeps the ledger the nonce and the hourly limit read. The reply
+box is `workspaces-app/src/landing-inbox-reply.ts`.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts

@@ -63,6 +63,9 @@ import { createIdentitySetup } from './identity-setup.ts';
 import { InboxBodies } from './inbox/bodies.ts';
 import { inboxConfigReader } from './inbox/config.ts';
 import { inboxSectionFor } from './inbox/landing.ts';
+import { InboxReplies } from './inbox/reply.ts';
+import { systemTransport } from './inbox/send-transport.ts';
+import { InboxSends } from './inbox/sends.ts';
 import { InboxStore } from './inbox/store.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
@@ -1397,10 +1400,16 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   });
   /** Incoming Messages: the owner's rows, their bodies in a file of their
    *  own, and the config naming the reader, re-read when its file changes
-   *  (inbox/config.ts). */
+   *  (inbox/config.ts). Bryan's Send goes through `inboxReplies` alone. */
   const inboxConfig = inboxConfigReader(dataDir);
   const inboxStore = new InboxStore(dataDir);
   const inboxBodies = new InboxBodies(dataDir);
+  const inboxReplies = new InboxReplies({
+    store: inboxStore,
+    sends: new InboxSends(dataDir),
+    config: inboxConfig,
+    transport: opts.inboxTransport ?? systemTransport(),
+  });
   // One queue over every board, in project order, and the ledger that records
   // where each answered item stood in it. Composed beside the Home pane
   // because it reads that pane's own rows — the cross-board order and a
@@ -2231,6 +2240,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   const inboxRoutesCtx: InboxRoutesContext = {
     store: inboxStore,
     bodies: inboxBodies,
+    replies: inboxReplies,
     config: inboxConfig,
     goalIsLive: (ws, goal) => taskStore.getWorkspace(ws)?.goals.some((g) => g.id === goal) ?? false,
     runs: taskStore,

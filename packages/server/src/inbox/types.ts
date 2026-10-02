@@ -37,8 +37,12 @@ export const DISMISS_REASONS: readonly DismissReason[] = [
   'spam',
 ];
 
-/** Who moved a row. `owner` is Bryan's tap; `reader` is a pass. */
-export type InboxActor = 'owner' | 'reader';
+/** Who moved a row. `owner` is Bryan's tap; `reader` is a pass;
+ *  `owner-send` is Bryan's Send from the page (`reply.ts`). */
+export type InboxActor = 'owner' | 'reader' | 'owner-send';
+
+/** The channels the server sends on. Texts are sent by Bryan in Messages. */
+export type SendChannel = 'gmail' | 'slack';
 
 export interface InboxHistoryEntry {
   at: number;
@@ -52,6 +56,9 @@ export interface InboxHistoryEntry {
    *  the row back exactly. */
   snoozedUntil?: number;
   dismissReason?: DismissReason;
+  /** A Send from the page: where it went and the id the source gave it. */
+  channel?: SendChannel;
+  upstreamId?: string;
 }
 
 export interface InboxGoalRef {

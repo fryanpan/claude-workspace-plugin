@@ -110,6 +110,8 @@ beforeAll(async () => {
     ownerEmail: OWNER_EMAIL,
     share: { config: ACCESS_SHARE_CONFIG, cfApi: mockCfApi() },
     identifyAgentCaller: async () => ({ ok: true, agentId: callerIs, via: 'session' }),
+    // Never the real Keychain: the body read asks whether Send is set up.
+    inboxTransport: { ready: () => false, send: async () => ({ ok: false, error: 'unused' }) },
   });
   base = `http://127.0.0.1:${handle.port}`;
 });

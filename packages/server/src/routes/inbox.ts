@@ -7,9 +7,12 @@ import { isValidAgentId } from '../agent-watches.ts';
  *                                  for message content. An optional `run`
  *                                  closes the reader's own scheduled run
  *                                  (inbox/run-close.ts).
- *   GET  /inbox/rows/:id/body      the message text, for an opened line
+ *   GET  /inbox/rows/:id/body      the message text, for an opened line,
+ *                                  and which reply it offers
  *   POST /inbox/rows/:id/state     Bryan's tap: snooze, dismiss, mark
  *                                  answered, reopen, undo
+ *   POST /inbox/rows/:id/reply     Bryan's Send: `{ text, nonce }`, sent on
+ *                                  the row's own thread (inbox/reply.ts)
  *
  * Owner-level, not under a board: messages belong to Bryan, so nothing here
  * is on a share or member allowlist and a visitor is refused before anything
@@ -27,7 +30,8 @@ import { isValidAgentId } from '../agent-watches.ts';
  *    or the session cookie) that resolves to the owner, from the front
  *    page's own origin — the grant door's gate (`task-grants.ts`). An agent
  *    on this machine passes trusted-local and still fails here, so no agent
- *    can read a message or move a row, the reader included.
+ *    can read a message, move a row or send a reply, the reader included.
+ *    The reply's destination comes from the stored row, never the request.
  *
  * No event is emitted for any row. A row reaches a page when the page
  * loads, and never reaches an agent's stream, `next_tasks`, the brief or
@@ -38,6 +42,7 @@ import { isValidAgentId } from '../agent-watches.ts';
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { InboxBodies } from '../inbox/bodies.ts';
 import type { InboxConfig } from '../inbox/config.ts';
+import type { InboxReplies } from '../inbox/reply.ts';
 import { type RunCloseStore, closeInboxRun } from '../inbox/run-close.ts';
 import type { InboxStore, OwnerAction } from '../inbox/store.ts';
 import { DISMISS_REASONS, type DismissReason, MAX_ROWS_PER_POST } from '../inbox/types.ts';
@@ -46,6 +51,7 @@ import { type ValidateContext, validateRow } from '../inbox/validate.ts';
 export interface InboxRoutesContext {
   store: InboxStore;
   bodies: InboxBodies;
+  replies: InboxReplies;
   config: () => InboxConfig;
   goalIsLive: ValidateContext['goalIsLive'];
   /** The board store a `run` is closed through, and the reader's name. */
@@ -74,9 +80,11 @@ export interface InboxRouteRequest {
 
 /** The largest post read: forty full rows with room to spare. */
 const MAX_POST_BYTES = 1_000_000;
+/** A reply's 4000 code points, each up to four bytes, JSON-escaped, and room over. */
+const MAX_REPLY_BYTES = 64_000;
 const PASS_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 const POST_KEYS = new Set(['agentId', 'pass', 'rows', 'run']);
-const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state)$/;
+const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state|reply)$/;
 
 /** Bryan's own front page, and nobody else's: the grant door's three checks. */
 function refuseNonOwner(ctx: InboxRoutesContext, rq: InboxRouteRequest): Response | null {
@@ -236,9 +244,16 @@ export async function handleInboxRoutes(
   if (!row) return j(404, { error: 'not-found' });
   if (verb === 'body') {
     const text = ctx.bodies.get(id) ?? '';
-    return new Response(JSON.stringify({ id, body: text, link: row.link }), {
+    const reply = ctx.replies.kindFor(row);
+    return new Response(JSON.stringify({ id, body: text, link: row.link, reply }), {
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     });
+  }
+  if (verb === 'reply') {
+    const length = Number(req.headers.get('content-length') ?? '0');
+    if (!Number.isFinite(length) || length > MAX_REPLY_BYTES) return j(413, { error: 'too-large' });
+    const res = await ctx.replies.reply(id, await ctx.safeJson(req));
+    return j(res.status, res.body);
   }
   const action = parseAction(await ctx.safeJson(req));
   if (!action) return j(400, { error: 'action must be snooze, dismiss, answer, reopen or undo' });

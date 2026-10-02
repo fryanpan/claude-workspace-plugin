@@ -87,3 +87,26 @@ export function cleanBody(raw: unknown): TextVerdict {
   if (chars.length <= BODY_MAX) return { ok: true, value: cleaned };
   return { ok: true, value: `${chars.slice(0, BODY_MAX - 1).join('')}…` };
 }
+
+/** Direction overrides and isolates: what makes text read in another order
+ *  than it was typed. Other format characters (the joiner inside an emoji)
+ *  are kept. */
+const BIDI_OVERRIDE = /[‪-‮⁦-⁩]/u;
+const CONTROL_BUT_LINES = /[\p{Cc}]/u;
+
+/**
+ * Bryan's own reply: NFC, 1 to `BODY_MAX` code points, sent exactly as
+ * typed. Refused rather than cleaned when it carries a control character
+ * (newlines and tabs apart) or a direction override, because cleaning would
+ * send words he did not see.
+ */
+export function checkReplyText(raw: unknown): TextVerdict {
+  if (typeof raw !== 'string') return { ok: false, reason: 'not text' };
+  const value = raw.normalize('NFC').replace(/\r\n?/g, '\n');
+  if (value.trim() === '') return { ok: false, reason: 'empty' };
+  if (codePoints(value) > BODY_MAX) return { ok: false, reason: `over ${BODY_MAX} characters` };
+  const stripped = value.replace(/[\n\t]/g, '');
+  if (CONTROL_BUT_LINES.test(stripped)) return { ok: false, reason: 'control character' };
+  if (BIDI_OVERRIDE.test(value)) return { ok: false, reason: 'direction override' };
+  return { ok: true, value };
+}

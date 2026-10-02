@@ -13,6 +13,8 @@
  *    draws what it acts on.
  *  - **At most five lines show**, then "N more", so the projects below stay
  *    in view at 1180x820.
+ *  - **A line Bryan answered with Send stays where it was**, struck through
+ *    and marked "clears at the next check", until the next pass.
  *
  * Only Bryan's own signed-in session gets this HTML (the caller decides);
  * every reader-written string goes through `escapeHtml`, and the message
@@ -89,13 +91,30 @@ function openLine(row: InboxRow, n: number, input: InboxSectionInput): string {
   const link = row.link ? ` data-link="${escapeHtml(row.link)}"` : '';
   return `<div class="inbox-row" data-row="${escapeHtml(row.id)}" data-channel="${escapeHtml(
     channelName(row, input.config),
-  )}"${link}${n >= INBOX_VISIBLE_LINES ? ' hidden' : ''}><div class="inbox-line"><div class="inbox-swipe-under">${icon(
+  )}" data-sender="${escapeHtml(row.senderLabel)}"${link}${n >= INBOX_VISIBLE_LINES ? ' hidden' : ''}><div class="inbox-line"><div class="inbox-swipe-under">${icon(
     'clock',
   )}<span>Snooze</span></div><button type="button" class="board-review-row" aria-expanded="false"><span class="board-review-row-title">${escapeHtml(
     row.purpose,
   )}</span>${subLine(row, input)}</button><div class="inbox-line-acts"><button type="button" class="inbox-snooze-btn" data-act="snooze" aria-label="Snooze" title="Snooze (b)">${icon(
     'clock',
   )}</button></div></div></div>`;
+}
+
+/** When Bryan's Send from the page answered this row, if no pass has run
+ *  since: the line stays, struck through, until one does. */
+export function sentAt(row: InboxRow, lastPassAt: number | undefined): number | undefined {
+  if (row.state !== 'answered') return undefined;
+  const last = row.history.at(-1);
+  if (last?.by !== 'owner-send') return undefined;
+  return lastPassAt === undefined || last.at > lastPassAt ? last.at : undefined;
+}
+
+function sentLine(row: InboxRow, at: number, n: number, input: InboxSectionInput): string {
+  return `<div class="inbox-row inbox-cleared" data-row="${escapeHtml(row.id)}"${n >= INBOX_VISIBLE_LINES ? ' hidden' : ''}><div class="board-review-row"><span class="board-review-row-title">${escapeHtml(
+    row.purpose,
+  )}</span><span class="board-review-row-sub">You replied on ${escapeHtml(
+    channelName(row, input.config),
+  )} at <time data-at="${at}" data-clock>${escapeHtml(clockText(at))}</time> · clears at the next check</span></div></div>`;
 }
 
 function snoozedLine(row: InboxRow): string {
@@ -112,6 +131,7 @@ const KEYS: ReadonlyArray<readonly [string, string]> = [
   ['o or Enter', 'Open'],
   ['swipe right', 'Snooze (touch)'],
   ['u or Esc', 'Back to the list'],
+  ['r', 'Reply'],
   ['b', 'Snooze'],
   ['?', 'Show these keys'],
 ];
@@ -122,10 +142,16 @@ export function renderInboxSection(input: InboxSectionInput): string {
   if (rows.length === 0 && config.readerAgentId === null && input.lastPassAt === undefined) {
     return '';
   }
-  const open = rankRows(
-    rows.filter((r) => r.state === 'open'),
+  const sent = new Map<string, number>();
+  for (const r of rows) {
+    const at = sentAt(r, input.lastPassAt);
+    if (at !== undefined) sent.set(r.id, at);
+  }
+  const shown = rankRows(
+    rows.filter((r) => r.state === 'open' || sent.has(r.id)),
     input,
   );
+  const open = shown.filter((r) => r.state === 'open');
   const snoozed = rows
     .filter((r) => r.state === 'snoozed')
     .sort((a, b) => (a.snoozedUntil ?? 0) - (b.snoozedUntil ?? 0));
@@ -134,12 +160,17 @@ export function renderInboxSection(input: InboxSectionInput): string {
       ? 'Not checked yet'
       : `Last checked at <time data-at="${input.lastPassAt}" data-clock>${escapeHtml(clockText(input.lastPassAt))}</time>`;
   const lines =
-    open.length === 0
+    shown.length === 0
       ? '<p class="board-home-quiet">Nothing in your messages needs you right now.</p>'
-      : open.map((r, i) => openLine(r, i, input)).join('');
+      : shown
+          .map((r, i) => {
+            const at = sent.get(r.id);
+            return at === undefined ? openLine(r, i, input) : sentLine(r, at, i, input);
+          })
+          .join('');
   const more =
-    open.length > INBOX_VISIBLE_LINES
-      ? `<button type="button" class="inbox-more" data-more>${open.length - INBOX_VISIBLE_LINES} more</button>`
+    shown.length > INBOX_VISIBLE_LINES
+      ? `<button type="button" class="inbox-more" data-more>${shown.length - INBOX_VISIBLE_LINES} more</button>`
       : '';
   const snoozedFold =
     snoozed.length === 0
