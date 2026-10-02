@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { wakeRequestIn } from '../src/spoken-reply/meeting-ask.ts';
 import { MeetingEars } from '../src/spoken-reply/meeting-ears.ts';
-import { type GateTimers, PAUSE_CONFIRM_MS } from '../src/spoken-reply/pause-gate.ts';
+import type { GateTimers } from '../src/spoken-reply/pause-gate.ts';
 import { SpokenSession } from '../src/spoken-reply/session.ts';
 import { SpokenTimings } from '../src/spoken-reply/timings.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
@@ -122,7 +122,8 @@ async function heardMeeting(o: { plan: boolean; owner: boolean }) {
         context: { surface: 'doc', docId: DOC_ID },
       }),
     );
-  /** Say `text` on `stream` and let the pause hold. */
+  /** Say `text` on `stream`: its final turn is the listener's end of
+   *  utterance, which is the pause after a finished sentence. */
   const say = async (text: string, stream: EngineTurn['stream']) => {
     await waitFor(
       () => {
@@ -132,7 +133,6 @@ async function heardMeeting(o: { plan: boolean; owner: boolean }) {
       { describe: 'hearing the meeting' },
     );
     ears.heard(DOC_ID, { turn: 1, text, final: true, ...(stream ? { stream } : {}) });
-    clock.advance(PAUSE_CONFIRM_MS);
   };
   const replies = () => json.filter((m) => m.type === 'reply');
   return { session, json, said, notes, listen, say, replies };

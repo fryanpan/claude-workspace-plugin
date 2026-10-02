@@ -41,3 +41,21 @@ export function echoOf(heard: string, saying: string): boolean {
 export function cutsIn(heard: string, saying: string): boolean {
   return hasWords(heard) && !echoOf(heard, saying);
 }
+
+/**
+ * What `heard` says past `taken`. A meeting's pause may be called on words
+ * the listener has not yet finalized (`pause-gate.ts`: silence counts, final
+ * or not), and that turn's later frames repeat them; only what follows them
+ * is new. Matched word by word, so the final's punctuation does not count.
+ */
+export function unheard(heard: string, taken: string): string {
+  const n = words(taken).length;
+  const spans = [...heard.matchAll(/[\p{L}\p{N}']+/gu)];
+  const last = spans[n - 1];
+  if (n === 0) return heard.trim();
+  if (!last || spans.length <= n) return '';
+  return heard
+    .slice((last.index ?? 0) + last[0].length)
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .trim();
+}

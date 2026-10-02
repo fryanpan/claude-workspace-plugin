@@ -9,10 +9,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import {
-  DANGLING_CONFIRM_MS,
+  FINISHED_PAUSE_MS,
   type GateTimers,
-  PAUSE_CONFIRM_MS,
   PauseGate,
+  UNFINISHED_PAUSE_MS,
   midSentence,
 } from '../src/spoken-reply/pause-gate.ts';
 import {
@@ -140,20 +140,17 @@ describe('the planning voice asks only at a pause', () => {
     it(`${name}: no question while the speaker is mid-sentence, one at the pause`, async () => {
       const t = trace(name);
       const h = await planningSession();
-      for (const f of t.frames) {
+      const played = t.frames.filter((f) => f.atMs <= t.pauseAfterMs);
+      for (const f of played) {
         h.clock.advanceTo(f.atMs);
         // Nothing has ended the turn before this frame arrives.
         expect(h.closed()).toBe(0);
+        expect(h.replies()).toEqual([]);
         h.onTurn({ turn: f.turn, text: f.text, final: f.final });
       }
-      // Just short of the pause, still nothing.
-      h.clock.advanceTo(t.pauseAfterMs + PAUSE_CONFIRM_MS - 1);
-      expect(h.closed()).toBe(0);
-      expect(h.replies()).toEqual([]);
-
-      h.clock.advanceTo(t.pauseAfterMs + PAUSE_CONFIRM_MS);
+      // The listener's end of utterance after a finished sentence is the pause.
       await waitFor(() => h.replies().length === 1, { describe: 'question at the pause' });
-      const words = t.frames.filter((f) => f.final).map((f) => f.text);
+      const words = played.filter((f) => f.final).map((f) => f.text);
       expect(h.ended()).toEqual([{ type: 'turn-end', text: words.join(' ') }]);
       expect(h.replies()[0]).toMatchObject({
         spoken: 'I found 4 gaps. First: What goes under Goals?',
@@ -217,27 +214,75 @@ describe('midSentence', () => {
 });
 
 describe('PauseGate', () => {
-  it('waits longer after a turn that stops mid-sentence', () => {
+  function gate(timing?: { finishedMs: number; unfinishedMs: number }) {
     const clock = fakeClock();
     let paused = 0;
-    const gate = new PauseGate(() => paused++, clock.timers);
-    gate.heard('the rollout starts at Harborlight and', true);
-    clock.advanceTo(DANGLING_CONFIRM_MS - 1);
-    expect(paused).toBe(0);
-    clock.advanceTo(DANGLING_CONFIRM_MS);
-    expect(paused).toBe(1);
+    const g = new PauseGate(() => paused++, clock.timers, timing);
+    return { g, clock, paused: () => paused };
+  }
+
+  it('waits 3s of silence after a dash or an ellipsis, endpoint or not', () => {
+    for (const [text, final] of [
+      ['The berth opens in spring and I noticed that there’s—', false],
+      ['The berth opens in spring and I noticed that there’s—', true],
+      ['We could move the office…', false],
+    ] as const) {
+      const h = gate();
+      h.g.heard(text, final);
+      h.clock.advanceTo(UNFINISHED_PAUSE_MS - 1);
+      expect(h.paused()).toBe(0);
+      h.clock.advanceTo(UNFINISHED_PAUSE_MS);
+      expect(h.paused()).toBe(1);
+    }
   });
 
-  it('a repeated partial is not new speech; new words cancel the window', () => {
-    const clock = fakeClock();
-    let paused = 0;
-    const gate = new PauseGate(() => paused++, clock.timers);
-    gate.heard('We ship the deck first.', true);
-    gate.heard('We ship the deck first.', false);
-    expect(gate.armed).toBe(true);
-    gate.heard('We ship the deck first. Then', false);
-    expect(gate.armed).toBe(false);
-    clock.advanceTo(10_000);
-    expect(paused).toBe(0);
+  it('calls a pause 1.5s after a finished sentence the listener has not ended', () => {
+    const h = gate();
+    h.g.heard('We ship the deck first.', false);
+    h.clock.advanceTo(FINISHED_PAUSE_MS - 1);
+    expect(h.paused()).toBe(0);
+    h.clock.advanceTo(FINISHED_PAUSE_MS);
+    expect(h.paused()).toBe(1);
+    // Its final turn, arriving late, is the same words: no second pause.
+    h.g.heard('We ship the deck first.', true);
+    expect(h.paused()).toBe(1);
+  });
+
+  it('the listener’s end of utterance, when it comes first, is the pause', () => {
+    const h = gate();
+    h.g.heard('We ship the deck first.', false);
+    h.clock.advanceTo(400);
+    h.g.heard('We ship the deck first.', true);
+    expect(h.paused()).toBe(1);
+    h.clock.advanceTo(10_000);
+    expect(h.paused()).toBe(1);
+  });
+
+  it('silence runs from the last new words', () => {
+    const h = gate();
+    h.g.heard('the rollout starts at Harborlight and', false);
+    h.clock.advanceTo(2000);
+    // A final repeating the same words is not news: the window holds.
+    h.g.heard('the rollout starts at Harborlight and', true);
+    h.clock.advanceTo(2900);
+    h.g.heard('the rollout starts at Harborlight and then', false);
+    h.clock.advanceTo(2900 + UNFINISHED_PAUSE_MS - 1);
+    expect(h.paused()).toBe(0);
+    h.clock.advanceTo(2900 + UNFINISHED_PAUSE_MS);
+    expect(h.paused()).toBe(1);
+  });
+
+  it('takes the page’s own setting for either wait', () => {
+    const h = gate({ finishedMs: 2500, unfinishedMs: 6000 });
+    h.g.heard('We ship the deck first.', false);
+    h.clock.advanceTo(FINISHED_PAUSE_MS);
+    expect(h.paused()).toBe(0);
+    h.clock.advanceTo(2500);
+    expect(h.paused()).toBe(1);
+    h.g.heard('We ship the deck first. Then the', false);
+    h.clock.advanceTo(2500 + UNFINISHED_PAUSE_MS);
+    expect(h.paused()).toBe(1);
+    h.clock.advanceTo(2500 + 6000);
+    expect(h.paused()).toBe(2);
   });
 });

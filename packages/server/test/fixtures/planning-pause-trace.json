@@ -2,11 +2,21 @@
   "about": "What the setup 1-2 listener reports while a person talks through a plan, frame by frame, in the shape the Soniox adapter's onTurn emits (turn, text, final), with the offset of each frame from the start of speech. Written to that shape for the planning voice's pause test; the place names are the house fixture names.",
   "traces": {
     "breath-mid-sentence": {
-      "about": "The listener calls an endpoint after a long breath on 'and', and the speaker carries on 1.6s later. The pause is the silence after 'in May.'",
-      "pauseAfterMs": 6100,
+      "about": "The speaker breathes on 'and' for 2.5s, under the 3s an unfinished phrase waits; the listener calls an endpoint inside the breath. The pause is the endpoint after 'in May.'",
+      "pauseAfterMs": 4700,
       "frames": [
-        { "atMs": 0, "turn": 0, "text": "So the", "final": false },
-        { "atMs": 300, "turn": 0, "text": "So the ferry plan", "final": false },
+        {
+          "atMs": 0,
+          "turn": 0,
+          "text": "So the",
+          "final": false
+        },
+        {
+          "atMs": 300,
+          "turn": 0,
+          "text": "So the ferry plan",
+          "final": false
+        },
         {
           "atMs": 700,
           "turn": 0,
@@ -25,21 +35,66 @@
           "text": "So the ferry plan starts at Harborlight and",
           "final": true
         },
-        { "atMs": 4200, "turn": 1, "text": "then", "final": false },
-        { "atMs": 4500, "turn": 1, "text": "then Riverbend", "final": false },
-        { "atMs": 4900, "turn": 1, "text": "then Riverbend in May.", "final": false },
-        { "atMs": 6100, "turn": 1, "text": "then Riverbend in May.", "final": true }
+        {
+          "atMs": 3600,
+          "turn": 1,
+          "text": "then",
+          "final": false
+        },
+        {
+          "atMs": 3900,
+          "turn": 1,
+          "text": "then Riverbend",
+          "final": false
+        },
+        {
+          "atMs": 4300,
+          "turn": 1,
+          "text": "then Riverbend in May.",
+          "final": false
+        },
+        {
+          "atMs": 4700,
+          "turn": 1,
+          "text": "then Riverbend in May.",
+          "final": true
+        }
       ]
     },
     "two-sentences": {
-      "about": "A finished sentence, then the next one started 0.7s after its endpoint. The pause is the silence after 'Then the ramps.'",
-      "pauseAfterMs": 2100,
+      "about": "A finished sentence the listener calls over 0.5s after its last word, and a second begun 0.7s later. The listener's end of utterance comes before 1.5s of silence, so the pause is that endpoint, after the first sentence.",
+      "pauseAfterMs": 900,
       "frames": [
-        { "atMs": 0, "turn": 0, "text": "We ship", "final": false },
-        { "atMs": 400, "turn": 0, "text": "We ship the deck first.", "final": false },
-        { "atMs": 900, "turn": 0, "text": "We ship the deck first.", "final": true },
-        { "atMs": 1600, "turn": 1, "text": "Then the ramps.", "final": false },
-        { "atMs": 2100, "turn": 1, "text": "Then the ramps.", "final": true }
+        {
+          "atMs": 0,
+          "turn": 0,
+          "text": "We ship",
+          "final": false
+        },
+        {
+          "atMs": 400,
+          "turn": 0,
+          "text": "We ship the deck first.",
+          "final": false
+        },
+        {
+          "atMs": 900,
+          "turn": 0,
+          "text": "We ship the deck first.",
+          "final": true
+        },
+        {
+          "atMs": 1600,
+          "turn": 1,
+          "text": "Then the ramps.",
+          "final": false
+        },
+        {
+          "atMs": 2100,
+          "turn": 1,
+          "text": "Then the ramps.",
+          "final": true
+        }
       ]
     }
   }

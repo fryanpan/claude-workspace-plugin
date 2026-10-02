@@ -3,27 +3,28 @@
  * breath in the middle of a sentence. The planning voice asks its questions
  * only at a pause (`interview.ts`), so this is what keeps it from cutting in.
  *
- * The listener's end of speech is the first half: a final turn means it heard
- * the speaker stop. On its own that is not enough. Soniox calls an endpoint
- * after a long breath too, and "the rollout starts at Harborlight and" is a
- * final turn that is plainly not finished. So a final turn arms a confirm
- * window, and the pause is called only when the window runs out with nothing
- * new heard:
+ * One rule, the owner's (2026-10-02, after his first planning meeting):
  *
- *  - `PAUSE_CONFIRM_MS` after a turn that reads finished;
- *  - `DANGLING_CONFIRM_MS` after one that ends mid-sentence: on a comma, a
- *    dash or an ellipsis, or on a word a sentence cannot end on ("and",
- *    "the", "because").
+ *  - after a phrase that is not yet a sentence (it stops on a comma, a dash,
+ *    an ellipsis, or a word a sentence cannot end on: "and", "the",
+ *    "because"), wait `UNFINISHED_PAUSE_MS` of silence;
+ *  - otherwise the pause is whichever comes first: the listener's own end of
+ *    utterance (a final turn), or `FINISHED_PAUSE_MS` of silence.
  *
- * Any new words heard inside the window cancel it, and the next final turn
- * arms it again. Turns in, one call out, and the timers through a seam so a
- * test drives a recorded turn trace on a fake clock.
+ * Silence is time with no new words, final or not; any new words start it
+ * again. Both numbers are a `SpokenPause` the page may send with each
+ * `start`, so the owner can try values during a meeting; the defaults are
+ * his. Turns in, one call out, and the timers through a seam so a test
+ * drives a recorded turn trace on a fake clock.
  */
 
-/** Quiet after a finished-sounding turn before it counts as a pause. */
-export const PAUSE_CONFIRM_MS = 1200;
-/** Quiet after a turn that stops mid-sentence. */
-export const DANGLING_CONFIRM_MS = 3500;
+import { SPOKEN_PAUSE_DEFAULT, type SpokenPause } from '@claude-workspaces/core/spoken-reply';
+
+/** Silence after a finished-sounding phrase that counts as a pause, when the
+ *  listener has not called the end of the utterance first. */
+export const FINISHED_PAUSE_MS = SPOKEN_PAUSE_DEFAULT.finishedMs;
+/** Silence after a phrase that stops mid-sentence. */
+export const UNFINISHED_PAUSE_MS = SPOKEN_PAUSE_DEFAULT.unfinishedMs;
 
 export interface GateTimers {
   set(fn: () => void, ms: number): unknown;
@@ -51,27 +52,49 @@ export class PauseGate {
   private timer: unknown = null;
   /** Words heard so far, so a repeated partial is not news. */
   private last = '';
+  /** The pause was called on these words; their final turn calls none. */
+  private called = false;
 
   constructor(
     private readonly onPause: () => void,
     private readonly timers: GateTimers = REAL_TIMERS,
+    private timing: SpokenPause = SPOKEN_PAUSE_DEFAULT,
   ) {}
 
   /** What the listener heard: the turn so far, and whether it is final. */
   heard(text: string, final: boolean): void {
     const t = text.trim();
-    if (!final) {
-      if (t && t !== this.last) this.cancel();
-      this.last = t;
+    const news = t !== '' && t !== this.last;
+    this.last = t;
+    if (news) this.called = false;
+    if (!t || this.called) return;
+    const unfinished = midSentence(t);
+    if (final && !unfinished) {
+      this.cancel();
+      this.call();
       return;
     }
+    // Silence runs from the last new words, so a final repeating them, or a
+    // repeated partial, leaves the window where it is.
+    if (!news && this.timer !== null) return;
     this.cancel();
-    this.last = t;
-    const ms = midSentence(t) ? DANGLING_CONFIRM_MS : PAUSE_CONFIRM_MS;
-    this.timer = this.timers.set(() => {
-      this.timer = null;
-      this.onPause();
-    }, ms);
+    this.timer = this.timers.set(
+      () => {
+        this.timer = null;
+        this.call();
+      },
+      unfinished ? this.timing.unfinishedMs : this.timing.finishedMs,
+    );
+  }
+
+  /** A new setting, for the next wait; a window already running keeps its own. */
+  retime(timing: SpokenPause): void {
+    this.timing = timing;
+  }
+
+  private call(): void {
+    this.called = true;
+    this.onPause();
   }
 
   get armed(): boolean {

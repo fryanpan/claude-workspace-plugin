@@ -39,10 +39,12 @@
  */
 import {
   SPOKEN_OUTPUT_RATE,
+  SPOKEN_PAUSE_DEFAULT,
   SPOKEN_SETUPS,
   type SpokenClientMessage,
   type SpokenHeldSetups,
   type SpokenMode,
+  type SpokenPause,
   type SpokenServerMessage,
   type SpokenSetup,
   parseSpokenClientMessage,
@@ -54,7 +56,7 @@ import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
 import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
 import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
-import { cutsIn } from './cut-in.ts';
+import { cutsIn, unheard } from './cut-in.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import { FillerCue, cueFor } from './filler-cue.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
@@ -140,6 +142,13 @@ export class SpokenSession {
   private saying: { turn: number; text: string; asks: boolean } | null = null;
   /** The meeting turn whose reply the speaker cut in on. */
   private cut: number | null = null;
+  /** This turn's words the listener has not finalized yet. */
+  private tail: EngineTurn | null = null;
+  /** A listener turn whose unfinalized words a meeting's pause took: its
+   *  later frames repeat them, and only what follows is new. */
+  private taken: { turn: number; text: string } | null = null;
+  /** The page's pause setting, from its latest `start`. */
+  private pauseTiming: SpokenPause = SPOKEN_PAUSE_DEFAULT;
 
   // Setups 1 and 2: the listener for the current turn.
   private stt: TranscriptionSession | null = null;
@@ -208,6 +217,10 @@ export class SpokenSession {
         return;
       case 'stop':
         this.stopSpeaking();
+        return;
+      case 'pause':
+        this.pauseTiming = msg.pause;
+        this.pause?.retime(msg.pause);
         return;
       case 'say':
         this.say(msg.text);
@@ -284,6 +297,7 @@ export class SpokenSession {
     this.setup = msg.setup;
     this.mode = msg.mode;
     this.ears = msg.ears === 'meeting';
+    this.pauseTiming = msg.pause ?? SPOKEN_PAUSE_DEFAULT;
     this.context = this.deps.parseContext(msg.context);
     this.actor = this.deps.provenActor ?? msg.author ?? NOBODY;
     if (msg.setup === 4) this.agentTurns?.start();
@@ -330,6 +344,7 @@ export class SpokenSession {
     this.sttBuffered = [];
     this.finals = [];
     this.own = [];
+    this.tail = null;
     this.finishing = false;
     this.pause?.cancel();
     this.pause = null;
@@ -345,15 +360,21 @@ export class SpokenSession {
     }
     const turn = this.turn;
     if (this.ears || (this.mode === 'tap' && this.deps.answerer.converses(this.context))) {
-      this.pause = new PauseGate(() => void this.finishListening(turn), this.deps.timers);
+      this.pause = new PauseGate(
+        () => void this.finishListening(turn),
+        this.deps.timers,
+        this.pauseTiming,
+      );
     }
     const opening = listener
       .open({
         sampleRate: SPOKEN_INPUT_RATE,
         detectSpeakers: false,
         tuning: this.pause ? SPOKEN_PLANNING_TUNING : SPOKEN_TAP_TUNING,
-        onTurn: (t) => {
+        onTurn: (frame) => {
           if (turn !== this.turn) return;
+          const t = this.fresh(frame);
+          if (!t) return;
           if (this.finishing && this.ears) this.cutIn(t);
           else this.hear(t, turn);
         },
@@ -385,7 +406,16 @@ export class SpokenSession {
     this.sttOpening = opening;
   }
 
+  /** `t` less the words a meeting's pause already took from its turn, or
+   *  null when it holds nothing else. */
+  private fresh(t: EngineTurn): EngineTurn | null {
+    if (this.taken?.turn !== t.turn) return t;
+    const text = unheard(t.text, this.taken.text);
+    return text ? { ...t, text } : null;
+  }
+
   private hear(t: EngineTurn, turn: number): void {
+    this.tail = t.final ? null : t;
     if (t.final) this.finals.push(t.text);
     if (t.final && t.stream !== 'system') this.own.push(t.text);
     const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
@@ -438,6 +468,15 @@ export class SpokenSession {
       else await session?.close().catch(() => {});
       if (turn !== this.turn) return;
     }
+    // A meeting's pause may come before the listener finalized its last
+    // words (`pause-gate.ts`); they are this turn's, and only theirs.
+    const tail = this.ears ? this.tail : null;
+    if (tail) {
+      this.finals.push(tail.text);
+      if (tail.stream !== 'system') this.own.push(tail.text);
+      this.taken = { turn: tail.turn, text: tail.text };
+    }
+    this.tail = null;
     const text = this.finals.join(' ').trim();
     if (this.ears) this.saying = { turn, text: cueFor(text), asks: false };
     this.deps.sendJson({ type: 'turn-end', text });

@@ -2,8 +2,8 @@
  * The planning voice never talks over the meeting. A spoken-reply session
  * hears a planning meeting through `MeetingEars` on a fake clock:
  *
- *  - a sentence broken off on a dash, then a breath under the mid-sentence
- *    window, is not a pause;
+ *  - a sentence broken off on a dash, then a breath under the 3s an
+ *    unfinished phrase waits, is not a pause;
  *  - words heard after the pause but before the question is said withdraw
  *    the question, and the turn goes on with those words;
  *  - words heard while the question plays stop the voice, and the page is
@@ -19,11 +19,7 @@ import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { cutsIn, echoOf } from '../src/spoken-reply/cut-in.ts';
 import { READER_SYSTEM } from '../src/spoken-reply/interview-reader.ts';
 import { MeetingEars } from '../src/spoken-reply/meeting-ears.ts';
-import {
-  DANGLING_CONFIRM_MS,
-  type GateTimers,
-  PAUSE_CONFIRM_MS,
-} from '../src/spoken-reply/pause-gate.ts';
+import { type GateTimers, UNFINISHED_PAUSE_MS } from '../src/spoken-reply/pause-gate.ts';
 import { SpokenSession } from '../src/spoken-reply/session.ts';
 import { SpokenTimings } from '../src/spoken-reply/timings.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
@@ -160,16 +156,14 @@ describe('cutsIn', () => {
 });
 
 describe('the planning voice never talks over the meeting', () => {
-  it('a sentence broken off on a dash, then a breath under the window, is no pause', async () => {
+  it('a sentence broken off on a dash, then a breath under 3s, is no pause', async () => {
     const m = await plannedMeeting(MUTE);
     m.hear('The berth opens in spring and I noticed that there’s—', true);
-    m.clock.advance(PAUSE_CONFIRM_MS);
-    m.clock.advance(DANGLING_CONFIRM_MS - PAUSE_CONFIRM_MS - 1);
+    m.clock.advance(UNFINISHED_PAUSE_MS - 1);
     expect(m.model.reads).toEqual([]);
     // The breath ends inside the window: the same thought goes on.
     m.hear('the ticket office', false);
     m.hear('the ticket office moves first.', true);
-    m.clock.advance(DANGLING_CONFIRM_MS - 1);
     expect(m.model.reads).toHaveLength(1);
     expect(m.model.reads[0]).toContain('there’s— the ticket office moves first.');
     m.session.close();
@@ -178,7 +172,6 @@ describe('the planning voice never talks over the meeting', () => {
   it('words heard before the question is said withdraw it, and the turn goes on with them', async () => {
     const m = await plannedMeeting(MUTE);
     m.hear('The berth opens in spring.', true);
-    m.clock.advance(PAUSE_CONFIRM_MS);
     await waitFor(() => m.model.reads.length === 1, { describe: 'the reading' });
     // He goes on while the plan is read.
     m.hear('I noticed that there’s', false);
@@ -189,7 +182,6 @@ describe('the planning voice never talks over the meeting', () => {
 
     // The turn he went on with ends at its own pause, with all of it heard.
     m.hear('I noticed that there’s a second crane on the pier.', true);
-    m.clock.advance(PAUSE_CONFIRM_MS);
     await waitFor(() => m.model.reads.length === 2, { describe: 'a fresh reading' });
     expect(m.model.reads[1]).toContain('I noticed that there’s a second crane on the pier.');
     expect(m.model.reads[1]).toContain('ALREADY ASKED:\n(none)');
@@ -213,7 +205,6 @@ describe('the planning voice never talks over the meeting', () => {
     };
     const m = await plannedMeeting(slow);
     m.hear('The berth opens in spring.', true);
-    m.clock.advance(PAUSE_CONFIRM_MS);
     await waitFor(() => m.model.reads.length === 1, { describe: 'the reading' });
     m.model.answer(ASK);
     await waitFor(() => m.json.some((x) => x.type === 'audio-start'), { describe: 'the voice' });
@@ -225,7 +216,6 @@ describe('the planning voice never talks over the meeting', () => {
     expect(m.json.filter((x) => x.type === 'cut-in')).toHaveLength(1);
     // What he said over it is the start of a new turn, not its answer.
     m.hear('Actually the Saltmarsh office has the crane.', true);
-    m.clock.advance(PAUSE_CONFIRM_MS);
     await waitFor(() => m.model.reads.length === 2, { describe: 'a fresh reading' });
     expect(m.doc().some((t) => t.includes('crane'))).toBe(false);
     m.session.close();

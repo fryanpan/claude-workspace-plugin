@@ -79,6 +79,44 @@ export interface SpokenPoint {
   note?: string;
 }
 
+/**
+ * How long a silence counts as the speaker's pause (the server's
+ * `pause-gate.ts`): after a phrase that is not yet a sentence, and after one
+ * that is, when the listener has not called the end of the utterance first.
+ * The page may send its own with each `start`, so the owner can try values
+ * during a meeting.
+ */
+export interface SpokenPause {
+  finishedMs: number;
+  unfinishedMs: number;
+}
+
+/** The owner's defaults (2026-10-02). */
+export const SPOKEN_PAUSE_DEFAULT: SpokenPause = { finishedMs: 1500, unfinishedMs: 3000 };
+/** The range either wait may be set to. */
+export const SPOKEN_PAUSE_MIN_MS = 500;
+export const SPOKEN_PAUSE_MAX_MS = 10_000;
+
+function pauseWait(v: unknown): number | undefined {
+  return typeof v === 'number' &&
+    Number.isFinite(v) &&
+    v >= SPOKEN_PAUSE_MIN_MS &&
+    v <= SPOKEN_PAUSE_MAX_MS
+    ? Math.round(v)
+    : undefined;
+}
+
+/** A page's pause setting, or undefined when either wait is out of range. */
+export function parseSpokenPause(raw: unknown): SpokenPause | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const p = raw as Record<string, unknown>;
+  const finishedMs = pauseWait(p.finishedMs);
+  const unfinishedMs = pauseWait(p.unfinishedMs);
+  return finishedMs !== undefined && unfinishedMs !== undefined
+    ? { finishedMs, unfinishedMs }
+    : undefined;
+}
+
 export interface SpokenAuthor {
   id: string;
   name: string;
@@ -98,9 +136,13 @@ export type SpokenClientMessage =
        *  instead of this socket's own audio (the server's `meeting-ears.ts`).
        *  The page then sends no audio. */
       ears?: 'meeting';
+      /** The page's pause setting; absent, the server's defaults. */
+      pause?: SpokenPause;
     }
   | { type: 'end' }
   | { type: 'stop' }
+  /** The pause setting changed mid-meeting: the next wait uses it. */
+  | { type: 'pause'; pause: SpokenPause }
   /** A choice tapped instead of said: answered as if it had been heard, on
    *  the setup the last `start` named. */
   | { type: 'say'; text: string }
@@ -176,6 +218,9 @@ export type SpokenServerMessage =
    *  the page sends no `start`; an `audio-end` for the stopped reply may
    *  still follow, and ends nothing. */
   | { type: 'cut-in' }
+  /** A meeting's "Claude, …" went to the lead: `label`, a few words of the
+   *  request, is shown until its answer is said, then `null` clears it. */
+  | { type: 'doing'; label: string | null }
   | { type: 'timings'; summary: SpokenTimingSummary }
   | { type: 'error'; message: string };
 
@@ -238,6 +283,7 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
       if (!isSetup(m.setup)) return null;
       const mode: SpokenMode = m.mode === 'tap' ? 'tap' : 'hold';
       const author = authorOf(m.author);
+      const pause = parseSpokenPause(m.pause);
       return {
         type: 'start',
         setup: m.setup,
@@ -245,12 +291,17 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
         ...(m.context !== undefined ? { context: m.context } : {}),
         ...(author ? { author } : {}),
         ...(m.ears === 'meeting' ? { ears: 'meeting' as const } : {}),
+        ...(pause ? { pause } : {}),
       };
     }
     case 'end':
       return { type: 'end' };
     case 'stop':
       return { type: 'stop' };
+    case 'pause': {
+      const pause = parseSpokenPause(m.pause);
+      return pause ? { type: 'pause', pause } : null;
+    }
     case 'say': {
       const text = typeof m.text === 'string' ? m.text.trim().slice(0, MAX_SAY_CHARS) : '';
       return text ? { type: 'say', text } : null;
@@ -298,6 +349,7 @@ export function parseSpokenServerMessage(text: string): SpokenServerMessage | nu
     'audio-start',
     'audio-end',
     'cut-in',
+    'doing',
     'timings',
     'error',
   ];
