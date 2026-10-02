@@ -89,7 +89,7 @@ describe('Gemini Live adapter', () => {
     expect(tap.realtimeInputConfig).toEqual({
       automaticActivityDetection: {
         endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
-        silenceDurationMs: 1500,
+        silenceDurationMs: 3500,
       },
     });
   });

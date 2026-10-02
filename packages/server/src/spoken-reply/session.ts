@@ -43,6 +43,7 @@ import type { AgentCallbacks } from './agent-llm.ts';
 import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
 import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
+import { FillerCue } from './filler-cue.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
 import { type GateTimers, PauseGate } from './pause-gate.ts';
 import { speakPoints } from './speak-points.ts';
@@ -115,6 +116,8 @@ export class SpokenSession {
   /** A planning doc's turn ends at a confirmed pause (`pause-gate.ts`). */
   private pause: PauseGate | null = null;
   private speaking: AbortController | null = null;
+  /** The latest turn's slow-answer cue (`filler-cue.ts`), kept for its timing row. */
+  private cue: FillerCue | null = null;
 
   // Setup 3: one Gemini session per socket, reopened only if the mode changes.
   private gemini: GeminiLiveSession | null = null;
@@ -170,6 +173,7 @@ export class SpokenSession {
           ...(msg.replyMs !== undefined ? { replyMs: msg.replyMs } : {}),
           ...(msg.audioMs !== undefined ? { audioMs: msg.audioMs } : {}),
           ...(msg.noteLeadMs !== undefined ? { noteLeadMs: msg.noteLeadMs } : {}),
+          ...(this.cue?.playedMs ? { cueMs: this.cue.playedMs } : {}),
           at: Date.now(),
         });
         this.deps.sendJson({ type: 'timings', summary: this.deps.timings.summary() });
@@ -220,6 +224,7 @@ export class SpokenSession {
       return;
     }
     this.stopSpeaking();
+    this.cue = null;
     this.dropListener();
     this.turn++;
     this.setup = msg.setup;
@@ -248,6 +253,7 @@ export class SpokenSession {
   }
 
   private stopSpeaking(): void {
+    this.cue?.cancel();
     this.speaking?.abort();
     this.speaking = null;
     if (this.setup === 4) this.agentTurns?.stop();
@@ -339,6 +345,7 @@ export class SpokenSession {
   private say(text: string): void {
     if (this.deps.readOnly) return;
     this.stopSpeaking();
+    this.cue = null;
     this.dropListener();
     this.turn++;
     if (this.setup === 4) {
@@ -361,13 +368,35 @@ export class SpokenSession {
   }
 
   private async answerAndSay(text: string, turn: number): Promise<void> {
+    const voice =
+      this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
+    const cue = this.armCue(voice, text, turn);
     const answer = await this.deps.answerer.answer(text, this.actor, this.context);
     if (turn !== this.turn) return;
     this.deps.sendJson(replyMessage(answer));
-    const voice =
-      this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
-    if (!answer.spoken || !voice) return;
-    await this.speak(voice, answer, turn);
+    const opened = (await cue?.ready()) === true;
+    if (turn !== this.turn) return;
+    if (!answer.spoken || !voice) {
+      if (opened) this.deps.sendJson({ type: 'audio-end' });
+      return;
+    }
+    await this.speak(voice, answer, turn, opened);
+  }
+
+  /** Arm the slow-answer cue for the question just heard, in `voice`. */
+  private armCue(voice: SpokenVoice | null, heard: string, turn: number): FillerCue | null {
+    this.cue?.cancel();
+    this.cue = voice
+      ? new FillerCue({
+          voice,
+          heard,
+          live: () => turn === this.turn && !(this.setup === 3 && this.dropAudio),
+          sendJson: this.deps.sendJson,
+          sendAudio: this.deps.sendAudio,
+          ...(this.deps.timers ? { timers: this.deps.timers } : {}),
+        })
+      : null;
+    return this.cue;
   }
 
   /** A failed review write, said unasked — only written while the speaker talks. */
@@ -381,7 +410,12 @@ export class SpokenSession {
     if (say) void this.speak(voice, answer, ++this.turn);
   }
 
-  private async speak(voice: SpokenVoice, answer: SpokenAnswer, turn: number): Promise<void> {
+  private async speak(
+    voice: SpokenVoice,
+    answer: SpokenAnswer,
+    turn: number,
+    opened = false,
+  ): Promise<void> {
     const ctl = new AbortController();
     this.speaking = ctl;
     try {
@@ -392,6 +426,7 @@ export class SpokenSession {
         live: () => turn === this.turn,
         sendJson: this.deps.sendJson,
         sendAudio: this.deps.sendAudio,
+        opened,
       });
     } catch (err) {
       if (!ctl.signal.aborted) {
@@ -484,6 +519,9 @@ export class SpokenSession {
     const text = this.heardText.trim() || request;
     this.deps.sendJson({ type: 'turn-end', text });
     const asked = this.deps.answerer.verbatim ? text : request || text;
+    // Gemini says nothing while the board answers, so the cue is said in
+    // this server's own voice.
+    const cue = this.armCue(this.deps.engines.voices[1] ?? this.deps.engines.voices[2], text, turn);
     const answer = await this.deps.answerer.answer(asked, this.actor, this.context);
     if (turn !== this.turn) return;
     this.replied = true;
@@ -494,6 +532,7 @@ export class SpokenSession {
     answer.points.forEach((p, i) => {
       if (p.note) this.deps.sendJson({ type: 'note', point: i, text: p.note });
     });
+    if (await cue?.ready()) this.audioOpen = true;
     const session = this.gemini ?? (await this.geminiOpening);
     session?.answerTool(id, { spoken: answer.spoken, asking: answer.asking });
   }
