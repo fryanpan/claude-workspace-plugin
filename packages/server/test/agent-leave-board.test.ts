@@ -26,6 +26,7 @@ import type { WatchCoverage } from '../../mcp/src/watch-coverage.ts';
 import type { WatchRegistry } from '../../mcp/src/watch-registry.ts';
 import { createWatchRestore } from '../../mcp/src/watch-restore.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
+import { waitFor } from './wait-for.ts';
 
 const LEAD = { id: 'agent-harborlight', name: 'Harborlight' };
 const GUEST = { id: 'agent-riverbend', name: 'Riverbend' };
@@ -158,6 +159,44 @@ async function leave(ws: string, who: { id: string; name: string }) {
   return { result: JSON.parse(text) as Record<string, unknown>, unwatched, detached };
 }
 
+type Frame = { event: string; data: Record<string, unknown> };
+
+/** Read SSE frames off an agent's own stream as they arrive. */
+async function listenAs(who: { id: string }) {
+  const res = await fetch(`${base}/events/agent/${encodeURIComponent(who.id)}`);
+  const frames: Frame[] = [];
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  void (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        buf += decoder.decode(value, { stream: true });
+        for (let sep = buf.indexOf('\n\n'); sep >= 0; sep = buf.indexOf('\n\n')) {
+          const raw = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          if (raw.startsWith(':')) continue;
+          const f: Frame = { event: 'message', data: {} };
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event:')) f.event = line.slice(6).trim();
+            else if (line.startsWith('data:')) f.data = JSON.parse(line.slice(5).trim());
+          }
+          frames.push(f);
+        }
+      }
+    } catch {
+      // Cancelled with a read in flight; what was collected still stands.
+    }
+  })();
+  return { frames, stop: () => void reader.cancel() };
+}
+
+/** The frames on a stream that came from one board's task channel. */
+const taskFramesFor = (frames: Frame[], title: string) =>
+  frames.filter((f) => f.event.startsWith('task.') && JSON.stringify(f.data).includes(title));
+
 describe('leaving a board, and removing an agent from one', () => {
   let ws = '';
 
@@ -189,6 +228,36 @@ describe('leaving a board, and removing an agent from one', () => {
     const back = await restoreAs(GUEST);
     expect(back).toEqual({ wired: [], attachPosts: [] });
     expect(await agentsOn(ws)).toEqual([LEAD.id]);
+  });
+
+  it('after leaving, no frame from the board reaches the agent, on its open stream or a new one', async () => {
+    const guestOpen = await listenAs(GUEST);
+    const lead = await listenAs(LEAD);
+    await leave(ws, GUEST);
+    const guestNew = await listenAs(GUEST);
+    const title = 'Harborlight posts the harbour notice';
+    await call('POST', `/workspaces/${ws}/tasks/batch`, {
+      tasks: [{ title, body: 'Fixture.' }],
+      author: { ...LEAD, color: '#000000', kind: 'known' },
+    });
+    // The lead's copy is the positive control: the frame was sent.
+    await waitFor(() => taskFramesFor(lead.frames, title).length > 0);
+    // Past the lead's frame, the guest's copies would have arrived too: the
+    // fan-out writes every stream in one pass.
+    expect(taskFramesFor(guestOpen.frames, title)).toEqual([]);
+    expect(taskFramesFor(guestNew.frames, title)).toEqual([]);
+    for (const s of [guestOpen, lead, guestNew]) s.stop();
+  });
+
+  it('POSITIVE CONTROL: a guest that has not left does hear the board', async () => {
+    const guest = await listenAs(GUEST);
+    const title = 'Riverbend hears the harbour notice';
+    await call('POST', `/workspaces/${ws}/tasks/batch`, {
+      tasks: [{ title, body: 'Fixture.' }],
+      author: { ...LEAD, color: '#000000', kind: 'known' },
+    });
+    await waitFor(() => taskFramesFor(guest.frames, title).length > 0);
+    guest.stop();
   });
 
   it('answers a second leave as already gone, not as a failure', async () => {
