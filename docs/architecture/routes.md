@@ -103,6 +103,9 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/icon-192.png` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/icon-512.png` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/icon.svg` | GET | `routes/shell-static.ts` | share-scope |  |
+| `/inbox/rows` | POST | `routes/inbox.ts` | loopback-only |  |
+| `/inbox/rows/:id/body` | GET | `routes/inbox.ts` | trusted-local |  |
+| `/inbox/rows/:id/state` | POST | `routes/inbox.ts` | trusted-local |  |
 | `/manifest.webmanifest` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/mcp` | GET, POST, DELETE | `routes/mcp-connector.ts` | loopback-only |  |
 | `/mounts/:fileId` | GET, HEAD | `routes/mounts.ts` | trusted-local |  |

@@ -158,6 +158,15 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/review', 'GET'],
   ]),
 
+  // The post is the reader's alone and checks its peer address and token
+  // (`authorizeAgentCaller`); the read and the taps are trusted-local and
+  // then refuse every caller but the owner's own signed-in front page.
+  ...family('routes/inbox.ts', [
+    ['loopback-only', '/inbox/rows', 'POST'],
+    ['trusted-local', '/inbox/rows/:id/body', 'GET'],
+    ['trusted-local', '/inbox/rows/:id/state', 'POST'],
+  ]),
+
   ...family('routes/mcp-connector.ts', [['loopback-only', '/mcp', 'GET POST DELETE']]),
 
   ...family('routes/agent-identity.ts', [

@@ -31,6 +31,7 @@ import {
 } from './attachment-privacy.ts';
 import { identifyCallerAgent } from './auth/agent-caller.ts';
 import {
+  authorizeAgentCaller,
   createLegacyAgentWarner,
   createRefusedMintWarner,
   agentTokenKey as deriveAgentTokenKey,
@@ -58,6 +59,10 @@ import { createHomePane } from './home-pane.ts';
 import { spokenReviewComment } from './huddle.ts';
 import { Identities } from './identities.ts';
 import { createIdentitySetup } from './identity-setup.ts';
+import { InboxBodies } from './inbox/bodies.ts';
+import { loadInboxConfig } from './inbox/config.ts';
+import { inboxSectionFor } from './inbox/landing.ts';
+import { InboxStore } from './inbox/store.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
 import { createMeetingClaude } from './meeting-claude.ts';
@@ -124,6 +129,7 @@ import {
   handleDocPromoteRoute,
   handleDocResourceRoutes,
 } from './routes/docs.ts';
+import { type InboxRoutesContext, handleInboxRoutes } from './routes/inbox.ts';
 import { handleMcpConnectorRoute } from './routes/mcp-connector.ts';
 import {
   type MeetingCalendarRoutesContext,
@@ -1387,6 +1393,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // where each answered item stood in it. Composed beside the Home pane
   // because it reads that pane's own rows — the cross-board order and a
   // board's Home order are one computation.
+  /** Incoming Messages: the owner's rows, their bodies in a file of their
+   *  own, and the config naming the reader (inbox/config.ts). */
+  const inboxConfig = loadInboxConfig(dataDir);
+  const inboxStore = new InboxStore(dataDir);
+  const inboxBodies = new InboxBodies(dataDir);
   const crossReview = createCrossReview({
     dataDir,
     taskStore,
@@ -2089,6 +2100,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       };
     },
     defaultBoardWorkspaceName: DEFAULT_BOARD_WORKSPACE_NAME,
+    landingInbox: (rankOf) =>
+      inboxSectionFor({ store: inboxStore, config: inboxConfig, taskStore, rankOf }),
   });
 
   /**
@@ -2184,6 +2197,28 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     sessionIdentityId: (req) => sessionIdentityFor(req)?.id ?? null,
     renderPage: () => renderReviewsShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,
+    j,
+    safeJson,
+  };
+
+  /**
+   * Incoming Messages — the reader's post and Bryan's taps. The reader is
+   * held to its token always, whatever `requireAgentToken` says: the post
+   * is the only write path for text from outside the trust zone.
+   */
+  const inboxRoutesCtx: InboxRoutesContext = {
+    store: inboxStore,
+    bodies: inboxBodies,
+    config: () => inboxConfig,
+    goalIsLive: (ws, goal) => taskStore.getWorkspace(ws)?.goals.some((g) => g.id === goal) ?? false,
+    authorizeAgent: (req, agentId) =>
+      authorizeAgentCaller({
+        agentId,
+        req,
+        address: server.requestIP(req)?.address,
+        key: agentTokenKeyFor(),
+        requireToken: true,
+      }),
     j,
     safeJson,
   };
@@ -2914,6 +2949,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         browserProvedNobody,
         provenAuthor,
       } = attribution;
+      /** A person proof naming the owner — never a body, a widget token or
+       *  an agent token. Incoming Messages is shown to and moved by this
+       *  alone (routes/inbox.ts). */
+      const ownerProven = (): boolean => {
+        if (visitor) return false;
+        const proven = provenIdentityFor();
+        return proven !== null && isOwnerActor({ id: proven.id });
+      };
 
       // --- Sign-in write gate ---
       // Every ordinary write — a comment, a task edit, a review answer, a
@@ -3431,6 +3474,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         if (handled) return handled;
       }
 
+      // --- REST: Incoming Messages --- see ./routes/inbox.ts. Top-level
+      // for the review queue's reason: messages are the owner's, not a
+      // board's. Claims `/inbox/` alone, which nothing above answers.
+      {
+        const handled = await handleInboxRoutes(inboxRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          requestOrigin: () => policyFor(req).requestOrigin,
+        });
+        if (handled) return handled;
+      }
+
       // --- Web log --- see ./routes/ops.ts. Same chain position as before
       // the split: under the doc resource routes, above the shell tail.
       {
@@ -3448,7 +3505,14 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // own file, or a redirect to the address that has one. Null means no
       // block there claimed this address, which is the same fall-through
       // the run did in place, and it lands on the 404 below.
-      const shell = await serveShellRoutes({ req, url, pathname, visitor, visitorHome });
+      const shell = await serveShellRoutes({
+        req,
+        url,
+        pathname,
+        visitor,
+        visitorHome,
+        ownerProven: ownerProven(),
+      });
       if (shell) return shell;
 
       // ── The task address ── see routes/task-page.ts. Below the shell
