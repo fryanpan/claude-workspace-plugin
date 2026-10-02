@@ -44,6 +44,9 @@ export interface BoardVoiceDeps {
   el(id: string): HTMLElement;
   /** Repaint after an in-place task lookup opened the panel. */
   renderDetail(): void;
+  /** "Make a plan", "have a meeting": the board's own two start buttons.
+   *  The router asks for one as `?start=` on this board's address. */
+  start?(kind: 'plan' | 'meeting'): void;
   /** Recognition, injectable for the same reason `voice-capture.ts` makes it
    *  injectable: no test environment has SpeechRecognition, and the board's
    *  half of the wiring — what a context names, and where an ack sends the
@@ -73,7 +76,10 @@ export function wireBoardVoice(deps: BoardVoiceDeps): void {
   const navigate = (u: string): void => {
     const url = new URL(u, location.origin);
     const taskParam = url.searchParams.get('task');
-    if (taskParam && url.pathname === location.pathname) {
+    const start = url.searchParams.get('start');
+    if ((start === 'plan' || start === 'meeting') && url.pathname === location.pathname) {
+      deps.start?.(start);
+    } else if (taskParam && url.pathname === location.pathname) {
       state.detailTaskId = taskParam;
       renderDetail();
     } else {

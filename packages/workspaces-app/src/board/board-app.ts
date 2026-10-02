@@ -861,6 +861,11 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     location,
     el,
     renderDetail,
+    start: (kind) =>
+      void startHuddle(
+        kind === 'plan' ? 'plan' : 'discussion',
+        kind === 'plan' ? 'solo' : 'conversation',
+      ),
     // Swaps in the spoken reply when the server can speak one.
     spoken: {},
   });
