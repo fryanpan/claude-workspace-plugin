@@ -1391,15 +1391,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     docStore,
     summarizer,
   });
-  // One queue over every board, in project order, and the ledger that records
-  // where each answered item stood in it. Composed beside the Home pane
-  // because it reads that pane's own rows — the cross-board order and a
-  // board's Home order are one computation.
   /** Incoming Messages: the owner's rows, their bodies in a file of their
    *  own, and the config naming the reader (inbox/config.ts). */
   const inboxConfig = loadInboxConfig(dataDir);
   const inboxStore = new InboxStore(dataDir);
   const inboxBodies = new InboxBodies(dataDir);
+  // One queue over every board, in project order, and the ledger that records
+  // where each answered item stood in it. Composed beside the Home pane
+  // because it reads that pane's own rows — the cross-board order and a
+  // board's Home order are one computation.
   const crossReview = createCrossReview({
     dataDir,
     taskStore,
