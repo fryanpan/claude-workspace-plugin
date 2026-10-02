@@ -60,7 +60,8 @@ import { cutsIn, unheard } from './cut-in.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import { FillerCue, cueFor } from './filler-cue.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
-import { type MeetingRoom, meetingAnswer } from './meeting-ask.ts';
+import { type MeetingAnswer, type MeetingRoom, SILENT, meetingAnswer } from './meeting-ask.ts';
+import { MeetingErrands, withHeld } from './meeting-errands.ts';
 import { type GateTimers, PauseGate } from './pause-gate.ts';
 import { speakPoints } from './speak-points.ts';
 import type { SpokenTimings } from './timings.ts';
@@ -147,6 +148,8 @@ export class SpokenSession {
   /** A listener turn whose unfinalized words a meeting's pause took: its
    *  later frames repeat them, and only what follows is new. */
   private taken: { turn: number; text: string } | null = null;
+  /** What the meeting handed to the lead, and its answers not yet said. */
+  private readonly errands = new MeetingErrands();
   /** The page's pause setting, from its latest `start`. */
   private pauseTiming: SpokenPause = SPOKEN_PAUSE_DEFAULT;
 
@@ -303,6 +306,7 @@ export class SpokenSession {
     if (msg.setup === 4) this.agentTurns?.start();
     else if (msg.setup === 3) this.startGemini();
     else this.startListening();
+    this.sayHeldIfQuiet();
   }
 
   private end(): void {
@@ -513,19 +517,28 @@ export class SpokenSession {
   private async answerAndSay(text: string, turn: number): Promise<void> {
     const voice =
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
-    const cue = this.armCue(voice, text, turn);
-    if (text) this.deps.sendJson({ type: 'working' });
     const { answerer } = this.deps;
     const room = this.ears ? this.room : null;
-    const answer = room
-      ? await meetingAnswer(answerer, text, this.actor, this.context, {
-          room,
-          owner: this.deps.ownerOnPage === true,
-          own: this.own.join(' '),
-        })
+    // A pause made only to say the lead's answers hears nothing to answer.
+    const held = room ? this.errands.take() : [];
+    const cue = room && !text ? null : this.armCue(voice, text, turn);
+    if (text) this.deps.sendJson({ type: 'working' });
+    const own: MeetingAnswer = room
+      ? text || held.length === 0
+        ? await meetingAnswer(answerer, text, this.actor, this.context, {
+            room,
+            owner: this.deps.ownerOnPage === true,
+            own: this.own.join(' '),
+          })
+        : SILENT
       : await answerer.answer(text, this.actor, this.context);
+    if (own.awaiting && own.request) {
+      this.deps.sendJson({ type: 'doing', label: this.errands.started(own.awaiting, own.request) });
+    }
+    const answer = withHeld(held, own);
     const asks = answer.asking && answer.spoken !== '';
     if (turn !== this.turn) {
+      this.errands.restore(held);
       // Cut in on before it was said: its question was never heard.
       if (this.cut === turn && asks) answerer.withdraw();
       return;
@@ -572,6 +585,27 @@ export class SpokenSession {
     if (say) this.stopSpeaking();
     this.deps.sendJson(replyMessage(answer));
     if (say) void this.speak(voice, answer, ++this.turn);
+  }
+
+  /** The lead's answer to `queueId`. One a meeting asked for is noted now
+   *  and said at the next pause (`meeting-errands.ts`); any other is an aside. */
+  sayLead(queueId: string, a: SpokenAnswer): void {
+    const done = this.room ? this.errands.answered(queueId, a, this.actor.name) : null;
+    if (!done || !this.room) {
+      this.sayAside(a);
+      return;
+    }
+    this.room.note(done.note);
+    this.deps.sendJson({ type: 'doing', label: done.label });
+    this.sayHeldIfQuiet();
+  }
+
+  /** Nobody is mid-sentence and nothing is being said: a held answer is
+   *  said now, as a pause of its own, rather than at a pause that may not come. */
+  private sayHeldIfQuiet(): void {
+    if (!this.ears || !this.errands.waiting || this.finishing || this.speaking) return;
+    if (this.finals.length > 0 || this.tail !== null || this.pause?.armed) return;
+    void this.finishListening(this.turn);
   }
 
   private async speak(
