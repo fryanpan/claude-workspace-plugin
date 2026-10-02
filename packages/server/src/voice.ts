@@ -50,6 +50,7 @@ import {
   pickReviewItem,
   resolveVoiceAction,
 } from './voice-action.ts';
+import { type VoiceClassifier, type VoiceComplete, jsonClassifier } from './voice-classifier.ts';
 import {
   type VoiceClassification,
   type VoiceContext,
@@ -57,8 +58,6 @@ import {
   type VoiceResource,
   type VoiceReviewItem,
   type VoiceReviewOption,
-  buildVoicePrompt,
-  parseVoiceReply,
   refNavigation,
   reviewItemKey,
   sameOriginPath,
@@ -181,7 +180,7 @@ export type VoiceTaskCommentDoc = (taskId: string) => string | undefined;
 
 /** One classification round trip: prompt in, raw reply text out. Injected in
  *  tests; the real one is `haikuVoiceComplete` below. */
-export type VoiceComplete = (args: { system: string; user: string }) => Promise<string>;
+export type { VoiceComplete } from './voice-classifier.ts';
 
 export interface VoiceResult {
   route: VoiceRoute;
@@ -261,7 +260,9 @@ type ActionOutcome = { kind: 'answered'; result: VoiceResult } | { kind: 'defer'
 
 export class VoiceRouter {
   private tasks: TaskStore;
-  private complete: VoiceComplete | undefined;
+  /** The model step: `opts.classify`, else the shipped JSON prompt over
+   *  `opts.complete`, else none (every model-bound utterance goes to the agent). */
+  private classify: VoiceClassifier | undefined;
   private docResource: VoiceDocResourceReader | undefined;
   private docStore: VoiceDocStore | undefined;
   private taskCommentDoc: VoiceTaskCommentDoc | undefined;
@@ -291,6 +292,9 @@ export class VoiceRouter {
   constructor(opts: {
     tasks: TaskStore;
     complete?: VoiceComplete;
+    /** Another classifier in place of the shipped one — how the router eval
+     *  scores an alternative on the same corpus (`voice-classifier.ts`). */
+    classify?: VoiceClassifier;
     /** Whether a spoken answer covered every question an item asks. Absent:
      *  every answer closes its item. See `answer-coverage.ts`. */
     answerCoverage?: AnswerCoverage;
@@ -317,7 +321,7 @@ export class VoiceRouter {
   }) {
     this.now = opts.now ?? Date.now;
     this.tasks = opts.tasks;
-    this.complete = opts.complete;
+    this.classify = opts.classify ?? (opts.complete ? jsonClassifier(opts.complete) : undefined);
     this.answerCoverage = opts.answerCoverage;
     this.docResource = opts.docResource;
     this.docStore = opts.docStore;
@@ -875,7 +879,7 @@ export class VoiceRouter {
 
     if (direct || classification) {
       // Answered, or resolved to an action, without the model.
-    } else if (this.complete) {
+    } else if (this.classify) {
       const keep = narrowTo?.length
         ? new Set(narrowTo.map((c) => c.id).concat(resource ? [resource.id] : []))
         : undefined;
@@ -899,10 +903,16 @@ export class VoiceRouter {
         docTitles,
       };
       try {
-        const reply = await this.complete(
-          buildVoicePrompt(index, transcript, context, resource, this.instructions?.()),
-        );
-        classification = parseVoiceReply(reply);
+        const instructions = this.instructions?.();
+        classification = (
+          await this.classify({
+            index,
+            transcript,
+            ...(context !== undefined ? { context } : {}),
+            ...(resource !== undefined ? { resource } : {}),
+            ...(instructions !== undefined ? { instructions } : {}),
+          })
+        ).classification;
         if (!classification) fastPathDown = true;
       } catch (err) {
         console.error('[voice] fast path failed:', err instanceof Error ? err.message : err);
