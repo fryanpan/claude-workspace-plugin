@@ -376,25 +376,8 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
     // The agent's cursor, the voice mic and the planning voice.
-    // A plan's meeting opens the planning voice with no tap.
-    const recording = meeting?.onRecording;
-    mountDocVoices({
-      docId,
-      user,
-      editor,
-      editorMount,
-      presence: awareness,
-      canWrite,
-      scope,
-      ...(recording
-        ? {
-            meeting: {
-              onRecording: recording,
-              isPlan: () => ydoc.getMap('meta').get('huddleKind') === 'plan',
-            },
-          }
-        : {}),
-    });
+    const voice = { docId, user, editor, editorMount, presence: awareness, canWrite, scope };
+    mountDocVoices({ ...voice, ydoc, meeting });
   }
 
   mountDocSpeakerMenu({

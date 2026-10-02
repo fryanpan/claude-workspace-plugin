@@ -25,11 +25,9 @@ import type { prose } from '@claude-workspaces/core';
  * (`InterviewDocs.focus`, the doc's presence; `doc/agent-focus.ts` scrolls
  * each page there and highlights them).
  *
- * THE WRITE is `DocStore.applyBlockEdits` with `insert_under_heading` — the
- * verb the MCP block tools and the edit routes use — so it is an ordinary
- * edit of the live doc: threads keep their anchors, the browser sees it at
- * once and the bound file gets it at the next write-back. Nothing here
- * touches a file.
+ * THE WRITE is `DocStore.applyBlockEdits` with `insert_under_heading`, the
+ * MCP block tools' verb: an ordinary edit of the live doc, so threads keep
+ * their anchors and the bound file gets it at the next write-back.
  *
  * QUESTIONS COME FROM READING THE PLAN when the server has a model: at a
  * pause somebody spoke into, one call (`interview-reader.ts`) names the one
