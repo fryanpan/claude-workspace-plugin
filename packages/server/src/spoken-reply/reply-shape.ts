@@ -16,11 +16,17 @@
  * `SPOKEN_MAX_WORDS` is the hard cap under both rules, cut on a word
  * boundary, because a runaway sentence read aloud costs far more than one
  * left on the screen.
+ *
+ * The spoken part is also kept sentence by sentence (`says`), because each
+ * sentence is a point that may carry a note (`notes.ts`), and its audio is
+ * made separately so the note can land as that point starts.
  */
 import { SPOKEN_MAX_WORDS } from '@claude-workspaces/core/spoken-reply';
 
 export interface ShapedReply {
   spoken: string;
+  /** `spoken`, sentence by sentence: what each point says. */
+  says: string[];
   detail: string[];
   asking: boolean;
 }
@@ -52,31 +58,44 @@ export function sentences(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-function capSpoken(text: string): string {
-  const words = text.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length <= SPOKEN_MAX_WORDS) return text;
-  return `${words.slice(0, SPOKEN_MAX_WORDS).join(' ')}…`;
+/** The word cap across the points in order: a point past it is cut on a word
+ *  boundary, and a point with no words left is dropped. */
+function capSays(parts: readonly string[]): string[] {
+  const out: string[] = [];
+  let left = SPOKEN_MAX_WORDS;
+  for (const part of parts) {
+    if (left <= 0) break;
+    const words = part.split(/\s+/).filter((w) => w.length > 0);
+    if (words.length <= left) out.push(part);
+    else out.push(`${words.slice(0, left).join(' ')}…`);
+    left -= words.length;
+  }
+  return out;
+}
+
+function shaped(parts: readonly string[], detail: string[], asking: boolean): ShapedReply {
+  const says = capSays(parts);
+  return { spoken: says.join(' '), says, detail, asking };
 }
 
 export function shapeReply(ack: string): ShapedReply {
   const all = sentences(withoutHeard(ack));
-  if (all.length === 0) return { spoken: '', detail: [], asking: false };
+  if (all.length === 0) return { spoken: '', says: [], detail: [], asking: false };
   const q = all.findIndex((s) => s.endsWith('?'));
   if (q >= 0) {
-    const question = all[q] ?? '';
-    return {
-      spoken: capSpoken(question),
-      detail: all.filter((_, i) => i !== q),
-      asking: true,
-    };
+    return shaped(
+      [all[q] ?? ''],
+      all.filter((_, i) => i !== q),
+      true,
+    );
   }
   const first = all[0] ?? '';
   const waiting = all.findIndex((s, i) => i > 0 && /^Waiting on you\b/.test(s));
   const second = waiting > 0 ? waiting : all.length > 1 ? 1 : -1;
   const spokenParts = second > 0 ? [first, all[second] ?? ''] : [first];
-  return {
-    spoken: capSpoken(spokenParts.join(' ')),
-    detail: all.filter((_, i) => i !== 0 && i !== second),
-    asking: false,
-  };
+  return shaped(
+    spokenParts,
+    all.filter((_, i) => i !== 0 && i !== second),
+    false,
+  );
 }

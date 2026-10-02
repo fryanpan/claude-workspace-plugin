@@ -150,7 +150,10 @@ describe('SpokenSession, setups 1 and 2', () => {
     expect(h.types()).toEqual(['ready', 'heard', 'heard']);
     h.send({ type: 'end' });
     await waitFor(() => v.said.length === 1, { describe: 'voice spoke' });
-    expect(v.said[0]).toBe('Harborlight: 3 open. Waiting on you: 1 — “b”.');
+    v.finish();
+    // Point by point: the second sentence is said once the first is.
+    await waitFor(() => v.said.length === 2, { describe: 'second point' });
+    expect(v.said).toEqual(['Harborlight: 3 open.', 'Waiting on you: 1 — “b”.']);
     v.finish();
     await waitFor(() => h.types().includes('audio-end'), { describe: 'audio-end' });
     expect(h.types()).toEqual([
@@ -160,6 +163,7 @@ describe('SpokenSession, setups 1 and 2', () => {
       'turn-end',
       'reply',
       'audio-start',
+      'note',
       'audio-end',
     ]);
     const reply = h.json.find((m) => m.type === 'reply');
@@ -168,7 +172,7 @@ describe('SpokenSession, setups 1 and 2', () => {
       asking: false,
       route: 'fast-path',
     });
-    expect(h.audio).toEqual([2, 2]);
+    expect(h.audio).toEqual([2, 2, 2, 2]);
     expect(l.closes).toBe(1);
   });
 
@@ -266,6 +270,15 @@ describe('SpokenSession, setups 1 and 2', () => {
       summary: { '2': { n: 1, medianMs: 812, p90Ms: 812, lastMs: 812 } },
     });
   });
+
+  it('each noted point’s lead rides the same log line, early as negative', () => {
+    const h = harness({});
+    h.send({ type: 'timing', delayMs: 700, noteLeadMs: [-150, -42.4] });
+    expect(h.logs).toEqual(['[spoken-reply] setup=1 delay=700ms note-lead=-150,-42ms']);
+    // A lead past the bound is not a measurement: the timing is kept without it.
+    h.send({ type: 'timing', delayMs: 700, noteLeadMs: [-150, 500_000] });
+    expect(h.logs.at(-1)).toBe('[spoken-reply] setup=1 delay=700ms');
+  });
 });
 
 describe('SpokenSession, setup 3', () => {
@@ -317,7 +330,7 @@ describe('SpokenSession, setup 3', () => {
     g.events.onAudio(new Uint8Array(4));
     g.events.onAudio(new Uint8Array(4));
     g.events.onTurnComplete();
-    expect(h.types()).toEqual(['heard', 'turn-end', 'reply', 'audio-start', 'audio-end']);
+    expect(h.types()).toEqual(['heard', 'turn-end', 'reply', 'note', 'audio-start', 'audio-end']);
     expect(h.audio).toEqual([4, 4]);
   });
 

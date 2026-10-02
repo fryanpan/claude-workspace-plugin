@@ -1,159 +1,18 @@
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wireBoardVoice } from '../src/board/board-voice.ts';
-import type { PlaybackContext, SpokenCaptureOpts } from '../src/board/spoken-reply-audio.ts';
 import { frameRms, pcm16ToFloat } from '../src/board/spoken-reply-audio.ts';
-import {
-  SETUP_KEY,
-  type SpokenReplyOpts,
-  type SpokenSocket,
-  TAP_MS,
-  createSpokenReply,
-} from '../src/board/spoken-reply-client.ts';
+import { SETUP_KEY, TAP_MS } from '../src/board/spoken-reply-client.ts';
 import { boardState, mountShell, task } from './support/board-region-harness.ts';
+import {
+  FakeSocket,
+  fakePlayback,
+  spokenHarness as harness,
+} from './support/spoken-reply-harness.ts';
 
 /**
  * The board mic's spoken reply, driven end to end on the page with the
- * server, the microphone and the speaker replaced: a socket whose frames the
- * test reads and answers, a capture that emits the frames the test says, and
- * an audio context whose clock the test holds.
+ * server, the microphone and the speaker replaced (`support/spoken-reply-harness.ts`).
  */
-
-class FakeSocket implements SpokenSocket {
-  binaryType = '';
-  readyState = 0;
-  onopen: (() => void) | null = null;
-  onmessage: ((ev: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
-  sent: Array<string | ArrayBufferLike | ArrayBufferView> = [];
-  send(d: string | ArrayBufferLike | ArrayBufferView): void {
-    this.sent.push(d);
-  }
-  close(): void {
-    this.readyState = 3;
-    this.onclose?.();
-  }
-  open(): void {
-    this.readyState = 1;
-    this.onopen?.();
-  }
-  json(): Array<Record<string, unknown>> {
-    return this.sent
-      .filter((d): d is string => typeof d === 'string')
-      .map((d) => JSON.parse(d) as Record<string, unknown>);
-  }
-  frames(): number {
-    return this.sent.filter((d) => typeof d !== 'string').length;
-  }
-  reply(m: SpokenServerMessage): void {
-    this.onmessage?.({ data: JSON.stringify(m) });
-  }
-  audio(samples: number[]): void {
-    const b = new Uint8Array(samples.length * 2);
-    const v = new DataView(b.buffer);
-    samples.forEach((s, i) => v.setInt16(i * 2, s, true));
-    this.onmessage?.({ data: b.buffer });
-  }
-}
-
-function fakePlayback() {
-  const started: number[] = [];
-  let stopped = 0;
-  const ctx = {
-    currentTime: 1,
-    state: 'running',
-    resume: async () => {},
-    destination: {} as AudioNode,
-    createBuffer: (_c: number, length: number, sampleRate: number) =>
-      ({ length, sampleRate, copyToChannel: () => {} }) as unknown as AudioBuffer,
-    createBufferSource: () =>
-      ({
-        buffer: null,
-        connect: () => {},
-        start: (t: number) => started.push(t),
-        stop: () => {
-          stopped++;
-        },
-        onended: null,
-      }) as unknown as AudioBufferSourceNode,
-  };
-  return {
-    ctx: ctx as unknown as PlaybackContext,
-    started,
-    get stopped() {
-      return stopped;
-    },
-  };
-}
-
-function harness(over: Partial<SpokenReplyOpts> = {}) {
-  const el = mountShell();
-  const sockets: FakeSocket[] = [];
-  const captures: SpokenCaptureOpts[] = [];
-  let captureStops = 0;
-  let clock = 1000;
-  const play = fakePlayback();
-  const store = new Map<string, string>();
-  const navigated: string[] = [];
-  const reply = createSpokenReply({
-    document,
-    button: el('board-mic'),
-    url: 'ws://board.test/workspaces/w-1/voice/converse',
-    setups: [1, 2],
-    timings: {},
-    author: { id: 'u-1', name: 'Alice', kind: 'known' },
-    getContext: () => ({ taskId: 't-1' }),
-    onNavigate: (u) => navigated.push(u),
-    openSocket: () => {
-      const s = new FakeSocket();
-      sockets.push(s);
-      return s;
-    },
-    startCapture: async (o) => {
-      captures.push(o);
-      return {
-        ok: true,
-        capture: {
-          stop: () => {
-            captureStops++;
-          },
-        },
-      };
-    },
-    captureContext: () => undefined,
-    playbackContext: () => play.ctx,
-    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
-    now: () => clock,
-    ...over,
-  });
-  const mic = el('board-mic');
-  return {
-    reply,
-    panel: reply.panel,
-    mic,
-    sockets,
-    get socket() {
-      const s = sockets.at(-1);
-      if (!s) throw new Error('no socket');
-      return s;
-    },
-    captures,
-    get captureStops() {
-      return captureStops;
-    },
-    play,
-    store,
-    navigated,
-    tick: (ms: number) => {
-      clock += ms;
-    },
-    /** One 50 ms frame, loud or quiet. */
-    frame: (loud: boolean) =>
-      captures.at(-1)?.onFrame(new Int16Array(800).fill(loud ? 3000 : 0), loud),
-    text: () => reply.panel.root.textContent ?? '',
-    label: () => reply.panel.root.querySelector('.vr-state')?.textContent,
-  };
-}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -216,14 +75,17 @@ describe('spoken reply', () => {
     // scheduled 30 ms ahead of the context clock.
     h.socket.audio([0, 0, 0, 0, 4000]);
     expect(h.play.started).toEqual([1.03]);
+    expect(h.panel.root.querySelector('.vr-delay b')?.textContent).toBe('550');
+    // The report waits for the reply to finish, so it can carry the notes' leads.
+    expect(h.socket.json().some((m) => m.type === 'timing')).toBe(false);
+    h.socket.reply({ type: 'audio-end' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(h.label()).toBe('Done');
     const timing = h.socket.json().find((m) => m.type === 'timing');
     expect(timing?.endpointMs).toBe(300);
     expect(timing?.replyMs).toBe(20);
     expect(Math.round(Number(timing?.delayMs))).toBe(550);
-    expect(h.panel.root.querySelector('.vr-delay b')?.textContent).toBe('550');
-    h.socket.reply({ type: 'audio-end' });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(h.label()).toBe('Done');
+    expect(timing?.noteLeadMs).toBeUndefined();
   });
 
   it('a tap: the listener ends the question, and a second tap ends it by hand', async () => {
