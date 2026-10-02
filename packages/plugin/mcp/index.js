@@ -13870,7 +13870,7 @@ function agentTokenPath(agentId) {
   return `/api/agents/${encodeURIComponent(agentId)}/token`;
 }
 function pathNeedsAgentToken(path) {
-  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path);
+  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path) || path === "/inbox/rows";
 }
 function createAgentTokenStore(deps) {
   let token = null;
@@ -15812,6 +15812,25 @@ var TOOL_LIST = {
           }
         },
         required: ["workspaceId", "docId", "threadId", "commentId", "text"]
+      }
+    },
+    {
+      name: "post_inbox_rows",
+      description: "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id). Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pass: {
+            type: "string",
+            description: "An id for this pass, letters, digits and . _ : - only, up to 64."
+          },
+          rows: {
+            type: "array",
+            description: `One to 40 rows. Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderKey (16 hex), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread's own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.`,
+            items: { type: "object" }
+          }
+        },
+        required: ["pass", "rows"]
       }
     },
     {
@@ -18913,6 +18932,23 @@ async function handleDocsTool(name, a, ctx) {
   return;
 }
 
+// packages/mcp/src/tools/inbox.ts
+async function handleInboxTool(name, a, ctx) {
+  switch (name) {
+    case "post_inbox_rows": {
+      const { pass, rows } = a;
+      if (typeof pass !== "string" || pass === "")
+        return ctx.err("pass is required");
+      if (!Array.isArray(rows) || rows.length === 0)
+        return ctx.err("rows must be a non-empty list");
+      const res = await ctx.http("POST", "/inbox/rows", { agentId: ctx.AUTHOR.id, pass, rows });
+      return ctx.ok(res);
+    }
+    default:
+      return;
+  }
+}
+
 // packages/core/src/review-item-id.ts
 var B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 function decodeBase64Url(s) {
@@ -20820,7 +20856,7 @@ function createConnectorSession(deps) {
     sendDueHeartbeats: () => sendDueHeartbeats2(),
     watchDoc: (docId) => registry2.watchDoc(docId),
     toolContext,
-    handlers: [handleDocsTool, handleTaskTool, handleWorkspaceTool],
+    handlers: [handleDocsTool, handleTaskTool, handleWorkspaceTool, handleInboxTool],
     err
   });
   return {
@@ -20840,7 +20876,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.279";
+var PLUGIN_VERSION = "0.1.280";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
