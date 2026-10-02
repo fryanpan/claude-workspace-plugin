@@ -2818,6 +2818,27 @@ meeting path transcribes and writes notes but never speaks.
   the same words a second time beside it. The voice is on from the start of
   the recording either way. Talk shows or hides the card without stopping
   the voice; the card's × stops it.
+- **When it speaks** (`pause-gate.ts`, Bryan's rule after his second try).
+  After an unfinished phrase (a trailing dash, ellipsis or comma, or a
+  dangling word such as "and", per `midSentence`) it waits 3s of silence.
+  After anything else it speaks at whichever comes first: the listener's own
+  end of utterance (a final turn) or 1.5s of silence. Silence is counted
+  from the last new words, so a repeated partial or a late final does not
+  restart it. Both numbers are Bryan's, and both are a setting he can change
+  mid-meeting from the meeting bar's Pause control (`doc-interview-bar.ts`,
+  1–3s and 2–6s, kept per device). The page sends them with every `start`
+  and as a `pause` message on every change, which times the next wait.
+  Untested so far: whether Soniox's end of utterance usually comes before
+  1.5s, in which case 1.5s rarely decides.
+- **What it asks** (`interview-reader.ts`). Rarely, and only when the reason
+  for the plan or its outcome is unclear, who it is for or the workflow it
+  changes is unclear, or a decision the plan depends on is unanswered. There
+  is no limit on how often: a question or an answer is said at any pause
+  that qualifies once it is ready.
+- **No interview buttons in a meeting** (`doc-interview-view.ts`). Done, Skip,
+  Later and Finish are gone from a meeting's card, which keeps only its ×,
+  and a meeting's question carries no "Say skip…" hint. A meeting has no
+  turn to end by hand, and Bryan found the four confusing there.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 
@@ -2855,6 +2876,14 @@ the line and the detail written into the meeting's own notes section with
   is none. Bryan's went to the router and got a board status brief. Any
   other "Claude, …" still goes to the router, and a discussion meeting is
   unchanged.
+- **A request the lead takes** (`meeting-errands.ts`). A "Claude, …" may ask
+  for anything a session can do; nothing here narrows it to lookups. When
+  the router hands it to the lead, the voice says "On it." and nothing is
+  noted yet. The page shows one steady line in the meeting bar, "Claude ·
+  <up to four words of the request>…", until the answer is in
+  (`doing`). The lead's answer is then written into the notes at once, with
+  the request, and its first sentence is said at the next pause, or at once
+  when nobody is speaking.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
   The notes line
