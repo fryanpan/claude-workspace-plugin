@@ -82,7 +82,8 @@ export class SpokenReplyRelay {
         this.deps.board,
         workspaceId,
         this.deps.interview ? new SpokenInterview(this.deps.interview, workspaceId) : undefined,
-        (queueId) => this.leads.wait(workspaceId, queueId, session, (a) => session.sayAside(a)),
+        (queueId) =>
+          this.leads.wait(workspaceId, queueId, session, (a) => session.sayLead(queueId, a)),
       ),
       timings: this.deps.timings,
       ...(this.deps.agentCallbacks ? { agentCallbacks: this.deps.agentCallbacks } : {}),

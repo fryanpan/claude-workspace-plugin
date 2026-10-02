@@ -41,7 +41,7 @@ export function interviewDocs(
     ...(ears
       ? {
           hold: (docId: string) => ears.hold(docId),
-          placed: (docId: string) => ears.placed(docId),
+          placed: (docId: string, written: string) => ears.placed(docId, written),
           release: (docId: string) => ears.release(docId),
         }
       : {}),

@@ -14,10 +14,14 @@
  * has a question out, what the meeting hears next is the answer, and the
  * interview writes it under its heading. So from the question on, the frames
  * meant for the notes composer are held here (`hold`) rather than delivered.
- * When the answer is written they are dropped (`placed`): the plan has them.
- * When it is not — a bare "yes", "I don't know yet", the socket going — they
- * are delivered as they were (`release`), late but whole and in order. A
- * meeting that ends delivers anything still held before the notes flush.
+ * When the answer is written, the turns the written words hold are dropped
+ * (`placed`): the plan has them. A turn holding anything else, such as a
+ * remark about the tool the plan was not given (`interview-answer.ts`), is
+ * delivered whole, so the notes lose no words, at the cost of repeating an
+ * answer that shared a turn with one. When nothing is written — a bare
+ * "yes", "I don't know yet", the socket going — everything is delivered as
+ * it was (`release`), late but whole and in order. A meeting that ends
+ * delivers anything still held before the notes flush.
  *
  * The same ears serve "Claude, …" in any meeting the page records
  * (`meeting-ask.ts`), whose detail `note` writes into the meeting's notes.
@@ -32,11 +36,30 @@ import type { EngineTurn, TranscriptionEngine } from '../transcribe.ts';
  *  notes for the rest of the meeting. */
 export const MAX_HELD_FRAMES = 2_000;
 
+/** The meeting turn a held delivery carries. */
+export interface HeldTurn {
+  turn: number;
+  text: string;
+  final: boolean;
+}
+
+interface Held {
+  deliver: () => void;
+  turn?: HeldTurn;
+}
+
 interface Room {
   /** Deliveries to the notes composer, held while a question is out. */
-  held: Array<() => void> | null;
+  held: Held[] | null;
   /** Writes lines into the meeting's own notes section. */
   note: (markdown: string) => void;
+}
+
+function flat(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
 }
 
 export class MeetingEars {
@@ -69,13 +92,13 @@ export class MeetingEars {
   }
 
   /** Hand the notes composer a frame, now or once the answer is settled. */
-  toNotes(docId: string, deliver: () => void): void {
+  toNotes(docId: string, deliver: () => void, turn?: HeldTurn): void {
     const held = this.rooms.get(docId)?.held;
     if (!held) {
       deliver();
       return;
     }
-    held.push(deliver);
+    held.push(turn ? { deliver, turn } : { deliver });
     if (held.length > MAX_HELD_FRAMES) this.release(docId);
   }
 
@@ -85,10 +108,20 @@ export class MeetingEars {
     if (room && !room.held) room.held = [];
   }
 
-  /** The answer was written into the plan: the notes never get it. */
-  placed(docId: string): void {
+  /** `written` went into the plan: the notes never get a turn whose settled
+   *  words it holds, and get every other turn, in order. */
+  placed(docId: string, written: string): void {
     const room = this.rooms.get(docId);
-    if (room?.held) room.held = [];
+    const held = room?.held;
+    if (!room || !held) return;
+    room.held = [];
+    const plan = flat(written);
+    const inPlan = new Set(
+      held
+        .filter((h) => h.turn?.final && plan.includes(flat(h.turn.text)))
+        .map((h) => h.turn?.turn),
+    );
+    for (const h of held) if (!h.turn || !inPlan.has(h.turn.turn)) h.deliver();
   }
 
   /** No answer to write: everything held goes to the notes, in order. */
@@ -97,7 +130,7 @@ export class MeetingEars {
     const held = room?.held;
     if (!room || !held) return;
     room.held = null;
-    for (const deliver of held) deliver();
+    for (const h of held) h.deliver();
   }
 
   /** The meeting's transcript on `docId`, as a listener a spoken-reply

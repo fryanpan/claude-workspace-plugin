@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
 import { wakeRequestIn } from '../src/spoken-reply/meeting-ask.ts';
 import { MeetingEars } from '../src/spoken-reply/meeting-ears.ts';
-import { type GateTimers, PAUSE_CONFIRM_MS } from '../src/spoken-reply/pause-gate.ts';
+import type { GateTimers } from '../src/spoken-reply/pause-gate.ts';
 import { SpokenSession } from '../src/spoken-reply/session.ts';
 import { SpokenTimings } from '../src/spoken-reply/timings.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
@@ -122,7 +122,8 @@ async function heardMeeting(o: { plan: boolean; owner: boolean }) {
         context: { surface: 'doc', docId: DOC_ID },
       }),
     );
-  /** Say `text` on `stream` and let the pause hold. */
+  /** Say `text` on `stream`: its final turn is the listener's end of
+   *  utterance, which is the pause after a finished sentence. */
   const say = async (text: string, stream: EngineTurn['stream']) => {
     await waitFor(
       () => {
@@ -132,7 +133,6 @@ async function heardMeeting(o: { plan: boolean; owner: boolean }) {
       { describe: 'hearing the meeting' },
     );
     ears.heard(DOC_ID, { turn: 1, text, final: true, ...(stream ? { stream } : {}) });
-    clock.advance(PAUSE_CONFIRM_MS);
   };
   const replies = () => json.filter((m) => m.type === 'reply');
   return { session, json, said, notes, listen, say, replies };
@@ -179,6 +179,36 @@ describe('"Claude, …" in a meeting the page records', () => {
       type: 'error',
       message: 'No planning meeting is recording here.',
     });
+    m.session.close();
+  });
+
+  it('in a plan’s meeting, the owner’s "Claude, any open questions?" goes to the planning voice', async () => {
+    const m = await heardMeeting({ plan: true, owner: true });
+    m.listen();
+    await m.say('The berth opens in spring. Claude, any open questions?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the planning voice' });
+    expect(m.replies()[0]).toMatchObject({ route: 'interview', asking: true });
+    expect(m.replies()[0]?.spoken).toBe('I found 4 gaps. First: What goes under Goals?');
+    expect(m.said.some((s) => s.startsWith('Routed:'))).toBe(false);
+    expect(m.notes).toEqual([]);
+    m.session.close();
+  });
+
+  it('in a plan’s meeting, any other "Claude, …" from the owner still goes to the board', async () => {
+    const m = await heardMeeting({ plan: true, owner: true });
+    m.listen();
+    await m.say('Claude, where are we?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the answer' });
+    expect(m.said).toEqual(['Routed: where are we?.']);
+    m.session.close();
+  });
+
+  it('in a discussion, "Claude, any open questions?" is the board’s as before', async () => {
+    const m = await heardMeeting({ plan: false, owner: true });
+    m.listen();
+    await m.say('Claude, any open questions?', 'mic');
+    await waitFor(() => m.replies().length === 1, { describe: 'the answer' });
+    expect(m.said).toEqual(['Routed: any open questions?.']);
     m.session.close();
   });
 

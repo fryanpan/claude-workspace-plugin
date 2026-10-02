@@ -45,6 +45,7 @@ import type { prose } from '@claude-workspaces/core';
 import { SPOKEN_MAX_WORDS } from '@claude-workspaces/core/spoken-reply';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
+import { answerPart } from './interview-answer.ts';
 import {
   type PlanGap,
   findPlanGaps,
@@ -61,11 +62,14 @@ import {
   wordCount,
 } from './interview-phrases.ts';
 import { type PlanComplete, readPlan } from './interview-reader.ts';
+import { InterviewRecord, OUTCOME, type Running } from './interview-record.ts';
 import { InterviewSlots, type SlotTransition } from './interview-state.ts';
 
 /** The route word an interview's replies carry. */
 export const INTERVIEW_ROUTE = 'interview';
 export type InterviewWrite = 'written' | 'gone' | 'failed';
+/** The most of what was said since the last question a reading is given. */
+const HEARD_KEPT = 2_000;
 
 /** The doc store as an interview needs it. */
 export interface InterviewDocs {
@@ -80,8 +84,8 @@ export interface InterviewDocs {
   /** A question is out on `docId`: hold the meeting notes' copy of what is
    *  said next (`MeetingEars.hold`). The three are absent off a meeting. */
   hold?(docId: string): void;
-  /** The answer was written into the plan: the notes never get it. */
-  placed?(docId: string): void;
+  /** `written` went into the plan: the notes never get the turns it holds. */
+  placed?(docId: string, written: string): void;
   /** No answer was written: the notes get what was held. */
   release?(docId: string): void;
 }
@@ -102,22 +106,6 @@ export interface InterviewReply {
   detail: string[];
   asking: boolean;
   route: string;
-}
-
-interface Running {
-  id: string;
-  docId: string;
-  slots: InterviewSlots;
-  /** When the current slot was asked. */
-  askedAt: number;
-  startedAt: number;
-  filledMs: number;
-  /** The current slot has had its one follow-up. */
-  followedUp: boolean;
-  /** The last answer settled nothing: the next question waits for a pause. */
-  waiting: boolean;
-  /** Its one slot was chosen by reading the plan, and the next will be. */
-  reading: boolean;
 }
 
 function docOf(context: VoiceContext | undefined): string | undefined {
@@ -141,8 +129,16 @@ export class SpokenInterview {
   private focused: string | null = null;
   /** The questions asked on each doc, so a reading never repeats one. */
   private readonly asked = new Map<string, string[]>();
+  /** What was said at pauses since the last question, per doc: a reading
+   *  hears all of it, not only the last turn. */
+  private readonly since = new Map<string, string>();
+  /** What `since` held when the latest question was asked. */
+  private sinceAsked = '';
+  /** The latest turn was heard in a planning meeting. */
+  private meeting = false;
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly record: InterviewRecord;
 
   constructor(
     private readonly deps: SpokenInterviewDeps,
@@ -150,6 +146,7 @@ export class SpokenInterview {
   ) {
     this.now = deps.now ?? (() => Date.now());
     this.newId = deps.newId ?? (() => `iv-${Date.now().toString(36)}`);
+    this.record = new InterviewRecord(deps.log, this.now);
   }
 
   get active(): boolean {
@@ -162,8 +159,30 @@ export class SpokenInterview {
     return docId !== undefined && this.deps.docs.onBoard(this.workspaceId, docId);
   }
 
-  /** The socket went: take the cursor off the doc. */
+  /** The socket went: take the cursor off the doc, and a meeting's run
+   *  ends with it. */
   close(): void {
+    this.unfocus();
+    this.record.close();
+  }
+
+  /**
+   * The question just asked was never heard: the speaker went on over it
+   * (`cut-in.ts`), so what they say next is not its answer. A reading's
+   * question is dropped as if it had not been asked, and the next pause reads
+   * again with everything said; a gap's is asked again at the next pause.
+   */
+  withdraw(): void {
+    const run = this.run;
+    if (!run) return;
+    const asked = questionFor(this.slot(run));
+    this.asked.set(
+      run.docId,
+      (this.asked.get(run.docId) ?? []).filter((q) => q !== asked),
+    );
+    if (this.sinceAsked) this.since.set(run.docId, this.sinceAsked);
+    if (run.reading) this.run = null;
+    else run.waiting = true;
     this.unfocus();
   }
 
@@ -173,25 +192,28 @@ export class SpokenInterview {
    * and nobody said "interview me". An empty transcript is a silence.
    * `meeting`: heard in a planning meeting, where nothing said is ever the
    * board router's, so the voice stays quiet rather than returning null.
+   * `invited`: somebody asked for its questions, whatever the words.
    */
   async answer(
     transcript: string,
     context: VoiceContext | undefined,
     meeting = false,
+    invited = false,
   ): Promise<InterviewReply | null> {
-    const cmd = interviewCommand(transcript);
+    this.meeting = meeting;
+    const cmd = invited && this.run ? 'repeat' : interviewCommand(transcript);
     const run = this.run;
     if (!run) {
       if (cmd === 'start') return this.begin(context, transcript, 'asked');
       const docId = docOf(context);
-      const invited = asksForQuestions(transcript);
+      const asks = invited || asksForQuestions(transcript);
       if (!docId || !this.listensOn(context)) return meeting ? this.hush(true) : null;
       if (meeting && cmd === 'enough') {
         this.over.add(docId);
         return this.say('I’ll stop asking.');
       }
-      if (this.over.has(docId) && !invited) return meeting ? this.hush(true) : null;
-      return this.begin(context, transcript, invited ? 'invited' : 'pause');
+      if (this.over.has(docId) && !asks) return meeting ? this.hush(true) : null;
+      return this.begin(context, transcript, asks ? 'invited' : 'pause');
     }
     const text = transcript.trim();
     if (run.waiting) {
@@ -292,10 +314,12 @@ export class SpokenInterview {
   ) {
     const complete = this.deps.complete;
     if (!complete) return Promise.resolve({ none: '' });
+    const all = `${this.since.get(docId) ?? ''} ${heard}`.trim().slice(-HEARD_KEPT);
+    this.since.set(docId, all);
     return readPlan(complete, {
       outline,
       gaps,
-      heard,
+      heard: all,
       asked: this.asked.get(docId) ?? [],
       invited,
     });
@@ -313,7 +337,10 @@ export class SpokenInterview {
   }
 
   private async write(run: Running, text: string): Promise<InterviewReply> {
-    const markdown = answerMarkdown(text);
+    // Only what answers the question goes in; the rest stays with the notes.
+    const kept = await answerPart(this.deps.complete, questionFor(this.slot(run)), text);
+    if (!kept) return this.quiet(run);
+    const markdown = answerMarkdown(kept);
     let gap = this.slot(run);
     let res = this.deps.docs.writeUnder(run.docId, gap.headingId, markdown);
     if (res === 'gone') {
@@ -330,14 +357,14 @@ export class SpokenInterview {
     if (res === 'failed') return this.question(run, 'I couldn’t write that.');
     if (res === 'gone')
       return this.settle(run, 'gone', `${spokenHeading(gap)} is gone from the doc.`);
-    this.deps.docs.placed?.(run.docId);
+    this.deps.docs.placed?.(run.docId, kept);
     run.filledMs += this.now() - run.askedAt;
     this.recordAnswer(run, 'edit');
     return this.settle(
       run,
       'placed',
       `Written under ${spokenHeading(gap)}.`,
-      wordCount(text),
+      wordCount(kept),
       text,
     );
   }
@@ -397,23 +424,13 @@ export class SpokenInterview {
     };
   }
 
-  /** `over`: the doc hears no unasked question again on this socket. */
+  /** `over`: the doc hears no unasked question again on this socket. In a
+   *  meeting the run's end is logged when the meeting's socket goes. */
   private finish(run: Running, over: boolean): void {
     this.run = null;
     if (over) this.over.add(run.docId);
     this.unfocus();
-    const { slots } = run;
-    this.deps.log.record({
-      type: 'end',
-      interview: run.id,
-      docId: run.docId,
-      gaps: slots.total,
-      filled: slots.placed,
-      skipped: slots.skipped,
-      ms: this.now() - run.startedAt,
-      ...(slots.placed > 0 ? { minutesPerFilled: run.filledMs / slots.placed / 60_000 } : {}),
-      at: this.now(),
-    });
+    this.record.end(run, this.meeting);
   }
 
   /** The slot being asked; a running interview always has one. */
@@ -432,13 +449,16 @@ export class SpokenInterview {
       quote: (gap.kind === 'read' ? gap.quote : gap.asks) ?? gap.heading,
     });
     this.deps.docs.hold?.(run.docId);
+    this.sinceAsked = this.since.get(run.docId) ?? '';
+    this.since.delete(run.docId);
     const asked = questionFor(gap);
     const before = this.asked.get(run.docId) ?? [];
     if (!before.includes(asked)) this.asked.set(run.docId, [...before, asked]);
     const spoken = capWords(`${lead} ${asked}`.trim(), SPOKEN_MAX_WORDS);
     return {
       spoken,
-      detail: ['Say skip, come back to that, or that’s enough.'],
+      // A meeting has no interview commands to offer (the page shows none).
+      detail: this.meeting ? [] : ['Say skip, come back to that, or that’s enough.'],
       asking: true,
       route: INTERVIEW_ROUTE,
     };
@@ -462,39 +482,10 @@ export class SpokenInterview {
   }
 
   private recordAnswer(run: Running, after: AfterAnswer): void {
-    const gap = this.slot(run);
-    this.deps.log.record({
-      type: 'answer',
-      interview: run.id,
-      docId: run.docId,
-      section: gap.ordinal,
-      kind: gap.kind,
-      after,
-      at: this.now(),
-    });
+    this.record.answer(run, this.slot(run), after);
   }
 
   private recordGap(run: Running, outcome: GapOutcome, words?: number): void {
-    const gap = this.slot(run);
-    this.deps.log.record({
-      type: 'gap',
-      interview: run.id,
-      docId: run.docId,
-      section: gap.ordinal,
-      kind: gap.kind,
-      outcome,
-      ms: this.now() - run.askedAt,
-      ...(words !== undefined ? { words } : {}),
-      at: this.now(),
-    });
+    this.record.gap(run, this.slot(run), outcome, words);
   }
 }
-
-/** The log's word for each transition. */
-const OUTCOME: Record<SlotTransition, GapOutcome> = {
-  placed: 'filled',
-  skipped: 'skipped',
-  deferred: 'deferred',
-  gone: 'gone',
-  ended: 'ended',
-};

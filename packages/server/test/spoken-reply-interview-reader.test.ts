@@ -47,6 +47,8 @@ function scripted(replies: string[]) {
   return {
     calls,
     complete: async (args: { system: string; user: string }) => {
+      // The reader's prompt only; the answer check falls back to the words.
+      if (!args.system.startsWith(READER_SYSTEM)) return '';
       calls.push(args);
       const next = replies.shift();
       if (next === undefined) throw new Error('model down');

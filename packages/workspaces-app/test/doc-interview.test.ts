@@ -1,9 +1,13 @@
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import {
+  SPOKEN_PAUSE_DEFAULT,
+  type SpokenServerMessage,
+} from '@claude-workspaces/core/spoken-reply';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackContext, SpokenCaptureOpts } from '../src/board/spoken-reply-audio.ts';
 import type { SpokenSocket } from '../src/board/spoken-reply-client.ts';
+import { interviewSetup } from '../src/doc/doc-interview-setup.ts';
 import { START_PROMPT } from '../src/doc/doc-interview-view.ts';
-import { interviewSetup, mountDocInterview } from '../src/doc/doc-interview.ts';
+import { mountDocInterview } from '../src/doc/doc-interview.ts';
 import { MountScope } from '../src/mount-scope.ts';
 
 /**
@@ -150,6 +154,7 @@ describe('doc interview', () => {
         mode: 'tap',
         context: { surface: 'doc', docId: 'd-plan' },
         author: { id: 'u-1', name: 'Alice' },
+        pause: SPOKEN_PAUSE_DEFAULT,
       },
     ]);
     await vi.waitFor(() => expect(h.captures).toHaveLength(1));

@@ -24,7 +24,10 @@ export function mountDocVoices(opts: {
   scope: MountScope;
   ydoc: Y.Doc;
   /** This page's meeting, which opens the planning voice on a plan. */
-  meeting?: { onRecording?: (fn: (recording: boolean) => void) => void } | null;
+  meeting?: {
+    onRecording?: (fn: (recording: boolean) => void) => void;
+    bar?: HTMLElement;
+  } | null;
 }): void {
   const { docId, user, editor, editorMount, scope } = opts;
   wireAgentFocus({ editor, presence: opts.presence, scope });
@@ -38,6 +41,10 @@ export function mountDocVoices(opts: {
     workspaceId: board,
     user,
     scope,
-    ...(onRecording ? { meeting: { onRecording, isPlan } } : {}),
+    ...(onRecording
+      ? {
+          meeting: { onRecording, isPlan, ...(opts.meeting?.bar ? { bar: opts.meeting.bar } : {}) },
+        }
+      : {}),
   });
 }

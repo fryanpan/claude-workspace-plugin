@@ -54,6 +54,8 @@ export interface InterviewFrame {
   note: string | null;
   /** An interview is running, so the commands apply. */
   interviewing: boolean;
+  /** Heard from a meeting: no Done, Skip, Later or Finish, only the ×. */
+  meeting: boolean;
 }
 
 export class DocInterviewView {
@@ -115,6 +117,7 @@ export class DocInterviewView {
       }),
     );
     this.part('.doc-interview-note').textContent = f.note ?? '';
+    this.part('.doc-interview-foot').hidden = f.meeting;
     this.primary.textContent = PRIMARY_LABELS[f.phase];
     this.primary.disabled = f.phase === 'thinking';
     for (const b of this.commands) b.disabled = !f.interviewing || f.phase === 'thinking';

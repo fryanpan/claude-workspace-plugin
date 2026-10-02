@@ -2781,6 +2781,64 @@ meeting path transcribes and writes notes but never speaks.
   order. A meeting's end delivers anything still held before the notes flush,
   and the hold lets go after `MAX_HELD_FRAMES` so an unanswered question
   cannot starve the notes.
+- **It stays on while the meeting records.** Bryan's first planning meeting
+  logged `[interview] done … gaps=1` after the first answer, and nothing else
+  was asked for the rest of the meeting. Now each question is still its own
+  short run, but in a meeting a run's counts go into one tally
+  (`interview-record.ts`), and the `done` row is written once, when the
+  meeting's socket closes. At every later pause somebody spoke into, the plan
+  is read again with everything said since the last question, and the voice
+  asks only when the reading names a question.
+- **Only the answer is written** (`interview-answer.ts`). The same meeting
+  wrote all 67 words after the question into the plan, Bryan's remarks
+  about the tool included. Now a false start (a clause broken off on a dash
+  or an ellipsis before a new sentence) is dropped, and one model call names
+  which of the remaining sentences answer the question, by number, so the
+  plan gets the speaker's own words and never a paraphrase. If none answers,
+  nothing is written. If the model fails, every sentence but the false starts
+  is written. The notes hold now drops only the turns the written words
+  contain (`MeetingEars.placed`), so a remark the plan was not given still
+  reaches the notes.
+- **It never talks over the meeting** (`cut-in.ts`). In the same meeting
+  the question started about a second after the pause, while Bryan had
+  already gone on ("I noticed that there's—"). Inferred from the log and the
+  words the plan captured, not measured: the mid-sentence window did not
+  fail. The turn before the pause read as finished, so it held for 1.2s, and
+  the dash was written later, when he broke off because the voice had
+  started; those words were the start of the answer turn. What failed is that
+  nothing listened between the pause and the end of the question. Now the
+  socket keeps hearing the meeting until the page's next `start`. A frame with words in it, other than the voice's own words
+  heard back (at least `ECHO_SHARE` of them), stops the reply whether or not
+  it has started playing, sends the page `cut-in` (the player stops at once
+  and the card listens on, with no new `start`), withdraws a question in it
+  (`SpokenInterview.withdraw`: not in the asked list, its words not taken as
+  an answer), and begins the next turn with that frame.
+- **The card stays closed while the meeting records** (`doc-interview.ts`).
+  The doc's live zone already shows what is heard, so an open card showed
+  the same words a second time beside it. The voice is on from the start of
+  the recording either way. Talk shows or hides the card without stopping
+  the voice; the card's × stops it.
+- **When it speaks** (`pause-gate.ts`, Bryan's rule after his second try).
+  After an unfinished phrase (a trailing dash, ellipsis or comma, or a
+  dangling word such as "and", per `midSentence`) it waits 3s of silence.
+  After anything else it speaks at whichever comes first: the listener's own
+  end of utterance (a final turn) or 1.5s of silence. Silence is counted
+  from the last new words, so a repeated partial or a late final does not
+  restart it. Both numbers are Bryan's, and both are a setting he can change
+  mid-meeting from the meeting bar's Pause control (`doc-interview-bar.ts`,
+  1–3s and 2–6s, kept per device). The page sends them with every `start`
+  and as a `pause` message on every change, which times the next wait.
+  Untested so far: whether Soniox's end of utterance usually comes before
+  1.5s, in which case 1.5s rarely decides.
+- **What it asks** (`interview-reader.ts`). Rarely, and only when the reason
+  for the plan or its outcome is unclear, who it is for or the workflow it
+  changes is unclear, or a decision the plan depends on is unanswered. There
+  is no limit on how often: a question or an answer is said at any pause
+  that qualifies once it is ready.
+- **No interview buttons in a meeting** (`doc-interview-view.ts`). Done, Skip,
+  Later and Finish are gone from a meeting's card, which keeps only its ×,
+  and a meeting's question carries no "Say skip…" hint. A meeting has no
+  turn to end by hand, and Bryan found the four confusing there.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 
@@ -2811,9 +2869,24 @@ the line and the detail written into the meeting's own notes section with
   the interview so the planning voice cannot take the request as an answer.
   A `navigate` on the answer is dropped: following it would take the page off
   the meeting it records.
+- **Except asking for questions in a planning meeting.** There, "Claude, any
+  questions?" (any phrasing `asksForQuestions` knows, "any open questions?"
+  included) goes to the planning voice as an invitation
+  (`SpokenAnswerer.invite`): its best question, or one sentence saying there
+  is none. Bryan's went to the router and got a board status brief. Any
+  other "Claude, …" still goes to the router, and a discussion meeting is
+  unchanged.
+- **A request the lead takes** (`meeting-errands.ts`). A "Claude, …" may ask
+  for anything a session can do; nothing here narrows it to lookups. When
+  the router hands it to the lead, the voice says "On it." and nothing is
+  noted yet. The page shows one steady line in the meeting bar, "Claude ·
+  <up to four words of the request>…", until the answer is in
+  (`doing`). The lead's answer is then written into the notes at once, with
+  the request, and its first sentence is said at the next pause, or at once
+  when nobody is speaking.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
-  Words said while the voice is speaking are not heard by it. The notes line
+  The notes line
   waits, as the bot path's does, until the meeting's first note opens its
   section.
 

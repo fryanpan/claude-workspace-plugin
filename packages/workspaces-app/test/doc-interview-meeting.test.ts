@@ -1,4 +1,7 @@
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import {
+  SPOKEN_PAUSE_DEFAULT,
+  type SpokenServerMessage,
+} from '@claude-workspaces/core/spoken-reply';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackContext, SpokenCaptureOpts } from '../src/board/spoken-reply-audio.ts';
 import type { SpokenSocket } from '../src/board/spoken-reply-client.ts';
@@ -42,6 +45,8 @@ class FakeSocket implements SpokenSocket {
   }
 }
 
+/** Sources the player stopped: a cut-in silences what was queued. */
+let stopped = 0;
 const playback = {
   currentTime: 1,
   state: 'running',
@@ -54,7 +59,9 @@ const playback = {
       buffer: null,
       connect: () => {},
       start: () => {},
-      stop: () => {},
+      stop: () => {
+        stopped++;
+      },
       onended: null,
     }) as unknown as AudioBufferSourceNode,
 } as unknown as PlaybackContext;
@@ -127,12 +134,10 @@ const QUESTION: SpokenServerMessage = {
 };
 
 describe('the planning voice in a planning meeting', () => {
-  it('opens with the recording and hears the meeting, with no microphone and no silence turn', async () => {
+  it('hears the meeting from the recording, with no microphone and no silence turn', async () => {
     const h = harness({ stored: '3' });
     h.recording(true);
     h.socket().open();
-    expect(h.view.card.hidden).toBe(false);
-    expect(h.view.card.querySelector('.doc-interview-question')?.textContent).toBe(MEETING_PROMPT);
     // Setup 3 hears with Gemini, so the meeting is heard on setup 1.
     expect(h.starts()).toEqual([
       {
@@ -141,6 +146,7 @@ describe('the planning voice in a planning meeting', () => {
         mode: 'tap',
         context: { surface: 'doc', docId: 'd-plan' },
         author: { id: 'u-1', name: 'Alice' },
+        pause: SPOKEN_PAUSE_DEFAULT,
         ears: 'meeting',
       },
     ]);
@@ -175,6 +181,63 @@ describe('the planning voice in a planning meeting', () => {
     h.socket().reply({ type: 'reply', spoken: '', detail: [], asking: false, route: 'none' });
     expect(h.starts()).toHaveLength(3);
     expect(h.starts().every((m) => m.ears === 'meeting')).toBe(true);
+  });
+
+  it('a cut-in stops the question playing and listens on, with no new start', async () => {
+    const h = harness();
+    h.recording(true);
+    h.socket().open();
+    h.socket().reply({ type: 'turn-end', text: 'The berth opens in spring.' });
+    h.socket().reply(QUESTION);
+    h.socket().reply({ type: 'audio-start', sampleRate: 24_000 });
+    h.socket().onmessage?.({ data: new Int16Array(480).fill(4000).buffer });
+    const before = stopped;
+    h.socket().reply({ type: 'cut-in' });
+    expect(stopped).toBeGreaterThan(before);
+    expect(h.view.card.dataset.phase).toBe('listening');
+    // The server withdrew the question it stopped, so the card drops it.
+    expect(h.view.card.querySelector('.doc-interview-question')?.textContent).toBe(MEETING_PROMPT);
+    // The stopped reply's own end ends nothing: the server is already hearing.
+    h.socket().reply({ type: 'audio-end' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.starts()).toHaveLength(1);
+    // The turn it went on with is answered as any other.
+    h.socket().reply({ type: 'turn-end', text: 'I noticed a second crane.' });
+    h.socket().reply({ type: 'reply', spoken: '', detail: [], asking: true, route: 'interview' });
+    expect(h.starts()).toHaveLength(2);
+  });
+
+  it('keeps the card closed while recording, and Talk shows or hides it without stopping the voice', () => {
+    const h = harness();
+    h.recording(true);
+    h.socket().open();
+    // The doc's own live zone shows the transcript; the card would repeat it.
+    expect(h.view.card.hidden).toBe(true);
+    h.socket().reply({ type: 'heard', text: 'The berth opens' });
+    h.view.button.click();
+    expect(h.view.card.hidden).toBe(false);
+    expect(h.view.button.getAttribute('aria-pressed')).toBe('true');
+    expect(h.view.card.querySelector('.doc-interview-question')?.textContent).toBe(MEETING_PROMPT);
+    h.socket().reply({ type: 'heard', text: 'The berth opens in spring' });
+    expect(h.view.card.querySelector('.doc-interview-you')?.textContent).toBe(
+      'You: The berth opens in spring',
+    );
+    h.view.button.click();
+    expect(h.view.card.hidden).toBe(true);
+    expect(h.socket().readyState).toBe(1);
+    expect(
+      h
+        .socket()
+        .json()
+        .some((m) => m.type === 'stop' || m.type === 'say'),
+    ).toBe(false);
+    // An error with the card closed is shown when it opens, and stops nothing.
+    h.socket().reply({ type: 'error', message: 'The plan could not be read.' });
+    expect(h.socket().readyState).toBe(1);
+    h.view.button.click();
+    expect(h.view.card.querySelector('.doc-interview-note')?.textContent).toBe(
+      'The plan could not be read.',
+    );
   });
 
   it('closes when the recording stops', () => {

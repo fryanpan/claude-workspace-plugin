@@ -179,6 +179,11 @@ export class SpokenAnswerer {
     this.interview?.close();
   }
 
+  /** The speaker went on over the question just asked (`session.ts`). */
+  withdraw(): void {
+    this.interview?.withdraw();
+  }
+
   /** While an interview runs, what was heard is written into the doc, so a
    *  listener's paraphrase of it must not stand in for it. */
   get verbatim(): boolean {
@@ -201,6 +206,18 @@ export class SpokenAnswerer {
     }
     if (!transcript || meeting) return plain('');
     return this.route(transcript, actor, context);
+  }
+
+  /** "Claude, any questions?" in a planning meeting (`meeting-ask.ts`): the
+   *  planning voice's best question, or why there is none. */
+  async invite(
+    heard: string,
+    actor: VoiceActor,
+    context: VoiceContext | undefined,
+  ): Promise<SpokenAnswer> {
+    const interviewed = await this.interview?.answer(stripWake(heard), context, true, true);
+    if (!interviewed) return this.ask(heard, actor, context);
+    return { ...interviewed, points: interviewed.spoken ? [{ say: interviewed.spoken }] : [] };
   }
 
   /** "Claude, …" in a meeting (`meeting-ask.ts`): routed as the board mic
