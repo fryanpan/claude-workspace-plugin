@@ -93,6 +93,9 @@ export type UpgradeData = {
   /** A voice socket's proven speaker, and its mark when a mock relayed it —
    *  what the notes the server writes after the page has gone carry. */
   author?: User | null;
+  /** A spoken-reply socket whose person proof names the owner — never a
+   *  display name or a body's claim (`spoken-reply/meeting-ask.ts`). */
+  ownerProven?: boolean;
   via?: WriteVia;
 };
 

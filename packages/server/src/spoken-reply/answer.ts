@@ -200,7 +200,20 @@ export class SpokenAnswerer {
       return { ...interviewed, points };
     }
     if (!transcript || meeting) return plain('');
+    return this.route(transcript, actor, context);
+  }
 
+  /** "Claude, …" in a meeting (`meeting-ask.ts`): routed as the board mic
+   *  routes it, past the planning voice, which would take it as an answer. */
+  ask(heard: string, actor: VoiceActor, context: VoiceContext | undefined): Promise<SpokenAnswer> {
+    return this.route(stripWake(heard), actor, context);
+  }
+
+  private async route(
+    transcript: string,
+    actor: VoiceActor,
+    context: VoiceContext | undefined,
+  ): Promise<SpokenAnswer> {
     const walked = this.walk ? await this.walk.hear(transcript) : null;
     if (walked) {
       this.pendingGoals = null;

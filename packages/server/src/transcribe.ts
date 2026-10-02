@@ -52,6 +52,9 @@ export interface EngineTurn {
    * names a label once per meeting, and that map lives with the meeting.
    */
   speaker?: string;
+  /** Which capture stream a meeting's turn came from: the page's `mic`, or
+   *  the `system` audio carrying everybody dialled in. Absent off a meeting. */
+  stream?: 'mic' | 'system';
   /**
    * Audio offset, in milliseconds of the engine's own stream, of the END of
    * the last word in `text`. The instant being measured when this frame's

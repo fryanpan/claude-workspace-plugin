@@ -1613,10 +1613,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       log: new InterviewLog(join(dataDir, INTERVIEW_TIMINGS_FILE)),
       ...(opts.voiceComplete ? { complete: opts.voiceComplete } : {}),
     },
-    // Only a plan's meeting is heard: a discussion's never asks anything.
+    // A recording meeting: a plan's is heard for its questions, any for
+    // "Claude, …" from the owner (`spoken-reply/meeting-ask.ts`).
     meetingEars: (docId) =>
-      docStore.peekMeta(docId)?.huddleKind === 'plan' && meetingEars.recording(docId)
-        ? meetingEars.engine(docId)
+      meetingEars.recording(docId)
+        ? {
+            engine: meetingEars.engine(docId),
+            plan: docStore.peekMeta(docId)?.huddleKind === 'plan',
+            note: (markdown) => meetingEars.note(docId, markdown),
+          }
         : null,
   });
 
@@ -3069,6 +3074,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         visitorMemberKey,
         browserProvedNobody,
         provenAuthor,
+        ownerProven,
         widgetDoorGrant,
       });
       if (streamed) {
