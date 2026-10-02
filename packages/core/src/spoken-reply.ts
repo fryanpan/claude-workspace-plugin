@@ -22,6 +22,11 @@
  * answer.
  */
 
+import { type SpokenDecide, type SpokenDecided, parseSpokenDecided } from './spoken-review.ts';
+
+export type { SpokenDecide, SpokenDecided, SpokenReviewTarget } from './spoken-review.ts';
+export { reviewAnswerRequest, spokenDecisionRequest } from './spoken-review.ts';
+
 export type SpokenSetup = 1 | 2 | 3 | 4;
 export const SPOKEN_SETUPS: readonly SpokenSetup[] = [1, 2, 3, 4];
 
@@ -108,7 +113,9 @@ export type SpokenClientMessage =
       /** Per noted point, in order: when its note showed minus when its
        *  point's first word played. Zero or below is the note in step. */
       noteLeadMs?: number[];
-    };
+    }
+  /** How the page's write of a `reply.decide` went (`spoken-review.ts`). */
+  | SpokenDecided;
 
 export interface SpokenTimingRow {
   n: number;
@@ -148,6 +155,8 @@ export type SpokenServerMessage =
       /** Which route answered — the router's own word, or `none`. */
       route: string;
       navigate?: string;
+      /** A review decision for the page to write, or take back. */
+      decide?: SpokenDecide;
     }
   /** Point `point`'s note, sent just before that point's audio — the page
    *  shows it as the point starts to play. */
@@ -248,6 +257,8 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
         ...(noteLeadMs !== undefined ? { noteLeadMs } : {}),
       };
     }
+    case 'decided':
+      return parseSpokenDecided(m);
     default:
       return null;
   }

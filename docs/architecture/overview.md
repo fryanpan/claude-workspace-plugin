@@ -709,6 +709,20 @@ before the tool result that starts the voice. On the page,
 a row the reply laid out for it, and `board/spoken-reply-turn.ts` builds the
 turn's `timing` report, which now carries each note's lead.
 
+"Go through my reviews" starts the review queue by voice.
+`spoken-reply/review-walk.ts` reads each item's headline and options, answers
+questions about it, and reads a decision back before anything is recorded.
+The read-back, the yes and the one-utterance undo window are
+`spoken-reply/confirm.ts`, kept apart so a doc follow-up can reuse it;
+`review-words.ts` holds the words it listens for, and `review-speakable.ts`
+the rule for which items stay on the queue for the screen. The server never
+writes the answer itself: the reply carries a `decide`, and
+`board/spoken-review-decide.ts` posts it to the route the answer card and its
+Undo already use. The request is built in `core/spoken-review.ts` (a new
+top-level core module), so the card and the voice queue share one builder. A
+ticket's review item gained the undo it lacked:
+`routes/task-review-answer-undo.ts` over `review-items/undo-answer.ts`.
+
 **Interview mode** rides the same socket. On a review doc, the Interview
 button (`doc/doc-interview.ts`, its markup in `doc-interview-view.ts`) opens
 the spoken-reply socket with `{ surface: 'doc', docId }` as each turn's

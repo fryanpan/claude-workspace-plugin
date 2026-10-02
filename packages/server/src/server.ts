@@ -1572,6 +1572,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         id: g.id,
         title: g.title,
       })),
+    // The Home tab's own rows, so the voice queue reads what the screen shows.
+    reviewQueue: (workspaceId) => {
+      const workspace = taskStore.getWorkspace(workspaceId);
+      return workspace ? reviewItemsFor(workspace) : [];
+    },
+    ...(opts.voiceComplete ? { explain: opts.voiceComplete } : {}),
   };
   const spokenRelay = new SpokenReplyRelay({
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },

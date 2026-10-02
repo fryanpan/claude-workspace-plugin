@@ -9,6 +9,7 @@ import type { ReviewGateNote, ReviewPayload, ReviewShape } from '@claude-workspa
  * and `board-presence-model.ts` for the two duration labels a queue row prints.
  * Nothing imports back: the queue is a reader of the board, not a peer of it.
  */
+import { type SpokenReviewTarget, reviewAnswerRequest } from '@claude-workspaces/core/spoken-reply';
 import { api } from '../doc-path.ts';
 import { type BoardGoal, type BoardTask, goalRank, ownedByPerson } from './board-model.ts';
 import { timeAgo, waitShort } from './board-presence-model.ts';
@@ -792,30 +793,28 @@ export function reviewReplyRequest(
 ): { path: string; body: Record<string, unknown> } | null {
   const t = item.thread;
   if (!t) return null;
+  // The two answer doors are spelled once, in core, for this card and for the
+  // voice queue alike (`spoken-review.ts`).
+  const answer = (target: SpokenReviewTarget) => {
+    const r = reviewAnswerRequest(target, text, optionId);
+    return { path: api(r.sub, t.workspaceId), body: r.body };
+  };
   if (t.kind === 'task-review') {
     if (!t.taskId || !t.reviewItemId) return null;
-    return {
-      path: api(
-        `tasks/${encodeURIComponent(t.taskId)}/review-items/${encodeURIComponent(t.reviewItemId)}/answer`,
-        t.workspaceId,
-      ),
-      body: { text, ...(optionId !== undefined ? { answeredWith: optionId } : {}) },
-    };
+    return answer({ kind: 'task-review', taskId: t.taskId, reviewItemId: t.reviewItemId });
   }
   if (!t.docId || !t.threadId) return null;
+  if (item.review !== undefined && t.commentId !== undefined) {
+    return answer({
+      kind: 'doc-thread',
+      docId: t.docId,
+      threadId: t.threadId,
+      commentId: t.commentId,
+    });
+  }
   const doc = encodeURIComponent(t.docId);
   const thread = encodeURIComponent(t.threadId);
-  const declared = item.review !== undefined && t.commentId !== undefined;
-  return declared
-    ? {
-        path: api(`docs/${doc}/threads/${thread}/answer`, t.workspaceId),
-        body: {
-          text,
-          commentId: t.commentId,
-          ...(optionId !== undefined ? { optionId } : {}),
-        },
-      }
-    : { path: api(`docs/${doc}/threads/${thread}/comments`, t.workspaceId), body: { text } };
+  return { path: api(`docs/${doc}/threads/${thread}/comments`, t.workspaceId), body: { text } };
 }
 
 /**

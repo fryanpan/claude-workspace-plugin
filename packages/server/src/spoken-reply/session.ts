@@ -152,6 +152,9 @@ export class SpokenSession {
       case 'say':
         this.say(msg.text);
         return;
+      case 'decided':
+        this.sayAside(this.deps.answerer.decided(msg.id, msg.ok));
+        return;
       case 'timing':
         this.deps.timings.record({
           setup: this.setup,
@@ -351,6 +354,17 @@ export class SpokenSession {
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     if (!answer.spoken || !voice) return;
     await this.speak(voice, answer, turn);
+  }
+
+  /** A failed review write, said unasked — only written while the speaker talks. */
+  private sayAside(answer: SpokenAnswer | null): void {
+    if (!answer) return;
+    const voice =
+      this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
+    const say = voice && answer.spoken && this.stt === null && this.sttOpening === null;
+    if (say) this.stopSpeaking();
+    this.deps.sendJson(replyMessage(answer));
+    if (say) void this.speak(voice, answer, ++this.turn);
   }
 
   private async speak(voice: SpokenVoice, answer: SpokenAnswer, turn: number): Promise<void> {

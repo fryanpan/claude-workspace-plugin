@@ -24,6 +24,7 @@
 import {
   SPOKEN_SETUPS,
   type SpokenClientMessage,
+  type SpokenDecide,
   type SpokenHeldSetups,
   type SpokenMode,
   type SpokenServerMessage,
@@ -73,6 +74,9 @@ export interface SpokenReplyOpts {
   author: { id: string; name: string; kind?: string };
   getContext(): unknown;
   onNavigate(url: string): void;
+  /** Write a review decision the server read back and heard confirmed, and
+   *  say whether it landed (`spoken-review-decide.ts`). */
+  onDecide?: (d: SpokenDecide) => Promise<boolean>;
   openSocket?: (url: string) => SpokenSocket;
   startCapture?: (opts: SpokenCaptureOpts) => Promise<SpokenCaptureStart>;
   /** A context for the microphone, made inside the press. */
@@ -377,6 +381,14 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
     sendMsg({ type: 'say', text });
   }
 
+  function decide(d: SpokenDecide): void {
+    const write = opts.onDecide;
+    void (write ? write(d) : Promise.resolve(false)).then(
+      (ok) => sendMsg({ type: 'decided', id: d.id, ok }),
+      () => sendMsg({ type: 'decided', id: d.id, ok: false }),
+    );
+  }
+
   function recordDelay(at: number): void {
     const t = timingAt(turn, at);
     if (!t) return;
@@ -428,6 +440,7 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
           panel.setState('writing');
         }
         if (m.navigate) opts.onNavigate(m.navigate);
+        if (m.decide) decide(m.decide);
         return;
       case 'note':
         notes.note(m.point, m.text);
