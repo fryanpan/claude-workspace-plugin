@@ -298,6 +298,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['settings'],
   ['sw.js'],
   ['sw.js.map'],
+  ['voice-agent', 'v1', 'chat', 'completions'],
   ['workspaces', ':id', 'calendar', 'events', ':id', 'join'],
   ['workspaces', ':id', 'docs', ':id', 'home'],
   ['workspaces', ':id', 'docs', ':id', 'lead-presence'],

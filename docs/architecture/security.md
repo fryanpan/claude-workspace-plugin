@@ -18,6 +18,7 @@ Claude Workspaces runs on one person's computer. That person is the owner. There
 - Cloudflare Access's verdict on who a visitor is. The server never checks a password itself.
 - Cloudflare's own marker on every request it forwards (`cf-ray`). That marker alone proves a request came through the tunnel, so a tunnel visitor who claims to be `localhost` is not believed.
 - Signed messages from the meeting-bot service that delivers transcripts. Its hostname sits outside the sharing master switch on purpose, so switching sharing off mid-meeting does not drop a transcript; each of its two routes works only while its own credential is set.
+- ElevenLabs' servers asking for a spoken reply (setup 4 of the board mic), on the same vendor callback hostname. The route works only while setup 4 is configured, and needs both a shared secret ElevenLabs sends as a bearer token, compared in constant time, and a per-conversation token that names one open mic socket. With both it can do what speaking into that socket could do, for as long as that socket is open.
 
 **Not trusted:**
 
@@ -186,6 +187,7 @@ Secrets are kept in the macOS Keychain or in files only the owner's account can 
 | Secrets a review item asked the reader for                   | Keychain, under `claude-workspaces-secret.<name>` |
 | The key that signs cookies and widget tokens, and from which the agent-token key is derived | `<dataDir>/share-cookie.key`, owner-only |
 | The ElevenLabs and Gemini keys for spoken replies            | Keychain, under `claude-workspaces-secret.<name>`; `ELEVENLABS_API_KEY` and `GEMINI_API_KEY` override them for one launch |
+| Setup 4's agent id and the secret ElevenLabs sends back      | Keychain, under `claude-workspaces-secret.elevenlabs-agent-id` and `.elevenlabs-agent-llm-secret`; `ELEVENLABS_AGENT_ID` and `CW_ELEVENLABS_AGENT_LLM_SECRET` override them for one launch |
 | Share links and their members                                | `<dataDir>/share-links.json`, owner-only |
 | The key that signs browser notifications                     | `<dataDir>/push-vapid.json`, owner-only  |
 | The meeting webhook signing secret                           | The environment                          |
@@ -256,6 +258,7 @@ Every hostname below is a placeholder; the real ones live in the launchd configu
 | Every route and its gate                 | `routes/route-table-rows.ts`, rendered to [routes.md](routes.md) | none                                                     |
 | Master switch                            | `share/sharing-gate.ts`                                      | set from an agent, not from a browser                        |
 | Meeting-bot hostname `recall.<domain>`   | `middleware/recall-callback-gate.ts`                         | `CW_RECALL_CALLBACK_HOST`, `RECALL_WEBHOOK_SECRET`           |
+| Setup 4's custom-LLM route, same hostname | `routes/voice-agent-llm.ts`, `spoken-reply/agent-llm.ts`     | the two setup-4 cards above, `CW_ELEVENLABS_TRAINING_OFF`    |
 | Browser write gate                       | `isGatedWrite`, `middleware/write-gate.ts`                   | `CW_REQUIRE_SIGNIN_TO_WRITE` (on by default)                 |
 | Fields sent to a visitor                 | `share/redact-meta.ts`                                       | none                                                         |
 | Shared-folder listing                    | `isListedFile`, `fs-scan.ts`                                 | none                                                         |

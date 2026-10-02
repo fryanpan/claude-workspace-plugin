@@ -44,6 +44,12 @@ export const VOICE_CSS = [
   '.vcard.paged .vpager{display:flex}',
   '.vfoot .vplay{color:#2e7dd7}',
   '.vfoot .vundo{margin-left:auto}',
+  // The question: under the live card, in its colours, still. Choices are 44px to a finger.
+  '.vask{position:fixed;z-index:2147483647;background:#fff;color:#1b1f23;border:1px solid #2e7dd7;border-radius:12px;box-shadow:0 8px 24px rgba(18,38,63,.16);padding:10px 12px 8px;font-size:14px;line-height:1.4}',
+  '.vq{font-weight:600;overflow-wrap:anywhere}',
+  '.vchoices{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}',
+  '.vchoices button{min-height:44px;padding:0 12px;border:1px solid #cfd8e3;border-radius:8px;background:#fff;color:#2e7dd7;font:600 13px system-ui,sans-serif;cursor:pointer}',
+  '.vchoices .vkeep{border-color:transparent;color:#6e7781;font-weight:500}',
   '.vlead{position:fixed;inset:0;pointer-events:none;z-index:2147483646}',
   '.vlead svg{width:100%;height:100%}',
   '.vlead line{stroke:#9fb9d8;stroke-width:1.2;stroke-dasharray:3 3}',

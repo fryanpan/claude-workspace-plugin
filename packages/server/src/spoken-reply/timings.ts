@@ -19,10 +19,12 @@
  *    the median beside the switch without a terminal.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import type {
-  SpokenSetup,
-  SpokenTimingRow,
-  SpokenTimingSummary,
+import {
+  SPOKEN_SETUPS,
+  type SpokenSetup,
+  type SpokenTimingRow,
+  type SpokenTimingSummary,
+  spokenSetupKey,
 } from '@claude-workspaces/core/spoken-reply';
 
 export const SPOKEN_TIMINGS_FILE = 'spoken-reply-timings.jsonl';
@@ -49,7 +51,7 @@ function percentile(sorted: number[], p: number): number {
 
 export function summarize(samples: readonly SpokenTimingSample[]): SpokenTimingSummary {
   const out: SpokenTimingSummary = {};
-  for (const setup of [1, 2, 3] as const) {
+  for (const setup of SPOKEN_SETUPS) {
     const mine = samples.filter((s) => s.setup === setup);
     const last = mine[mine.length - 1];
     if (!last) continue;
@@ -60,7 +62,7 @@ export function summarize(samples: readonly SpokenTimingSample[]): SpokenTimingS
       p90Ms: percentile(sorted, 90),
       lastMs: last.delayMs,
     };
-    out[String(setup) as '1' | '2' | '3'] = row;
+    out[spokenSetupKey(setup)] = row;
   }
   return out;
 }
@@ -107,7 +109,7 @@ export class SpokenTimings {
   }
 
   private trim(): void {
-    for (const setup of [1, 2, 3] as const) {
+    for (const setup of SPOKEN_SETUPS) {
       const mine = this.samples.filter((s) => s.setup === setup);
       if (mine.length <= KEPT_PER_SETUP) continue;
       const drop = new Set(mine.slice(0, mine.length - KEPT_PER_SETUP));
@@ -120,7 +122,7 @@ function parseSample(line: string): SpokenTimingSample | null {
   if (!line.trim()) return null;
   try {
     const raw = JSON.parse(line) as Partial<SpokenTimingSample>;
-    if (raw.setup !== 1 && raw.setup !== 2 && raw.setup !== 3) return null;
+    if (!SPOKEN_SETUPS.includes(raw.setup as SpokenSetup)) return null;
     if (typeof raw.delayMs !== 'number' || typeof raw.at !== 'number') return null;
     return raw as SpokenTimingSample;
   } catch {

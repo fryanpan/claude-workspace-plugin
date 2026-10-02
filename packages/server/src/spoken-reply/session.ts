@@ -13,6 +13,9 @@
  *    sent just before its audio: Soniox TTS for 1, ElevenLabs Flash for 2.
  *  - Setup 3 streams the same PCM to Gemini Live, which calls back into the
  *    same answerer through its `ask_board` tool and speaks the result.
+ *  - Setup 4 streams it to an ElevenLabs agent, which takes the turns and
+ *    calls back into the same answerer through this server's custom-LLM
+ *    route (`agent-turns.ts`).
  *
  * `stop` is the page saying the speaker cut in: the voice is aborted at once
  * and whatever it had not sent is never sent.
@@ -29,11 +32,15 @@ import {
   type SpokenServerMessage,
   type SpokenSetup,
   parseSpokenClientMessage,
+  spokenSetupKey,
 } from '@claude-workspaces/core/spoken-reply';
 import type { TranscriptionEngine, TranscriptionSession } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
-import type { SpokenAnswer, SpokenAnswerer } from './answer.ts';
+import type { AgentCallbacks } from './agent-llm.ts';
+import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
+import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
+import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
 import { speakPoints } from './speak-points.ts';
 import type { SpokenTimings } from './timings.ts';
@@ -53,13 +60,19 @@ export interface SpokenEngines {
   listener: TranscriptionEngine | null;
   voices: { 1: SpokenVoice | null; 2: SpokenVoice | null };
   gemini: GeminiLive | null;
+  /** Setup 4: the agent, and the secret its custom-LLM calls must carry. */
+  agent?: { live: ElevenLabsAgent; llmSecret: string } | null;
   /** Built but not run yet, and why — see `SpokenHeldSetups`. */
   held?: SpokenHeldSetups;
 }
 
 export function availableSetups(e: SpokenEngines): SpokenSetup[] {
   return SPOKEN_SETUPS.filter((s) =>
-    s === 3 ? e.gemini !== null : e.listener !== null && e.voices[s] !== null,
+    s === 4
+      ? Boolean(e.agent)
+      : s === 3
+        ? e.gemini !== null
+        : e.listener !== null && e.voices[s] !== null,
   );
 }
 
@@ -67,25 +80,14 @@ export interface SpokenSessionDeps {
   engines: SpokenEngines;
   answerer: SpokenAnswerer;
   timings: SpokenTimings;
+  /** Setup 4's route registry; without one setup 4 cannot be answered. */
+  agentCallbacks?: AgentCallbacks;
   /** The identity the upgrade proved; the page's claim is used without one. */
   provenActor: VoiceActor | null;
   readOnly: boolean;
   parseContext(raw: unknown): VoiceContext | undefined;
   sendJson(msg: SpokenServerMessage): void;
   sendAudio(pcm: Uint8Array): void;
-}
-
-function replyMessage(a: SpokenAnswer): SpokenServerMessage {
-  return {
-    type: 'reply',
-    spoken: a.spoken,
-    detail: a.detail,
-    points: a.points,
-    asking: a.asking,
-    ...(a.choices ? { choices: a.choices } : {}),
-    route: a.route,
-    ...(a.navigate ? { navigate: a.navigate } : {}),
-  };
 }
 
 const NOBODY: VoiceActor = { id: 'voice-unknown', name: 'unknown', kind: 'known' };
@@ -115,7 +117,13 @@ export class SpokenSession {
   private audioOpen = false;
   private dropAudio = false;
 
-  constructor(private readonly deps: SpokenSessionDeps) {}
+  // Setup 4: its conversation opens at the first setup-4 start.
+  private agentTurns: AgentTurns | null;
+
+  constructor(private readonly deps: SpokenSessionDeps) {
+    // Read at call time: the speaker and context of the latest start.
+    this.agentTurns = agentTurnsFor(deps, (t) => deps.answerer.answer(t, this.actor, this.context));
+  }
 
   open(): void {
     this.deps.sendJson({
@@ -158,6 +166,10 @@ export class SpokenSession {
   }
 
   onAudio(pcm: Uint8Array): void {
+    if (this.setup === 4) {
+      this.agentTurns?.audio(pcm);
+      return;
+    }
     if (this.setup === 3) {
       if (this.gemini) this.gemini.sendAudio(pcm);
       else if (this.geminiOpening && this.buffered.length < MAX_BUFFERED_FRAMES) {
@@ -177,6 +189,7 @@ export class SpokenSession {
     this.dropListener();
     this.gemini?.close();
     this.gemini = null;
+    this.agentTurns?.close();
   }
 
   private start(msg: Extract<SpokenClientMessage, { type: 'start' }>): void {
@@ -188,7 +201,7 @@ export class SpokenSession {
       this.deps.sendJson({
         type: 'error',
         message:
-          this.deps.engines.held?.[String(msg.setup) as '1' | '2' | '3'] ??
+          this.deps.engines.held?.[spokenSetupKey(msg.setup)] ??
           `Setup ${msg.setup} is not set up on this server.`,
       });
       return;
@@ -200,11 +213,16 @@ export class SpokenSession {
     this.mode = msg.mode;
     this.context = this.deps.parseContext(msg.context);
     this.actor = this.deps.provenActor ?? msg.author ?? NOBODY;
-    if (msg.setup === 3) this.startGemini();
+    if (msg.setup === 4) this.agentTurns?.start();
+    else if (msg.setup === 3) this.startGemini();
     else this.startListening();
   }
 
   private end(): void {
+    if (this.setup === 4) {
+      this.agentTurns?.end();
+      return;
+    }
     if (this.setup === 3) {
       void (this.gemini ? Promise.resolve(this.gemini) : this.geminiOpening)?.then((g) => {
         if (!g) return;
@@ -219,6 +237,7 @@ export class SpokenSession {
   private stopSpeaking(): void {
     this.speaking?.abort();
     this.speaking = null;
+    if (this.setup === 4) this.agentTurns?.stop();
     if (this.setup === 3) {
       this.dropAudio = true;
       if (this.audioOpen) this.deps.sendJson({ type: 'audio-end' });
@@ -303,6 +322,10 @@ export class SpokenSession {
     this.stopSpeaking();
     this.dropListener();
     this.turn++;
+    if (this.setup === 4) {
+      this.agentTurns?.say(text);
+      return;
+    }
     if (this.setup === 3) {
       this.heardText = '';
       this.saidText = '';
@@ -322,7 +345,8 @@ export class SpokenSession {
     const answer = await this.deps.answerer.answer(text, this.actor, this.context);
     if (turn !== this.turn) return;
     this.deps.sendJson(replyMessage(answer));
-    const voice = this.setup === 3 ? null : this.deps.engines.voices[this.setup];
+    const voice =
+      this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     if (!answer.spoken || !voice) return;
     await this.speak(voice, answer, turn);
   }

@@ -8,25 +8,35 @@
  * JSON, and with the reply's voice as binary PCM16 at `SPOKEN_OUTPUT_RATE`
  * between an `audio-start` and an `audio-end`.
  *
- * THREE SETUPS behind one switch, so they can be heard side by side on the
+ * FOUR SETUPS behind one switch, so they can be heard side by side on the
  * same board (the voice plan, "Which voice API"):
  *
  *   1  Soniox listens and Soniox speaks.
  *   2  Soniox listens and ElevenLabs Flash speaks.
  *   3  Gemini Live hears and speaks, and asks the board what to say.
+ *   4  ElevenLabs Agents hears, takes turns and speaks, and asks this
+ *      server's custom-LLM route what to say.
  *
  * In every setup the words of the reply come from the board mic's own router
  * (`voice.ts`), so what a setup changes is the ears and the voice, not the
  * answer.
  */
 
-export type SpokenSetup = 1 | 2 | 3;
-export const SPOKEN_SETUPS: readonly SpokenSetup[] = [1, 2, 3];
+export type SpokenSetup = 1 | 2 | 3 | 4;
+export const SPOKEN_SETUPS: readonly SpokenSetup[] = [1, 2, 3, 4];
+
+/** A setup's number as a JSON key. */
+export type SpokenSetupKey = '1' | '2' | '3' | '4';
+
+export function spokenSetupKey(s: SpokenSetup): SpokenSetupKey {
+  return String(s) as SpokenSetupKey;
+}
 
 export const SPOKEN_SETUP_NAMES: Record<SpokenSetup, string> = {
   1: 'Soniox alone',
   2: 'Soniox + ElevenLabs',
   3: 'Gemini Live',
+  4: 'ElevenLabs Agents',
 };
 
 /** The switch's tooltips: who hears and who speaks. */
@@ -34,6 +44,7 @@ export const SPOKEN_SETUP_TITLES: Record<SpokenSetup, string> = {
   1: 'Soniox listens and speaks',
   2: 'Soniox listens, ElevenLabs Flash speaks',
   3: 'Gemini Live hears and speaks',
+  4: 'ElevenLabs Agents hears, takes turns and speaks',
 };
 
 /**
@@ -43,8 +54,9 @@ export const SPOKEN_SETUP_TITLES: Record<SpokenSetup, string> = {
  */
 export type SpokenMode = 'hold' | 'tap';
 
-/** The rate every setup's voice arrives at. All three vendors offer 24 kHz
- *  PCM16, so the page plays one format whichever setup spoke. */
+/** The rate setups 1-3's voice arrives at. All three vendors offer 24 kHz
+ *  PCM16, so the page plays one format whichever setup spoke. Setup 4 plays
+ *  at the rate its agent is configured for, named in `audio-start`. */
 export const SPOKEN_OUTPUT_RATE = 24_000;
 
 /** The longest a spoken part may be, in words. The plan's first risk is
@@ -106,14 +118,14 @@ export interface SpokenTimingRow {
 }
 
 /** Per setup, keyed by the setup's number as a string (JSON keys). */
-export type SpokenTimingSummary = Partial<Record<'1' | '2' | '3', SpokenTimingRow>>;
+export type SpokenTimingSummary = Partial<Record<SpokenSetupKey, SpokenTimingRow>>;
 
 /**
  * A setup the server has the keys for but will not run yet, with the one
  * line that says why — shown on the page when it is chosen. Keyed like
  * `SpokenTimingSummary`.
  */
-export type SpokenHeldSetups = Partial<Record<'1' | '2' | '3', string>>;
+export type SpokenHeldSetups = Partial<Record<SpokenSetupKey, string>>;
 
 export type SpokenServerMessage =
   | { type: 'ready'; setups: SpokenSetup[]; held?: SpokenHeldSetups; timings: SpokenTimingSummary }
@@ -150,7 +162,7 @@ const MAX_AUTHOR_FIELD = 200;
 const MAX_SAY_CHARS = 200;
 
 function isSetup(v: unknown): v is SpokenSetup {
-  return v === 1 || v === 2 || v === 3;
+  return v === 1 || v === 2 || v === 3 || v === 4;
 }
 
 function timingField(v: unknown): number | undefined {
@@ -186,7 +198,7 @@ function authorOf(raw: unknown): SpokenAuthor | undefined {
 
 /**
  * A text frame from the page, or null. Everything the server acts on is
- * checked here: an unknown type, a setup outside 1–3, a timing that is not a
+ * checked here: an unknown type, a setup outside 1–4, a timing that is not a
  * plausible number of milliseconds — all null, and the server ignores null.
  */
 export function parseSpokenClientMessage(text: string): SpokenClientMessage | null {

@@ -150,3 +150,27 @@ describe('near-misses fail closed', () => {
     expect(recallCallbackAllows('', 'GET', BOTH)).toBe(false);
   });
 });
+
+describe('setup 4’s custom-LLM route', () => {
+  const PATH = '/voice-agent/v1/chat/completions';
+  it('is admitted only while setup 4 is configured, and only as a whole-path POST', () => {
+    expect(recallCallbackAllows(PATH, 'POST', { ...NEITHER, voiceAgentConfigured: true })).toBe(
+      true,
+    );
+    expect(recallCallbackAllows(PATH, 'POST', BOTH)).toBe(false);
+    expect(recallCallbackAllows(PATH, 'POST', { ...BOTH, voiceAgentConfigured: false })).toBe(
+      false,
+    );
+    const on = { ...NEITHER, voiceAgentConfigured: true };
+    for (const [path, method] of [
+      [PATH, 'GET'],
+      [`${PATH}/`, 'POST'],
+      ['/voice-agent/v1/models', 'POST'],
+      [`/${PATH}`, 'POST'],
+      ['/voice-agent/v1/chat/completion%73', 'POST'],
+      ['/recall/status', 'POST'],
+    ] as const) {
+      expect(recallCallbackAllows(path, method, on)).toBe(false);
+    }
+  });
+});

@@ -3495,6 +3495,7 @@ body.composer-open .composer-scrim.composer-scrim--clear {
 }
 .doc-voice-readout[hidden],
 .doc-voice-live[hidden],
+.doc-voice-ask[hidden],
 .doc-voice-outline[hidden] {
   display: none;
 }
@@ -3604,6 +3605,45 @@ body.composer-open .composer-scrim.composer-scrim--clear {
 }
 .doc-voice-live.hearing .doc-voice-pending {
   display: flex;
+}
+/* The one question about the note being said, under the live card and
+   over the page, so no card moves for it. Still: no animation. */
+.doc-voice-ask {
+  position: fixed;
+  z-index: 851;
+  box-sizing: border-box;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgba(18, 38, 63, 0.16);
+  font: 14px / 1.4 var(--sans);
+}
+.doc-voice-question {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.doc-voice-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.doc-voice-choices button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--accent);
+  font: 600 13px var(--sans);
+  cursor: pointer;
+}
+.doc-voice-choices .doc-voice-keep {
+  border-color: transparent;
+  color: var(--fg-muted);
+  font-weight: 500;
 }
 .doc-voice-outline {
   position: fixed;

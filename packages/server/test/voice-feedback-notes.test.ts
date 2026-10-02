@@ -116,7 +116,7 @@ describe('talk becomes a finished note', () => {
     });
     ws = {
       data: { docId: 'riverbend-mock', workspaceId: 'riverbend' },
-      send: (p) => frames.push(JSON.parse(p) as Frame),
+      send: (p) => frames.push(JSON.parse(String(p)) as Frame),
       close: () => {},
     };
     send({ type: 'start', sampleRate: 16_000, targets: TARGETS });

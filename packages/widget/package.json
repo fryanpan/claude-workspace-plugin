@@ -10,7 +10,8 @@
     "./voice": "./src/voice/voice-mode.ts",
     "./voice-session": "./src/voice/voice-session.ts",
     "./voice-audio": "./src/voice/voice-audio.ts",
-    "./voice-post": "./src/voice/voice-post.ts"
+    "./voice-post": "./src/voice/voice-post.ts",
+    "./voice-speak": "./src/voice/voice-speak.ts"
   },
   "dependencies": {
     "@claude-workspaces/core": "workspace:*",

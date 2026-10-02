@@ -76,14 +76,19 @@ function audioCtor(): typeof AudioContext | undefined {
   );
 }
 
+/** Setup 4 hands each turn to an agent session, which the interview never
+ *  sees, so an interview runs on the other three. */
+const INTERVIEW_SETUPS: readonly SpokenSetup[] = SPOKEN_SETUPS.filter((s) => s !== 4);
+
 /** The board's chosen setup when this server runs it, else the first it runs. */
 export function interviewSetup(
   setups: readonly SpokenSetup[],
   stored: string | null,
 ): SpokenSetup | null {
+  const usable = INTERVIEW_SETUPS.filter((s) => setups.includes(s));
   const want = Number(stored);
-  if (setups.includes(want as SpokenSetup)) return want as SpokenSetup;
-  return SPOKEN_SETUPS.find((s) => setups.includes(s)) ?? null;
+  if (usable.includes(want as SpokenSetup)) return want as SpokenSetup;
+  return usable[0] ?? null;
 }
 
 export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {

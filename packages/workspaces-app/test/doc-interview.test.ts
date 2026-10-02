@@ -280,5 +280,8 @@ describe('interviewSetup', () => {
     expect(interviewSetup([1, 3], '2')).toBe(1);
     expect(interviewSetup([3], null)).toBe(3);
     expect(interviewSetup([], '1')).toBeNull();
+    // Setup 4's turns go to an agent session, not the interview.
+    expect(interviewSetup([1, 4], '4')).toBe(1);
+    expect(interviewSetup([4], '4')).toBeNull();
   });
 });

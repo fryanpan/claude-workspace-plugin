@@ -10,6 +10,9 @@
  *   passage, then stands in the comment margin level with it (on a phone,
  *   docked above the mic). A dashed outline marks the passage.
  * - After five seconds with nothing heard it says so, in the card.
+ * - A question about the note being said stands just under the live card
+ *   (just over it when the mic is below), over the page, so nothing beside
+ *   it moves: the question, its choices, and Keep as is.
  * - A finished note is an ordinary comment: the doc's own margin card draws
  *   it (`voice-note-foot.ts` adds its clip, raw words and Undo).
  *
@@ -42,6 +45,8 @@ export interface LiveFrame {
   passage: HTMLElement | null;
   /** Something to tell the person beside the mic, or null. */
   notice: string | null;
+  /** The question asked about the note, with its choices; null when none. */
+  ask: { question: string; choices: string[] } | null;
 }
 
 export class DocVoiceView {
@@ -50,6 +55,8 @@ export class DocVoiceView {
   readonly live: HTMLDivElement;
   readonly outline: HTMLDivElement;
   readonly move: HTMLButtonElement;
+  /** The question; a tapped choice's `data-i` is its index, Keep has none. */
+  readonly ask: HTMLDivElement;
   private frame: LiveFrame | null = null;
 
   constructor(private readonly editorMount: HTMLElement) {
@@ -77,7 +84,11 @@ export class DocVoiceView {
     this.outline = document.createElement('div');
     this.outline.className = 'doc-voice-outline';
     this.outline.hidden = true;
-    document.body.append(this.outline, this.live, this.mic, this.readout);
+    this.ask = document.createElement('div');
+    this.ask.className = 'doc-voice-ask';
+    this.ask.hidden = true;
+    this.ask.setAttribute('role', 'group');
+    document.body.append(this.outline, this.live, this.ask, this.mic, this.readout);
   }
 
   draw(f: LiveFrame): void {
@@ -102,7 +113,48 @@ export class DocVoiceView {
     this.live.classList.toggle('hearing', f.pending.trim() !== '');
     this.live.classList.toggle('picking', f.picking);
     this.move.disabled = !f.canMove;
+    this.drawAsk(f.on && !f.picking ? f.ask : null);
     this.place();
+  }
+
+  private drawAsk(a: LiveFrame['ask']): void {
+    this.ask.hidden = !a;
+    const key = a ? JSON.stringify(a) : '';
+    // Rebuilt only when it changed: a draw comes with every word heard, and a
+    // button replaced between press and release never gets its click.
+    if (this.ask.dataset.key === key) return;
+    this.ask.dataset.key = key;
+    this.ask.replaceChildren();
+    if (!a) return;
+    this.ask.setAttribute('aria-label', a.question);
+    const q = document.createElement('div');
+    q.className = 'doc-voice-question';
+    q.textContent = a.question;
+    const row = document.createElement('div');
+    row.className = 'doc-voice-choices';
+    const button = (label: string, i?: number) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      if (i === undefined) b.className = 'doc-voice-keep';
+      else b.dataset.i = String(i);
+      row.append(b);
+    };
+    a.choices.forEach((c, i) => button(c, i));
+    button('Keep as is');
+    this.ask.append(q, row);
+  }
+
+  /** Under the live card, or over it when there is no room below. */
+  private placeAsk(): void {
+    if (this.ask.hidden) return;
+    const r = this.live.getBoundingClientRect();
+    const h = this.ask.offsetHeight;
+    const vv = window.visualViewport;
+    const bottom = (vv?.offsetTop ?? 0) + (vv?.height ?? innerHeight) - 8;
+    const below = this.live.classList.contains('float') || this.live.classList.contains('docked');
+    const top = !below && r.bottom + 6 + h <= bottom ? r.bottom + 6 : Math.max(8, r.top - 6 - h);
+    Object.assign(this.ask.style, { top: `${top}px`, left: `${r.left}px`, width: `${r.width}px` });
   }
 
   /** Stand the live card and the outline where they belong; runs on scroll. */
@@ -128,6 +180,7 @@ export class DocVoiceView {
     this.live.classList.toggle('float', !docked && !attached);
     if (!attached || !colRect || !f?.passage) {
       for (const p of ['top', 'left', 'width']) this.live.style.removeProperty(p);
+      this.placeAsk();
       return;
     }
     const scroller = this.editorMount.getBoundingClientRect();
@@ -148,12 +201,14 @@ export class DocVoiceView {
       left: `${slot.left}px`,
       width: `${slot.width}px`,
     });
+    this.placeAsk();
   }
 
   remove(): void {
     document.body.classList.remove('doc-voice-on', 'doc-voice-picking');
     this.outline.remove();
     this.live.remove();
+    this.ask.remove();
     this.mic.remove();
     this.readout.remove();
   }
