@@ -33,6 +33,7 @@ import {
 } from './interview-gaps.ts';
 import type { GapOutcome, InterviewLog } from './interview-log.ts';
 import { interviewCommand } from './interview-phrases.ts';
+import { InterviewSlots, type SlotTransition } from './interview-state.ts';
 
 /** The route word an interview's replies carry. */
 export const INTERVIEW_ROUTE = 'interview';
@@ -68,13 +69,10 @@ export interface InterviewReply {
 interface Running {
   id: string;
   docId: string;
-  queue: PlanGap[];
-  current: PlanGap;
+  slots: InterviewSlots;
+  /** When the current slot was asked. */
   askedAt: number;
   startedAt: number;
-  total: number;
-  filled: number;
-  skipped: number;
   filledMs: number;
 }
 
@@ -112,29 +110,29 @@ export class SpokenInterview {
 
   /**
    * The reply to `transcript`, or null when it is not the interview's: no
-   * interview is running and this is not "interview me".
+   * interview is running and this is not "interview me". An empty
+   * transcript is the page reporting a silence after the question.
    */
   answer(transcript: string, context: VoiceContext | undefined): InterviewReply | null {
     const cmd = interviewCommand(transcript);
     const run = this.run;
     if (!run) return cmd === 'start' ? this.begin(context) : null;
     const text = transcript.trim();
-    if (!text) return this.question(run, 'I didn’t catch that.');
+    if (!text) {
+      return run.slots.silence() === 'offer-skip'
+        ? this.question(run, 'Still there? Say skip to move on, or answer:')
+        : this.question(run, 'I didn’t catch that.');
+    }
     switch (cmd) {
       case 'start':
       case 'repeat':
         return this.question(run, cmd === 'start' ? 'We’re in the interview.' : '');
       case 'skip':
-        run.skipped++;
-        this.recordGap(run, 'skipped');
-        return this.advance(run, 'Skipped.');
+        return this.settle(run, 'skipped', 'Skipped.');
       case 'later':
-        this.recordGap(run, 'deferred');
-        run.queue.push(run.current);
-        return this.advance(run, 'I’ll come back to that.');
+        return this.settle(run, 'deferred', 'I’ll come back to that.');
       case 'enough':
-        this.recordGap(run, 'ended');
-        return this.finish(run, 'Stopping here.');
+        return this.settle(run, 'ended', 'Stopping here.');
       default:
         return this.write(run, text);
     }
@@ -148,31 +146,26 @@ export class SpokenInterview {
     const outline = this.deps.docs.outline(docId);
     if (!outline) return this.say('I can’t read this doc.');
     const gaps = findPlanGaps(outline);
-    const first = gaps.shift();
-    if (!first) return this.say('I found no gaps in this plan.');
+    if (gaps.length === 0) return this.say('I found no gaps in this plan.');
     const at = this.now();
     const run: Running = {
       id: this.newId(),
       docId,
-      queue: gaps,
-      current: first,
+      slots: new InterviewSlots(gaps),
       askedAt: at,
       startedAt: at,
-      total: gaps.length + 1,
-      filled: 0,
-      skipped: 0,
       filledMs: 0,
     };
     this.run = run;
     return {
-      ...this.question(run, `I found ${plural(run.total, 'gap')}. First:`),
-      detail: [first, ...gaps].map((g, i) => `${i + 1}. ${gapLine(g)}`),
+      ...this.question(run, `I found ${plural(gaps.length, 'gap')}. First:`),
+      detail: gaps.map((g, i) => `${i + 1}. ${gapLine(g)}`),
     };
   }
 
   private write(run: Running, text: string): InterviewReply {
     const markdown = answerMarkdown(text);
-    let gap = run.current;
+    let gap = this.slot(run);
     let res = this.deps.docs.writeUnder(run.docId, gap.headingId, markdown);
     if (res === 'gone') {
       // A reparse re-mints block ids; the same heading may still be there.
@@ -180,52 +173,57 @@ export class SpokenInterview {
         .outline(run.docId)
         ?.find((b) => b.kind === 'heading' && b.text.trim() === gap.heading);
       if (again) {
-        gap = { ...gap, headingId: again.id };
-        run.current = gap;
+        run.slots.rebind(again.id);
+        gap = this.slot(run);
         res = this.deps.docs.writeUnder(run.docId, gap.headingId, markdown);
       }
     }
     if (res === 'failed') return this.question(run, 'I couldn’t write that.');
-    if (res === 'gone') {
-      this.recordGap(run, 'gone');
-      return this.advance(run, `${spokenHeading(gap)} is gone from the doc.`);
-    }
-    run.filled++;
+    if (res === 'gone')
+      return this.settle(run, 'gone', `${spokenHeading(gap)} is gone from the doc.`);
     run.filledMs += this.now() - run.askedAt;
-    this.recordGap(run, 'filled', wordCount(text));
-    return this.advance(run, `Written under ${spokenHeading(gap)}.`);
+    return this.settle(run, 'placed', `Written under ${spokenHeading(gap)}.`, wordCount(text));
   }
 
-  private advance(run: Running, lead: string): InterviewReply {
-    const next = run.queue.shift();
+  /** Record the current slot's outcome, settle it, and ask the next. */
+  private settle(run: Running, how: SlotTransition, lead: string, words?: number): InterviewReply {
+    this.recordGap(run, OUTCOME[how], words);
+    const { next, again } = run.slots.settle(how);
+    if (how === 'ended') return this.finish(run, lead);
     if (!next) return this.finish(run, `${lead} That was the last gap.`);
-    const again = next === run.current;
-    run.current = next;
     run.askedAt = this.now();
     return this.question(run, again ? `${lead} It’s the only one left:` : `${lead} Next:`);
   }
 
   private finish(run: Running, lead: string): InterviewReply {
     this.run = null;
+    const { slots } = run;
     this.deps.log.record({
       type: 'end',
       interview: run.id,
       docId: run.docId,
-      gaps: run.total,
-      filled: run.filled,
-      skipped: run.skipped,
+      gaps: slots.total,
+      filled: slots.placed,
+      skipped: slots.skipped,
       ms: this.now() - run.startedAt,
-      ...(run.filled > 0 ? { minutesPerFilled: run.filledMs / run.filled / 60_000 } : {}),
+      ...(slots.placed > 0 ? { minutesPerFilled: run.filledMs / slots.placed / 60_000 } : {}),
       at: this.now(),
     });
     return {
-      ...this.say(`${lead} ${run.filled} of ${plural(run.total, 'gap')} filled.`),
-      detail: run.queue.length > 0 ? run.queue.map((g) => `Not asked: ${gapLine(g)}`) : [],
+      ...this.say(`${lead} ${slots.placed} of ${plural(slots.total, 'gap')} filled.`),
+      detail: slots.unasked.map((g) => `Not asked: ${gapLine(g)}`),
     };
   }
 
+  /** The slot being asked; a running interview always has one. */
+  private slot(run: Running): PlanGap {
+    const gap = run.slots.current;
+    if (!gap) throw new Error('interview running with no slot');
+    return gap;
+  }
+
   private question(run: Running, lead: string): InterviewReply {
-    const spoken = capWords(`${lead} ${questionFor(run.current)}`.trim(), SPOKEN_MAX_WORDS);
+    const spoken = capWords(`${lead} ${questionFor(this.slot(run))}`.trim(), SPOKEN_MAX_WORDS);
     return {
       spoken,
       detail: ['Say skip, come back to that, or that’s enough.'],
@@ -239,12 +237,13 @@ export class SpokenInterview {
   }
 
   private recordGap(run: Running, outcome: GapOutcome, words?: number): void {
+    const gap = this.slot(run);
     this.deps.log.record({
       type: 'gap',
       interview: run.id,
       docId: run.docId,
-      section: run.current.ordinal,
-      kind: run.current.kind,
+      section: gap.ordinal,
+      kind: gap.kind,
       outcome,
       ms: this.now() - run.askedAt,
       ...(words !== undefined ? { words } : {}),
@@ -252,3 +251,12 @@ export class SpokenInterview {
     });
   }
 }
+
+/** The log's word for each transition. */
+const OUTCOME: Record<SlotTransition, GapOutcome> = {
+  placed: 'filled',
+  skipped: 'skipped',
+  deferred: 'deferred',
+  gone: 'gone',
+  ended: 'ended',
+};

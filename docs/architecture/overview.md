@@ -692,7 +692,9 @@ the spoken-reply socket with `{ surface: 'doc', docId }` as each turn's
 context; saying "interview me" there makes the socket's answerer hand every
 later turn to `spoken-reply/interview.ts` until the interview ends. It reads
 the plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
-open-question and short sections, ranked by heading), asks one at a time, and
+open-question and short sections, ranked by heading), holds them as slots in
+`interview-state.ts` (each asked once, then placed, skipped, deferred, gone or
+ended; a silence after a question offers once to skip it), asks one at a time, and
 writes each answer under its heading with `applyBlockEdits`
 (`interview-docs.ts`), so threads keep their anchors. "skip", "come back to
 that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`

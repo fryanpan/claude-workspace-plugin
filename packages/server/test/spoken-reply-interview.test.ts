@@ -116,14 +116,19 @@ describe('interview mode: each answer lands in its section', () => {
     expect(f.headingOf(said)).toBe('Goals');
   });
 
-  it('nothing heard asks the same question again and writes nothing', async () => {
+  it('a silence after a question offers to skip it once, then asks again', async () => {
     const f = await started();
-    const again = await f.say('');
-    expect(again).toMatchObject({
-      spoken: 'I didn’t catch that. What goes under Goals?',
+    expect(await f.say('')).toMatchObject({
+      spoken: 'Still there? Say skip to move on, or answer: What goes under Goals?',
       asking: true,
     });
+    expect((await f.say('')).spoken).toBe('I didn’t catch that. What goes under Goals?');
     expect(f.rows).toEqual([]);
+    // The next question gets its own offer.
+    await f.say('skip');
+    expect((await f.say('')).spoken).toBe(
+      'Still there? Say skip to move on, or answer: What goes under Design?',
+    );
   });
 
   it('a heading deleted mid-interview is reported and the next gap asked', async () => {

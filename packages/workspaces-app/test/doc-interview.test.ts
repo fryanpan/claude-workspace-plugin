@@ -68,7 +68,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function harness(over: { stored?: string; setups?: Array<1 | 2 | 3> } = {}) {
+function harness(over: { stored?: string; setups?: Array<1 | 2 | 3>; silenceMs?: number } = {}) {
   scope = new MountScope();
   const sockets: FakeSocket[] = [];
   const captures: SpokenCaptureOpts[] = [];
@@ -93,6 +93,7 @@ function harness(over: { stored?: string; setups?: Array<1 | 2 | 3> } = {}) {
     playbackContext: () => playback,
     storage: { getItem: () => over.stored ?? null },
     blocked: () => null,
+    ...(over.silenceMs !== undefined ? { silenceMs: over.silenceMs } : {}),
   });
   const socket = (): FakeSocket => {
     const s = sockets.at(-1);
@@ -225,6 +226,51 @@ describe('doc interview', () => {
     expect(h.socket().json().at(-1)).toEqual({ type: 'say', text: 'that’s enough' });
     expect(h.view.card.hidden).toBe(true);
     expect(h.stops).toBe(1);
+  });
+});
+
+describe('doc interview: silence after a question', () => {
+  const ends = (h: ReturnType<typeof harness>) =>
+    h
+      .socket()
+      .json()
+      .filter((m) => m.type === 'end').length;
+
+  it('ends the turn once when nothing is heard, and then waits', async () => {
+    const h = harness({ silenceMs: 10 });
+    h.view.button.click();
+    h.socket().open();
+    speak(h, QUESTION);
+    await vi.waitFor(() => expect(ends(h)).toBe(1));
+    expect(h.view.card.dataset.phase).toBe('thinking');
+    h.socket().reply({ type: 'turn-end', text: '' });
+    speak(h, { ...QUESTION, spoken: 'Still there? Say skip to move on, or answer: Goals?' });
+    await vi.waitFor(() => expect(h.starts()).toHaveLength(3));
+    // The offer was the silence turn; this listen waits for speech.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ends(h)).toBe(1);
+    expect(h.view.card.dataset.phase).toBe('listening');
+  });
+
+  it('speech before the wait runs out keeps the turn open', async () => {
+    const h = harness({ silenceMs: 250 });
+    h.view.button.click();
+    h.socket().open();
+    speak(h, QUESTION);
+    await vi.waitFor(() => expect(h.starts()).toHaveLength(2));
+    h.socket().reply({ type: 'heard', text: 'Twenty minute' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ends(h)).toBe(0);
+  });
+
+  it('setup 3 leaves silence to Gemini', async () => {
+    const h = harness({ silenceMs: 10, setups: [3] });
+    h.view.button.click();
+    h.socket().open();
+    speak(h, QUESTION);
+    await vi.waitFor(() => expect(h.starts()).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ends(h)).toBe(0);
   });
 });
 

@@ -16,6 +16,11 @@
  * Safari opens audio only inside a gesture — and frames are sent only while
  * the card is listening, so Claude's own voice is never sent back.
  *
+ * SILENCE. When nothing is heard for `SILENCE_MS` after a question, the
+ * card ends the turn empty, and the server offers once to skip the question.
+ * Only once per question: after the offer it waits for as long as it takes.
+ * Setup 3 is left to Gemini's own turn-taking.
+ *
  * Mounted only for a writer on a board whose server names a setup.
  */
 import {
@@ -41,6 +46,8 @@ import { DocInterviewView, type InterviewFrame, START_PROMPT } from './doc-inter
 const OPEN = 1;
 /** Frames held while the socket connects: 20s of 50ms frames. */
 const MAX_QUEUED = 400;
+/** How long a question waits in silence before the card says so. */
+export const SILENCE_MS = 8000;
 
 export interface DocInterviewOpts {
   docId: string;
@@ -59,6 +66,7 @@ export interface DocInterviewOpts {
   storage?: Pick<Storage, 'getItem'> | null;
   /** The secure-context gate; a test passes one that lets it through. */
   blocked?: () => string | null;
+  silenceMs?: number;
 }
 
 function audioCtor(): typeof AudioContext | undefined {
@@ -119,6 +127,13 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   let capture: { stop(): void } | null = null;
   let listening = false;
   let asking = false;
+  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The current question has had its silence turn. */
+  let silenced = false;
+  const quiet = (): void => {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer = null;
+  };
 
   const sendRaw = (d: string | Int16Array): void => {
     if (socket && socket.readyState === OPEN) socket.send(d);
@@ -211,11 +226,25 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       context: { surface: 'doc', docId: opts.docId },
       author: opts.author,
     });
+    quiet();
+    if (frame.interviewing && setup !== 3 && !silenced) {
+      silenceTimer = setTimeout(() => {
+        silenceTimer = null;
+        if (!listening) return;
+        silenced = true;
+        listening = false;
+        sendMsg({ type: 'end' });
+        frame.phase = 'thinking';
+        draw();
+      }, opts.silenceMs ?? SILENCE_MS);
+    }
     draw();
   }
 
   /** A command tapped rather than said: answered as if it had been heard. */
   function say(text: string): void {
+    quiet();
+    silenced = false;
     listening = false;
     player.stop();
     sendMsg({ type: 'stop' });
@@ -247,12 +276,15 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   function onServer(m: SpokenServerMessage): void {
     switch (m.type) {
       case 'heard':
+        if (m.text.trim()) quiet();
         if (listening) {
           frame.heard = m.text;
           draw();
         }
         return;
       case 'turn-end':
+        quiet();
+        if (m.text.trim()) silenced = false;
         listening = false;
         frame.heard = m.text;
         frame.phase = 'thinking';
@@ -303,6 +335,8 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   }
 
   function shut(): void {
+    quiet();
+    silenced = false;
     if (frame.interviewing) sendMsg({ type: 'say', text: 'that’s enough' });
     else sendMsg({ type: 'stop' });
     closeCapture();
@@ -326,6 +360,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   opts.scope.listen(view.close, 'click', () => shut());
   opts.scope.listen(view.primary, 'click', () => {
     if (frame.phase === 'listening') {
+      quiet();
       listening = false;
       sendMsg({ type: 'end' });
       frame.phase = 'thinking';
@@ -345,6 +380,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     });
   }
   opts.scope.onCleanup(() => {
+    quiet();
     closeCapture();
     player.stop();
     const ws = socket;
