@@ -92,6 +92,10 @@ export interface CoverageWorkspaceRow {
    *  is the one that answers "am I covered". */
   live?: boolean;
   lead?: boolean;
+  /** Board only, and only for a record that knows when it was attached:
+   *  has this agent authored anything on this board since its last attach?
+   *  False is what tells a restore not to bring a dormant row back. */
+  workedSinceAttach?: boolean;
   queued?: CoverageQueue;
   queuedTotal?: number;
 }
@@ -698,6 +702,9 @@ export function createBoardMembership(ctx: BoardMembershipContext): BoardMembers
         attached: att !== undefined,
         heartbeatFresh: att !== undefined && att.state !== 'away',
         live: taskStore.hasLiveAttachmentFor(workspaceId, who),
+        ...(att?.attachedAt !== undefined
+          ? { workedSinceAttach: (att.lastBoardWorkAt ?? 0) > att.attachedAt }
+          : {}),
       };
     };
 
@@ -715,7 +722,7 @@ export function createBoardMembership(ctx: BoardMembershipContext): BoardMembers
         workspaces.push({ key, workspaceId, kind: 'review' });
         continue;
       }
-      const { attached, heartbeatFresh, live } = liveness(workspaceId, agentId);
+      const { attached, heartbeatFresh, live, workedSinceAttach } = liveness(workspaceId, agentId);
       const queued = queuedForLead(workspaceId);
       workspaces.push({
         key,
@@ -726,6 +733,7 @@ export function createBoardMembership(ctx: BoardMembershipContext): BoardMembers
         heartbeatFresh,
         live,
         lead: board.leadAgentId === agentId,
+        ...(workedSinceAttach !== undefined ? { workedSinceAttach } : {}),
         queued,
         queuedTotal: queueTotal(queued),
       });

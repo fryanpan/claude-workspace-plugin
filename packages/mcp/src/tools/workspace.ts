@@ -46,6 +46,10 @@ export interface WorkspaceToolContext {
   IDENTITY_IS_SHARED: boolean;
   /** Record that this session's attachment on a board is fresh. */
   markAttached: (workspaceId: string) => void;
+  /** Record that this session left a board, so its keepalive stops. */
+  markDetached: (workspaceId: string) => void;
+  /** Drop one watch key, here and on the server — `ws:<id>` for a board. */
+  unwatchDoc: (key: string) => Promise<boolean>;
   watchWorkspace: (
     workspaceId: string,
     persist?: boolean,
@@ -97,6 +101,8 @@ export async function handleWorkspaceTool(
     PROCESS_ID,
     IDENTITY_IS_SHARED,
     markAttached,
+    markDetached,
+    unwatchDoc,
     watchWorkspace,
   } = ctx;
   /** The board this call is addressed under — see board-path.ts. */
@@ -727,6 +733,37 @@ export async function handleWorkspaceTool(
           { relPath },
         ),
       );
+    }
+    // Leaving is the server's DELETE plus this process's own half: the board's
+    // stream and its keepalive. The server drops the board's watch key with
+    // the row, so a restart restores neither; the unwatch here closes the
+    // stream this process already holds. A row that is already gone is not
+    // an error — the caller wants to be off the board, and it is.
+    case 'leave_workspace': {
+      const { workspaceId } = a as { workspaceId: string };
+      if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+        return err('workspaceId is required: the board to leave.');
+      }
+      let detached = true;
+      try {
+        await http(
+          'DELETE',
+          `/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(AUTHOR.id)}`,
+        );
+      } catch (e) {
+        if (!(e instanceof Error) || !e.message.includes(' → 404:')) throw e;
+        detached = false;
+      }
+      markDetached(workspaceId);
+      await unwatchDoc(`ws:${workspaceId}`);
+      return ok({
+        workspaceId,
+        agentId: AUTHOR.id,
+        detached,
+        note: detached
+          ? 'Off this board: list_agents no longer shows you, and a restart will not re-attach or re-watch it. attach_agent brings you back.'
+          : 'You had no attachment here; the board stream is closed and its watch dropped all the same.',
+      });
     }
     case 'request_plugin_refresh': {
       // No arguments reach the process this runs — the server's argv is

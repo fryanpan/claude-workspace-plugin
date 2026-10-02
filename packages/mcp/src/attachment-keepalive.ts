@@ -43,6 +43,9 @@ export interface AttachmentKeepalive {
   /** Record that this session attached to a board (attach_agent, declaring
    *  itself lead, or the re-attach on restore). Idempotent. */
   mark(workspaceId: string): void;
+  /** This session left the board: stop proving liveness on it, or the next
+   *  heartbeat would answer 404 for a row it removed on purpose. */
+  forget(workspaceId: string): void;
   /** Boards whose heartbeat is due now, marked as sent. Empty when nothing is
    *  due — the common case, which is what keeps this cheap. */
   due(): string[];
@@ -64,6 +67,9 @@ export function createAttachmentKeepalive(opts?: {
       // An attach IS a heartbeat server-side (`lastHeartbeat: now`), so the
       // clock starts here rather than firing a redundant POST immediately.
       lastSent.set(workspaceId, now());
+    },
+    forget(workspaceId: string): void {
+      lastSent.delete(workspaceId);
     },
     due(): string[] {
       const t = now();

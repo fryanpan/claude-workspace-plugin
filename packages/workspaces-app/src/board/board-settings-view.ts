@@ -109,6 +109,13 @@ export function buildSettingsView(): string {
             <div id="board-settings-panel" class="board-settings-panel" data-pane="board">
               <div id="board-drift" class="board-presence hidden"></div>
               <div id="board-lead" class="board-lead"></div>
+              <!-- Every agent attached here, and a way to take one off: the server
+                   also drops the board from its watch set, so a restart does not
+                   bring it back. board-agents-list.ts. -->
+              <div class="board-settings-row board-settings-row--members">
+                <span class="board-settings-label">Agents on this board</span>
+                <div id="board-agents-list" class="board-members"></div>
+              </div>
               <label class="board-settings-row" for="board-done-filter">Show done tasks from
                 <select id="board-done-filter" class="board-select" aria-label="Done task visibility"></select>
               </label>

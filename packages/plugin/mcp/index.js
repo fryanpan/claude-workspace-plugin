@@ -13937,6 +13937,9 @@ function createAttachmentKeepalive(opts) {
     mark(workspaceId) {
       lastSent.set(workspaceId, now());
     },
+    forget(workspaceId) {
+      lastSent.delete(workspaceId);
+    },
     due() {
       const t = now();
       const out = [];
@@ -13990,6 +13993,7 @@ function now(deps) {
 function createAttachments(deps) {
   return {
     markAttached: (workspaceId) => markAttached(deps, workspaceId),
+    markDetached: (workspaceId) => deps.keepalive.forget(workspaceId),
     sendDueHeartbeats: () => sendDueHeartbeats(deps),
     claimNoticeFor: (taskId) => claimNoticeFor(deps, taskId)
   };
@@ -17812,6 +17816,15 @@ var TOOL_LIST = {
       }
     },
     {
+      name: "leave_workspace",
+      description: "Take this session off a board: its attachment, its board stream and its keepalive. Afterwards list_agents on the board no longer shows you, and a restart does not re-attach you or restore the board's watch. Use it when you were attached to a board you no longer work on. It does not hand over a lead seat you hold — set_workspace_lead does that. attach_agent brings you back.",
+      inputSchema: {
+        type: "object",
+        properties: { workspaceId: { type: "string" } },
+        required: ["workspaceId"]
+      }
+    },
+    {
       name: "heartbeat",
       description: "Prove this attached session is alive. Call it every few minutes while attached. After about five minutes you show as away, and lead-addressed deliveries only reach sessions the server observed recently. Ordinary tool calls count too, so this matters most during a long stretch of thinking or a long-running command.",
       inputSchema: {
@@ -20001,6 +20014,8 @@ async function handleWorkspaceTool(name, a, ctx) {
     PROCESS_ID,
     IDENTITY_IS_SHARED,
     markAttached: markAttached2,
+    markDetached,
+    unwatchDoc,
     watchWorkspace
   } = ctx;
   const board = () => boardPathOf(name, a);
@@ -20288,6 +20303,28 @@ async function handleWorkspaceTool(name, a, ctx) {
       const { workspaceId, docId, relPath } = a;
       return ok2(await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/docs/${encodeURIComponent(docId)}/move`, { relPath }));
     }
+    case "leave_workspace": {
+      const { workspaceId } = a;
+      if (typeof workspaceId !== "string" || workspaceId.length === 0) {
+        return err2("workspaceId is required: the board to leave.");
+      }
+      let detached = true;
+      try {
+        await http("DELETE", `/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(AUTHOR.id)}`);
+      } catch (e) {
+        if (!(e instanceof Error) || !e.message.includes(" → 404:"))
+          throw e;
+        detached = false;
+      }
+      markDetached(workspaceId);
+      await unwatchDoc(`ws:${workspaceId}`);
+      return ok2({
+        workspaceId,
+        agentId: AUTHOR.id,
+        detached,
+        note: detached ? "Off this board: list_agents no longer shows you, and a restart will not re-attach or re-watch it. attach_agent brings you back." : "You had no attachment here; the board stream is closed and its watch dropped all the same."
+      });
+    }
     case "request_plugin_refresh": {
       return ok2(await http("POST", "/api/plugin/refresh"));
     }
@@ -20350,7 +20387,7 @@ function coverageAlertLine(coverage) {
   return `[not covered] ${plural(waiting.length, "board")} you follow ` + `${waiting.length === 1 ? "has" : "have"} work queued for a lead, and you are not live on ` + `${waiting.length === 1 ? "it" : "them"}. Watching is not attaching, and an attachment the ` + "server has stopped observing is not attached either — every delivery gate asks for recent " + `observed work, a heartbeat or a tool call, plus an open channel. ${described}`;
 }
 function boardsToReattach(coverage) {
-  return (coverage?.workspaces ?? []).filter((w) => w.kind === "board" && (w.lead === true || w.attached === true)).filter((w) => w.heartbeatFresh !== true).map((w) => w.workspaceId);
+  return (coverage?.workspaces ?? []).filter((w) => w.kind === "board" && (w.lead === true || w.attached === true && w.workedSinceAttach !== false)).filter((w) => w.heartbeatFresh !== true).map((w) => w.workspaceId);
 }
 function restoreNoticeContent(opts) {
   const lines = [];
@@ -20656,7 +20693,7 @@ function createConnectorSession(deps) {
   });
   const http = createHttp(deps.resolveBaseUrl, deps.fetch, (path) => agentTokens.headersFor(path));
   const deferredEmits = createDeferredEmitter();
-  const { markAttached: markAttached2, sendDueHeartbeats: sendDueHeartbeats2, claimNoticeFor: claimNoticeFor2 } = createAttachments({
+  const { markAttached: markAttached2, markDetached, sendDueHeartbeats: sendDueHeartbeats2, claimNoticeFor: claimNoticeFor2 } = createAttachments({
     http,
     author: AUTHOR,
     keepalive: createAttachmentKeepalive()
@@ -20733,6 +20770,7 @@ function createConnectorSession(deps) {
     PLUGIN_VERSION: deps.pluginVersion(),
     PROCESS_ID: deps.processId,
     markAttached: markAttached2,
+    markDetached,
     STATUS_TEXT_MAX,
     suggestionAuthor,
     resolveBaseUrl: deps.resolveBaseUrl,
@@ -20775,7 +20813,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.277";
+var PLUGIN_VERSION = "0.1.278";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

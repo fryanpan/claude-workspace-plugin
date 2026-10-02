@@ -2566,6 +2566,16 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'leave_workspace',
+      description:
+        "Take this session off a board: its attachment, its board stream and its keepalive. Afterwards list_agents on the board no longer shows you, and a restart does not re-attach you or restore the board's watch. Use it when you were attached to a board you no longer work on. It does not hand over a lead seat you hold — set_workspace_lead does that. attach_agent brings you back.",
+      inputSchema: {
+        type: 'object',
+        properties: { workspaceId: { type: 'string' } },
+        required: ['workspaceId'],
+      },
+    },
+    {
       name: 'heartbeat',
       description:
         'Prove this attached session is alive. Call it every few minutes while attached. After about five minutes you show as away, and lead-addressed deliveries only reach sessions the server observed recently. Ordinary tool calls count too, so this matters most during a long stretch of thinking or a long-running command.',

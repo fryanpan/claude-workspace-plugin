@@ -341,10 +341,23 @@ export async function handleWorkspaceAttachments(
     if (visitor) return j(403, { error: 'not available to share visitors' });
     const workspaceId = safeDecodeSegment(wsAgentDetachMatch[1] ?? '');
     const agentId = safeDecodeSegment(wsAgentDetachMatch[2] ?? '');
-    if (!taskStore.detachAgent(workspaceId, agentId)) {
-      return j(404, { error: 'attachment not found' });
-    }
-    return j(200, { ok: true });
+    // The board's own watch key goes with the row, whoever asked — the agent
+    // leaving or the owner removing it. The watch set is what a respawned
+    // session restores from, and a restore re-attaches to the boards it names,
+    // so a row removed while its key stayed came back on the next restart.
+    // Dropped even when there is no row: a key with nothing attached is the
+    // same stray, and the caller asked for this agent off this board.
+    // The key is checked before `update`, because `update` writes a record
+    // for an id it has never seen, and a DELETE naming nobody must not leave
+    // one behind. It is dropped AFTER the detach, whose `agent.detached` fans
+    // out over watch sets: dropped first, the agent's own stream missed it.
+    const detached = taskStore.detachAgent(workspaceId, agentId);
+    const boardKey = `ws:${workspaceId}`;
+    const unwatched =
+      agentWatches.list(agentId, () => true).watches.some((w) => w.key === boardKey) &&
+      agentWatches.update(agentId, { remove: [boardKey] }).removed.length > 0;
+    if (!detached) return j(404, { error: 'attachment not found', unwatched });
+    return j(200, { ok: true, unwatched });
   }
   return undefined;
 }

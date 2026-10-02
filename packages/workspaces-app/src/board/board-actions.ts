@@ -797,6 +797,21 @@ export function createBoardActions(deps: BoardActionDeps) {
     if (state.info) state.info = { ...state.info, leadAgentId };
     renderLead();
   }
+  /** Take an agent off this board. The server also drops the board from its
+   *  watch set, so the agent's next restart does not re-attach it. The row
+   *  leaves the projection at once; the attachments read that the server's
+   *  `agent.detached` event triggers confirms it. */
+  async function removeAgent(agentId: string): Promise<boolean> {
+    const res = await send(
+      `/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}`,
+      'DELETE',
+      { author },
+    );
+    if (!res.ok) return false;
+    state.agents = state.agents.filter((a) => a.agentId !== agentId);
+    renderLead();
+    return true;
+  }
   /**
    * The Board's "New task": an EMPTY row, opened at once in the panel with the
    * title ready to type (Bryan, 2026-08-29: *"creates an empty item in the
@@ -885,6 +900,7 @@ export function createBoardActions(deps: BoardActionDeps) {
     transitionGoal,
     addGoal,
     saveLead,
+    removeAgent,
     newTask,
     startHuddle,
   };
