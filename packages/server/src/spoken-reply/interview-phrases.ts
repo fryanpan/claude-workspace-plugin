@@ -66,12 +66,13 @@ export function bareAnswer(transcript: string): boolean {
   return BARE.test(normalize(transcript));
 }
 
-/** The command `transcript` is, or null when it is an answer. */
+/** The command `transcript` is, or null when it is an answer. "Any
+ *  questions?" with a question already out asks for that one again. */
 export function interviewCommand(transcript: string): InterviewCommand | null {
   const s = normalize(transcript);
   if (!s) return null;
   for (const [cmd, re] of PATTERNS) if (re.test(s)) return cmd;
-  return null;
+  return INVITE.test(s) ? 'repeat' : null;
 }
 
 /** "Any questions?" at the end of what was said, however it is put. */

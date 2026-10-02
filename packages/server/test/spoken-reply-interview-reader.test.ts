@@ -184,6 +184,16 @@ describe('the planning voice reading a plan with no gaps', () => {
     expect(m.calls[0]?.system).toContain('asked whether you have any questions');
   });
 
+  it('“any questions?” with a question already out asks it again and writes nothing', async () => {
+    const m = scripted([ASK]);
+    fx = await planFixture({ markdown: BERTH_PLAN, complete: m.complete });
+    await fx.say('We dredge first.');
+    const r = await fx.say('Any questions?');
+    expect(r).toMatchObject({ spoken: 'Who signs off the dredging?', asking: true });
+    expect(fx.headingOf('Any questions?')).toBeNull();
+    expect(m.calls).toHaveLength(1);
+  });
+
   it('“any questions?” with none says so in one sentence, with why; a plain pause stays quiet', async () => {
     const m = scripted([
       '{"ask": null, "why": "Every step has an owner and a date."}',
