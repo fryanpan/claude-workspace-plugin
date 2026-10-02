@@ -2781,6 +2781,14 @@ meeting path transcribes and writes notes but never speaks.
   order. A meeting's end delivers anything still held before the notes flush,
   and the hold lets go after `MAX_HELD_FRAMES` so an unanswered question
   cannot starve the notes.
+- **It stays on while the meeting records.** Bryan's first planning meeting
+  logged `[interview] done … gaps=1` after the first answer, and nothing else
+  was asked for the rest of the meeting. Now each question is still its own
+  short run, but in a meeting a run's counts go into one tally
+  (`interview-record.ts`), and the `done` row is written once, when the
+  meeting's socket closes. At every later pause somebody spoke into, the plan
+  is read again with everything said since the last question, and the voice
+  asks only when the reading names a question.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 

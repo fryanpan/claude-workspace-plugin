@@ -61,11 +61,14 @@ import {
   wordCount,
 } from './interview-phrases.ts';
 import { type PlanComplete, readPlan } from './interview-reader.ts';
+import { InterviewRecord, OUTCOME, type Running } from './interview-record.ts';
 import { InterviewSlots, type SlotTransition } from './interview-state.ts';
 
 /** The route word an interview's replies carry. */
 export const INTERVIEW_ROUTE = 'interview';
 export type InterviewWrite = 'written' | 'gone' | 'failed';
+/** The most of what was said since the last question a reading is given. */
+const HEARD_KEPT = 2_000;
 
 /** The doc store as an interview needs it. */
 export interface InterviewDocs {
@@ -104,22 +107,6 @@ export interface InterviewReply {
   route: string;
 }
 
-interface Running {
-  id: string;
-  docId: string;
-  slots: InterviewSlots;
-  /** When the current slot was asked. */
-  askedAt: number;
-  startedAt: number;
-  filledMs: number;
-  /** The current slot has had its one follow-up. */
-  followedUp: boolean;
-  /** The last answer settled nothing: the next question waits for a pause. */
-  waiting: boolean;
-  /** Its one slot was chosen by reading the plan, and the next will be. */
-  reading: boolean;
-}
-
 function docOf(context: VoiceContext | undefined): string | undefined {
   return context?.surface === 'doc' ? context.docId : undefined;
 }
@@ -141,8 +128,14 @@ export class SpokenInterview {
   private focused: string | null = null;
   /** The questions asked on each doc, so a reading never repeats one. */
   private readonly asked = new Map<string, string[]>();
+  /** What was said at pauses since the last question, per doc: a reading
+   *  hears all of it, not only the last turn. */
+  private readonly since = new Map<string, string>();
+  /** The latest turn was heard in a planning meeting. */
+  private meeting = false;
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly record: InterviewRecord;
 
   constructor(
     private readonly deps: SpokenInterviewDeps,
@@ -150,6 +143,7 @@ export class SpokenInterview {
   ) {
     this.now = deps.now ?? (() => Date.now());
     this.newId = deps.newId ?? (() => `iv-${Date.now().toString(36)}`);
+    this.record = new InterviewRecord(deps.log, this.now);
   }
 
   get active(): boolean {
@@ -162,9 +156,11 @@ export class SpokenInterview {
     return docId !== undefined && this.deps.docs.onBoard(this.workspaceId, docId);
   }
 
-  /** The socket went: take the cursor off the doc. */
+  /** The socket went: take the cursor off the doc, and a meeting's run
+   *  ends with it. */
   close(): void {
     this.unfocus();
+    this.record.close();
   }
 
   /**
@@ -179,6 +175,7 @@ export class SpokenInterview {
     context: VoiceContext | undefined,
     meeting = false,
   ): Promise<InterviewReply | null> {
+    this.meeting = meeting;
     const cmd = interviewCommand(transcript);
     const run = this.run;
     if (!run) {
@@ -292,10 +289,12 @@ export class SpokenInterview {
   ) {
     const complete = this.deps.complete;
     if (!complete) return Promise.resolve({ none: '' });
+    const all = `${this.since.get(docId) ?? ''} ${heard}`.trim().slice(-HEARD_KEPT);
+    this.since.set(docId, all);
     return readPlan(complete, {
       outline,
       gaps,
-      heard,
+      heard: all,
       asked: this.asked.get(docId) ?? [],
       invited,
     });
@@ -397,23 +396,13 @@ export class SpokenInterview {
     };
   }
 
-  /** `over`: the doc hears no unasked question again on this socket. */
+  /** `over`: the doc hears no unasked question again on this socket. In a
+   *  meeting the run's end is logged when the meeting's socket goes. */
   private finish(run: Running, over: boolean): void {
     this.run = null;
     if (over) this.over.add(run.docId);
     this.unfocus();
-    const { slots } = run;
-    this.deps.log.record({
-      type: 'end',
-      interview: run.id,
-      docId: run.docId,
-      gaps: slots.total,
-      filled: slots.placed,
-      skipped: slots.skipped,
-      ms: this.now() - run.startedAt,
-      ...(slots.placed > 0 ? { minutesPerFilled: run.filledMs / slots.placed / 60_000 } : {}),
-      at: this.now(),
-    });
+    this.record.end(run, this.meeting);
   }
 
   /** The slot being asked; a running interview always has one. */
@@ -432,6 +421,7 @@ export class SpokenInterview {
       quote: (gap.kind === 'read' ? gap.quote : gap.asks) ?? gap.heading,
     });
     this.deps.docs.hold?.(run.docId);
+    this.since.delete(run.docId);
     const asked = questionFor(gap);
     const before = this.asked.get(run.docId) ?? [];
     if (!before.includes(asked)) this.asked.set(run.docId, [...before, asked]);
@@ -462,39 +452,10 @@ export class SpokenInterview {
   }
 
   private recordAnswer(run: Running, after: AfterAnswer): void {
-    const gap = this.slot(run);
-    this.deps.log.record({
-      type: 'answer',
-      interview: run.id,
-      docId: run.docId,
-      section: gap.ordinal,
-      kind: gap.kind,
-      after,
-      at: this.now(),
-    });
+    this.record.answer(run, this.slot(run), after);
   }
 
   private recordGap(run: Running, outcome: GapOutcome, words?: number): void {
-    const gap = this.slot(run);
-    this.deps.log.record({
-      type: 'gap',
-      interview: run.id,
-      docId: run.docId,
-      section: gap.ordinal,
-      kind: gap.kind,
-      outcome,
-      ms: this.now() - run.askedAt,
-      ...(words !== undefined ? { words } : {}),
-      at: this.now(),
-    });
+    this.record.gap(run, this.slot(run), outcome, words);
   }
 }
-
-/** The log's word for each transition. */
-const OUTCOME: Record<SlotTransition, GapOutcome> = {
-  placed: 'filled',
-  skipped: 'skipped',
-  deferred: 'deferred',
-  gone: 'gone',
-  ended: 'ended',
-};
