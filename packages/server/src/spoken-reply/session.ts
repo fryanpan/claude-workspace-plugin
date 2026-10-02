@@ -23,9 +23,11 @@
  *    calls back into the same answerer through this server's custom-LLM
  *    route (`agent-turns.ts`).
  *
- * In a planning meeting the page sends no audio: its `start` says `ears:
- * 'meeting'`, and setups 1 and 2 hear the meeting's own transcript in place
- * of Soniox (`meeting-ears.ts`), always through the pause gate.
+ * In a meeting the page records, the page sends no audio: its `start` says
+ * `ears: 'meeting'`, and setups 1 and 2 hear the meeting's own transcript in
+ * place of Soniox (`meeting-ears.ts`), always through the pause gate. A plan's
+ * meeting is heard for the planning voice; any meeting is heard for "Claude,
+ * …" when the socket proved the owner (`meeting-ask.ts`).
  *
  * `stop` is the page saying the speaker cut in: the voice is aborted at once
  * and whatever it had not sent is never sent.
@@ -53,6 +55,7 @@ import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.t
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import { FillerCue } from './filler-cue.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
+import { type MeetingRoom, meetingAnswer } from './meeting-ask.ts';
 import { type GateTimers, PauseGate } from './pause-gate.ts';
 import { speakPoints } from './speak-points.ts';
 import type { SpokenTimings } from './timings.ts';
@@ -110,9 +113,10 @@ export interface SpokenSessionDeps {
   sendAudio(pcm: Uint8Array): void;
   /** The pause gate's clock; a test passes a fake one. */
   timers?: GateTimers;
-  /** The planning meeting recording on `docId`, as a listener, or null
-   *  when none is (or the doc is not a plan). */
-  meetingEars?: (docId: string) => TranscriptionEngine | null;
+  /** The meeting recording on `docId`, or null when none is. */
+  meetingEars?: (docId: string) => MeetingRoom | null;
+  /** The upgrade's person proof named the owner (`meeting-ask.ts`). */
+  ownerOnPage?: boolean;
 }
 
 const NOBODY: VoiceActor = { id: 'voice-unknown', name: 'unknown', kind: 'known' };
@@ -123,8 +127,11 @@ export class SpokenSession {
   private mode: SpokenMode = 'hold';
   private context: VoiceContext | undefined;
   private actor: VoiceActor = NOBODY;
-  /** This turn hears the planning meeting on its doc, not this socket. */
+  /** This turn hears the meeting on its doc, not this socket. */
   private ears = false;
+  private room: MeetingRoom | null = null;
+  /** This turn's settled words from the page's own microphone. */
+  private own: string[] = [];
 
   // Setups 1 and 2: the listener for the current turn.
   private stt: TranscriptionSession | null = null;
@@ -314,6 +321,7 @@ export class SpokenSession {
     this.buffered = [];
     this.sttBuffered = [];
     this.finals = [];
+    this.own = [];
     this.finishing = false;
     this.pause?.cancel();
     this.pause = null;
@@ -339,6 +347,7 @@ export class SpokenSession {
         onTurn: (t) => {
           if (turn !== this.turn) return;
           if (t.final) this.finals.push(t.text);
+          if (t.final && t.stream !== 'system') this.own.push(t.text);
           const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
           if (text) this.deps.sendJson({ type: 'heard', text });
           if (this.pause) this.pause.heard(text, t.final);
@@ -375,7 +384,9 @@ export class SpokenSession {
   private meetingListener(): TranscriptionEngine | null {
     const c = this.context;
     if (c?.surface !== 'doc' || !c.docId || !this.deps.answerer.converses(c)) return null;
-    return this.deps.meetingEars?.(c.docId) ?? null;
+    const room = this.deps.meetingEars?.(c.docId) ?? null;
+    this.room = room && (room.plan || this.deps.ownerOnPage === true) ? room : null;
+    return this.room?.engine ?? null;
   }
 
   /** `endpointed`: the listener's end of speech already finalized every word,
@@ -429,7 +440,15 @@ export class SpokenSession {
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     const cue = this.armCue(voice, text, turn);
     if (text) this.deps.sendJson({ type: 'working' });
-    const answer = await this.deps.answerer.answer(text, this.actor, this.context, this.ears);
+    const { answerer } = this.deps;
+    const room = this.ears ? this.room : null;
+    const answer = room
+      ? await meetingAnswer(answerer, text, this.actor, this.context, {
+          room,
+          owner: this.deps.ownerOnPage === true,
+          own: this.own.join(' '),
+        })
+      : await answerer.answer(text, this.actor, this.context);
     if (turn !== this.turn) return;
     this.deps.sendJson(replyMessage(answer));
     const opened = (await cue?.ready()) === true;

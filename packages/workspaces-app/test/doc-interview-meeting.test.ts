@@ -11,7 +11,7 @@ import { MountScope } from '../src/mount-scope.ts';
  * rather than a tap, hearing the meeting (`ears: 'meeting'`) with no
  * microphone of its own and no silence turn, listening again after every
  * reply, logging the delay to the first word, and closed when the
- * recording stops. A discussion's meeting never opens it.
+ * recording stops. Any other meeting is heard with the card closed.
  */
 
 class FakeSocket implements SpokenSocket {
@@ -186,10 +186,33 @@ describe('the planning voice in a planning meeting', () => {
     expect(h.view.card.hidden).toBe(true);
   });
 
-  it('a meeting that is not a plan never opens it', () => {
+  it('any other meeting is heard with the card closed, for Claude’s answer alone', async () => {
     const h = harness({ plan: false });
     h.recording(true);
-    expect(h.sockets).toHaveLength(0);
+    h.socket().open();
+    expect(h.view.card.hidden).toBe(true);
+    expect(h.starts()[0]).toMatchObject({ ears: 'meeting', setup: 1 });
+    h.socket().reply({ type: 'turn-end', text: 'Claude, how is the berth goal going?' });
+    h.socket().reply({
+      ...QUESTION,
+      spoken: 'On track for spring.',
+      asking: false,
+      route: 'brief',
+    });
+    h.socket().reply({ type: 'audio-start', sampleRate: 24_000 });
+    h.socket().onmessage?.({ data: new Int16Array(480).fill(4000).buffer });
+    h.socket().reply({ type: 'audio-end' });
+    await vi.waitFor(() => expect(h.starts()).toHaveLength(2));
+    expect(h.view.card.hidden).toBe(true);
+    expect(h.captures).toHaveLength(0);
+  });
+
+  it('a meeting the server will not answer on closes quietly, with no card', () => {
+    const h = harness({ plan: false });
+    h.recording(true);
+    h.socket().open();
+    h.socket().reply({ type: 'error', message: 'No planning meeting is recording here.' });
+    expect(h.socket().readyState).toBe(3);
     expect(h.view.card.hidden).toBe(true);
   });
 });

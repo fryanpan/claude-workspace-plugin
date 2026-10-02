@@ -164,6 +164,11 @@ export interface UpgradeStreamRequest {
   /** The identity this request PROVED, or null — never a body's claim. What
    *  a doc editing socket is stamped with so its edits can be attributed. */
   provenAuthor: () => User | null;
+  /** Whether this request's person proof — the Access email or the signed
+   *  session cookie, never a body, a widget token or an agent token — names
+   *  the owner. Stamped on a spoken-reply socket: "Claude, …" in a meeting
+   *  answers only the owner (`spoken-reply/meeting-ask.ts`). */
+  ownerProven: () => boolean;
   /** The board token and origin admission let this request in through the
    *  tailnet widget door with, or null. A door socket opens read-only and
    *  carries the pair, so the sweep can hang up once the token is dead. */
@@ -266,6 +271,7 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
     visitorMemberKey,
     browserProvedNobody,
     provenAuthor,
+    ownerProven,
     widgetDoorGrant,
   }: UpgradeStreamRequest): StreamOutcome => {
     // The run itself, unchanged from the position it held in `route()`:
@@ -409,6 +415,7 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
             workspaceId,
             kind: 'spoken' as const,
             ...(requireSignInToWrite && browserProvedNobody() ? { readOnly: true } : {}),
+            ...(ownerProven() ? { ownerProven: true } : {}),
             ...(widgetDoorGrant ? { widgetDoorGrant } : {}),
             author: provenAuthor(),
           },

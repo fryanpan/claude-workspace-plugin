@@ -97,7 +97,7 @@ describe('a planning meeting’s question waits for the pause', () => {
       sendJson: (m) => json.push(m),
       sendAudio: () => {},
       timers: clock.timers,
-      meetingEars: (docId) => ears.engine(docId),
+      meetingEars: (docId) => ({ engine: ears.engine(docId), plan: true, note: () => {} }),
     });
     s.onText(
       JSON.stringify({

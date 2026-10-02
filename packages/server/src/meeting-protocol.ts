@@ -1206,7 +1206,7 @@ export class MeetingRelay {
 
     conn.streams = streamSet;
     conn.state = 'live';
-    this.deps.ears?.started(docId);
+    this.deps.ears?.started(docId, (markdown) => notes?.noteAside(markdown));
     // From the moment the meeting is live, not from the first word: a
     // recording that hears nothing at all is exactly the one this window
     // exists to end.
