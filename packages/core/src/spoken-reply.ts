@@ -287,3 +287,35 @@ export function parseSpokenServerMessage(text: string): SpokenServerMessage | nu
   ];
   return typeof t === 'string' && known.includes(t) ? (raw as SpokenServerMessage) : null;
 }
+
+/**
+ * The planning voice's cursor: the presence field the server sets on its own
+ * awareness state for a doc while it asks about some of the doc's words, and
+ * every open view reads to scroll there and highlight them. The server's
+ * state carries no `user`, so nothing that counts the people on a doc counts
+ * it. `seq` grows with every question, so a page scrolls again when the same
+ * words are asked about twice.
+ */
+export const AGENT_FOCUS_FIELD = 'agentFocus';
+
+export interface AgentFocus {
+  /** The block holding the words. */
+  blockId: string;
+  /** The words, as the block held them when asked. */
+  quote: string;
+  name: string;
+  color: string;
+  seq: number;
+}
+
+/** A presence state's focus, when it carries a well-formed one. */
+export function parseAgentFocus(raw: unknown): AgentFocus | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const f = raw as Record<string, unknown>;
+  const { blockId, quote, name, color, seq } = f;
+  if (typeof blockId !== 'string' || !blockId || blockId.length > 200) return null;
+  if (typeof quote !== 'string' || typeof name !== 'string') return null;
+  if (typeof color !== 'string' || !/^#[0-9a-f]{3,8}$/i.test(color)) return null;
+  if (typeof seq !== 'number' || !Number.isFinite(seq)) return null;
+  return { blockId, quote: quote.slice(0, 500), name: name.slice(0, 40), color, seq };
+}

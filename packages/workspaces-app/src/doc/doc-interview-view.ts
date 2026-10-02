@@ -1,7 +1,7 @@
 /**
- * What interview mode looks like on the review doc: an Interview button
- * above the voice-comment mic, and a card above it holding the question
- * Claude asked, the words heard so far and the three commands as buttons.
+ * What the planning voice looks like on the review doc: a Talk button above
+ * the voice-comment mic, and a card above it holding the question Claude
+ * asked, the words heard so far and the three commands as buttons.
  *
  * Calm, as the board's reply panel is: one steady dot names the state (red
  * while listening, filled blue while Claude asks, a blue ring while it
@@ -30,7 +30,8 @@ export const PRIMARY_LABELS: Record<InterviewPhase, string> = {
   done: 'Talk',
 };
 
-export const START_PROMPT = 'Say “interview me” and Claude asks about this plan’s gaps.';
+export const START_PROMPT =
+  'Talk through the plan. When you pause, Claude asks what is still open.';
 
 /** The spoken commands, as buttons: label, then what tapping one says. */
 export const COMMANDS: ReadonlyArray<readonly [string, string]> = [
@@ -62,17 +63,17 @@ export class DocInterviewView {
     this.button = doc.createElement('button');
     this.button.type = 'button';
     this.button.className = 'doc-interview-btn';
-    this.button.textContent = 'Interview';
-    this.button.title = 'Claude asks about this plan’s gaps and writes your answers in';
+    this.button.textContent = 'Talk';
+    this.button.title = 'Talk through this plan; Claude asks what is still open when you pause';
     this.card = doc.createElement('div');
     this.card.className = 'doc-interview';
     this.card.hidden = true;
     this.card.setAttribute('role', 'dialog');
-    this.card.setAttribute('aria-label', 'Interview');
+    this.card.setAttribute('aria-label', 'Talk through the plan');
     this.card.innerHTML =
       '<div class="doc-interview-head"><span class="doc-interview-dot"></span>' +
       '<span class="doc-interview-state" aria-live="polite"></span>' +
-      '<button class="doc-interview-close" type="button" aria-label="Close the interview">×</button></div>' +
+      '<button class="doc-interview-close" type="button" aria-label="Stop talking">×</button></div>' +
       '<div class="doc-interview-body"><p class="doc-interview-question"></p>' +
       '<p class="doc-interview-you"></p><ul class="doc-interview-detail"></ul>' +
       '<p class="doc-interview-note"></p></div>' +

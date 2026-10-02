@@ -10,8 +10,11 @@
  *  - `later`: "come back to that" — the gap goes to the end of the queue.
  *  - `enough`: "that's enough" — the interview ends, and what was written stays.
  *  - `repeat`: "say that again" — the same question, asked again.
+ *  - `unsure`: "I don't know yet" — no answer and no reason to press for
+ *    one, so the planning voice says nothing and asks its next question at
+ *    the next pause.
  */
-export type InterviewCommand = 'start' | 'skip' | 'later' | 'enough' | 'repeat';
+export type InterviewCommand = 'start' | 'skip' | 'later' | 'enough' | 'repeat' | 'unsure';
 
 function normalize(s: string): string {
   return s
@@ -34,7 +37,7 @@ const PATTERNS: ReadonlyArray<[InterviewCommand, RegExp]> = [
   ],
   [
     'skip',
-    /^(?:skip(?: it| that| this(?: one)?| that one)?|next(?: one| question)?|pass|move on|i don't know|no idea|not sure|skip for now)$/,
+    /^(?:skip(?: it| that| this(?: one)?| that one)?|next(?: one| question)?|pass|move on|skip for now)$/,
   ],
   [
     'later',
@@ -48,7 +51,20 @@ const PATTERNS: ReadonlyArray<[InterviewCommand, RegExp]> = [
     'repeat',
     /^(?:say (?:that|it) again|repeat (?:that|the question)|what was the question|sorry what|what|pardon|come again)$/,
   ],
+  [
+    'unsure',
+    /^(?:(?:i |we )?(?:don't|dont|do not) know(?: yet)?|no idea(?: yet)?|(?:i'm |im |i am )?not sure(?: yet)?|let me think(?: about (?:that|it))?|not yet|(?:i |we )?(?:haven't|havent) decided(?: yet)?|still deciding|good question|hmm+|hm+)$/,
+  ],
 ];
+
+/** An answer that says nothing yet: the planning voice asks once for more. */
+const BARE =
+  /^(?:yes|yeah|yep|yup|no|nope|maybe|probably|possibly|perhaps|sure|kind of|sort of|i think so|i guess|i guess so|it depends|depends|right|ok|okay|correct|exactly|same as before|the usual)$/;
+
+/** Whether `transcript` is a bare yes, no or maybe rather than an answer. */
+export function bareAnswer(transcript: string): boolean {
+  return BARE.test(normalize(transcript));
+}
 
 /** The command `transcript` is, or null when it is an answer. */
 export function interviewCommand(transcript: string): InterviewCommand | null {

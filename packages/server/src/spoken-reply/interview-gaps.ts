@@ -38,6 +38,8 @@ export interface PlanGap {
   kind: GapKind;
   /** The open question as written, for `question` gaps. */
   asks?: string;
+  /** The block holding that question. */
+  asksId?: string;
   /** The section's place among the doc's headings, from 0 — what the
    *  timing record names instead of the heading's words. */
   ordinal: number;
@@ -104,7 +106,7 @@ export function findPlanGaps(blocks: readonly prose.OutlineEntry[]): PlanGap[] {
       body.push(b);
     }
     const said = body.filter((b) => b.text.trim().length > 0);
-    let gap: Pick<PlanGap, 'kind' | 'asks'> | null = null;
+    let gap: Pick<PlanGap, 'kind' | 'asks' | 'asksId'> | null = null;
     if (said.length === 0) {
       // A parent heading whose words are all in its subsections.
       if (next && (next.level ?? 1) > level) continue;
@@ -113,7 +115,7 @@ export function findPlanGaps(blocks: readonly prose.OutlineEntry[]): PlanGap[] {
       gap = { kind: 'placeholder' };
     } else {
       const q = said.find((b) => isQuestion(b.text));
-      if (q) gap = { kind: 'question', asks: q.text.trim() };
+      if (q) gap = { kind: 'question', asks: q.text.trim(), asksId: q.id };
       else if (words(said.map((b) => b.text).join(' ')) < THIN_WORDS) gap = { kind: 'thin' };
     }
     if (!gap) continue;

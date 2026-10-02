@@ -7,7 +7,7 @@ import { interviewSetup, mountDocInterview } from '../src/doc/doc-interview.ts';
 import { MountScope } from '../src/mount-scope.ts';
 
 /**
- * Interview mode on the review doc, driven with the server, the microphone
+ * The planning voice's card on the review doc, driven with the server, the microphone
  * and the speaker replaced: a socket whose frames the test reads and
  * answers, a capture whose frames the test emits, and a playback context
  * that plays nothing.
@@ -226,6 +226,58 @@ describe('doc interview', () => {
     expect(h.socket().json().at(-1)).toEqual({ type: 'say', text: 'that’s enough' });
     expect(h.view.card.hidden).toBe(true);
     expect(h.stops).toBe(1);
+  });
+
+  it('closing closes the socket, so the next Talk starts on a fresh one', async () => {
+    const h = harness();
+    h.view.button.click();
+    h.socket().open();
+    h.view.close.click();
+    expect(h.sockets[0]?.readyState).toBe(3);
+    h.view.button.click();
+    expect(h.sockets).toHaveLength(2);
+    h.socket().open();
+    expect(h.starts()).toHaveLength(1);
+    expect(h.view.card.dataset.phase).toBe('listening');
+  });
+});
+
+describe('doc interview: always on', () => {
+  it('nobody says "interview me": the card opens on the plan prompt and listens', () => {
+    const h = harness();
+    h.view.button.click();
+    h.socket().open();
+    expect(h.view.button.textContent).toBe('Talk');
+    expect(h.text('.doc-interview-question')).toBe(START_PROMPT);
+    expect(START_PROMPT).not.toContain('interview me');
+    expect(h.view.card.dataset.phase).toBe('listening');
+  });
+
+  it('a silence on opening ends the turn, so the server can ask at that pause', async () => {
+    const h = harness({ silenceMs: 10 });
+    h.view.button.click();
+    h.socket().open();
+    await vi.waitFor(() =>
+      expect(
+        h
+          .socket()
+          .json()
+          .filter((m) => m.type === 'end'),
+      ).toHaveLength(1),
+    );
+  });
+
+  it('when Claude says nothing after an answer, the card listens again at once', async () => {
+    const h = harness();
+    h.view.button.click();
+    h.socket().open();
+    speak(h, QUESTION);
+    await vi.waitFor(() => expect(h.starts()).toHaveLength(2));
+    h.socket().reply({ type: 'turn-end', text: 'I don’t know yet' });
+    h.socket().reply({ type: 'reply', spoken: '', detail: [], asking: true, route: 'interview' });
+    expect(h.starts()).toHaveLength(3);
+    expect(h.view.card.dataset.phase).toBe('listening');
+    expect(h.text('.doc-interview-note')).toBe('');
   });
 });
 

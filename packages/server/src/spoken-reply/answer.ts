@@ -162,6 +162,17 @@ export class SpokenAnswerer {
     return this.pendingGoals !== null;
   }
 
+  /** Whether a turn heard here ends only at a confirmed pause: on a doc on
+   *  this board, where the planning voice may ask (`interview.ts`). */
+  converses(context: VoiceContext | undefined): boolean {
+    return this.interview?.listensOn(context) === true;
+  }
+
+  /** The socket went: the planning voice lets go of the doc. */
+  close(): void {
+    this.interview?.close();
+  }
+
   /** While an interview runs, what was heard is written into the doc, so a
    *  listener's paraphrase of it must not stand in for it. */
   get verbatim(): boolean {
@@ -175,7 +186,10 @@ export class SpokenAnswerer {
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
     const interviewed = this.interview?.answer(transcript, context);
-    if (interviewed) return { ...interviewed, points: [{ say: interviewed.spoken }] };
+    if (interviewed) {
+      const points = interviewed.spoken ? [{ say: interviewed.spoken }] : [];
+      return { ...interviewed, points };
+    }
     if (!transcript) return plain('');
 
     const walked = this.walk ? await this.walk.hear(transcript) : null;
