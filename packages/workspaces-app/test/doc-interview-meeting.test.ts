@@ -1,4 +1,7 @@
-import type { SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import {
+  SPOKEN_PAUSE_DEFAULT,
+  type SpokenServerMessage,
+} from '@claude-workspaces/core/spoken-reply';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackContext, SpokenCaptureOpts } from '../src/board/spoken-reply-audio.ts';
 import type { SpokenSocket } from '../src/board/spoken-reply-client.ts';
@@ -143,6 +146,7 @@ describe('the planning voice in a planning meeting', () => {
         mode: 'tap',
         context: { surface: 'doc', docId: 'd-plan' },
         author: { id: 'u-1', name: 'Alice' },
+        pause: SPOKEN_PAUSE_DEFAULT,
         ears: 'meeting',
       },
     ]);

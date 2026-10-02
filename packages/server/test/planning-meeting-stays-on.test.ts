@@ -81,6 +81,17 @@ describe('the planning voice in a meeting stays on', () => {
     expect(ends[0]).toMatchObject({ docId: DOC_ID, filled: 1 });
   });
 
+  it('a meeting’s question carries no interview commands; off a meeting it still does', async () => {
+    const m = reader([ASK_SIGNOFF, ASK_SIGNOFF]);
+    fx = await planFixture({ markdown: BERTH_PLAN, complete: m.complete });
+    const f = fx;
+    const asked = await f.answerer.answer('We dredge first.', { id: 'a', name: 'A' }, ON_DOC, true);
+    expect(asked).toMatchObject({ spoken: 'Who signs off the dredging?', detail: [] });
+    f.answerer.close();
+    const tapped = await f.say('We dredge first.');
+    expect(tapped.detail).toEqual(['Say skip, come back to that, or that’s enough.']);
+  });
+
   it('off a meeting, a reading run still ends as it did', async () => {
     const m = reader([ASK_SIGNOFF, NONE]);
     fx = await planFixture({ markdown: BERTH_PLAN, complete: m.complete });

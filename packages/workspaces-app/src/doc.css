@@ -2665,8 +2665,10 @@ body.doc-heading-in-view:not(.doc-renaming) #doc-title {
      none of them has anywhere else to be said. Those states keep the bar.
      edit-viewport.ts refuses to yield a RECORDING strip to `hidden` because
      "a live mic with no indicator is not a thing to ship" — the indicator is
-     the Record button's red dot, which stays on screen. */
-  .meeting-strip:not(:has(.meeting-note)) {
+     the Record button's red dot, which stays on screen. And while Claude
+     works on a "Claude, …" its one line (doc/doc-interview-bar.ts) keeps the
+     bar too: it has nowhere else to be said either. */
+  .meeting-strip:not(:has(.meeting-note)):not(:has(.meeting-voice-doing.is-on)) {
     display: none;
   }
   /* The popovers become an edge-to-edge sheet under the bar. */
@@ -3829,6 +3831,10 @@ body:has(.doc-floats.is-floating > .plan-float:not([hidden])) .doc-interview {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
 }
+/* A meeting's card: no Done, Skip, Later or Finish, only the ×. */
+.doc-interview-foot[hidden] {
+  display: none;
+}
 .doc-interview-foot button {
   height: 32px;
   border: 1px solid var(--border);
@@ -3891,6 +3897,89 @@ body:has(.doc-floats.is-floating > .plan-float:not([hidden])) .doc-interview {
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
+}
+/* The voice's part of the meeting bar (doc/doc-interview-bar.ts), at the
+   row's end: what Claude is working on, and the pause setting. The line keeps
+   its width while it is empty, and the setting keeps one shape as its numbers
+   change, so nothing beside them moves. */
+.meeting-voice {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meeting-voice[hidden] {
+  display: none;
+}
+.meeting-voice-doing {
+  width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12px;
+  color: var(--accent);
+  visibility: hidden;
+}
+.meeting-voice-doing.is-on {
+  visibility: visible;
+}
+.meeting-voice-pause {
+  height: 26px;
+  min-width: 9.5em;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: 12px var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.meeting-voice-pause[aria-expanded="true"] {
+  color: var(--fg);
+}
+.meeting-voice-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 950;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.meeting-voice-pop[hidden] {
+  display: none;
+}
+.meeting-voice-pop label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.meeting-voice-pop select {
+  font: inherit;
+}
+/* A phone has no meeting bar (below): the line borrows it while Claude
+   works, and the setting stays on the larger screens. */
+@media (max-width: 640px) {
+  .meeting-voice-pause,
+  .meeting-voice-pop {
+    display: none;
+  }
+  .meeting-voice-doing {
+    width: auto;
+    max-width: 60vw;
+  }
 }
 
 /* ================= FULL-SCREEN THREAD VIEW =================

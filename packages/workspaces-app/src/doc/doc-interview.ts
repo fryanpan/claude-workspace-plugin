@@ -36,7 +36,9 @@
  * spoken-reply player, the same PCM path the Talk card plays, and the card
  * listens again after every reply until the recording stops; when the meeting
  * goes on over a reply, the server says `cut-in` and the card stops playing
- * and listens on. Setup 3 has its
+ * and listens on. A meeting's card has only its ×: no Done, Skip, Later or
+ * Finish. The meeting bar holds the pause setting and what Claude is working
+ * on (`doc-interview-bar.ts`). Setup 3 has its
  * own ears, so a meeting is heard on setup 1 or 2. Any other meeting this
  * page records is heard the same way with the card closed, so "Claude, …"
  * from the owner is answered aloud through the same player
@@ -48,6 +50,7 @@
 import {
   type SpokenClientMessage,
   type SpokenHeldSetups,
+  type SpokenPause,
   type SpokenServerMessage,
   type SpokenSetup,
   parseSpokenServerMessage,
@@ -62,6 +65,7 @@ import {
 import type { SpokenSocket } from '../board/spoken-reply-client.ts';
 import type { MountScope } from '../mount-scope.ts';
 import { defaultOriginFacts, insecureOriginMessage } from '../voice-capture.ts';
+import { MeetingVoiceBar, pageStorage, storedPause } from './doc-interview-bar.ts';
 import { audioCtor, interviewSetups } from './doc-interview-setup.ts';
 import {
   DocInterviewView,
@@ -91,6 +95,8 @@ export interface DocInterviewOpts {
   captureContext?: () => AudioContext | undefined;
   playbackContext?: () => PlaybackContext | null;
   storage?: Pick<Storage, 'getItem'> | null;
+  /** Where the pause setting is kept; absent, the page's own storage. */
+  pauseStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   /** The secure-context gate; a test passes one that lets it through. */
   blocked?: () => string | null;
   silenceMs?: number;
@@ -99,6 +105,8 @@ export interface DocInterviewOpts {
   meeting?: {
     onRecording(fn: (recording: boolean) => void): void;
     isPlan(): boolean;
+    /** The meeting bar, which takes the voice's line and pause setting. */
+    bar?: HTMLElement;
   };
 }
 
@@ -116,6 +124,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     detail: [],
     note: null,
     interviewing: false,
+    meeting: false,
   };
   const draw = (): void => {
     if (!opts.scope.disposed) view.draw(frame);
@@ -148,6 +157,13 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     else if (queue.length < MAX_QUEUED) queue.push(d);
   };
   const sendMsg = (m: SpokenClientMessage): void => sendRaw(JSON.stringify(m));
+  const pauseStore = opts.pauseStorage === undefined ? pageStorage() : opts.pauseStorage;
+  const onPause = (pause: SpokenPause): void =>
+    void (inMeeting && sendMsg({ type: 'pause', pause }));
+  const host = opts.meeting?.bar;
+  const bar = host
+    ? new MeetingVoiceBar({ host, scope: opts.scope, storage: pauseStore, onPause })
+    : null;
 
   const ensureSocket = (): void => {
     if (socket && socket.readyState <= OPEN) return;
@@ -240,6 +256,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       context: { surface: 'doc', docId: opts.docId },
       author: opts.author,
       ...(inMeeting ? { ears: 'meeting' as const } : {}),
+      pause: bar?.current ?? storedPause(pauseStore),
     });
     quiet();
     if (!inMeeting && setup !== 3 && !silenced) {
@@ -348,6 +365,9 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         frame.heard = '';
         draw();
         return;
+      case 'doing':
+        bar?.doing(m.label);
+        return;
       case 'error':
         // A meeting heard with no card: the server will not answer here.
         if (inMeeting && !planMeeting && !frame.open) {
@@ -391,6 +411,8 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     inMeeting = true;
     planMeeting = opts.meeting?.isPlan() === true;
     if (planMeeting) frame.question = MEETING_PROMPT;
+    frame.meeting = true;
+    bar?.show(true);
     player.wake();
     ensureSocket();
     listen();
@@ -401,6 +423,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     silenced = false;
     inMeeting = false;
     planMeeting = false;
+    bar?.show(false);
     turnEndedAt = null;
     if (frame.interviewing) sendMsg({ type: 'say', text: 'that’s enough' });
     else sendMsg({ type: 'stop' });
@@ -420,6 +443,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
       detail: [],
       note: null,
       interviewing: false,
+      meeting: false,
     } satisfies InterviewFrame);
     draw();
   }
@@ -466,6 +490,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
     const ws = socket;
     socket = null;
     ws?.close();
+    bar?.remove();
     view.remove();
   });
   draw();

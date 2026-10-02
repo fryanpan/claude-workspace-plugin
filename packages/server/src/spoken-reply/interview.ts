@@ -457,7 +457,8 @@ export class SpokenInterview {
     const spoken = capWords(`${lead} ${asked}`.trim(), SPOKEN_MAX_WORDS);
     return {
       spoken,
-      detail: ['Say skip, come back to that, or that’s enough.'],
+      // A meeting has no interview commands to offer (the page shows none).
+      detail: this.meeting ? [] : ['Say skip, come back to that, or that’s enough.'],
       asking: true,
       route: INTERVIEW_ROUTE,
     };

@@ -74,6 +74,8 @@ export interface DocMeetingMount {
   /** Told each time this page's recording starts or stops — the planning
    *  voice hears a plan's meeting only while it records. */
   onRecording?: (fn: (recording: boolean) => void) => void;
+  /** The meeting bar: the planning voice adds its line and pause setting. */
+  bar?: HTMLElement;
 }
 
 export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
@@ -235,6 +237,7 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
       recordingWatchers.push(fn);
       if (strip.state().kind === 'recording') fn(true);
     },
+    bar: stripEl,
     ...(watchLeadPresence ? { watchLeadPresence } : {}),
   };
 }
