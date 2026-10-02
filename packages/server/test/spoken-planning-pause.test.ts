@@ -15,7 +15,11 @@ import {
   PauseGate,
   midSentence,
 } from '../src/spoken-reply/pause-gate.ts';
-import { SpokenSession } from '../src/spoken-reply/session.ts';
+import {
+  SPOKEN_PLANNING_TUNING,
+  SPOKEN_TAP_TUNING,
+  SpokenSession,
+} from '../src/spoken-reply/session.ts';
 import { SpokenTimings } from '../src/spoken-reply/timings.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
 import type { TranscriptionEngine, TranscriptionOpenOpts } from '../src/transcribe.ts';
@@ -122,6 +126,8 @@ async function planningSession() {
     }),
   );
   await waitFor(() => opened.length === 1, { describe: 'listener opened' });
+  // The gate decides on a plan, so the listener waits as long as it can.
+  expect(opened[0]?.tuning).toEqual(SPOKEN_PLANNING_TUNING);
   const onTurn = opened[0]?.onTurn;
   if (!onTurn) throw new Error('no listener');
   const replies = () => json.filter((m) => m.type === 'reply');
@@ -186,6 +192,7 @@ describe('the planning voice asks only at a pause', () => {
       JSON.stringify({ type: 'start', setup: 1, mode: 'tap', context: { surface: 'board' } }),
     );
     await waitFor(() => opened.length === 1, { describe: 'listener opened' });
+    expect(opened[0]?.tuning).toEqual(SPOKEN_TAP_TUNING);
     opened[0]?.onTurn({ turn: 0, text: 'give me a status update', final: true });
     await waitFor(() => json.some((m) => m.type === 'reply'), { describe: 'routed reply' });
   });

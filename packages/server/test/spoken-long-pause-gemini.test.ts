@@ -5,9 +5,12 @@
  * calls the question over after that much silence, as Gemini's own activity
  * detection does, and asks the board through `ask_board`.
  *
- * Two arms, so the verdict discriminates: the same stub forced to the old
- * 1,500 ms cap must be reported as cutting off a question with 3s pauses in
- * it, and the stub obeying the server's setup frame must hear it whole.
+ * Two arms, so the verdict discriminates. Since Bryan's 2 Oct request (the
+ * turn ends on its own about 500 ms after the last word) the setup frame asks
+ * for 500 ms of silence, which is a trade the harness states rather than
+ * hides: the stub obeying it hears a question with 300 ms gaps whole and cuts
+ * one with 3s pauses off, and the same stub forced to the 3,500 ms the frame
+ * used to send hears the 3s question whole.
  * Pace 0: the stub counts silence in samples, so no test waits out a pause.
  */
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from 'bun:test';
@@ -112,7 +115,7 @@ describe('the long-pause harness on setup 3', () => {
   let boardIds: string[] = [];
 
   beforeAll(async () => {
-    for (const force of [1500, undefined]) {
+    for (const force of [3500, undefined]) {
       const dataDir = mkdtempSync(join(tmpdir(), 'cw-long-pause-gemini-'));
       dirs.push(dataDir);
       servers.push(
@@ -144,26 +147,31 @@ describe('the long-pause harness on setup 3', () => {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
 
-  const run = (i: number) =>
+  const run = (i: number, pauseMs: number) =>
     runLongPause({
       wsBase: `ws://127.0.0.1:${servers[i]?.port}`,
       workspace: boardIds[i] ?? '',
       setup: 3,
-      pcm: question(3000),
+      pcm: question(pauseMs),
       expect: 'status update',
       pace: 0,
       trailingSilenceMs: 8000,
     });
 
-  it('reports the old 1,500 ms cap as cutting off a question with 3s pauses', async () => {
-    const r = await run(0);
+  it('the old 3,500 ms cap heard a question with 3s pauses whole', async () => {
+    const r = await run(0, 3000);
+    expect(r).toMatchObject({ endedEarly: false, cutOff: false, error: null });
+  });
+
+  it('the setup frame this server sends cuts a 3s pause off: the stated trade', async () => {
+    const r = await run(1, 3000);
     expect(r.endedEarly).toBe(true);
     expect(r.question).toBe('Claude, give me a');
     expect(r.cutOff).toBe(true);
   });
 
-  it('hears the same question whole under the setup frame this server sends', async () => {
-    const r = await run(1);
+  it('and hears a question with 300 ms gaps whole', async () => {
+    const r = await run(1, 300);
     expect(r).toMatchObject({
       endedEarly: false,
       question: 'Claude, give me a status update',

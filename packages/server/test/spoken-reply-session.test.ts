@@ -12,7 +12,7 @@ import type {
   GeminiLiveSession,
 } from '../src/spoken-reply/gemini-live.ts';
 import {
-  SPOKEN_LISTEN_TUNING,
+  SPOKEN_TAP_TUNING,
   type SpokenEngines,
   SpokenSession,
   availableSetups,
@@ -34,18 +34,20 @@ const BOARD: SpokenBoard = {
   goals: () => [],
 };
 
-function fakeListener() {
+/** `stuckClose`: the flush never answers, as a slow Soniox round trip. */
+function fakeListener(opts: { stuckClose?: boolean } = {}) {
   const opened: TranscriptionOpenOpts[] = [];
   const audio: number[] = [];
   let closes = 0;
   const engine: TranscriptionEngine = {
     name: 'fake',
-    async open(opts) {
-      opened.push(opts);
+    async open(o) {
+      opened.push(o);
       return {
         send: (pcm) => audio.push(pcm.length),
-        close: async () => {
+        close: () => {
           closes++;
+          return opts.stuckClose ? new Promise<void>(() => {}) : Promise.resolve();
         },
       };
     },
@@ -142,7 +144,7 @@ describe('SpokenSession, setups 1 and 2', () => {
     // Audio said before the listener opens is held, then sent.
     h.session.onAudio(new Uint8Array(1600));
     await waitFor(() => l.opened.length === 1 && l.audio.length === 1, { describe: 'buffer sent' });
-    expect(l.opened[0]?.tuning).toEqual(SPOKEN_LISTEN_TUNING);
+    expect(l.opened[0]?.tuning).toEqual(SPOKEN_TAP_TUNING);
     expect(l.opened[0]?.sampleRate).toBe(16000);
     l.turn('Claude, give me a', false);
     l.turn('Claude, give me a status update.', true);
@@ -161,6 +163,7 @@ describe('SpokenSession, setups 1 and 2', () => {
       'heard',
       'heard',
       'turn-end',
+      'working',
       'reply',
       'audio-start',
       'note',
@@ -176,13 +179,22 @@ describe('SpokenSession, setups 1 and 2', () => {
     expect(l.closes).toBe(1);
   });
 
-  it('tap: the listener’s end of speech ends the question', async () => {
-    const l = fakeListener();
+  it('tap: the end of speech, at most 500 ms after the last word, sends the question on without waiting for the flush', async () => {
+    const l = fakeListener({ stuckClose: true });
     const v = fakeVoice();
     const h = harness({ listener: l.engine, voices: { 1: v.voice, 2: null } });
     h.send({ type: 'start', setup: 1, mode: 'tap' });
     await waitFor(() => l.opened.length === 1);
+    expect(l.opened[0]?.tuning).toEqual({ max_endpoint_delay_ms: 500 });
     l.turn('where are we', true);
+    // The flush never answers, and the question still reaches the answerer.
+    await waitFor(() => h.types().includes('working'), { describe: 'sent to the answerer' });
+    const t = h.types();
+    expect(t.slice(t.indexOf('turn-end'), t.indexOf('turn-end') + 2)).toEqual([
+      'turn-end',
+      'working',
+    ]);
+    expect(l.closes).toBe(1);
     await waitFor(() => v.said.length === 1, { describe: 'voice spoke' });
     expect(h.json.find((m) => m.type === 'turn-end')).toEqual({
       type: 'turn-end',
@@ -341,7 +353,15 @@ describe('SpokenSession, setup 3', () => {
     g.events.onAudio(new Uint8Array(4));
     g.events.onAudio(new Uint8Array(4));
     g.events.onTurnComplete();
-    expect(h.types()).toEqual(['heard', 'turn-end', 'reply', 'note', 'audio-start', 'audio-end']);
+    expect(h.types()).toEqual([
+      'heard',
+      'turn-end',
+      'working',
+      'reply',
+      'note',
+      'audio-start',
+      'audio-end',
+    ]);
     expect(h.audio).toEqual([4, 4]);
   });
 

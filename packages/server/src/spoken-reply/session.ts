@@ -5,12 +5,12 @@
  *
  *  - Setups 1 and 2 hear with Soniox's real-time listener. In `hold` mode the
  *    question ends when the page sends `end`; in `tap` mode it ends at the
- *    listener's own end of speech — the detection the long-pause test is
- *    about, pushed to its latest (`max_endpoint_delay_ms` 3000) so a person
- *    thinking mid-sentence is less likely to be cut off. On a doc on this board
- *    the end of speech must also hold as a pause (`pause-gate.ts`), because
- *    the planning voice asks its questions only there. The words go to the
- *    answerer (the board mic's router), and the spoken part goes to the
+ *    listener's own end of speech, called at most 500 ms after the last word
+ *    (`SPOKEN_TAP_TUNING`) so the speaker can tap once and walk away. On a
+ *    doc on this board the end of speech must also hold as a pause
+ *    (`pause-gate.ts`), because the planning voice asks its questions only
+ *    there, so that path keeps the latest end of speech Soniox allows. The
+ *    words go to the answerer (the board mic's router), and the spoken part goes to the
  *    setup's voice point by point (`speak-points.ts`), each point's note
  *    sent just before its audio: Soniox TTS for 1, ElevenLabs Flash for 2.
  *  - Setup 3 streams the same PCM to Gemini Live, which calls back into the
@@ -52,9 +52,15 @@ import type { SpokenVoice } from './tts.ts';
 
 export const SPOKEN_INPUT_RATE = 16_000;
 
-/** The listener's tuning for a spoken question: end of speech called as late
- *  as Soniox allows. Level 2 is already the adapter's default. */
-export const SPOKEN_LISTEN_TUNING = { max_endpoint_delay_ms: 3000 };
+/** The listener's tuning for a board question: end of speech called as soon
+ *  as Soniox allows, 500 ms after the last word at most (Bryan, 2 Oct: tap
+ *  once, and the turn ends on its own about half a second after he stops).
+ *  A three-second thinking pause now ends the question; that is the trade.
+ *  Level 2 is already the adapter's default. */
+export const SPOKEN_TAP_TUNING = { max_endpoint_delay_ms: 500 };
+/** On a planning doc the pause gate decides, so the listener waits as long as
+ *  Soniox allows and a dangling sentence is not split into two turns. */
+export const SPOKEN_PLANNING_TUNING = { max_endpoint_delay_ms: 3000 };
 
 /** Audio held while the listener connects: 20s of 50ms frames. */
 const MAX_BUFFERED_FRAMES = 400;
@@ -134,7 +140,10 @@ export class SpokenSession {
 
   constructor(private readonly deps: SpokenSessionDeps) {
     // Read at call time: the speaker and context of the latest start.
-    this.agentTurns = agentTurnsFor(deps, (t) => deps.answerer.answer(t, this.actor, this.context));
+    this.agentTurns = agentTurnsFor(deps, (t) => {
+      deps.sendJson({ type: 'working' });
+      return deps.answerer.answer(t, this.actor, this.context);
+    });
   }
 
   open(): void {
@@ -289,14 +298,14 @@ export class SpokenSession {
       .open({
         sampleRate: SPOKEN_INPUT_RATE,
         detectSpeakers: false,
-        tuning: SPOKEN_LISTEN_TUNING,
+        tuning: this.pause ? SPOKEN_PLANNING_TUNING : SPOKEN_TAP_TUNING,
         onTurn: (t) => {
           if (turn !== this.turn) return;
           if (t.final) this.finals.push(t.text);
           const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
           if (text) this.deps.sendJson({ type: 'heard', text });
           if (this.pause) this.pause.heard(text, t.final);
-          else if (t.final && this.mode === 'tap') void this.finishListening(turn);
+          else if (t.final && this.mode === 'tap') void this.finishListening(turn, true);
         },
         onError: (message) => {
           if (turn === this.turn) this.deps.sendJson({ type: 'error', message });
@@ -326,15 +335,19 @@ export class SpokenSession {
     this.sttOpening = opening;
   }
 
-  private async finishListening(turn: number): Promise<void> {
+  /** `endpointed`: the listener's end of speech already finalized every word,
+   *  so the question goes to the answerer now and the socket closes behind
+   *  it — the flush is a round trip to Soniox that would only add delay. */
+  private async finishListening(turn: number, endpointed = false): Promise<void> {
     if (turn !== this.turn || this.finishing) return;
     this.finishing = true;
-    const session = this.stt ?? (await this.sttOpening);
+    const session = endpointed ? this.stt : (this.stt ?? (await this.sttOpening));
     if (turn !== this.turn) return;
     this.stt = null;
     this.sttOpening = null;
     // The flush: the last words arrive as a final turn before this resolves.
-    await session?.close().catch(() => {});
+    if (endpointed) void session?.close().catch(() => {});
+    else await session?.close().catch(() => {});
     if (turn !== this.turn) return;
     const text = this.finals.join(' ').trim();
     this.deps.sendJson({ type: 'turn-end', text });
@@ -371,6 +384,7 @@ export class SpokenSession {
     const voice =
       this.setup === 1 || this.setup === 2 ? this.deps.engines.voices[this.setup] : null;
     const cue = this.armCue(voice, text, turn);
+    if (text) this.deps.sendJson({ type: 'working' });
     const answer = await this.deps.answerer.answer(text, this.actor, this.context);
     if (turn !== this.turn) return;
     this.deps.sendJson(replyMessage(answer));
@@ -522,6 +536,7 @@ export class SpokenSession {
     // Gemini says nothing while the board answers, so the cue is said in
     // this server's own voice.
     const cue = this.armCue(this.deps.engines.voices[1] ?? this.deps.engines.voices[2], text, turn);
+    this.deps.sendJson({ type: 'working' });
     const answer = await this.deps.answerer.answer(asked, this.actor, this.context);
     if (turn !== this.turn) return;
     this.replied = true;
