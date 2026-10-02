@@ -3913,7 +3913,8 @@ body:has(.doc-floats.is-floating > .plan-float:not([hidden])) .doc-interview {
   display: none;
 }
 .meeting-voice-doing {
-  width: 16em;
+  /* Four words of a request and the prefix, at 12px. */
+  width: 20em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
