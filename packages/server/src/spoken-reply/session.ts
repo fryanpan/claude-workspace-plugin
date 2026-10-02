@@ -7,7 +7,9 @@
  *    question ends when the page sends `end`; in `tap` mode it ends at the
  *    listener's own end of speech — the detection the long-pause test is
  *    about, pushed to its latest (`max_endpoint_delay_ms` 3000) so a person
- *    thinking mid-sentence is less likely to be cut off. The words go to the
+ *    thinking mid-sentence is less likely to be cut off. On a doc on this board
+ *    the end of speech must also hold as a pause (`pause-gate.ts`), because
+ *    the planning voice asks its questions only there. The words go to the
  *    answerer (the board mic's router), and the spoken part goes to the
  *    setup's voice point by point (`speak-points.ts`), each point's note
  *    sent just before its audio: Soniox TTS for 1, ElevenLabs Flash for 2.
@@ -42,6 +44,7 @@ import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
 import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
+import { type GateTimers, PauseGate } from './pause-gate.ts';
 import { speakPoints } from './speak-points.ts';
 import type { SpokenTimings } from './timings.ts';
 import type { SpokenVoice } from './tts.ts';
@@ -90,6 +93,8 @@ export interface SpokenSessionDeps {
   parseContext(raw: unknown): VoiceContext | undefined;
   sendJson(msg: SpokenServerMessage): void;
   sendAudio(pcm: Uint8Array): void;
+  /** The pause gate's clock; a test passes a fake one. */
+  timers?: GateTimers;
 }
 
 const NOBODY: VoiceActor = { id: 'voice-unknown', name: 'unknown', kind: 'known' };
@@ -107,6 +112,8 @@ export class SpokenSession {
   private buffered: Uint8Array[] = [];
   private finals: string[] = [];
   private finishing = false;
+  /** A planning doc's turn ends at a confirmed pause (`pause-gate.ts`). */
+  private pause: PauseGate | null = null;
   private speaking: AbortController | null = null;
 
   // Setup 3: one Gemini session per socket, reopened only if the mode changes.
@@ -192,6 +199,7 @@ export class SpokenSession {
     this.turn++;
     this.stopSpeaking();
     this.dropListener();
+    this.deps.answerer.close();
     this.gemini?.close();
     this.gemini = null;
     this.agentTurns?.close();
@@ -259,6 +267,8 @@ export class SpokenSession {
     this.buffered = [];
     this.finals = [];
     this.finishing = false;
+    this.pause?.cancel();
+    this.pause = null;
     void s?.close().catch(() => {});
   }
 
@@ -266,6 +276,9 @@ export class SpokenSession {
     const listener = this.deps.engines.listener;
     if (!listener) return;
     const turn = this.turn;
+    if (this.mode === 'tap' && this.deps.answerer.converses(this.context)) {
+      this.pause = new PauseGate(() => void this.finishListening(turn), this.deps.timers);
+    }
     const opening = listener
       .open({
         sampleRate: SPOKEN_INPUT_RATE,
@@ -276,7 +289,8 @@ export class SpokenSession {
           if (t.final) this.finals.push(t.text);
           const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
           if (text) this.deps.sendJson({ type: 'heard', text });
-          if (t.final && this.mode === 'tap') void this.finishListening(turn);
+          if (this.pause) this.pause.heard(text, t.final);
+          else if (t.final && this.mode === 'tap') void this.finishListening(turn);
         },
         onError: (message) => {
           if (turn === this.turn) this.deps.sendJson({ type: 'error', message });

@@ -166,10 +166,15 @@ describe('interview mode: where it starts', () => {
     expect((await fx.say('interview me')).spoken).toBe('I found no gaps in this plan.');
   });
 
-  it('anything else said goes to the router, as before', async () => {
+  it('off a doc, anything said goes to the router, as before', async () => {
     fx = await planFixture();
-    const r = await fx.say('give me a status update');
+    const r = await fx.say('give me a status update', { surface: 'board' });
     expect(r.route).toBe('fast-path');
     expect(fx.interview.active).toBe(false);
+  });
+
+  it('on a doc that is not on this board, anything said goes to the router', async () => {
+    fx = await planFixture({ onBoard: false });
+    expect((await fx.say('the deck takes twelve cars')).route).toBe('fast-path');
   });
 });

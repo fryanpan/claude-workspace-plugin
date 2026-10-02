@@ -2,10 +2,13 @@
  * How long each section took to fill in interview mode — the number the voice
  * plan compares against plans written by hand ("minutes per filled section").
  *
- * One row per gap the interview finished with, in two places:
+ * One row per gap the interview finished with, and one per answer saying
+ * what the planning voice did after it, in two places:
  *
  *  - a log line, `[interview] doc=… section=N kind=… outcome=filled ms=…`,
- *    and one more when the interview ends with the minutes per filled section;
+ *    `[interview] doc=… section=N after-answer=edit|follow-up|quiet` per
+ *    answer, and one more when the interview ends with the minutes per
+ *    filled section;
  *  - `<dataDir>/interview-timings.jsonl`, one JSON row per gap and one per
  *    interview's end, so the numbers survive a restart.
  *
@@ -50,7 +53,21 @@ export interface InterviewEndRow {
   at: number;
 }
 
-export type InterviewRow = InterviewGapRow | InterviewEndRow;
+/** What the planning voice did after an answer: wrote it into the doc,
+ *  asked for more, or said nothing and waited for its next question. */
+export type AfterAnswer = 'edit' | 'follow-up' | 'quiet';
+
+export interface InterviewAnswerRow {
+  type: 'answer';
+  interview: string;
+  docId: string;
+  section: number;
+  kind: GapKind;
+  after: AfterAnswer;
+  at: number;
+}
+
+export type InterviewRow = InterviewGapRow | InterviewEndRow | InterviewAnswerRow;
 
 export class InterviewLog {
   /** `file` absent: the log line only (tests, and a server with no data dir). */
@@ -65,6 +82,8 @@ export class InterviewLog {
         `[interview] doc=${row.docId} section=${row.section} kind=${row.kind} ` +
           `outcome=${row.outcome} ms=${row.ms}${row.words !== undefined ? ` words=${row.words}` : ''}`,
       );
+    } else if (row.type === 'answer') {
+      this.log(`[interview] doc=${row.docId} section=${row.section} after-answer=${row.after}`);
     } else {
       this.log(
         `[interview] done doc=${row.docId} gaps=${row.gaps} filled=${row.filled} ` +
