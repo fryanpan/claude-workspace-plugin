@@ -3440,10 +3440,23 @@ body.composer-open .composer-scrim.composer-scrim--clear {
    outline on the passage. Calm: the only red is the still Stop button and the
    steady recording dot. The head keeps its height and Move keeps its slot in
    every state, so the card never jumps as words arrive. */
+/* The rail at the bottom right (the mic, Talk and the cards docked to them)
+   is fixed to the window, and a plan's Make Plan and Review row can sit under
+   it: in the margin column on a wide layout, where the row's two-line cards
+   reach 139px up at 1180, and edge to edge at phone width, 58px up. The rail
+   rises clear of the row while the row shows, and only then. */
+body:has(.doc-floats.is-floating > .plan-float:not([hidden])) {
+  --voice-rail-lift: 136px;
+}
+@media (max-width: 640px) {
+  body:has(.doc-floats > .plan-float:not([hidden])) {
+    --voice-rail-lift: 60px;
+  }
+}
 .doc-voice-mic {
   position: fixed;
   right: 12px;
-  bottom: calc(var(--doc-dock-h, 0px) + 16px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 16px + var(--safe-bottom));
   z-index: 900;
   width: 44px;
   height: 44px;
@@ -3485,7 +3498,7 @@ body.composer-open .composer-scrim.composer-scrim--clear {
 .doc-voice-readout {
   position: fixed;
   right: 68px;
-  bottom: calc(var(--doc-dock-h, 0px) + 20px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 20px + var(--safe-bottom));
   z-index: 900;
   max-width: min(320px, calc(100vw - 100px));
   padding: 8px 12px;
@@ -3515,13 +3528,13 @@ body.composer-open .composer-scrim.composer-scrim--clear {
 }
 .doc-voice-live.float {
   right: 16px;
-  bottom: calc(var(--doc-dock-h, 0px) + 76px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 76px + var(--safe-bottom));
 }
 .doc-voice-live.docked {
   left: 12px;
   right: 12px;
   width: auto;
-  bottom: calc(var(--doc-dock-h, 0px) + 76px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 76px + var(--safe-bottom));
 }
 .doc-voice-head {
   display: flex;
@@ -3711,7 +3724,7 @@ body.doc-voice-on #comment-pill {
 .doc-interview-btn {
   position: fixed;
   right: 12px;
-  bottom: calc(var(--doc-dock-h, 0px) + 72px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 72px + var(--safe-bottom));
   z-index: 900;
   height: 32px;
   min-width: 92px;
@@ -3734,7 +3747,7 @@ body.doc-voice-on .doc-interview-btn {
 .doc-interview {
   position: fixed;
   right: 12px;
-  bottom: calc(var(--doc-dock-h, 0px) + 116px + var(--safe-bottom));
+  bottom: calc(var(--doc-dock-h, 0px) + var(--voice-rail-lift, 0px) + 116px + var(--safe-bottom));
   z-index: 901;
   box-sizing: border-box;
   width: 380px;
@@ -3747,11 +3760,6 @@ body.doc-voice-on .doc-interview-btn {
   color: var(--fg);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
   font: 14px / 1.45 var(--sans);
-}
-/* A meeting's Make Plan and Review row, floated into the right margin on a
-   wide layout, sits under the card's corner: the card clears it. */
-body:has(.doc-floats.is-floating > .plan-float:not([hidden])) .doc-interview {
-  bottom: calc(var(--doc-dock-h, 0px) + 160px + var(--safe-bottom));
 }
 .doc-interview[hidden] {
   display: none;
