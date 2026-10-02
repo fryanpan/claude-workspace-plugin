@@ -177,6 +177,8 @@ any of them reaches the refusal.
 
 **What a visitor is sent is built from a list of allowed fields, not forbidden ones.** Review links are rewritten to the visitor's own workspace, paths on this machine are removed, and the record of which agents are present names exactly the fields a visitor gets. A field added later is withheld until someone adds it to the list.
 
+**In a meeting, the participant email the meeting bot reports is what makes a speaker the owner.** With `CW_MEETING_CLAUDE` on, a final turn that opens with "Claude," is answered aloud into the call, and the answer runs as the owner (`meeting-claude.ts`). The only proof of who spoke is the email Recall reports for that participant, matched against `CW_OWNER_EMAIL`. A display name never counts, and a participant with no email, or a server with no owner email set, gets silence. This server does not verify that email itself, so the check is only as strong as the meeting platform's account sign-in. The feature is off by default.
+
 ## Where secrets live
 
 Secrets are kept in the macOS Keychain or in files only the owner's account can read. None is checked into this repository, and none is written into the launchd configuration, which holds hostnames and feature switches only.
