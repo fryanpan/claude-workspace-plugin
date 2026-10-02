@@ -140,6 +140,15 @@ handling, self-authored and bookkeeping drops, acks, watches — runs in the
 hosted session. `packages/server/test/relay-stdio.test.ts` drives the
 compiled relay and the node relay through the launcher against a real server.
 
+**The voice router's model step is a seam.** `voice-classifier.ts` holds
+the type `VoiceRouter` asks (`VoiceClassifier`) and the shipped one,
+`jsonClassifier`, over `voice-prompt.ts`. `voice-choice.ts` asks the same
+decision as one choice question over the routes plus "none", and
+`voice-jev.ts` builds that question for TypeSafe's Jev with an injected
+transport and no address. Neither is wired into the server: they are arms
+of the router eval (`scripts/voice-router-eval.ts`), so the choice prompt is
+not a `prompt-catalog.ts` row until one ships.
+
 **Model prompts are a subsystem, not a scatter of literals.** Every set of
 words this server sends to a model is one row of `prompt-catalog.ts`, and
 `prompt-store.ts` keeps whatever the owner has rewritten in
