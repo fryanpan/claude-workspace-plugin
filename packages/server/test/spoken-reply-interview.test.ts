@@ -128,16 +128,10 @@ describe('interview mode: each answer lands in its section', () => {
 
   it('a heading deleted mid-interview is reported and the next gap asked', async () => {
     const f = await started();
-    const goals = f.docStore
-      .readOutline('d-plan')
-      ?.blocks.find((b) => b.text === 'Goals');
-    f.docStore.applyBlockEdits(
-      'd-plan',
-      [{ op: 'delete_block', blockId: goals?.id ?? '' }],
-      {
-        author: 'fixture',
-      },
-    );
+    const goals = f.docStore.readOutline('d-plan')?.blocks.find((b) => b.text === 'Goals');
+    f.docStore.applyBlockEdits('d-plan', [{ op: 'delete_block', blockId: goals?.id ?? '' }], {
+      author: 'fixture',
+    });
     const r = await f.say(GOALS);
     expect(r.spoken).toBe('Goals is gone from the doc. Next: What goes under Design?');
     expect(f.headingOf(GOALS)).toBeNull();

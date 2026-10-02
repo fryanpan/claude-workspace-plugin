@@ -376,10 +376,9 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       whenSynced: (cb) => client.onReady(cb),
       ...(meeting?.watchLeadPresence ? { watchLeadPresence: meeting.watchLeadPresence } : {}),
     });
-    // The voice mic, for a writer on a board (the address's, not `ctx.workspaceId`).
+    // The voice mic and interview mode, for a writer on a board (the address's, not `ctx.workspaceId`).
     const board = canWrite ? currentWorkspaceId() : null;
     if (board) mountDocVoice({ docId, user, editor, editorMount, scope });
-    // Interview mode, over the board mic's spoken-reply socket.
     if (board) wireDocInterview({ docId, workspaceId: board, user, scope });
   }
 
