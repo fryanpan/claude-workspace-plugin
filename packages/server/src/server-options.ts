@@ -699,9 +699,11 @@ export interface ServerOptions {
   meetingBot?: RecallClient;
   /**
    * Whether the owner may say "Claude, …" in a bot meeting and hear an
-   * answer (`meeting-claude.ts`). Off unless `CW_MEETING_CLAUDE=1`, because
-   * it creates every bot with Recall's audio output enabled. The owner is
-   * known by `ownerEmail`; without one it stays off.
+   * answer (`meeting-claude.ts`). Unset here means off, so a test server
+   * never creates a bot that speaks; `bin.ts` switches it on for the real
+   * server unless `CW_MEETING_CLAUDE=0`. A bot that may answer is created
+   * with Recall's audio output enabled. The owner is known by `ownerEmail`;
+   * without one it stays off.
    */
   meetingClaude?: boolean;
   /**
