@@ -1751,17 +1751,20 @@ there is no route that sets it.
 
 **Incoming Messages** is a section on the landing page that lists the
 message threads an inbox reader agent judged worth Bryan's time. It is not a
-board feature and adds no edge. `inbox/` holds the store (`rows.json`, with
+board feature. `inbox/` holds the store (`rows.json`, with
 the message text kept apart in `bodies.json`, both mode 600, soft delete
 only), the per-field checks the reader's rows pass, the rank and the
 server-drawn section. `routes/inbox.ts` has two gates that never overlap.
 `POST /inbox/rows` is the one write path, open only to the configured
 reader with its own agent token. The MCP verb for it is `post_inbox_rows`
-(`mcp/src/tools/inbox.ts`). The body read and Bryan's taps need an owner
+(`mcp/src/tools/inbox.ts`). A post may name the reader's own scheduled run,
+and `inbox/run-close.ts` moves it to done through the task store's
+transition, the one place this section touches a board. The body read and Bryan's taps need an owner
 person proof from the front page's origin. `landing.ts` in the same folder
 draws the section only for that proof. The behaviour is
 `workspaces-app/src/landing-inbox.ts`, inside the landing bundle. Nothing
-here emits an event, so no row reaches an agent's stream.
+here emits an event of its own, so no row reaches an agent's stream; the run
+close emits the ordinary `task.transitioned`, with counts and no row text.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts

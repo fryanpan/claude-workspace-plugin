@@ -2217,6 +2217,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     bodies: inboxBodies,
     config: () => inboxConfig,
     goalIsLive: (ws, goal) => taskStore.getWorkspace(ws)?.goals.some((g) => g.id === goal) ?? false,
+    runs: taskStore,
+    agentName: (agentId) => identities.displayNameFor(agentId) ?? agentId,
     refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     authorizeAgent: (req, agentId) =>
       authorizeAgentCaller({

@@ -6,6 +6,10 @@
  * its own agent token; any other caller is refused by the server, not here.
  * The arguments are forwarded as given — the server checks every field — so
  * this arm adds nothing a hostile caller could lean on.
+ *
+ * `run` names the scheduled run this pass answers; the server closes it if
+ * it is this reader's own open instance. With a run the pass may carry no
+ * rows, because a pass that found nothing new is still a pass.
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AgentAuthor } from '../author.ts';
@@ -24,11 +28,17 @@ export async function handleInboxTool(
 ): Promise<CallToolResult | undefined> {
   switch (name) {
     case 'post_inbox_rows': {
-      const { pass, rows } = a;
+      const { pass, rows, run } = a;
       if (typeof pass !== 'string' || pass === '') return ctx.err('pass is required');
-      if (!Array.isArray(rows) || rows.length === 0)
-        return ctx.err('rows must be a non-empty list');
-      const res = await ctx.http('POST', '/inbox/rows', { agentId: ctx.AUTHOR.id, pass, rows });
+      if (!Array.isArray(rows)) return ctx.err('rows must be a list');
+      if (rows.length === 0 && run === undefined)
+        return ctx.err('rows must be a non-empty list unless run is given');
+      const res = await ctx.http('POST', '/inbox/rows', {
+        agentId: ctx.AUTHOR.id,
+        pass,
+        rows,
+        ...(run !== undefined ? { run } : {}),
+      });
       return ctx.ok(res);
     }
     default:
