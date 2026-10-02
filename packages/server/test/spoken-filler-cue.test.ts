@@ -237,6 +237,7 @@ describe('the cue on a reply socket, setup 1', () => {
     expect(r.types().filter((t) => t === 'audio-start')).toHaveLength(1);
     expect(r.types().slice(r.types().indexOf('turn-end'))).toEqual([
       'turn-end',
+      'working',
       'audio-start',
       'reply',
       'audio-end',
@@ -267,6 +268,7 @@ describe('the cue on a reply socket, setup 1', () => {
     await waitFor(() => r.types().filter((t) => t === 'audio-end').length === 2);
     expect(r.types().slice(r.types().indexOf('turn-end'))).toEqual([
       'turn-end',
+      'working',
       'audio-start',
       'audio-end',
       'reply',

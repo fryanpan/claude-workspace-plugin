@@ -283,6 +283,7 @@ describe('setup 4: the custom-LLM route', () => {
     expect(frames.map((f) => f.type).slice(1)).toEqual([
       'heard',
       'turn-end',
+      'working',
       'reply',
       'audio-start',
       'audio-end',
