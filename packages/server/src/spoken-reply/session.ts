@@ -453,7 +453,8 @@ export class SpokenSession {
     const turn = this.turn;
     const text = this.heardText.trim() || request;
     this.deps.sendJson({ type: 'turn-end', text });
-    const answer = await this.deps.answerer.answer(request || text, this.actor, this.context);
+    const asked = this.deps.answerer.verbatim ? text : request || text;
+    const answer = await this.deps.answerer.answer(asked, this.actor, this.context);
     if (turn !== this.turn) return;
     this.replied = true;
     this.deps.sendJson(replyMessage(answer));

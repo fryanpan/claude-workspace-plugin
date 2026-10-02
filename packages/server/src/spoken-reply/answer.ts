@@ -20,6 +20,7 @@ import { capWords } from '../voice-status.ts';
  */
 import type { VoiceHandleResult, VoiceResult } from '../voice.ts';
 import { parseOrdinal, pickByLabel } from '../voice.ts';
+import type { SpokenInterview } from './interview.ts';
 import { withNotes } from './notes.ts';
 import { shapeReply, stripWake } from './reply-shape.ts';
 
@@ -119,10 +120,18 @@ export class SpokenAnswerer {
   constructor(
     private readonly board: SpokenBoard,
     private readonly workspaceId: string,
+    /** Interview mode (`interview.ts`), asked before anything else. */
+    private readonly interview?: SpokenInterview,
   ) {}
 
   get asking(): boolean {
     return this.pendingGoals !== null;
+  }
+
+  /** While an interview runs, what was heard is written into the doc, so a
+   *  listener's paraphrase of it must not stand in for it. */
+  get verbatim(): boolean {
+    return this.interview?.active === true;
   }
 
   async answer(
@@ -131,6 +140,8 @@ export class SpokenAnswerer {
     context: VoiceContext | undefined,
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
+    const interviewed = this.interview?.answer(transcript, context);
+    if (interviewed) return { ...interviewed, points: [{ say: interviewed.spoken }] };
     if (!transcript) return plain('');
 
     const pending = this.pendingGoals;
