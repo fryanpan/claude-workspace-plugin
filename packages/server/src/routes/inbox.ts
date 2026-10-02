@@ -4,7 +4,9 @@ import { isValidAgentId } from '../agent-watches.ts';
  *
  *   POST /inbox/rows               the reader's pass: up to 40 rows, upserted
  *                                  by source thread id. The ONLY write path
- *                                  for message content.
+ *                                  for message content. An optional `run`
+ *                                  closes the reader's own scheduled run
+ *                                  (inbox/run-close.ts).
  *   GET  /inbox/rows/:id/body      the message text, for an opened line
  *   POST /inbox/rows/:id/state     Bryan's tap: snooze, dismiss, mark
  *                                  answered, reopen, undo
@@ -27,13 +29,16 @@ import { isValidAgentId } from '../agent-watches.ts';
  *    on this machine passes trusted-local and still fails here, so no agent
  *    can read a message or move a row, the reader included.
  *
- * No event is emitted for any of it. A row reaches a page when the page
+ * No event is emitted for any row. A row reaches a page when the page
  * loads, and never reaches an agent's stream, `next_tasks`, the brief or
- * the activity feed. Logs name counts and ids, never a word of a row.
+ * the activity feed. A run close is an ordinary task transition and emits
+ * its ordinary event, with counts only. Logs name counts and ids, never a
+ * word of a row.
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { InboxBodies } from '../inbox/bodies.ts';
 import type { InboxConfig } from '../inbox/config.ts';
+import { type RunCloseStore, closeInboxRun } from '../inbox/run-close.ts';
 import type { InboxStore, OwnerAction } from '../inbox/store.ts';
 import { DISMISS_REASONS, type DismissReason, MAX_ROWS_PER_POST } from '../inbox/types.ts';
 import { type ValidateContext, validateRow } from '../inbox/validate.ts';
@@ -43,6 +48,9 @@ export interface InboxRoutesContext {
   bodies: InboxBodies;
   config: () => InboxConfig;
   goalIsLive: ValidateContext['goalIsLive'];
+  /** The board store a `run` is closed through, and the reader's name. */
+  runs: RunCloseStore;
+  agentName: (agentId: string) => string;
   /** A refusal when the caller is not a process on this machine (through
    *  the edge, from another host, or a page); checked before the body. */
   refuseNonLocal: (req: Request) => Extract<AgentCallerVerdict, { ok: false }> | null;
@@ -67,7 +75,7 @@ export interface InboxRouteRequest {
 /** The largest post read: forty full rows with room to spare. */
 const MAX_POST_BYTES = 1_000_000;
 const PASS_ID = /^[A-Za-z0-9._:-]{1,64}$/;
-const POST_KEYS = new Set(['agentId', 'pass', 'rows']);
+const POST_KEYS = new Set(['agentId', 'pass', 'rows', 'run']);
 const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state)$/;
 
 /** Bryan's own front page, and nobody else's: the grant door's three checks. */
@@ -121,8 +129,12 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   const pass = body.pass;
   if (typeof pass !== 'string' || !PASS_ID.test(pass)) return j(400, { error: 'pass' });
   const rows = body.rows;
-  if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_ROWS_PER_POST) {
-    return j(400, { error: `rows must hold 1 to ${MAX_ROWS_PER_POST} rows` });
+  // A pass with nothing new is still a pass, so it may close its run with
+  // no rows. Without a run an empty post says nothing and stays refused.
+  const hasRun = body.run !== undefined;
+  const min = hasRun ? 0 : 1;
+  if (!Array.isArray(rows) || rows.length < min || rows.length > MAX_ROWS_PER_POST) {
+    return j(400, { error: `rows must hold ${min} to ${MAX_ROWS_PER_POST} rows` });
   }
 
   const now = (ctx.now ?? Date.now)();
@@ -158,12 +170,24 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   }
   bodies.putAll(posted.ids.map((id, i) => [id, accepted[i]?.body ?? ''] as const));
   log(`[inbox] pass ${pass}: ${accepted.length} accepted, ${rejected.length} rejected`);
+  // After the rows are stored, and never instead of them: a refused close
+  // leaves the pass's rows in place and says why in `run`.
+  const run = hasRun
+    ? closeInboxRun(
+        ctx.runs,
+        body.run,
+        { id: agentId, name: ctx.agentName(agentId) },
+        { pass, accepted: accepted.length, rejected: rejected.length },
+      )
+    : undefined;
+  if (run) log(`[inbox] pass ${pass} run: ${run.closed ? `closed ${run.taskId}` : run.error}`);
   return j(200, {
     ok: true,
     accepted: accepted.length,
     created: posted.created,
     updated: posted.updated,
     rejected,
+    ...(run ? { run } : {}),
   });
 }
 

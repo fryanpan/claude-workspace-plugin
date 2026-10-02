@@ -294,7 +294,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'post_inbox_rows',
       description:
-        "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id). Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
+        "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id), and close the scheduled run it answers by passing run. Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -305,8 +305,15 @@ export const TOOL_LIST: ListToolsResult = {
           rows: {
             type: 'array',
             description:
-              'One to 40 rows. Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderKey (16 hex), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
+              'Up to 40 rows (at least one unless run is given). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderKey (16 hex), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
             items: { type: 'object' },
+          },
+          run: {
+            type: 'object',
+            description:
+              "The scheduled run this pass answers: {workspaceId, taskId} of the run instance the board woke you for. The server moves it to done if it is your own open run, and says in the reply's run field if it did not. With run, rows may be empty.",
+            properties: { workspaceId: { type: 'string' }, taskId: { type: 'string' } },
+            required: ['workspaceId', 'taskId'],
           },
         },
         required: ['pass', 'rows'],

@@ -57,6 +57,15 @@ describe('post_inbox_rows', () => {
     expect(r.calls).toEqual([]);
   });
 
+  it('forwards run, and with a run lets the pass carry no rows', async () => {
+    const r = recorder(() => ({ ok: true, run: { closed: true } }));
+    const run = { workspaceId: 'ws-harbor', taskId: 't-run1' };
+    await handleInboxTool('post_inbox_rows', { pass: 'p2', rows: [], run }, r.ctx as never);
+    expect(r.calls).toEqual([
+      ['POST', '/inbox/rows', { agentId: 'agent-reader', pass: 'p2', rows: [], run }],
+    ]);
+  });
+
   it("surfaces the server's refusal of a caller that is not the reader", async () => {
     const r = recorder(() => {
       throw new Error('POST /inbox/rows → 403: not-the-inbox-reader');
