@@ -194,10 +194,11 @@ describe('POST /inbox/rows — the reader alone', () => {
     const token = await tokenFor(READER);
     // An unsigned page is stopped at the write gate; a signed-in one would
     // reach `authorizeAgentCaller`, which refuses any browser outright.
-    for (const browser of [
+    const browsers: Record<string, string>[] = [
       { 'sec-fetch-dest': 'empty' },
       { origin: `http://${local()}`, 'sec-fetch-site': 'same-origin' },
-    ]) {
+    ];
+    for (const browser of browsers) {
       const page = await postRows(
         { agentId: READER, pass: 'p-browser', rows: [live({ purpose: 'From a page' })] },
         { authorization: `Bearer ${token}`, ...browser },
