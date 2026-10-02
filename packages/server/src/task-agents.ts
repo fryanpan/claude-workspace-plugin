@@ -655,6 +655,8 @@ export class AgentStore {
       ...(opts.processId !== undefined ? { processId: opts.processId } : {}),
       lastHeartbeat: now,
       lastToolCallAt: now,
+      attachedAt: now,
+      lastBoardWorkAt: now,
       capabilities: opts.capabilities ?? [],
     };
     state.attachments.set(opts.agentId, attachment);
@@ -992,7 +994,15 @@ export class AgentStore {
     if (!attachment) return false;
     const clock = this.p.now();
     const observed = Math.min(at ?? clock, clock);
-    if (observed <= attachment.lastToolCallAt) return true;
+    // Its own clock, moved before the early return: a keepalive heartbeat
+    // may already have pushed `lastToolCallAt` past this work, and work on
+    // THIS board is the fact the restore asks about.
+    const boardWork = observed > (attachment.lastBoardWorkAt ?? 0);
+    if (boardWork) attachment.lastBoardWorkAt = observed;
+    if (observed <= attachment.lastToolCallAt) {
+      if (boardWork) this.p.saveAttachments(workspaceId);
+      return true;
+    }
     attachment.lastToolCallAt = observed;
     this.p.saveAttachments(workspaceId);
     return true;

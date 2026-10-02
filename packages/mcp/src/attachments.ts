@@ -31,6 +31,8 @@ export interface AttachmentDeps {
 
 export interface Attachments {
   markAttached(workspaceId: string): void;
+  /** Record that this session left a board — see `leave_workspace`. */
+  markDetached(workspaceId: string): void;
   sendDueHeartbeats(): Promise<void>;
   claimNoticeFor(taskId: string): Promise<string | undefined>;
 }
@@ -43,6 +45,7 @@ function now(deps: AttachmentDeps): number {
 export function createAttachments(deps: AttachmentDeps): Attachments {
   return {
     markAttached: (workspaceId) => markAttached(deps, workspaceId),
+    markDetached: (workspaceId) => deps.keepalive.forget(workspaceId),
     sendDueHeartbeats: () => sendDueHeartbeats(deps),
     claimNoticeFor: (taskId) => claimNoticeFor(deps, taskId),
   };

@@ -302,6 +302,12 @@ const STATUS_PATTERNS: readonly RegExp[] = [
   /^(?:(?:a |the )?(?:brief|quick|short) )?status(?: (?:update|report|check|please))?$/,
   /^(?:give me |i want |can i get |can i have )(?:a |the )?(?:brief |quick |short )?(?:status|update)(?: update| report)?$/,
   /^(?:whats|what is|what's) the status(?: (?:here|now|of this|on this))?$/,
+  // The board named, and the two other ways a person asks for the same
+  // brief. The router eval found each of these going to the lead agent, on
+  // the board, a doc and a mock alike.
+  /^(?:whats|what is|what's) the status (?:of|on) (?:the|this) (?:board|project|workspace)$/,
+  /^(?:whats|what is|what's) (?:waiting (?:on|for) me|on my plate)$/,
+  /^(?:whats|what is|what's) left(?: to do)?(?: on (?:the|this) (?:board|list))?$/,
   /^where (?:are|do) we(?: (?:at|stand|now))?$/,
   /^how (?:are|is) (?:we|it|this|things) (?:doing|going)$/,
   /^catch me up$/,

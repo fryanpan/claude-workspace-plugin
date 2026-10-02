@@ -174,6 +174,10 @@ Builders die mid-task, and a replacement that restarts from scratch redoes finis
 
 Picking up a task that already has notes? Read its Activity tab first and resume from the newest handover.
 
+### Leaving a board
+
+When you have no more work on a board, call `leave_workspace(workspaceId)`. It takes you off the board's agent list and out of your restored watch set, so your next restart does not bring you back. It does not hand over the lead seat; do that first with `set_workspace_lead`. A board you attached to and never worked on is also not re-attached after a restart.
+
 ## When You Are Blocked
 
 - When you have done everything that you can on a task, and you need to wait on another taskUse `block_task` tool to indicate this happened.

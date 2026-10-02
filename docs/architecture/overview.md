@@ -140,6 +140,15 @@ handling, self-authored and bookkeeping drops, acks, watches — runs in the
 hosted session. `packages/server/test/relay-stdio.test.ts` drives the
 compiled relay and the node relay through the launcher against a real server.
 
+**The voice router's model step is a seam.** `voice-classifier.ts` holds
+the type `VoiceRouter` asks (`VoiceClassifier`) and the shipped one,
+`jsonClassifier`, over `voice-prompt.ts`. `voice-choice.ts` asks the same
+decision as one choice question over the routes plus "none", and
+`voice-jev.ts` builds that question for TypeSafe's Jev with an injected
+transport and no address. Neither is wired into the server: they are arms
+of the router eval (`scripts/voice-router-eval.ts`), so the choice prompt is
+not a `prompt-catalog.ts` row until one ships.
+
 **Model prompts are a subsystem, not a scatter of literals.** Every set of
 words this server sends to a model is one row of `prompt-catalog.ts`, and
 `prompt-store.ts` keeps whatever the owner has rewritten in
@@ -727,6 +736,16 @@ that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`
 records each section's question-to-answer time as a log line and a row in
 `<dataDir>/interview-timings.jsonl`, with no doc text. The doc must be on the
 socket's board, checked as the router checks it.
+
+The same answerer speaks in a bot meeting. `meeting-claude.ts` (a top-level
+server module) reads each final turn `recall-meeting.ts` records and acts only
+when it opens with "Claude," and the speaker's Recall participant email is the
+owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes the whole
+answer into the meeting's notes and says the first sentence into the call
+through Recall's `output_audio`, as MP3 from `tts.ts`. It is off unless
+`CW_MEETING_CLAUDE=1`, because a bot that may speak is created with audio
+output switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the
+live check that Recall plays audio at all.
 
 **Editing the words on a page.** The reader can change a page's text in
 place, and the agent is told what changed; the widget never writes the page's

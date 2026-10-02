@@ -22,7 +22,8 @@
  * pane performs no writes of its own — it hands the island a gesture and the
  * verb decides.
  */
-import type { BoardActions, BoardState } from './board-actions.ts';
+import { type BoardActions, type BoardState, showToast } from './board-actions.ts';
+import { renderBoardAgents } from './board-agents-list.ts';
 import { type BoardHandlers, boardData } from './board-island.tsx';
 import {
   type BoardSection,
@@ -158,6 +159,12 @@ export function createBoardRegion(deps: BoardDeps): BoardRegion {
       { onLeadCommit: (leadAgentId) => void saveLead(leadAgentId) },
       state.seat ?? undefined,
     );
+    renderBoardAgents(state.agents, {
+      host: el('board-agents-list'),
+      leadAgentId: state.info?.leadAgentId,
+      remove: (agentId) => actions.removeAgent(agentId),
+      toast: showToast,
+    });
   }
 
   /**

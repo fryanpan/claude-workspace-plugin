@@ -41,6 +41,9 @@ export interface CoverageWorkspaceRow {
    *  one; absent on servers older than the release that split the two. */
   live?: boolean;
   lead?: boolean;
+  /** Has this session authored anything on the board since its last attach?
+   *  Absent from an older server, and for a record older than the field. */
+  workedSinceAttach?: boolean;
   queued?: CoverageQueue;
   queuedTotal?: number;
 }
@@ -204,10 +207,22 @@ export function coverageAlertLine(coverage: WatchCoverage | undefined): string |
  * every board it can reach: `attachAgent` CLAIMS an empty seat, so attaching
  * on restore to whatever board a watched doc happens to sit on would have a
  * respawn quietly taking seats nobody gave it.
+ *
+ * And of the attached-only boards, only one it has worked on since it last
+ * attached. Every prod deploy respawns every session, so a row nobody wanted —
+ * an agent that attached once and never came back — was re-attached on every
+ * deploy and could never age out: measured on one board 2026-10-01,
+ * an agent idle for eleven minutes back 6s after a deploy. The lead is exempt
+ * because the seat is what lead-addressed work queues for. A server that does
+ * not report the field keeps the old behaviour.
  */
 export function boardsToReattach(coverage: WatchCoverage | undefined): string[] {
   return (coverage?.workspaces ?? [])
-    .filter((w) => w.kind === 'board' && (w.lead === true || w.attached === true))
+    .filter(
+      (w) =>
+        w.kind === 'board' &&
+        (w.lead === true || (w.attached === true && w.workedSinceAttach !== false)),
+    )
     .filter((w) => w.heartbeatFresh !== true)
     .map((w) => w.workspaceId);
 }

@@ -141,7 +141,7 @@ export function createConnectorSession(deps: ConnectorSessionDeps): ConnectorSes
 
   /** See attachments.ts — the heartbeat rides real tool calls because that is
    *  the only honest evidence this agent is alive AND working. */
-  const { markAttached, sendDueHeartbeats, claimNoticeFor } = createAttachments({
+  const { markAttached, markDetached, sendDueHeartbeats, claimNoticeFor } = createAttachments({
     http,
     author: AUTHOR,
     keepalive: createAttachmentKeepalive(),
@@ -243,6 +243,7 @@ export function createConnectorSession(deps: ConnectorSessionDeps): ConnectorSes
     PLUGIN_VERSION: deps.pluginVersion(),
     PROCESS_ID: deps.processId,
     markAttached,
+    markDetached,
     STATUS_TEXT_MAX,
     suggestionAuthor,
     resolveBaseUrl: deps.resolveBaseUrl,

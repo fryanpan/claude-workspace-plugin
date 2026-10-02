@@ -57,10 +57,19 @@ describe('parsing a realtime frame', () => {
     );
     expect(frame).toEqual({
       kind: 'transcript',
-      participant: { id: 7, name: 'Rowan Pike' },
+      participant: { id: 7, name: 'Rowan Pike', email: null },
       text: 'So the sync.',
       final: true,
     });
+  });
+
+  it('carries the participant email when Recall has one', () => {
+    const raw = JSON.parse(
+      transcriptFrame({ final: true, id: 8, name: 'Harborlight', words: ['Claude,', 'hello.'] }),
+    );
+    raw.data.data.participant.email = ' harborlight@example.test ';
+    const frame = parseRecallFrame(JSON.stringify(raw));
+    expect(frame).toMatchObject({ participant: { email: 'harborlight@example.test' } });
   });
 
   it('marks a partial as not final', () => {

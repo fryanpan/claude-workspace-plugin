@@ -365,8 +365,12 @@ export function unreachableCallbackReason(args: {
 /** What `createBot` needs that is not config. */
 export interface CreateBotArgs {
   meetingUrl: string;
-  /** The full realtime websocket URL, token already in it. */
-  realtimeUrl: string;
+  /**
+   * The full realtime websocket URL, token already in it. Absent only for a
+   * bot that hears nothing — `scripts/recall-say.ts`, which only speaks — and
+   * then no transcript is asked for either.
+   */
+  realtimeUrl?: string;
   /** Zoom only — see the header. Seconds before a refused bot gives up. */
   permissionDeniedTimeoutSec?: number;
   /**
@@ -375,7 +379,31 @@ export interface CreateBotArgs {
    * "<name>'s Claude Code Agent"); absent, the configured default stands.
    */
   botName?: string;
+  /**
+   * Whether this bot may speak (`meeting-claude.ts`). Recall plays audio
+   * into a call only for a bot created with `automatic_audio_output`, so
+   * one that may answer is created with a half second of silence there.
+   */
+  speaks?: boolean;
 }
+
+/**
+ * Half a second of silent MP3: fourteen 144-byte MPEG-1 Layer III frames,
+ * 32 kbps, 32 kHz mono, every side-info and data bit zero. Recall's docs
+ * name a short silent file as the way to enable on-demand audio
+ * (docs.recall.ai/docs/output-audio-in-meetings); it is built here rather
+ * than shipped as a file so a test can decode it.
+ */
+export function silentMp3(): Uint8Array {
+  const frame = new Uint8Array(144);
+  frame.set([0xff, 0xfb, 0x18, 0xc0]);
+  const out = new Uint8Array(frame.length * 14);
+  for (let i = 0; i < 14; i++) out.set(frame, i * frame.length);
+  return out;
+}
+
+/** Recall's `output_audio` body takes at most this many base64 characters. */
+export const OUTPUT_AUDIO_MAX_B64 = 1_835_008;
 
 export interface RecallBotStatusChange {
   code: string;
@@ -429,6 +457,12 @@ export interface RecallClient {
   createBot(args: CreateBotArgs): Promise<RecallBot>;
   getBot(botId: string): Promise<RecallBot>;
   leaveCall(botId: string): Promise<void>;
+  /**
+   * Play MP3 into the call: `POST /api/v1/bot/{id}/output_audio/` with
+   * `{kind: 'mp3', b64_data}`. Only for a bot created with `speaks`. Throws
+   * on a refusal, with Recall's own words.
+   */
+  outputAudio(botId: string, mp3: Uint8Array): Promise<void>;
   /** Zoom's native consent prompt. Resolves false when Recall refused to ask. */
   requestRecordingPermission(botId: string): Promise<boolean>;
   /**
@@ -453,6 +487,39 @@ export type RecallKeyCheck =
  * the provider name, the retention, the events subscribed — without a network
  * call and without a fake having to re-state the shape it is checking.
  */
+/** The live transcript a listening bot is asked for, and where Recall sends it. */
+function liveTranscript(config: RecallConfig, realtimeUrl: string): Record<string, unknown> {
+  return {
+    transcript: {
+      provider: {
+        // v3, never `assembly_ai_streaming`: the docs say the old name
+        // fails. `format_turns` is what makes a settled turn a punctuated
+        // sentence rather than the lowercase rough draft — the same reason
+        // the direct engine sets it.
+        assembly_ai_v3_streaming: {
+          speech_model: 'universal-streaming-english',
+          format_turns: true,
+        },
+      },
+      diarization: {
+        use_separate_streams_when_available: config.separateStreams,
+      },
+    },
+    realtime_endpoints: [
+      {
+        type: 'websocket',
+        url: realtimeUrl,
+        // Partials are subscribed for two reasons, and only one of them is
+        // the ticker: the notes composer treats a partial as speech in
+        // progress and defers its pause tick on it, and a partial is what
+        // tells this server that a participant has BEGUN a new utterance —
+        // which is how a turn number gets allocated. See recall-turns.ts.
+        events: ['transcript.data', 'transcript.partial_data'],
+      },
+    ],
+  };
+}
+
 export function buildCreateBotBody(
   config: RecallConfig,
   args: CreateBotArgs,
@@ -461,35 +528,18 @@ export function buildCreateBotBody(
     meeting_url: args.meetingUrl,
     bot_name: args.botName ?? config.botName,
     recording_config: {
-      transcript: {
-        provider: {
-          // v3, never `assembly_ai_streaming`: the docs say the old name
-          // fails. `format_turns` is what makes a settled turn a punctuated
-          // sentence rather than the lowercase rough draft — the same reason
-          // the direct engine sets it.
-          assembly_ai_v3_streaming: {
-            speech_model: 'universal-streaming-english',
-            format_turns: true,
-          },
-        },
-        diarization: {
-          use_separate_streams_when_available: config.separateStreams,
-        },
-      },
-      realtime_endpoints: [
-        {
-          type: 'websocket',
-          url: args.realtimeUrl,
-          // Partials are subscribed for two reasons, and only one of them is
-          // the ticker: the notes composer treats a partial as speech in
-          // progress and defers its pause tick on it, and a partial is what
-          // tells this server that a participant has BEGUN a new utterance —
-          // which is how a turn number gets allocated. See recall-turns.ts.
-          events: ['transcript.data', 'transcript.partial_data'],
-        },
-      ],
+      ...(args.realtimeUrl === undefined ? {} : liveTranscript(config, args.realtimeUrl)),
       retention: { type: 'timed', hours: config.retentionHours },
     },
+    ...(args.speaks
+      ? {
+          automatic_audio_output: {
+            in_call_recording: {
+              data: { kind: 'mp3', b64_data: Buffer.from(silentMp3()).toString('base64') },
+            },
+          },
+        }
+      : {}),
     ...(args.permissionDeniedTimeoutSec !== undefined
       ? {
           automatic_leave: { recording_permission_denied_timeout: args.permissionDeniedTimeoutSec },
@@ -578,6 +628,14 @@ export function createRecallClient(opts: RecallClientOptions = {}): RecallClient
     },
     async leaveCall(botId: string): Promise<void> {
       await send(`/v1/bot/${encodeURIComponent(botId)}/leave_call/`, { method: 'POST' });
+    },
+    async outputAudio(botId: string, mp3: Uint8Array): Promise<void> {
+      const b64 = Buffer.from(mp3).toString('base64');
+      if (b64.length > OUTPUT_AUDIO_MAX_B64) throw new Error('recall: output audio too long');
+      await send(`/v1/bot/${encodeURIComponent(botId)}/output_audio/`, {
+        method: 'POST',
+        body: JSON.stringify({ kind: 'mp3', b64_data: b64 }),
+      });
     },
     async requestRecordingPermission(botId: string): Promise<boolean> {
       try {
