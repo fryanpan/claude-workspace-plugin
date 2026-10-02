@@ -186,6 +186,8 @@ import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
 import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import type { SpokenBoard } from './spoken-reply/answer.ts';
+import { interviewDocs } from './spoken-reply/interview-docs.ts';
+import { INTERVIEW_TIMINGS_FILE, InterviewLog } from './spoken-reply/interview-log.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -1577,6 +1579,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     timings: spokenTimings,
     agentCallbacks,
     parseContext: parseVoiceContext,
+    // "interview me" on a plan: its gaps asked aloud, answers written in.
+    interview: {
+      docs: interviewDocs(docStore, (ws) => taskStore.getWorkspace(ws)?.docIds),
+      log: new InterviewLog(join(dataDir, INTERVIEW_TIMINGS_FILE)),
+    },
   });
 
   /** A path segment, decoded, answering itself rather than throwing on `%`. */
