@@ -51,6 +51,7 @@
     "identity:link": "bun run scripts/link-identity.ts",
     "review:migrate": "bun run packages/server/src/migrate-review-queue.ts",
     "meeting:replay": "bun run scripts/replay-meeting-audio.ts",
+    "meeting:say": "bun run scripts/recall-say.ts",
     "meeting:rerun": "bun run scripts/rerun-meeting.ts",
     "meeting:synthetic": "bun run scripts/synthetic-meeting.ts",
     "notes:eval": "bun run scripts/notes-eval.ts",
