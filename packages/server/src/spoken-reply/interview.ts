@@ -132,6 +132,8 @@ export class SpokenInterview {
   /** What was said at pauses since the last question, per doc: a reading
    *  hears all of it, not only the last turn. */
   private readonly since = new Map<string, string>();
+  /** What `since` held when the latest question was asked. */
+  private sinceAsked = '';
   /** The latest turn was heard in a planning meeting. */
   private meeting = false;
   private readonly now: () => number;
@@ -162,6 +164,26 @@ export class SpokenInterview {
   close(): void {
     this.unfocus();
     this.record.close();
+  }
+
+  /**
+   * The question just asked was never heard: the speaker went on over it
+   * (`cut-in.ts`), so what they say next is not its answer. A reading's
+   * question is dropped as if it had not been asked, and the next pause reads
+   * again with everything said; a gap's is asked again at the next pause.
+   */
+  withdraw(): void {
+    const run = this.run;
+    if (!run) return;
+    const asked = questionFor(this.slot(run));
+    this.asked.set(
+      run.docId,
+      (this.asked.get(run.docId) ?? []).filter((q) => q !== asked),
+    );
+    if (this.sinceAsked) this.since.set(run.docId, this.sinceAsked);
+    if (run.reading) this.run = null;
+    else run.waiting = true;
+    this.unfocus();
   }
 
   /**
@@ -427,6 +449,7 @@ export class SpokenInterview {
       quote: (gap.kind === 'read' ? gap.quote : gap.asks) ?? gap.heading,
     });
     this.deps.docs.hold?.(run.docId);
+    this.sinceAsked = this.since.get(run.docId) ?? '';
     this.since.delete(run.docId);
     const asked = questionFor(gap);
     const before = this.asked.get(run.docId) ?? [];

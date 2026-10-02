@@ -42,6 +42,8 @@ class FakeSocket implements SpokenSocket {
   }
 }
 
+/** Sources the player stopped: a cut-in silences what was queued. */
+let stopped = 0;
 const playback = {
   currentTime: 1,
   state: 'running',
@@ -54,7 +56,9 @@ const playback = {
       buffer: null,
       connect: () => {},
       start: () => {},
-      stop: () => {},
+      stop: () => {
+        stopped++;
+      },
       onended: null,
     }) as unknown as AudioBufferSourceNode,
 } as unknown as PlaybackContext;
@@ -175,6 +179,28 @@ describe('the planning voice in a planning meeting', () => {
     h.socket().reply({ type: 'reply', spoken: '', detail: [], asking: false, route: 'none' });
     expect(h.starts()).toHaveLength(3);
     expect(h.starts().every((m) => m.ears === 'meeting')).toBe(true);
+  });
+
+  it('a cut-in stops the question playing and listens on, with no new start', async () => {
+    const h = harness();
+    h.recording(true);
+    h.socket().open();
+    h.socket().reply({ type: 'turn-end', text: 'The berth opens in spring.' });
+    h.socket().reply(QUESTION);
+    h.socket().reply({ type: 'audio-start', sampleRate: 24_000 });
+    h.socket().onmessage?.({ data: new Int16Array(480).fill(4000).buffer });
+    const before = stopped;
+    h.socket().reply({ type: 'cut-in' });
+    expect(stopped).toBeGreaterThan(before);
+    expect(h.view.card.dataset.phase).toBe('listening');
+    // The stopped reply's own end ends nothing: the server is already hearing.
+    h.socket().reply({ type: 'audio-end' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.starts()).toHaveLength(1);
+    // The turn it went on with is answered as any other.
+    h.socket().reply({ type: 'turn-end', text: 'I noticed a second crane.' });
+    h.socket().reply({ type: 'reply', spoken: '', detail: [], asking: true, route: 'interview' });
+    expect(h.starts()).toHaveLength(2);
   });
 
   it('closes when the recording stops', () => {

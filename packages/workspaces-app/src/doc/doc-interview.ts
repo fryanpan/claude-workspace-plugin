@@ -32,7 +32,9 @@
  * opened and no audio is sent here, and there is no silence turn — a quiet
  * room is not asked anything. The question plays through this page's
  * spoken-reply player, the same PCM path the Talk card plays, and the card
- * listens again after every reply until the recording stops. Setup 3 has its
+ * listens again after every reply until the recording stops; when the meeting
+ * goes on over a reply, the server says `cut-in` and the card stops playing
+ * and listens on. Setup 3 has its
  * own ears, so a meeting is heard on setup 1 or 2. Any other meeting this
  * page records is heard the same way with the card closed, so "Claude, …"
  * from the owner is answered aloud through the same player
@@ -42,7 +44,6 @@
  * Mounted only for a writer on a board whose server names a setup.
  */
 import {
-  SPOKEN_SETUPS,
   type SpokenClientMessage,
   type SpokenHeldSetups,
   type SpokenServerMessage,
@@ -56,9 +57,10 @@ import {
   createSpokenPlayer,
   startSpokenCapture,
 } from '../board/spoken-reply-audio.ts';
-import { SETUP_KEY, type SpokenSocket } from '../board/spoken-reply-client.ts';
+import type { SpokenSocket } from '../board/spoken-reply-client.ts';
 import type { MountScope } from '../mount-scope.ts';
 import { defaultOriginFacts, insecureOriginMessage } from '../voice-capture.ts';
+import { audioCtor, interviewSetups } from './doc-interview-setup.ts';
 import {
   DocInterviewView,
   type InterviewFrame,
@@ -98,54 +100,10 @@ export interface DocInterviewOpts {
   };
 }
 
-function audioCtor(): typeof AudioContext | undefined {
-  return (
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  );
-}
-
-/** Setup 4 hands each turn to an agent session, which the interview never
- *  sees, so an interview runs on the other three. */
-const INTERVIEW_SETUPS: readonly SpokenSetup[] = SPOKEN_SETUPS.filter((s) => s !== 4);
-
-/** The board's chosen setup when this server runs it, else the first it runs. */
-export function interviewSetup(
-  setups: readonly SpokenSetup[],
-  stored: string | null,
-): SpokenSetup | null {
-  const usable = INTERVIEW_SETUPS.filter((s) => setups.includes(s));
-  const want = Number(stored);
-  if (usable.includes(want as SpokenSetup)) return want as SpokenSetup;
-  return usable[0] ?? null;
-}
-
 export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   const doc = opts.document ?? document;
   const view = new DocInterviewView(doc);
-  const storage =
-    opts.storage === undefined
-      ? (() => {
-          try {
-            return window.localStorage;
-          } catch {
-            return null;
-          }
-        })()
-      : opts.storage;
-  const stored = (() => {
-    try {
-      return storage?.getItem(SETUP_KEY) ?? null;
-    } catch {
-      return null;
-    }
-  })();
-  const setup = interviewSetup(opts.setups, stored);
-  /** A meeting is heard on setup 1 or 2: setup 3 hears with Gemini. */
-  const earsSetup: SpokenSetup | null =
-    setup === 1 || setup === 2
-      ? setup
-      : (([1, 2] as const).find((s) => opts.setups.includes(s)) ?? null);
+  const { setup, earsSetup } = interviewSetups(opts.setups, opts.storage);
   const heldLine = Object.values(opts.held ?? {})[0] ?? 'Spoken replies are not set up here.';
 
   const frame: InterviewFrame = {
@@ -171,6 +129,9 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
   let silenced = false;
   /** Hearing this page's meeting rather than a microphone. */
   let inMeeting = false;
+  /** The server stopped a reply for a cut-in; that reply's `audio-end`
+   *  may still come, and resumes nothing. */
+  let cutOff = false;
   /** When the server called the last turn over, for the delay it logs. */
   let turnEndedAt: number | null = null;
   const quiet = (): void => {
@@ -333,6 +294,7 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         }
         return;
       case 'turn-end':
+        cutOff = false;
         quiet();
         if (m.text.trim()) silenced = false;
         listening = false;
@@ -362,10 +324,23 @@ export function mountDocInterview(opts: DocInterviewOpts): DocInterviewView {
         return;
       }
       case 'audio-start':
+        cutOff = false;
         player.begin(m.sampleRate);
         return;
       case 'audio-end':
-        player.finish(afterSpoken);
+        // A cut-in's stopped reply ends nothing: the card is listening.
+        if (cutOff) cutOff = false;
+        else player.finish(afterSpoken);
+        return;
+      case 'cut-in':
+        // The meeting went on over the voice: silence it, and listen on.
+        // The server is already hearing the new turn, so no `start`.
+        player.stop();
+        cutOff = true;
+        listening = true;
+        frame.phase = 'listening';
+        frame.heard = '';
+        draw();
         return;
       case 'error':
         // A meeting heard with no card: the server will not answer here.

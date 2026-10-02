@@ -170,6 +170,12 @@ export type SpokenServerMessage =
   | { type: 'note'; point: number; text: string }
   | { type: 'audio-start'; sampleRate: number }
   | { type: 'audio-end' }
+  /** A meeting heard by this socket went on talking after the pause: the
+   *  voice is stopped, and the page stops playing at once and shows the
+   *  socket listening again. The server is already hearing the new turn, so
+   *  the page sends no `start`; an `audio-end` for the stopped reply may
+   *  still follow, and ends nothing. */
+  | { type: 'cut-in' }
   | { type: 'timings'; summary: SpokenTimingSummary }
   | { type: 'error'; message: string };
 
@@ -291,6 +297,7 @@ export function parseSpokenServerMessage(text: string): SpokenServerMessage | nu
     'note',
     'audio-start',
     'audio-end',
+    'cut-in',
     'timings',
     'error',
   ];

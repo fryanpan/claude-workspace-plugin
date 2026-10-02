@@ -179,6 +179,11 @@ export class SpokenAnswerer {
     this.interview?.close();
   }
 
+  /** The speaker went on over the question just asked (`session.ts`). */
+  withdraw(): void {
+    this.interview?.withdraw();
+  }
+
   /** While an interview runs, what was heard is written into the doc, so a
    *  listener's paraphrase of it must not stand in for it. */
   get verbatim(): boolean {

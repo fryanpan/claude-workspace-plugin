@@ -2799,6 +2799,20 @@ meeting path transcribes and writes notes but never speaks.
   is written. The notes hold now drops only the turns the written words
   contain (`MeetingEars.placed`), so a remark the plan was not given still
   reaches the notes.
+- **It never talks over the meeting** (`cut-in.ts`). In the same meeting
+  the question started about a second after the pause, while Bryan had
+  already gone on ("I noticed that there's—"). Inferred from the log and the
+  words the plan captured, not measured: the mid-sentence window did not
+  fail. The turn before the pause read as finished, so it held for 1.2s, and
+  the dash was written later, when he broke off because the voice had
+  started; those words were the start of the answer turn. What failed is that
+  nothing listened between the pause and the end of the question. Now the socket keeps hearing the meeting until the page's
+  next `start`. A frame with words in it, other than the voice's own words
+  heard back (at least `ECHO_SHARE` of them), stops the reply whether or not
+  it has started playing, sends the page `cut-in` (the player stops at once
+  and the card listens on, with no new `start`), withdraws a question in it
+  (`SpokenInterview.withdraw`: not in the asked list, its words not taken as
+  an answer), and begins the next turn with that frame.
 
 ## "Claude, …" in a meeting recorded from the mic or Mac audio (`spoken-reply/meeting-ask.ts`, 2026-10-02)
 
@@ -2838,7 +2852,7 @@ the line and the detail written into the meeting's own notes section with
   unchanged.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
-  Words said while the voice is speaking are not heard by it. The notes line
+  The notes line
   waits, as the bot path's does, until the meeting's first note opens its
   section.
 

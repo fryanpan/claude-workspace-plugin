@@ -27,7 +27,9 @@
  * `ears: 'meeting'`, and setups 1 and 2 hear the meeting's own transcript in
  * place of Soniox (`meeting-ears.ts`), always through the pause gate. A plan's
  * meeting is heard for the planning voice; any meeting is heard for "Claude,
- * …" when the socket proved the owner (`meeting-ask.ts`).
+ * …" when the socket proved the owner (`meeting-ask.ts`). The meeting is
+ * still heard after the pause: words with no voice in them stop the reply,
+ * said or not, and begin the next turn (`cut-in.ts`).
  *
  * `stop` is the page saying the speaker cut in: the voice is aborted at once
  * and whatever it had not sent is never sent.
@@ -46,14 +48,15 @@ import {
   parseSpokenClientMessage,
   spokenSetupKey,
 } from '@claude-workspaces/core/spoken-reply';
-import type { TranscriptionEngine, TranscriptionSession } from '../transcribe.ts';
+import type { EngineTurn, TranscriptionEngine, TranscriptionSession } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
 import { type AgentTurns, agentTurnsFor } from './agent-turns.ts';
 import { type SpokenAnswer, type SpokenAnswerer, replyMessage } from './answer.ts';
+import { cutsIn } from './cut-in.ts';
 import type { ElevenLabsAgent } from './elevenlabs-agent.ts';
-import { FillerCue } from './filler-cue.ts';
+import { FillerCue, cueFor } from './filler-cue.ts';
 import type { GeminiLive, GeminiLiveSession } from './gemini-live.ts';
 import { type MeetingRoom, meetingAnswer } from './meeting-ask.ts';
 import { type GateTimers, PauseGate } from './pause-gate.ts';
@@ -132,6 +135,11 @@ export class SpokenSession {
   private room: MeetingRoom | null = null;
   /** This turn's settled words from the page's own microphone. */
   private own: string[] = [];
+  /** A meeting turn past its pause: what its voice says, so the room
+   *  hearing it is not taken for a cut-in, and whether it asks. */
+  private saying: { turn: number; text: string; asks: boolean } | null = null;
+  /** The meeting turn whose reply the speaker cut in on. */
+  private cut: number | null = null;
 
   // Setups 1 and 2: the listener for the current turn.
   private stt: TranscriptionSession | null = null;
@@ -346,12 +354,8 @@ export class SpokenSession {
         tuning: this.pause ? SPOKEN_PLANNING_TUNING : SPOKEN_TAP_TUNING,
         onTurn: (t) => {
           if (turn !== this.turn) return;
-          if (t.final) this.finals.push(t.text);
-          if (t.final && t.stream !== 'system') this.own.push(t.text);
-          const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
-          if (text) this.deps.sendJson({ type: 'heard', text });
-          if (this.pause) this.pause.heard(text, t.final);
-          else if (t.final && this.mode === 'tap') void this.finishListening(turn, true);
+          if (this.finishing && this.ears) this.cutIn(t);
+          else this.hear(t, turn);
         },
         onError: (message) => {
           if (turn === this.turn) this.deps.sendJson({ type: 'error', message });
@@ -381,6 +385,34 @@ export class SpokenSession {
     this.sttOpening = opening;
   }
 
+  private hear(t: EngineTurn, turn: number): void {
+    if (t.final) this.finals.push(t.text);
+    if (t.final && t.stream !== 'system') this.own.push(t.text);
+    const text = [...this.finals, ...(t.final ? [] : [t.text])].join(' ').trim();
+    if (text) this.deps.sendJson({ type: 'heard', text });
+    if (this.pause) this.pause.heard(text, t.final);
+    else if (t.final && this.mode === 'tap') void this.finishListening(turn, true);
+  }
+
+  /** The meeting went on after the pause: unless it is the voice heard back,
+   *  the reply is stopped, said or not, a question in it is withdrawn, and
+   *  this frame begins the next turn. */
+  private cutIn(t: EngineTurn): void {
+    const was = this.turn;
+    const saying = this.saying?.turn === was ? this.saying : null;
+    if (!cutsIn(t.text, saying?.text ?? '')) return;
+    this.cut = was;
+    if (saying?.asks) this.deps.answerer.withdraw();
+    this.saying = null;
+    this.stopSpeaking();
+    this.cue = null;
+    this.deps.sendJson({ type: 'cut-in' });
+    this.dropListener();
+    this.turn++;
+    this.startListening();
+    this.hear(t, this.turn);
+  }
+
   private meetingListener(): TranscriptionEngine | null {
     const c = this.context;
     if (c?.surface !== 'doc' || !c.docId || !this.deps.answerer.converses(c)) return null;
@@ -397,13 +429,17 @@ export class SpokenSession {
     this.finishing = true;
     const session = endpointed ? this.stt : (this.stt ?? (await this.sttOpening));
     if (turn !== this.turn) return;
-    this.stt = null;
-    this.sttOpening = null;
-    // The flush: the last words arrive as a final turn before this resolves.
-    if (endpointed) void session?.close().catch(() => {});
-    else await session?.close().catch(() => {});
-    if (turn !== this.turn) return;
+    // A meeting stays heard until the next `start`, for a cut-in.
+    if (!this.ears) {
+      this.stt = null;
+      this.sttOpening = null;
+      // The flush: the last words arrive as a final turn before this resolves.
+      if (endpointed) void session?.close().catch(() => {});
+      else await session?.close().catch(() => {});
+      if (turn !== this.turn) return;
+    }
     const text = this.finals.join(' ').trim();
+    if (this.ears) this.saying = { turn, text: cueFor(text), asks: false };
     this.deps.sendJson({ type: 'turn-end', text });
     if (this.setup === 3) this.askEarly(text, turn);
     else await this.answerAndSay(text, turn);
@@ -449,7 +485,15 @@ export class SpokenSession {
           own: this.own.join(' '),
         })
       : await answerer.answer(text, this.actor, this.context);
-    if (turn !== this.turn) return;
+    const asks = answer.asking && answer.spoken !== '';
+    if (turn !== this.turn) {
+      // Cut in on before it was said: its question was never heard.
+      if (this.cut === turn && asks) answerer.withdraw();
+      return;
+    }
+    if (this.saying?.turn === turn) {
+      this.saying = { turn, text: `${this.saying.text} ${answer.spoken}`, asks };
+    }
     this.deps.sendJson(replyMessage(answer));
     const opened = (await cue?.ready()) === true;
     if (turn !== this.turn) return;
