@@ -723,19 +723,29 @@ top-level core module), so the card and the voice queue share one builder. A
 ticket's review item gained the undo it lacked:
 `routes/task-review-answer-undo.ts` over `review-items/undo-answer.ts`.
 
-**Interview mode** rides the same socket. On a review doc, the Interview
-button (`doc/doc-interview.ts`, its markup in `doc-interview-view.ts`) opens
-the spoken-reply socket with `{ surface: 'doc', docId }` as each turn's
-context; saying "interview me" there makes the socket's answerer hand every
-later turn to `spoken-reply/interview.ts` until the interview ends. It reads
-the plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
+**The planning voice** rides the same socket, and is always on in a doc:
+nobody says "interview me" any more (it still works). The doc's Talk button
+(`doc/doc-interview.ts`, its markup in `doc-interview-view.ts`; mounted with
+the voice mic by `doc/doc-voice-mount.ts`) opens the spoken-reply socket with
+`{ surface: 'doc', docId }` as each turn's context. On a doc on the socket's
+board the session ends each turn only at a confirmed pause
+(`spoken-reply/pause-gate.ts`: the listener's endpoint, then a quiet window
+that is longer after a turn ending mid-sentence), and every turn is
+`spoken-reply/interview.ts`'s: the first pause begins the run. It reads the
+plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
 open-question and short sections, ranked by heading), holds them as slots in
 `interview-state.ts` (each asked once, then placed, skipped, deferred, gone or
-ended; a silence after a question offers once to skip it), asks one at a time, and
-writes each answer under its heading with `applyBlockEdits`
-(`interview-docs.ts`), so threads keep their anchors. "skip", "come back to
-that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`
-records each section's question-to-answer time as a log line and a row in
+ended; a silence after a question offers once to skip it), and after each
+answer does one of three things: writes it under its heading with
+`applyBlockEdits` (`interview-docs.ts`, so threads keep their anchors), asks
+once for more after a bare "maybe", or says nothing after "I don't know yet"
+and asks its next question at the next pause. While it asks, its cursor is on
+the words it means: the server sets an `agentFocus` field on its own
+awareness state for the doc, and `doc/agent-focus.ts` on every open page
+scrolls there and highlights them in the agent's colour. "skip", "come back
+to that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`
+records each section's question-to-answer time and each answer's
+`after-answer` outcome as log lines and rows in
 `<dataDir>/interview-timings.jsonl`, with no doc text. The doc must be on the
 socket's board, checked as the router checks it.
 
