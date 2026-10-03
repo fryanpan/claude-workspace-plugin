@@ -1,4 +1,4 @@
-import type { PageEdit } from './page-edits.ts';
+import type { PageEdit, PageSuggestion } from './page-edits.ts';
 import type { ReviewPayload } from './review-item.ts';
 import type { VoiceNote } from './voice-feedback.ts';
 
@@ -448,7 +448,9 @@ export interface TextRangeAnchor {
 export interface ElementFingerprint {
   /** element id, if present. */
   id?: string;
-  /** tagName (uppercased, e.g. BUTTON). */
+  /** tagName (uppercased, e.g. BUTTON), or `'*'` for a fingerprint made
+   *  from words alone by an author who cannot see the page
+   *  (`createWordsAnchor`). */
   tag: string;
   /** stable attrs — role, aria-label, name, data-testid. */
   stableAttrs: Record<string, string>;
@@ -592,6 +594,11 @@ export interface Comment {
    * still waiting; a resolved one is applied.
    */
   pageEdits?: PageEdit[];
+  /**
+   * Present on an agent's comment that proposes new words for the page it is
+   * anchored on, for the reader to Accept or Reject there (`page-edits.ts`).
+   */
+  pageSuggestion?: PageSuggestion;
   /**
    * Every previous version of `text`, oldest first — present only on a
    * comment somebody has edited. See `CommentEdit`.

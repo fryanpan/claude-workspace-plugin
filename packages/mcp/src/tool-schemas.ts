@@ -366,7 +366,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'create_thread',
       description:
-        'Open a comment thread on a doc. Pass find to anchor the thread to a phrase, or omit find for a thread about the whole doc. Pass review when you ask a person to decide or to look. `held: true` in the result means the item waits for a revision. Use revise_review_item for the next round, not a new thread.',
+        'Open a comment thread on a doc. Pass find to anchor the thread to a phrase, or omit find for a thread about the whole doc. On an app or a mock, find is words the page shows, and suggest proposes new words the reader accepts or rejects on the page; an accepted one reaches you as page_edits on a new thread. Pass review when you ask a person to decide or to look. `held: true` in the result means the item waits for a revision. Use revise_review_item for the next round, not a new thread.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -382,11 +382,23 @@ export const TOOL_LIST: ListToolsResult = {
           find: {
             type: 'string',
             description:
-              'Text to anchor the thread to. Omit it for a thread about the whole doc. An empty string is refused.',
+              'Text to anchor the thread to. Omit it for a thread about the whole doc. An empty string is refused. On an app or a mock, the words the page shows; the first element that says them is the anchor.',
           },
-          contextBefore: { type: 'string' },
-          contextAfter: { type: 'string' },
-          occurrence: { type: 'number' },
+          contextBefore: { type: 'string', description: 'Markdown and code docs only.' },
+          contextAfter: { type: 'string', description: 'Markdown and code docs only.' },
+          occurrence: { type: 'number', description: 'Markdown and code docs only.' },
+          path: {
+            type: 'string',
+            description:
+              "App docs, required with find: the page's address inside the app, e.g. /calendar or /calendar?month=june. Omit it on a mock.",
+          },
+          suggest: {
+            type: 'object',
+            description:
+              'App and mock docs, with find: new words to replace find. The reader sees both with Accept and Reject. Accept files the change as page_edits; Reject resolves the thread. On markdown use find_and_replace with suggest.',
+            properties: { replacement: { type: 'string' } },
+            required: ['replacement'],
+          },
           text: { type: 'string' },
           review: REVIEW_ITEM_SCHEMA,
         },

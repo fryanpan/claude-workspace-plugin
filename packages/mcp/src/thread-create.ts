@@ -15,6 +15,11 @@ export interface ThreadCreateInput {
   contextBefore?: string;
   contextAfter?: string;
   occurrence?: number;
+  /** On an app: the page `find` is on, as its address inside the app. */
+  path?: string;
+  /** On an app or a mock: new words for `find`, for the reader to Accept or
+   *  Reject on the page. Passed through; the server checks it. */
+  suggest?: unknown;
   text: string;
   /** An optional Review Item declaration. Passed through untouched — the
    *  server validates it and refuses a malformed one, so a shape check here
@@ -59,6 +64,8 @@ export function threadCreateRequest(
       ...(input.contextBefore !== undefined ? { contextBefore: input.contextBefore } : {}),
       ...(input.contextAfter !== undefined ? { contextAfter: input.contextAfter } : {}),
       ...(input.occurrence !== undefined ? { occurrence: input.occurrence } : {}),
+      ...(input.path !== undefined ? { path: input.path } : {}),
+      ...(input.suggest !== undefined ? { suggest: input.suggest } : {}),
       ...(input.review !== undefined ? { review: input.review } : {}),
     },
   };
