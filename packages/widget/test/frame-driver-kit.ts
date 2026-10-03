@@ -2,7 +2,8 @@
  * What the headless drivers share: the widget built from source, a poll, and
  * the two surfaces a page's content is read on — the page itself, or a mock's
  * sandboxed frame through its own CDP session — with a real mouse tap on
- * either. Used by `edit-mode-driver.ts` and `suggest-driver.ts`.
+ * either. Used by `edit-mode-driver.ts`, `suggest-driver.ts` and
+ * `page-link-driver.ts`.
  */
 import { renameSync } from 'node:fs';
 import { join } from 'node:path';
