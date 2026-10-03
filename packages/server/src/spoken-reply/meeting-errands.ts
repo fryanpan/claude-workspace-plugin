@@ -2,11 +2,12 @@
  * What Claude was asked in a meeting and handed to the lead: a "Claude, …"
  * the board answered "On it." (`answer.ts`'s `awaiting`). The page shows a
  * steady line naming the work in a few words (`doingLabel`) until the lead's
- * answer arrives. Then the answer's detail is written into the meeting's
- * notes at once, and its first sentence waits for the next pause to be said,
- * so the voice never talks over the meeting (`session.ts`, `sayLead`).
+ * answer arrives. Then its minute, when it gave one, is written into the
+ * meeting's notes at once, and its first sentence waits for the next pause
+ * to be said, so the voice never talks over the meeting (`session.ts`,
+ * `sayLead`).
  */
-import { noteFor, spokenLine } from '../meeting-claude.ts';
+import { meetingLine, minuteFor } from '../meeting-claude.ts';
 import type { SpokenAnswer } from './answer.ts';
 
 /** The most words the page's line names the work in. */
@@ -28,34 +29,32 @@ export function doingLabel(request: string): string {
 
 /** The lead's answer, as the meeting takes it. */
 export interface ErrandDone {
-  /** For the meeting's notes: the request and the whole answer. */
-  note: string;
+  /** For the meeting's notes: the lead's minute, or null for none. */
+  note: string | null;
   /** The page's line now: the latest work still out, or null. */
   label: string | null;
 }
 
 export class MeetingErrands {
-  /** Work out with the lead, oldest first: queue id to request and label. */
-  private readonly out = new Map<string, { request: string; label: string }>();
+  /** Work out with the lead, oldest first: queue id to its label. */
+  private readonly out = new Map<string, { label: string }>();
   /** Answers in, waiting for a pause to be said. */
   private held: SpokenAnswer[] = [];
 
   /** The lead took `request` as `queueId`; the page's line now. */
   started(queueId: string, request: string): string {
     const label = doingLabel(request);
-    this.out.set(queueId, { request, label });
+    this.out.set(queueId, { label });
     return label;
   }
 
   /** The lead answered `queueId`; null when the meeting did not ask it. */
-  answered(queueId: string, a: SpokenAnswer, asker: string | null): ErrandDone | null {
-    const asked = this.out.get(queueId);
-    if (!asked) return null;
+  answered(queueId: string, a: SpokenAnswer): ErrandDone | null {
+    if (!this.out.has(queueId)) return null;
     this.out.delete(queueId);
-    const line = spokenLine(a);
-    this.held.push({ ...a, spoken: line, points: [{ say: line }], detail: [], asking: false });
+    this.held.push({ ...meetingLine(a), detail: [], asking: false });
     return {
-      note: noteFor(asked.request, a, asker),
+      note: minuteFor(a),
       label: [...this.out.values()].pop()?.label ?? null,
     };
   }

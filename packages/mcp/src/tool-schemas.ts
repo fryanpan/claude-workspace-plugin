@@ -344,13 +344,21 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'answer_voice',
       description:
-        'Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, so keep it to one or two short sentences, with no preamble. delivered:false means that page has closed: post the answer on the task or a thread instead.',
+        'Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, and voice is slow: give the shortest answer that works, with no preamble. "No." beats a sentence, and one sentence beats two. delivered:false means that page has closed: post the answer on the task or a thread instead.',
       inputSchema: {
         type: 'object',
         properties: {
           workspaceId: { type: 'string', description: 'The board the request came from.' },
           queueId: { type: 'string', description: 'From the voice.request line.' },
-          text: { type: 'string', description: 'What to say. One or two short sentences.' },
+          text: {
+            type: 'string',
+            description: 'What to say: the shortest answer that works, one sentence at most.',
+          },
+          minute: {
+            type: 'string',
+            description:
+              'Only when your answer belongs in the minutes for future reference: a decision made, a fact found, or tasks created. One short line, such as "Tasks created: A, B". A request asked in a meeting writes this line into its notes and nothing else; omit it and the notes get nothing.',
+          },
         },
         required: ['workspaceId', 'queueId', 'text'],
       },

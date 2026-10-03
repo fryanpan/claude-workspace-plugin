@@ -1621,6 +1621,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       docs: interviewDocs(docStore, (ws) => taskStore.getWorkspace(ws)?.docIds, meetingEars),
       log: new InterviewLog(join(dataDir, INTERVIEW_TIMINGS_FILE)),
       ...(opts.voiceComplete ? { complete: opts.voiceComplete } : {}),
+      ...(opts.planWarmupMs !== undefined ? { warmupMs: opts.planWarmupMs } : {}),
     },
     // A recording meeting: a plan's is heard for its questions, any for
     // "Claude, …" from the owner (`spoken-reply/meeting-ask.ts`).

@@ -153,19 +153,15 @@ describe('the owner asking Claude in a bot meeting', () => {
     expect(vendor.created[0]?.speaks).toBe(true);
   });
 
-  it('answers the owner calling Claude: one line said, the detail in the notes', async () => {
+  it('answers the owner calling Claude: one line said, and a brief is never noted', async () => {
     say(owner, ASK);
     await answers(1);
     expect(asked).toEqual(['Riverbend: what is waiting on me?']);
     expect(vendor.played).toEqual([
       { botId: 'bot_1', said: 'Waiting on you: 2 — “Harborlight plan” on “Launch”.' },
     ]);
-    await waitFor(() => notes.some((n) => n.includes('Claude, asked by Riverbend')), {
-      describe: 'the note',
-    });
-    const note = notes.find((n) => n.includes('Claude, asked by')) ?? '';
-    expect(note).toContain('“what is waiting on me?”');
-    expect(note).toContain('Riverbend is blocked.');
+    // A minute would be written before the voice played; a brief has none.
+    expect(notes.filter((n) => n.includes('Claude') || n.includes('waiting on me'))).toEqual([]);
   });
 
   it('stays silent for another speaker saying the same words', async () => {

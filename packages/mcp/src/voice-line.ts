@@ -96,7 +96,7 @@ export function voiceRequestLine(p: VoiceRequestPayload): string | null {
   // The speaker heard only "On it." The answer they are waiting for is the
   // lead's, said aloud on their page when it comes back through answer_voice.
   const answer = p.queueId
-    ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ''}", queueId="${p.queueId}", text) in one or two short spoken sentences.`
+    ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ''}", queueId="${p.queueId}", text) as the shortest spoken answer that works ("No." beats a sentence).`
     : '';
   return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}`;
 }

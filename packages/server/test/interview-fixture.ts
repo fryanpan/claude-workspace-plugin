@@ -87,6 +87,9 @@ export async function planFixture(
     complete?: PlanComplete;
     /** A planning meeting's ears, for the notes hold. */
     ears?: MeetingEars;
+    /** Keep the meeting's quiet first minute (`MeetingWarmup`); off, a
+     *  meeting's first pause may ask, as every other test here assumes. */
+    warmup?: boolean;
   } = {},
 ): Promise<Fixture> {
   const docStore = new DocStore({
@@ -125,6 +128,7 @@ export async function planFixture(
       log,
       now: () => clock,
       newId: () => 'iv-1',
+      ...(opts.warmup ? {} : { warmupMs: 0 }),
       ...(opts.complete ? { complete: opts.complete } : {}),
     },
     WS,

@@ -122,7 +122,7 @@ export class SpokenReplyRelay {
 
   /** The lead's answer to a spoken request: said on the socket that asked,
    *  or false when none is waiting for it. */
-  answerRequest(workspaceId: string, queueId: string, text: string): boolean {
-    return this.leads.answer(workspaceId, queueId, text);
+  answerRequest(workspaceId: string, queueId: string, text: string, minute?: string): boolean {
+    return this.leads.answer(workspaceId, queueId, text, minute);
   }
 }

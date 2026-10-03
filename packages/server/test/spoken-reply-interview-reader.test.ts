@@ -196,14 +196,15 @@ describe('the planning voice reading a plan with no gaps', () => {
     expect(m.calls).toHaveLength(1);
   });
 
-  it('“any questions?” with none says so in one sentence, with why; a plain pause stays quiet', async () => {
+  it('“any questions?” with none is answered “No.”, with why written; a plain pause stays quiet', async () => {
     const m = scripted([
       '{"ask": null, "why": "Every step has an owner and a date."}',
       '{"ask": null, "why": "Nothing new."}',
     ]);
     fx = await planFixture({ markdown: BERTH_PLAN, complete: m.complete });
     const r = await fx.say('Do you have any questions?');
-    expect(r.spoken).toBe('No questions from me: every step has an owner and a date.');
+    expect(r.spoken).toBe('No.');
+    expect(r.detail).toEqual(['Every step has an owner and a date.']);
     expect(r.asking).toBe(true);
     const quiet = await fx.answerer.answer(
       'We start in March.',

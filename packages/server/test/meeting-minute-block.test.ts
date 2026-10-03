@@ -1,15 +1,12 @@
 /**
- * "Claude, …" in a meeting recorded from the page's microphone, through the
- * REAL server: a discussion huddle records on its audio socket, and the
- * page's spoken-reply socket hears it (`ears: 'meeting'`). The owner is the
- * person whose signed session cookie the socket's upgrade carried, never a
- * name: signed in as the owner, the request is answered aloud (and noted
- * only when the answer holds a minute, which a brief does not);
- * signed in as anybody else, the socket is told no and nothing is said.
+ * A minute is a block of its own in the meeting's notes: never merged into
+ * the block that holds the request, the reply or the transcript (Bryan,
+ * 3 Oct). Through the REAL server: a mic meeting on a board with a live lead,
+ * the owner asks "Claude, can you create tasks…", the router hands it to the
+ * lead, the lead answers with a minute, and the doc's blocks are read back.
  *
- * Mock transcription, a voice that records what it was given, the server's
- * own emailed-code sign-in with the code read off its log. Fixture names are
- * the house ones.
+ * Mock transcription, a recorded voice, the server's emailed-code sign-in.
+ * Fixture names are the house ones.
  */
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -25,18 +22,21 @@ import { resetOwnerIdentities } from '../src/actor-identity.ts';
 import { SESSION_COOKIE } from '../src/auth/session.ts';
 import type { NotesComposer, TickScheduler } from '../src/meeting-notes.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
+import { LEAD_ANSWER_ROUTE } from '../src/spoken-reply/lead-answer.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
 import { type MockScriptTurn, createMockTranscriptionEngine } from '../src/transcribe.ts';
+import { ANSWER_VOICE_SINCE } from '../src/voice-quick.ts';
+import { type AgentStream, openWorkspaceStream } from './agent-stream.ts';
 import { waitFor } from './wait-for.ts';
 
 setDefaultTimeout(30_000);
 process.env.CW_LOG_LOGIN_CODES = '1';
 
 const OWNER = ['owner', 'harborlight.test'].join('@');
-const GUEST = ['guest', 'harborlight.test'].join('@');
-const ASK = 'Claude, where are we?';
+const TALK = 'We open the Saltmarsh berth in spring.';
+const ASK = 'Claude, can you create tasks for the berth work?';
+const MINUTE = 'Tasks created: Dredge the Saltmarsh channel, Move the ticket office';
 const script = (text: string): MockScriptTurn => ({ words: text.split(' '), settled: text });
-const SCRIPT: readonly MockScriptTurn[] = [script(ASK), script(ASK)];
 const framesFor = (text: string) => text.split(' ').length + 1;
 const NEVER: TickScheduler = { set: () => 0, clear: () => {} };
 
@@ -45,31 +45,27 @@ interface Frame {
   [k: string]: unknown;
 }
 
-describe('"Claude, …" in a mic meeting', () => {
+describe('a minute in a mic meeting’s notes', () => {
   let handle: ServerHandle;
   let dataDir: string;
   let base: string;
   let wsBase: string;
   let boardId = '';
-  const said: string[] = [];
+  let leadStream: AgentStream | null = null;
   const codes: string[] = [];
   const realLog = console.log;
 
   const voice: SpokenVoice = {
     name: 'recorded',
-    async speak(text, onAudio) {
-      said.push(text);
+    async speak(_text, onAudio) {
       onAudio(new Uint8Array(480));
     },
   };
-  // A topic per pass, so the meeting opens the notes section Claude's line
-  // is held for, exactly as a real meeting's first note does.
+  // The note-taker writes the discussion as a paragraph, so the minute has a
+  // transcript block to be merged into if anything merged it.
   const composer: NotesComposer = {
     name: 'one-topic',
-    compose: () =>
-      Promise.resolve([
-        { op: 'insert_at_end', markdown: '## Berth\n\n- the berth opens in spring' },
-      ]),
+    compose: () => Promise.resolve([{ op: 'insert_at_end', markdown: `## Berth\n\n${TALK}` }]),
   };
 
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
@@ -98,13 +94,13 @@ describe('"Claude, …" in a mic meeting', () => {
         .match(/login code for \S+: (\d{6})/);
       if (m?.[1]) codes.push(m[1]);
     };
-    dataDir = mkdtempSync(join(tmpdir(), 'cw-mic-claude-'));
+    dataDir = mkdtempSync(join(tmpdir(), 'cw-minute-block-'));
     handle = createServer({
       port: 0,
       dataDir,
       emailCodeSignIn: true,
       ownerEmail: OWNER,
-      transcription: createMockTranscriptionEngine(SCRIPT),
+      transcription: createMockTranscriptionEngine([script(TALK), script(ASK)]),
       meetingNotes: { composer, quietMs: 60_000, schedule: NEVER },
       spokenReply: {
         listener: { name: 'unused', open: () => Promise.reject(new Error('not this one')) },
@@ -116,11 +112,18 @@ describe('"Claude, …" in a mic meeting', () => {
     wsBase = `ws://127.0.0.1:${handle.port}`;
     const ws = await post('/workspaces', { name: 'Harborlight' });
     boardId = ((await ws.json()) as { workspace: { id: string } }).workspace.id;
+    handle.tasks.attachAgent(boardId, {
+      agentId: 'lead',
+      runtime: 'claude-code-local',
+      pluginVersion: ANSWER_VOICE_SINCE,
+    });
+    leadStream = await openWorkspaceStream(base, boardId, {}, 'lead');
   });
 
   afterAll(async () => {
     console.log = realLog;
     resetOwnerIdentities();
+    await leadStream?.close();
     await handle.stop();
     rmSync(dataDir, { recursive: true, force: true });
   });
@@ -139,7 +142,8 @@ describe('"Claude, …" in a mic meeting', () => {
     return { ws, frames };
   }
 
-  async function micMeeting(cookie: string) {
+  it('is one block holding the minute alone', async () => {
+    const cookie = await signIn(OWNER);
     const r = await post(`/workspaces/${boardId}/huddles`, {});
     const docId = ((await r.json()) as { docId: string }).docId;
     const audio = await socket(`${wsBase}${meetingSocketPath(boardId, docId)}`);
@@ -153,68 +157,66 @@ describe('"Claude, …" in a mic meeting', () => {
     await waitFor(() => audio.frames.some((f) => f.type === 'ready'), { describe: 'ready' });
     const page = await socket(`${wsBase}/workspaces/${boardId}/voice/converse`, cookie);
     await waitFor(() => page.frames.some((f) => f.type === 'ready'), { describe: 'voice ready' });
-    page.ws.send(
-      JSON.stringify({
-        type: 'start',
-        setup: 1,
-        mode: 'tap',
-        ears: 'meeting',
-        context: { surface: 'doc', docId },
-      }),
-    );
+    const listen = () =>
+      page.ws.send(
+        JSON.stringify({
+          type: 'start',
+          setup: 1,
+          mode: 'tap',
+          ears: 'meeting',
+          context: { surface: 'doc', docId },
+        }),
+      );
     const speak = (text: string) => {
       for (let i = 0; i < framesFor(text); i++) audio.ws.send(new Uint8Array(640));
     };
-    const stop = async () => {
-      audio.ws.send(JSON.stringify({ type: 'stop' }));
-      await waitFor(() => audio.frames.some((f) => f.type === 'stopped'), { describe: 'stopped' });
-      audio.ws.close();
-      page.ws.close();
-    };
-    const markdown = (): string => {
+    const replies = () => page.frames.filter((f) => f.type === 'reply');
+
+    listen();
+    speak(TALK);
+    // Talk nobody addressed is heard and answered with silence.
+    await waitFor(() => replies().length === 1, { describe: 'the talk heard' });
+    expect(replies()[0]?.spoken).toBe('');
+    listen();
+    speak(ASK);
+    await waitFor(() => replies().length === 2, { describe: 'On it' });
+    expect(replies()[1]?.spoken).toBe('On it.');
+    const queueId = handle.tasks.listQueuedVoice(boardId).at(-1)?.id ?? '';
+    expect(queueId).not.toBe('');
+
+    listen();
+    const answered = await post(`/workspaces/${boardId}/voice-queue/${queueId}/answer`, {
+      agentId: 'lead',
+      text: 'Two tasks made.',
+      minute: MINUTE,
+    });
+    expect(await answered.json()).toEqual({ ok: true, delivered: true });
+    await waitFor(() => replies().some((f) => f.route === LEAD_ANSWER_ROUTE), {
+      describe: 'the lead’s answer said',
+    });
+
+    audio.ws.send(JSON.stringify({ type: 'stop' }));
+    await waitFor(() => audio.frames.some((f) => f.type === 'stopped'), { describe: 'stopped' });
+    audio.ws.close();
+    page.ws.close();
+
+    const blocks = () => {
       const doc = handle.docStore.get(docId);
       if (!doc) throw new Error(`no doc ${docId}`);
-      return prose.serializeFragmentToMarkdown(prose.getProseFragment(doc.ydoc));
+      return prose.readOutline(doc.ydoc).filter((b) => b.kind !== 'heading');
     };
-    return { audio, page, speak, stop, markdown };
-  }
-
-  it('answers the signed-in owner aloud in one line, and leaves a brief out of the notes', async () => {
-    const m = await micMeeting(await signIn(OWNER));
-    m.speak(ASK);
-    const replies = () => m.page.frames.filter((f) => f.type === 'reply');
-    await waitFor(() => replies().length === 1, { describe: 'the answer' });
-    const spoken = String(replies()[0]?.spoken ?? '');
-    expect(spoken.length).toBeGreaterThan(0);
-    expect(spoken.split(/\s+/).length).toBeLessThanOrEqual(26);
-    expect(said).toEqual([spoken]);
-    await waitFor(() => m.page.frames.some((f) => f.type === 'audio-end'), {
-      describe: 'the answer said',
+    await waitFor(() => blocks().some((b) => b.text.includes('Tasks created')), {
+      describe: 'the minute written',
     });
-    await m.stop();
-    await waitFor(() => m.markdown().includes('the berth opens in spring'), {
-      describe: 'the notes section',
-    });
-    expect(m.markdown()).not.toContain('where are we');
-    expect(m.markdown()).not.toContain('Claude:');
-  });
-
-  it('anybody else signed in on the page is told no, and nothing is said', async () => {
-    const before = said.length;
-    const m = await micMeeting(await signIn(GUEST));
-    await waitFor(() => m.page.frames.some((f) => f.type === 'error'), {
-      describe: 'the refusal',
-    });
-    m.speak(ASK);
-    await waitFor(() => m.audio.frames.some((f) => f.type === 'transcript' && f.final === true), {
-      describe: 'the meeting heard it',
-    });
-    await m.stop();
-    expect(m.page.frames.filter((f) => f.type === 'reply')).toEqual([]);
-    expect(said.length).toBe(before);
-    await waitFor(() => m.markdown().includes('the berth opens in spring'), {
-      describe: 'the notes section',
-    });
-    expect(m.markdown()).not.toContain('Claude, asked by');
+    const holding = blocks().filter((b) => b.text.includes('Tasks created'));
+    expect(holding.map((b) => b.text)).toEqual([`Claude: ${MINUTE}`]);
+    const talk = blocks().filter((b) => b.text.includes('Saltmarsh berth in spring'));
+    expect(talk).toHaveLength(1);
+    expect(talk[0]?.id).not.toBe(holding[0]?.id);
+    // Neither the request nor the reply is in the notes, in any block.
+    for (const b of blocks()) {
+      expect(b.text).not.toContain('create tasks for the berth');
+      expect(b.text).not.toContain('Two tasks made');
+    }
   });
 });

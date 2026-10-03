@@ -766,18 +766,20 @@ export async function handleWorkspaceTool(
       });
     }
     case 'answer_voice': {
-      const { workspaceId, queueId, text } = a as {
+      const { workspaceId, queueId, text, minute } = a as {
         workspaceId?: string;
         queueId?: string;
         text?: unknown;
+        minute?: unknown;
       };
       const words = typeof text === 'string' ? text.trim() : '';
+      const kept = typeof minute === 'string' ? minute.trim() : '';
       if (!workspaceId || !queueId) return err('workspaceId and queueId are required');
       if (words === '') return err('text is empty — say the answer');
       const res = (await http(
         'POST',
         `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`,
-        { agentId: AUTHOR.id, text: words },
+        { agentId: AUTHOR.id, text: words, ...(kept ? { minute: kept } : {}) },
       )) as { delivered?: boolean };
       return ok({
         delivered: res.delivered === true,

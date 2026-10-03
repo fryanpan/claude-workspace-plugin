@@ -21,6 +21,10 @@ export const LEAD_ANSWER_WINDOW_MS = 30 * 60_000;
 /** The longest answer accepted, in characters; the page writes what is not said. */
 export const LEAD_ANSWER_MAX = 4000;
 
+/** The longest minute a lead's answer may carry, in characters: a line for
+ *  a meeting's notes, not a report. */
+export const LEAD_MINUTE_MAX = 300;
+
 /** The route name a lead's answer carries on the page. */
 export const LEAD_ANSWER_ROUTE = 'lead-answer';
 
@@ -47,18 +51,20 @@ export class LeadAnswers {
   }
 
   /**
-   * Say the lead's answer on the socket that asked. False when no open socket
+   * Say the lead's answer on the socket that asked, with its `minute` for a
+   * meeting's notes when it gave one. False when no open socket
    * is waiting for it — closed, expired, never asked from a spoken socket, or
    * an id from another board.
    */
-  answer(workspaceId: string, queueId: string, text: string): boolean {
+  answer(workspaceId: string, queueId: string, text: string, minute?: string): boolean {
     this.prune();
     const key = this.key(workspaceId, queueId);
     const w = this.waiting.get(key);
     const words = text.trim().slice(0, LEAD_ANSWER_MAX);
     if (!w || !words) return false;
     this.waiting.delete(key);
-    w.say(shapedAnswer(words, LEAD_ANSWER_ROUTE));
+    const kept = minute?.trim();
+    w.say({ ...shapedAnswer(words, LEAD_ANSWER_ROUTE), ...(kept ? { minute: kept } : {}) });
     return true;
   }
 

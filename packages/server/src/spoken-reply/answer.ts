@@ -61,6 +61,9 @@ export interface SpokenAnswer {
   /** The queue row the lead will answer; its answer is said on this socket
    *  (`lead-answer.ts`). Never sent to the page. */
   awaiting?: string;
+  /** The lead's line for a meeting's minutes, when its answer is worth
+   *  keeping (`meeting-claude.ts`, `minuteFor`). Never said. */
+  minute?: string;
 }
 
 function walkAnswer(w: WalkReply): SpokenAnswer {

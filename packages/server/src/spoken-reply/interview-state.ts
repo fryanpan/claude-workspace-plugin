@@ -80,3 +80,27 @@ export class InterviewSlots {
     return { next: this.slot, again: this.slot === was };
   }
 }
+
+/** How long a meeting is heard before the voice asks anything unprompted:
+ *  its opening is greetings and small talk, and a plan that is still nearly
+ *  empty always has a question to cut in with (Bryan, 3 Oct: it cut in too
+ *  soon early on). "Any questions?" is answered at once all the same. */
+export const MEETING_WARMUP_MS = 60_000;
+
+/** Whether a meeting on a doc is still inside its opening, timed from the
+ *  first pause it was heard at. */
+export class MeetingWarmup {
+  private readonly from = new Map<string, number>();
+
+  constructor(
+    private readonly now: () => number,
+    private readonly ms = MEETING_WARMUP_MS,
+  ) {}
+
+  warming(docId: string): boolean {
+    const at = this.now();
+    const from = this.from.get(docId) ?? at;
+    this.from.set(docId, from);
+    return at - from < this.ms;
+  }
+}

@@ -106,6 +106,8 @@ describe('the planning voice in a planning meeting', () => {
       dataDir,
       transcription: createMockTranscriptionEngine(SCRIPT),
       meetingNotes: { composer, quietMs: 60_000, schedule: NEVER },
+      // The first pause may ask; the quiet first minute is meeting-warmup.test.ts's.
+      planWarmupMs: 0,
       spokenReply: {
         // Never opened: the meeting is the ears.
         listener: { name: 'unused', open: () => Promise.reject(new Error('not this one')) },
@@ -240,14 +242,13 @@ describe('the planning voice in a planning meeting', () => {
     // One reading per pause: the question, then the look for a next one.
     expect(reads).toHaveLength(2);
 
-    // "Any questions?" with nothing worth asking: one sentence, and why.
+    // "Any questions?" with nothing worth asking: "No.", and why written.
     readings.push(JSON.stringify({ ask: null, why: 'The plan names an owner for every step.' }));
     m.listen();
     m.speak(INVITE);
     await waitFor(() => m.replies().length === 3, { describe: 'the invitation answered' });
-    expect(m.replies()[2]?.spoken).toBe(
-      'No questions from me: the plan names an owner for every step.',
-    );
+    expect(m.replies()[2]?.spoken).toBe('No.');
+    expect(m.replies()[2]?.detail).toEqual(['The plan names an owner for every step.']);
     expect(reads.at(-1)?.system).toContain('asked whether you have any questions');
 
     await m.stop();

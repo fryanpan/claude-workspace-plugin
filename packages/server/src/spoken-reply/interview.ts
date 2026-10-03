@@ -35,7 +35,8 @@ import type { prose } from '@claude-workspaces/core';
  * questions?" always gets an answer: the best question, or one sentence on
  * why there is none. Without a model, or at a silent pause, the gap list is
  * asked in order. In a planning meeting the notes' copy of an answer is held
- * while the question is out (`InterviewDocs.hold`, `meeting-ears.ts`).
+ * while the question is out (`InterviewDocs.hold`, `meeting-ears.ts`), and
+ * nothing is asked unprompted in its first minute (`MeetingWarmup`).
  *
  * THE DOC is the one the page says it is on, accepted only after
  * `InterviewDocs.onBoard` confirms it belongs to this socket's board — the
@@ -63,7 +64,7 @@ import {
 } from './interview-phrases.ts';
 import { type PlanComplete, readPlan } from './interview-reader.ts';
 import { InterviewRecord, OUTCOME, type Running } from './interview-record.ts';
-import { InterviewSlots, type SlotTransition } from './interview-state.ts';
+import { InterviewSlots, MeetingWarmup, type SlotTransition } from './interview-state.ts';
 
 /** The route word an interview's replies carry. */
 export const INTERVIEW_ROUTE = 'interview';
@@ -98,6 +99,8 @@ export interface SpokenInterviewDeps {
   complete?: PlanComplete;
   now?: () => number;
   newId?: () => string;
+  /** A meeting's quiet opening (`MEETING_WARMUP_MS`); tests pass 0. */
+  warmupMs?: number;
 }
 
 /** What an interview says back — the shape `SpokenAnswerer` returns. */
@@ -110,10 +113,6 @@ export interface InterviewReply {
 
 function docOf(context: VoiceContext | undefined): string | undefined {
   return context?.surface === 'doc' ? context.docId : undefined;
-}
-
-function lowerFirst(s: string): string {
-  return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
 function plural(n: number, one: string): string {
@@ -137,6 +136,7 @@ export class SpokenInterview {
   /** The latest turn was heard in a planning meeting. */
   private meeting = false;
   private readonly now: () => number;
+  private readonly warmup: MeetingWarmup;
   private readonly newId: () => string;
   private readonly record: InterviewRecord;
 
@@ -145,6 +145,7 @@ export class SpokenInterview {
     private readonly workspaceId: string,
   ) {
     this.now = deps.now ?? (() => Date.now());
+    this.warmup = new MeetingWarmup(this.now, deps.warmupMs);
     this.newId = deps.newId ?? (() => `iv-${Date.now().toString(36)}`);
     this.record = new InterviewRecord(deps.log, this.now);
   }
@@ -255,6 +256,10 @@ export class SpokenInterview {
     if (!docId || !this.deps.docs.onBoard(this.workspaceId, docId)) {
       return this.say('Open a plan and say interview me there.');
     }
+    if (why === 'pause' && this.meeting && this.warmup.warming(docId)) {
+      this.keep(docId, heard);
+      return this.hush(true);
+    }
     const outline = this.deps.docs.outline(docId);
     if (!outline) return why === 'pause' ? null : this.say('I can’t read this doc.');
     const gaps = findPlanGaps(outline);
@@ -267,13 +272,10 @@ export class SpokenInterview {
         return this.question(this.open(docId, [read.ask], true), '');
       }
       if (why !== 'invited') return this.hush(true);
+      // "No." is the answer; the reason is written, never said (Bryan,
+      // 3 Oct: a sentence where "no" would do wastes the listener's time).
       const reason = read.none.replace(/[.!]*$/, '');
-      return {
-        ...this.say(
-          reason ? `No questions from me: ${lowerFirst(reason)}.` : 'No questions from me.',
-        ),
-        asking: true,
-      };
+      return { ...this.say('No.'), detail: reason ? [`${reason}.`] : [], asking: true };
     }
     if (gaps.length === 0) {
       // Unasked, there is nothing to say: keep listening, and look again at
@@ -314,15 +316,20 @@ export class SpokenInterview {
   ) {
     const complete = this.deps.complete;
     if (!complete) return Promise.resolve({ none: '' });
-    const all = `${this.since.get(docId) ?? ''} ${heard}`.trim().slice(-HEARD_KEPT);
-    this.since.set(docId, all);
     return readPlan(complete, {
       outline,
       gaps,
-      heard: all,
+      heard: this.keep(docId, heard),
       asked: this.asked.get(docId) ?? [],
       invited,
     });
+  }
+
+  /** `heard` added to what a reading hears since the last question. */
+  private keep(docId: string, heard: string): string {
+    const all = `${this.since.get(docId) ?? ''} ${heard}`.trim().slice(-HEARD_KEPT);
+    this.since.set(docId, all);
+    return all;
   }
 
   /** After a reading's question is settled: read again for the next one,

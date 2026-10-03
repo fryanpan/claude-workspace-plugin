@@ -739,7 +739,8 @@ the voice mic by `doc/doc-voice-mount.ts`) opens the spoken-reply socket with
 board the session ends each turn only at a confirmed pause
 (`spoken-reply/pause-gate.ts`: the listener's endpoint, then a quiet window
 that is longer after a turn ending mid-sentence), and every turn is
-`spoken-reply/interview.ts`'s: the first pause begins the run. It reads the
+`spoken-reply/interview.ts`'s: the first pause begins the run (in a
+meeting, the first pause after its first minute, `MeetingWarmup`). It reads the
 plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
 open-question and short sections, ranked by heading), holds them as slots in
 `interview-state.ts` (each asked once, then placed, skipped, deferred, gone or
@@ -760,8 +761,9 @@ socket's board, checked as the router checks it.
 The same answerer speaks in a bot meeting. `meeting-claude.ts` (a top-level
 server module) reads each final turn `recall-meeting.ts` records and acts only
 when it opens with "Claude," and the speaker's Recall participant email is the
-owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes the whole
-answer into the meeting's notes and says the first sentence into the call
+owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes a minute
+into the meeting's notes only when the answer holds one (`minuteFor`), and
+says the first sentence into the call
 through Recall's `output_audio`, as MP3 from `tts.ts`. It is on unless
 `CW_MEETING_CLAUDE=0`, and a bot that may speak is created with audio output
 switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the

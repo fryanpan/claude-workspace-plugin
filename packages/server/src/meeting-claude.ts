@@ -1,6 +1,7 @@
 /**
  * "Claude, …" said in a bot meeting: a one-line spoken answer into the call,
- * and the detail written into the meeting's notes.
+ * and a minute in the meeting's notes only when the answer is worth keeping
+ * (`minuteFor`).
  *
  * Two rules decide whether anything happens, and both fail closed:
  *
@@ -19,11 +20,15 @@
  *
  * The answer comes from the board's own answerer (`spoken-reply/answer.ts`),
  * the one setups 1 to 4 use, so a meeting hears what the board mic would
- * say. Only its first sentence is said; the rest is the note. The note is
- * written before the voice is tried, so a voice that fails still leaves it.
+ * say. Only its first sentence is said, in at most `MEETING_SPOKEN_MAX_WORDS`
+ * words. A minute is written before the voice is tried, so a voice that
+ * fails still leaves it.
  */
 import type { RecallClient } from './recall.ts';
 import { type SpokenAnswer, SpokenAnswerer, type SpokenBoard } from './spoken-reply/answer.ts';
+import { INTERVIEW_ROUTE } from './spoken-reply/interview.ts';
+import { LEAD_MINUTE_MAX } from './spoken-reply/lead-answer.ts';
+import { sentences } from './spoken-reply/reply-shape.ts';
 import type { SpokenVoice } from './spoken-reply/tts.ts';
 import type { VoiceActor } from './voice-action.ts';
 
@@ -81,22 +86,51 @@ export function isOwner(speaker: MeetingSpeaker, ownerEmail: string | null): boo
   return Boolean(want) && want === have;
 }
 
-/** At most this many words are said aloud; a meeting is not listening to a brief. */
-export const MEETING_SPOKEN_MAX_WORDS = 25;
+/** At most this many words are said aloud. Voice is slower than reading, so a
+ *  meeting hears the shortest answer that works (Bryan, 3 Oct: "saying a full
+ *  sentence when you could just say 'no' is a waste of my time"). */
+export const MEETING_SPOKEN_MAX_WORDS = 20;
 
-/** The one line said into the call. */
+/** A step label a question is read after ("Next: …"), not worth saying. */
+const LABEL = /^(?:first|next|then)\s*:\s*/i;
+
+/** The one line said into the meeting: its first sentence, cut at the word
+ *  cap. The planning voice's reply is the exception: "Written under Work.
+ *  Next: who signs off?" is said as its question, which is the part that
+ *  needs an answer. */
 export function spokenLine(a: SpokenAnswer): string {
-  const first = a.points[0]?.say ?? a.spoken;
-  const words = first.split(/\s+/).filter((w) => w.length > 0);
+  const all = sentences(a.points.map((p) => p.say).join(' ') || a.spoken);
+  const asked = a.route === INTERVIEW_ROUTE ? all.find((s) => s.endsWith('?')) : undefined;
+  const line = (asked ?? all[0] ?? '').replace(LABEL, '');
+  const words = line.split(/\s+/).filter((w) => w.length > 0);
   if (words.length <= MEETING_SPOKEN_MAX_WORDS) return words.join(' ');
   return `${words.slice(0, MEETING_SPOKEN_MAX_WORDS).join(' ')}…`;
 }
 
-/** The note: the request, the whole answer, and its written detail. */
-export function noteFor(request: string, a: SpokenAnswer, asker: string | null): string {
-  const lines = [`- Claude, asked by ${asker ?? 'the owner'} “${request}”: ${a.spoken}`];
-  for (const d of a.detail) lines.push(`  - ${d}`);
-  return lines.join('\n');
+/** `a` as a meeting says it: one line, one point. */
+export function meetingLine<T extends SpokenAnswer>(a: T): T {
+  if (!a.spoken) return a;
+  const line = spokenLine(a);
+  return { ...a, spoken: line, points: [{ say: line }] };
+}
+
+/**
+ * The line a "Claude, …" leaves in the meeting's notes, or null for none —
+ * which is the default (Bryan, 3 Oct: a request and Claude's reply do not
+ * belong in the notes). An answer is minuted only when it holds something to
+ * keep for future reference: a decision, a fact found or tasks created, named
+ * by the lead in its answer (`answer_voice`'s `minute`), or a change the board
+ * made itself (`notes.ts`). The line is the minute alone, never the exchange,
+ * on one line so it is one block of its own.
+ */
+export function minuteFor(a: SpokenAnswer): string | null {
+  const minute =
+    a.minute ??
+    (a.route === 'fast-path-action'
+      ? a.points.flatMap((p) => (p.note ? [p.note] : [])).join('; ')
+      : '');
+  const line = minute.replace(/\s+/g, ' ').trim().slice(0, LEAD_MINUTE_MAX);
+  return line ? `- Claude: ${line}` : null;
 }
 
 export class MeetingClaude {
@@ -156,7 +190,8 @@ export class MeetingClaude {
           route: 'none',
         };
     if (!a.spoken) return;
-    u.note(noteFor(request, a, u.speaker.name));
+    const minute = minuteFor(a);
+    if (minute) u.note(minute);
     const voice = this.deps.voice;
     if (!voice) return;
     const chunks: Uint8Array[] = [];

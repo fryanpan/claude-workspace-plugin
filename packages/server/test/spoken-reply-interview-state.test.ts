@@ -4,7 +4,11 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { PlanGap } from '../src/spoken-reply/interview-gaps.ts';
-import { InterviewSlots } from '../src/spoken-reply/interview-state.ts';
+import {
+  InterviewSlots,
+  MEETING_WARMUP_MS,
+  MeetingWarmup,
+} from '../src/spoken-reply/interview-state.ts';
 
 const gap = (heading: string, ordinal: number): PlanGap => ({
   headingId: `h${ordinal}`,
@@ -61,5 +65,21 @@ describe('InterviewSlots', () => {
     expect(s.current).toMatchObject({ heading: 'Goals', headingId: 'h9' });
     s.settle('deferred');
     expect(s.unasked.at(-1)?.headingId).toBe('h9');
+  });
+});
+
+describe('a meeting’s quiet opening', () => {
+  it('runs from the first pause on each doc, for its own length', () => {
+    let now = 5_000;
+    const w = new MeetingWarmup(() => now);
+    expect(w.warming('plan-a')).toBe(true);
+    now += MEETING_WARMUP_MS - 1;
+    expect(w.warming('plan-a')).toBe(true);
+    // Another doc's opening starts when it is first heard.
+    expect(w.warming('plan-b')).toBe(true);
+    now += 1;
+    expect(w.warming('plan-a')).toBe(false);
+    expect(w.warming('plan-b')).toBe(true);
+    expect(new MeetingWarmup(() => now, 0).warming('plan-a')).toBe(false);
   });
 });

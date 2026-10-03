@@ -154,6 +154,31 @@ describe('answer_voice — the lead answers out loud', () => {
     expect(out).toEqual({ delivered: true });
   });
 
+  it('carries a minute for the meeting’s notes when the lead gives one, and only then', async () => {
+    payload(
+      await call('answer_voice', {
+        workspaceId: 'w-board',
+        queueId: 'vq-live',
+        text: 'Two tasks made.',
+        minute: '  Tasks created: Dredge the channel, Move the office  ',
+      }),
+    );
+    expect(last().body).toEqual({
+      agentId: expect.stringMatching(/^agent-/),
+      text: 'Two tasks made.',
+      minute: 'Tasks created: Dredge the channel, Move the office',
+    });
+    payload(
+      await call('answer_voice', {
+        workspaceId: 'w-board',
+        queueId: 'vq-live',
+        text: 'No.',
+        minute: ' ',
+      }),
+    );
+    expect(last().body).not.toHaveProperty('minute');
+  });
+
   it('tells the agent where the answer goes when no page is waiting', async () => {
     const out = payload(
       await call('answer_voice', { workspaceId: 'w-board', queueId: 'vq-gone', text: 'Done.' }),
