@@ -80,12 +80,21 @@ function loadChunk(src: string): Promise<EditChunk> {
   return loading;
 }
 
-/** Does the doc hold an agent's suggestion nobody has taken or left yet?
- *  The same raw read as `hasOpenEdits`, kept here so the loader stays free
- *  of the chunk it loads. */
-export function hasOpenSuggestion(threads: Record<string, unknown>): boolean {
+/**
+ * Does the doc hold a thread an agent anchored by words (`createWordsAnchor`),
+ * or a suggestion nobody has taken or left yet? The chunk holds the resolver
+ * that pins the first and the buttons that answer the second. The same raw
+ * read as `hasOpenEdits`, kept here so the loader stays free of the chunk it
+ * loads.
+ */
+export function hasAgentPageThread(threads: Record<string, unknown>): boolean {
   return Object.values(threads).some((raw) => {
-    const t = raw as { status?: unknown; comments?: Array<{ pageSuggestion?: unknown }> } | null;
+    const t = raw as {
+      status?: unknown;
+      anchor?: { fingerprint?: { tag?: unknown } };
+      comments?: Array<{ pageSuggestion?: unknown }>;
+    } | null;
+    if (t?.anchor?.fingerprint?.tag === '*') return true;
     return t?.status === 'open' && typeof t.comments?.[0]?.pageSuggestion === 'object';
   });
 }
@@ -139,9 +148,9 @@ export function mountEditLoader(doc: Document, chunkSrc: string): HTMLButtonElem
     );
   });
 
-  // Marks for edits already waiting, and the buttons of an agent's
-  // suggestion: load the mode, without entering it, as soon as the doc says
-  // there is one — or this tab holds unsent edits a reload interrupted
+  // Marks for edits already waiting, and an agent's pins and suggestions:
+  // load the mode, without entering it, as soon as the doc says there is
+  // one — or this tab holds unsent edits a reload interrupted
   // (`draft-store.ts`), which the mode puts back.
   // The doc is only read once it has synced; the tab's own drafts at once.
   const threads = widget.client?.ydoc.getMap('threads');
@@ -150,7 +159,7 @@ export function mountEditLoader(doc: Document, chunkSrc: string): HTMLButtonElem
   };
   const check = (): void => {
     const all = threads?.toJSON() ?? {};
-    if (hasOpenEdits(all) || hasOpenSuggestion(all)) load();
+    if (hasOpenEdits(all) || hasAgentPageThread(all)) load();
   };
   const unsent = (): void => {
     if (readDraft(draftKey('edits', widget.opts.docId)) !== null) load();

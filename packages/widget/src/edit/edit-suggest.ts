@@ -1,5 +1,5 @@
 import { hasContext } from '@claude-workspaces/core/anchor/context';
-import { createAnchor, resolve } from '@claude-workspaces/core/anchor/element';
+import { createAnchor, resolve, resolveWords } from '@claude-workspaces/core/anchor/element';
 import {
   type PageSuggestion,
   pageEditsText,
@@ -25,9 +25,10 @@ import { cssPath, normText } from './edit-model.ts';
  *   resolved: its question is answered.
  * - **Reject** resolves the suggestion's thread and posts nothing else.
  *
- * It rides in `edit.js`, loaded at page load when a suggestion is waiting
- * (`edit-button.ts`), so the budgeted bundle carries only the thread id on
- * its popover. Calm: no motion, no badge.
+ * It rides in `edit.js`, loaded at page load when an agent's page thread
+ * is waiting (`edit-button.ts`), and so does the resolver that pins an
+ * anchor made of words (`resolveWords`): the budgeted bundle carries only
+ * the call through `window.cwWords`. Calm: no motion, no badge.
  */
 
 export const SUGGEST_CSS = [
@@ -119,15 +120,17 @@ export async function acceptSuggestion(
   return true;
 }
 
-/** Give a thread popover its suggestion block, when its thread has one. */
-function decorate(widget: FeedbackWidgetEl, pop: HTMLElement): void {
-  const id = pop.dataset.threadId;
+/** Give a thread popover its suggestion block, when its thread has one.
+ *  `id` is the thread the reader just opened. */
+function decorate(widget: FeedbackWidgetEl, pop: HTMLElement, id: string | null): void {
   if (!id || pop.querySelector('.cw-sugg')) return;
   const raw = (
     widget.client?.ydoc.getMap('threads').get(id) as { toJSON?: () => unknown }
   )?.toJSON?.();
   const s = openSuggestion(raw);
-  if (!s) return;
+  // The popover quotes the words its thread is anchored to: a check that `id`
+  // is this popover's thread and not one opened some other way.
+  if (!s || !pop.textContent?.includes(s.find)) return;
   const anchor = (raw as { anchor: ElementAnchor }).anchor;
   const block = document.createElement('div');
   block.className = 'cw-sugg';
@@ -172,19 +175,35 @@ function decorate(widget: FeedbackWidgetEl, pop: HTMLElement): void {
   pop.querySelector('.actions')?.before(block);
 }
 
-/** Watch the widget's popovers for suggestion threads, from now on and for
- *  the one open already. */
+/**
+ * Pin the threads an agent anchored by words, and watch the widget's
+ * popovers for suggestion threads from now on.
+ *
+ * The base bundle draws a popover without saying whose it is, so the thread
+ * is the one the reader just opened: the pin tapped (its `data-thread-id`),
+ * or else the row tapped in the panel, which sets `activeThread`.
+ */
 export function mountSuggestions(widget: FeedbackWidgetEl): void {
   const shadow = widget.shadow;
   if (!shadow || shadow.querySelector('style[data-cw-sugg]')) return;
+  window.cwWords = resolveWords;
+  widget.scheduleRender();
   const style = document.createElement('style');
   style.setAttribute('data-cw-sugg', '');
   style.textContent = SUGGEST_CSS;
   shadow.append(style);
+  let pinned: string | null = null;
+  document.addEventListener(
+    'click',
+    (ev) => {
+      const pin = (ev.target as Element | null)?.closest?.('.cfw-pin') as HTMLElement | null;
+      pinned = pin?.dataset.threadId ?? null;
+    },
+    true,
+  );
   const scan = (): void => {
     for (const pop of shadow.querySelectorAll<HTMLElement>('.thread-popover'))
-      decorate(widget, pop);
+      decorate(widget, pop, pinned ?? widget.activeThread);
   };
   new MutationObserver(scan).observe(shadow, { childList: true });
-  scan();
 }

@@ -201,6 +201,11 @@ async function main(): Promise<void> {
         const ids = (await s.eval(PINS)) as string[] | null;
         return ids && ids.length >= want ? ids : null;
       })) as string[];
+    const quotes: Record<string, string> = {
+      [comment]: 'Harborlight events',
+      [suggestion]: 'Riverbend walk',
+      [reject]: 'leaves at nine',
+    };
     const open = async (id: string) => {
       // On a phone an open popover covers the other pins: close it first, with its ×.
       if (await mock.eval(`!!${SHADOW}?.querySelector('.thread-popover')`)) {
@@ -210,7 +215,9 @@ async function main(): Promise<void> {
         );
       }
       // A pin drawn before the frame settles can move under the first tap: tap again.
-      const up = `!!${SHADOW}?.querySelector('.thread-popover[data-thread-id="${id}"]')`;
+      // The popover names no thread; it quotes the words its thread is anchored to.
+      const words = JSON.stringify(quotes[id] ?? '');
+      const up = `[...(${SHADOW}?.querySelectorAll('.thread-popover') ?? [])].some((p) => p.textContent.includes(${words}))`;
       for (let i = 0; i < 4 && !(await mock.eval(up)); i++) {
         await tap(cdp, mock, pin(id), `the pin of ${id}`);
         for (let j = 0; j < 20 && !(await mock.eval(up)); j++) await sleep(50);

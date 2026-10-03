@@ -343,8 +343,6 @@ export function showThreadPopover(el: FeedbackWidgetEl, t: Thread, cx: number, c
   existing?.remove();
   const pop = document.createElement('div');
   pop.className = 'thread-popover';
-  // Read by the edit chunk, which adds an agent suggestion's Accept/Reject.
-  pop.dataset.threadId = t.id;
   // The screen's right edge: `innerWidth` is the page's, past it when the
   // page is wider than a phone.
   const vv = window.visualViewport;

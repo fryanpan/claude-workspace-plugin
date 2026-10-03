@@ -1,8 +1,8 @@
 import { createThread } from '@claude-workspaces/core';
-import { createWordsAnchor } from '@claude-workspaces/core/anchor/element';
+import { createAnchor, createWordsAnchor, resolve } from '@claude-workspaces/core/anchor/element';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import { hasOpenSuggestion } from '../src/edit/edit-button.ts';
+import { hasAgentPageThread } from '../src/edit/edit-button.ts';
 import { mountSuggestions } from '../src/edit/edit-suggest.ts';
 import type { FeedbackWidgetEl } from '../src/widget.ts';
 
@@ -22,6 +22,7 @@ const AGENT = {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let statuses: Array<[string, string]>;
+let renders = 0;
 
 function page(suggestion = { find: 'Riverbend walk', replacement: 'Riverbend Street walk' }) {
   document.body.innerHTML =
@@ -43,6 +44,10 @@ function page(suggestion = { find: 'Riverbend walk', replacement: 'Riverbend Str
     user: { id: 'u-alice', name: 'Alice', kind: 'known', color: '#2e7dd7' },
     opts: { serverUrl: 'ws://host:8787', workspaceId: 'w-harbor', docId: 'd-mock', user: null },
     currentContext: {},
+    activeThread: null,
+    scheduleRender: () => {
+      renders++;
+    },
     authToken: null,
     setStatus: async (id: string, status: string) => {
       statuses.push([id, status]);
@@ -52,33 +57,63 @@ function page(suggestion = { find: 'Riverbend walk', replacement: 'Riverbend Str
   return { widget, shadow, ydoc };
 }
 
-/** The popover the base bundle draws for a thread, as far as this reads it. */
-function popover(shadow: ShadowRoot, threadId: string): HTMLElement {
+/**
+ * What the base bundle does when the reader taps a thread's pin: the tap,
+ * then the popover, which quotes the anchor's words and carries no id.
+ */
+function popover(shadow: ShadowRoot, threadId: string, quote = 'Riverbend walk'): HTMLElement {
+  const pin = document.createElement('div');
+  pin.className = 'cfw-pin';
+  pin.dataset.threadId = threadId;
+  document.body.append(pin);
+  pin.click();
+  for (const old of shadow.querySelectorAll('.thread-popover')) old.remove();
   const pop = document.createElement('div');
   pop.className = 'thread-popover';
-  pop.dataset.threadId = threadId;
-  pop.innerHTML = '<div class="comments"></div><div class="actions"></div>';
+  pop.innerHTML = `<div class="snippet">${quote}</div><div class="comments"></div><div class="actions"></div>`;
   shadow.append(pop);
   return pop;
 }
 
 beforeEach(() => {
   statuses = [];
+  renders = 0;
   fetchMock = vi.fn(async () => Response.json({ thread: { id: 't-edit' } }));
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.cwWords = undefined;
   document.body.innerHTML = '';
 });
 
 describe("an agent's suggestion on the page", () => {
-  it('makes the loader fetch the chunk while it is waiting, and not once resolved', () => {
+  it('makes the loader fetch the chunk for an agent pin, resolved or not, and not for a person', () => {
     const { ydoc } = page();
     const threads = ydoc.getMap('threads');
-    expect(hasOpenSuggestion(threads.toJSON())).toBe(true);
+    expect(hasAgentPageThread(threads.toJSON())).toBe(true);
+    // A resolved pin is still drawn, so its resolver is still needed.
     (threads.get('t-sugg') as Y.Map<unknown>).set('status', 'resolved');
-    expect(hasOpenSuggestion(threads.toJSON())).toBe(false);
+    expect(hasAgentPageThread(threads.toJSON())).toBe(true);
+    threads.delete('t-sugg');
+    document.body.innerHTML = '<p class="lede">Riverbend walk</p>';
+    createThread(ydoc, {
+      threadId: 't-person',
+      anchor: createAnchor(document.querySelector('.lede') as HTMLElement),
+      createdBy: AGENT as never,
+      firstComment: { id: 'c-3', text: 'Bigger?' },
+    });
+    expect(hasAgentPageThread(threads.toJSON())).toBe(false);
+  });
+
+  it('pins words once it is mounted, and asks the widget to draw the pins again', () => {
+    const { widget } = page();
+    const words = createWordsAnchor('Riverbend walk');
+    expect(resolve(words, { root: document }).ok).toBe(false);
+    mountSuggestions(widget);
+    const found = resolve(words, { root: document });
+    expect(found.ok && found.element.className).toBe('lede');
+    expect(renders).toBe(1);
   });
 
   it('shows the old and new words with Accept and Reject in its popover', async () => {
@@ -103,10 +138,31 @@ describe("an agent's suggestion on the page", () => {
       firstComment: { id: 'c-2', text: 'Bigger?' },
     });
     mountSuggestions(widget);
-    const pop = popover(shadow, 't-plain');
+    const pop = popover(shadow, 't-plain', 'Harborlight');
+    await Promise.resolve();
+    expect(pop.querySelector('.cw-sugg')).toBeNull();
     const control = popover(shadow, 't-sugg');
     await vi.waitFor(() => expect(control.querySelector('.cw-sugg')).not.toBeNull());
-    expect(pop.querySelector('.cw-sugg')).toBeNull();
+  });
+
+  it('knows the thread a panel row opened, and refuses a popover quoting other words', async () => {
+    const { widget, shadow } = page();
+    mountSuggestions(widget);
+    // A row tap in the panel: no pin, and the widget names the thread.
+    document.body.click();
+    widget.activeThread = 't-sugg';
+    const wrong = document.createElement('div');
+    wrong.className = 'thread-popover';
+    wrong.innerHTML = '<div class="snippet">Saltmarsh ferry</div><div class="actions"></div>';
+    shadow.append(wrong);
+    await Promise.resolve();
+    expect(wrong.querySelector('.cw-sugg')).toBeNull();
+    wrong.remove();
+    const right = document.createElement('div');
+    right.className = 'thread-popover';
+    right.innerHTML = '<div class="snippet">Riverbend walk</div><div class="actions"></div>';
+    shadow.append(right);
+    await vi.waitFor(() => expect(right.querySelector('.cw-sugg')).not.toBeNull());
   });
 
   it('Accept changes the words, posts them as a page edit, and resolves the suggestion', async () => {
@@ -146,7 +202,7 @@ describe("an agent's suggestion on the page", () => {
       createWordsAnchor('Harborlight'),
     );
     mountSuggestions(widget);
-    const pop = popover(shadow, 't-sugg');
+    const pop = popover(shadow, 't-sugg', 'Harborlight');
     await vi.waitFor(() => expect(pop.querySelector('[data-accept]')).not.toBeNull());
     (pop.querySelector('[data-accept]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(statuses).toHaveLength(1));

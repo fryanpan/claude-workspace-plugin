@@ -517,9 +517,11 @@ mock takes `find` as the words the page shows, and an app also takes `path`,
 the page inside it. `page-thread.ts` (beside `app-proxy.ts`) turns those into
 an element anchor whose fingerprint is the words alone, with the address the
 widget in the frame reads as its context, and refuses what it cannot honour
-before anything is written. The widget resolves such a fingerprint to the
-smallest element that says the words (`resolveWords` in core's `anchor/element.ts`).
-An optional `suggest` stores new words on the first comment; the lazy edit
+before anything is written. Such a fingerprint resolves to the smallest
+element that says the words (`resolveWords` in core's `anchor/element.ts`),
+which the budgeted bundle reaches only through `window.cwWords`: the lazy
+edit chunk installs it when the doc holds a words anchor, then redraws the
+pins. An optional `suggest` stores new words on the first comment; the same
 chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
 Reject, which only resolves it.

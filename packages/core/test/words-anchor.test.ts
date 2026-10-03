@@ -3,10 +3,11 @@
  *
  * An anchor an agent makes from words alone. It cannot see the page, so it
  * has no tag, no classes and no path to give: only the text a reader sees.
- * The page finds the smallest element that says it.
+ * The page finds the smallest element that says it, once the resolver is
+ * installed on `window.cwWords` (the widget's edit chunk does that).
  */
-import { beforeEach, describe, expect, it } from 'vitest';
-import { createWordsAnchor, resolve } from '../src/anchor/element.ts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createAnchor, createWordsAnchor, resolve, resolveWords } from '../src/anchor/element.ts';
 
 describe('a words anchor', () => {
   beforeEach(() => {
@@ -15,6 +16,20 @@ describe('a words anchor', () => {
       '<p class="lede">Riverbend <b>opens</b>   at nine.</p></section>' +
       '<p>Saltmarsh opens at ten.</p></main>' +
       '<div data-feedback-widget><p>Riverbend opens at nine.</p></div>';
+    window.cwWords = resolveWords;
+  });
+  afterEach(() => {
+    window.cwWords = undefined;
+  });
+
+  it('resolves nothing until the resolver is installed, and leaves a person anchor alone', () => {
+    window.cwWords = undefined;
+    expect(resolve(createWordsAnchor('Riverbend opens at nine'), { root: document }).ok).toBe(
+      false,
+    );
+    const person = createAnchor(document.querySelector('h1') as HTMLElement);
+    const res = resolve(person, { root: document });
+    expect(res.ok && res.element.tagName).toBe('H1');
   });
 
   it('has the shape of a person anchor, with its words as the snippet', () => {
