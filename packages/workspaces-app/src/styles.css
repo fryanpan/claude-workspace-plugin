@@ -808,6 +808,40 @@ body.is-reading-width #editor > .ProseMirror {
   }
 }
 
+/* Inline math (math-inline.ts). At rest the TeX characters fold away and a
+   KaTeX widget stands in for them; with the caret on the equation they come
+   back, in mono between muted dollar signs. Not scoped to #editor: the board's
+   task bodies mount the same editor. Bad TeX and TeX still waiting for KaTeX
+   to arrive both show as their own source, muted — KaTeX paints an error
+   with an inline red, which `!important` is the only way past. */
+.ProseMirror .cw-math-folded {
+  display: none;
+}
+.ProseMirror[contenteditable="true"] .cw-math {
+  cursor: text;
+}
+.ProseMirror div.cw-math {
+  margin: 0.4em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ProseMirror .cw-math-open,
+.ProseMirror .cw-math-delim,
+.ProseMirror .cw-math-pending,
+.ProseMirror .katex-error {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+.ProseMirror .cw-math-delim,
+.ProseMirror .cw-math-pending,
+.ProseMirror .katex-error {
+  color: var(--fg-muted) !important;
+}
+.ProseMirror .cw-math-delim {
+  user-select: none;
+}
+
 /* ===== The pointer pill ===== */
 /* Comment, Research and Create Task, hung off the point where a selection
    was released on a HUDDLE doc (src/pointer-pill.ts). An ordinary review

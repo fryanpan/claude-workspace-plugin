@@ -928,6 +928,30 @@ body.has-set .doc-switcher-caret {
   max-width: 100%;
   height: auto;
 }
+/* A `$$` display equation: a code block drawn by KaTeX, opened to its source
+   the way a diagram is. No box around it — it is prose, not a figure. The
+   min-height keeps an empty equation a target a tap can reach. */
+#editor > .ProseMirror .cm-codeblock.is-math .cm-source {
+  display: none;
+}
+#editor > .ProseMirror .cm-codeblock.is-math.is-editing .cm-source {
+  display: block;
+  margin-top: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+#editor > .ProseMirror .cm-math-display {
+  min-height: 1.6em;
+  padding: 2px 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: text;
+  user-select: none;
+}
+#editor > .ProseMirror .cm-math-display .katex-display {
+  margin: 0;
+}
 /* An .mdx component, expression or import run (mdx-flow-block.ts): a quiet
    block — a chart's title and the chart its literal props draw, a component's
    words — whose source opens read-only on a tap. Comments and imports are one

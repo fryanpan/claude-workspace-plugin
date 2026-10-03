@@ -9,6 +9,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
 import type * as Y from 'yjs';
 import { encodeOffsetRel, resolveRelOffset } from '../code/code-anchor.ts';
+import { MathInline } from '../math-inline.ts';
 import { MermaidCodeBlock } from '../mermaid-code-block.ts';
 import type { ReviewSurface } from '../review-surface.ts';
 import { ThreadDecorations, setThreadDecorations } from '../thread-decorations.ts';
@@ -59,6 +60,9 @@ interface BlockIndexEntry {
 const RENDER_EXTENSIONS = [
   StarterKit.configure({ undoRedo: false, codeBlock: false }),
   MermaidCodeBlock,
+  // Its markdown-it rules are what keep `$a*b$ and $c*d$` an equation here
+  // rather than an italic (math-markdown-it.ts).
+  MathInline,
   Image,
   Table.configure({ resizable: false, HTMLAttributes: { class: 'prose-table' } }),
   TableRow,

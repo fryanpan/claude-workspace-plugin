@@ -255,6 +255,36 @@ async function emit(buildId: string): Promise<boolean> {
     return false;
   }
 
+  // KaTeX: its own file, fetched by `math-katex.ts` the first time a doc
+  // shows an equation. Not an `import()` from the doc bundle — that bundle is
+  // built with splitting off, which inlines a dynamic import, so every page
+  // load would carry it. Its stylesheet and the woff2 fonts the stylesheet
+  // names sit beside it; a browser picks woff2 from KaTeX's `src` list first,
+  // so the woff and ttf copies would never be fetched.
+  const katexResult = await Bun.build({
+    entrypoints: [join(pkgRoot, 'src', 'katex-entry.ts')],
+    outdir: join(dist, 'katex'),
+    target: 'browser',
+    format: 'esm',
+    splitting: false,
+    naming: { entry: 'katex.js' },
+    minify: process.env.NODE_ENV !== 'dev' && !isWatch,
+  });
+  if (!katexResult.success) {
+    console.error('katex build failed:');
+    for (const m of katexResult.logs) console.error(m);
+    if (!isWatch) process.exit(1);
+    return false;
+  }
+  const katexDist = dirname(
+    createRequire(join(pkgRoot, 'package.json')).resolve('katex/dist/katex.min.css'),
+  );
+  cpSync(join(katexDist, 'katex.min.css'), join(dist, 'katex', 'katex.min.css'));
+  cpSync(join(katexDist, 'fonts'), join(dist, 'katex', 'fonts'), {
+    recursive: true,
+    filter: (src) => !/\.(woff|ttf)$/.test(src),
+  });
+
   cpSync(join(pkgRoot, 'src', 'styles.css'), join(dist, 'styles.css'));
   // The review editor's own rules, loaded by index.html AFTER styles.css.
   cpSync(join(pkgRoot, 'src', 'doc.css'), join(dist, 'doc.css'));

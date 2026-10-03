@@ -1,5 +1,8 @@
-import type { NodeViewRendererProps } from '@tiptap/core';
+import { MATH_DISPLAY_LANGUAGE, mathDisplayTex } from '@claude-workspaces/core/prose-math';
+import { InputRule, type NodeViewRendererProps } from '@tiptap/core';
 import CodeBlock from '@tiptap/extension-code-block';
+import { TextSelection } from '@tiptap/pm/state';
+import { renderTex } from './math-katex.ts';
 import { MDX_FLOW_LANGUAGE, mdxFlowNodeView, mdxReadOnly } from './mdx-flow-block.ts';
 
 /**
@@ -12,6 +15,11 @@ import { MDX_FLOW_LANGUAGE, mdxFlowNodeView, mdxReadOnly } from './mdx-flow-bloc
  * Mermaid.js is loaded lazily on the first mermaid block we see so the
  * library (~1.5 MB) doesn't bloat the initial bundle for docs without
  * diagrams. Subsequent edits re-render with a 400ms debounce.
+ *
+ * A `$$` display equation is a code block too (language
+ * `MATH_DISPLAY_LANGUAGE`, its text the exact source lines, fences included —
+ * `core/prose-math.ts`), and it behaves the way a diagram does: KaTeX draws it
+ * at rest, and the caret inside it opens the source.
  */
 
 type MermaidModule = {
@@ -60,6 +68,28 @@ export const MermaidCodeBlock = CodeBlock.extend({
   addProseMirrorPlugins() {
     return [...(this.parent?.() ?? []), mdxReadOnly()];
   },
+  addInputRules() {
+    // `$$` and a space on an empty line opens a display equation with the
+    // caret on its blank middle line.
+    const type = this.type;
+    const mathBlock = new InputRule({
+      find: /^\$\$\s$/,
+      handler: ({ state, range }) => {
+        const $from = state.doc.resolve(range.from);
+        if ($from.parent.type.name !== 'paragraph' || $from.parent.textContent !== '$$')
+          return null;
+        const at = $from.before();
+        const node = type.create(
+          { language: MATH_DISPLAY_LANGUAGE },
+          state.schema.text('$$\n\n$$'),
+        );
+        state.tr.replaceWith(at, $from.after(), node);
+        state.tr.setSelection(TextSelection.create(state.tr.doc, at + 4));
+        return undefined;
+      },
+    });
+    return [...(this.parent?.() ?? []), mathBlock];
+  },
   addNodeView() {
     return ({ node: initial, editor, getPos }: NodeViewRendererProps) => {
       // An `.mdx` component has a view of its own (mdx-flow-block.ts).
@@ -102,8 +132,11 @@ export const MermaidCodeBlock = CodeBlock.extend({
       const scheduleRender = () => {
         const language = (node.attrs.language as string | null) ?? '';
         const isMermaid = language === 'mermaid';
+        const isMath = language === MATH_DISPLAY_LANGUAGE;
         wrapper.classList.toggle('is-mermaid', isMermaid);
-        if (!isMermaid) {
+        wrapper.classList.toggle('is-math', isMath);
+        rendered.className = isMath ? 'cm-math-display' : 'cm-diagram';
+        if (!isMermaid && !isMath) {
           rendered.style.display = 'none';
           return;
         }
@@ -111,6 +144,10 @@ export const MermaidCodeBlock = CodeBlock.extend({
         const source = node.textContent;
         if (source === lastSource) return;
         lastSource = source;
+        if (isMath) {
+          renderTex(rendered, mathDisplayTex(source), true);
+          return;
+        }
 
         if (!source.trim()) {
           rendered.innerHTML = '';
