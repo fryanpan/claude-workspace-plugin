@@ -32,6 +32,11 @@
  * the meeting hears one sentence of at most `MEETING_SPOKEN_MAX_WORDS`
  * words (`meetingLine`).
  *
+ * ASKED WITH THE MEETING. The router and the lead get the meeting's notes and
+ * the room's last two minutes with the request (`MeetingRoom.recent`), so
+ * "do you have enough to create tasks?" is about this meeting. Anyone in the
+ * room can speak, so both are fenced as untrusted content.
+ *
  * ANYTHING A SESSION CAN DO. A "Claude, …" is not narrowed to lookups here:
  * the router decides, and what it hands to the lead ("On it.") is worked on
  * while the meeting goes on, its answer said at a later pause
@@ -40,6 +45,7 @@
 import { meetingLine, minuteFor, wakeRequest } from '../meeting-claude.ts';
 import type { TranscriptionEngine } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
+import type { MeetingContext } from '../voice-meeting-context.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import type { SpokenAnswer, SpokenAnswerer } from './answer.ts';
 import { asksForQuestions } from './interview-phrases.ts';
@@ -52,6 +58,9 @@ export interface MeetingRoom {
   plan: boolean;
   /** Writes lines into this meeting's own notes section. */
   note(markdown: string): void;
+  /** The meeting's notes and the speech before now, which a "Claude, …" is
+   *  asked with (`voice-meeting-context.ts`). Untrusted. */
+  recent?(): MeetingContext | undefined;
 }
 
 /** One pause's worth of a meeting, as the answer needs it. */
@@ -108,7 +117,7 @@ export async function meetingAnswer(
   if (request !== null) {
     // No `navigate`: following it would take the page off the meeting it
     // is recording.
-    const { navigate: _, ...a } = await answerer.ask(request, actor, context);
+    const { navigate: _, ...a } = await answerer.ask(request, actor, context, turn.room.recent?.());
     if (!a.spoken) return SILENT;
     // Handed to the lead, "On it." is no answer: the lead's minute, if it
     // gives one, is written when it comes (`meeting-errands.ts`).

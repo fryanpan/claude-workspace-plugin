@@ -46,7 +46,7 @@ const BOARD_EVENT = /^(task|decision|review_item|workspace|agent|triage|voice)\.
  * visitor to see that someone spoke and which route took it: event, route,
  * ts, and the display actor.
  */
-const VOICE_PRIVATE_FIELDS = ['transcript', 'ack', 'context'] as const;
+const VOICE_PRIVATE_FIELDS = ['transcript', 'ack', 'context', 'meeting'] as const;
 
 /**
  * Dropped from a visitor's copy of the two review-item MEASUREMENT rows.

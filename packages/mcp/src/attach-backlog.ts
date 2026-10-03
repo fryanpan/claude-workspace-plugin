@@ -46,6 +46,7 @@ export interface BacklogVoiceRow {
   ts?: unknown;
   applied?: unknown;
   context?: unknown;
+  meeting?: unknown;
   actor?: unknown;
 }
 
@@ -128,6 +129,7 @@ export async function deliverAttachBacklog(
         ? `Delivered from the queue. Already applied: ${applied}`
         : 'Delivered from the queue.',
       ...(row.context !== undefined ? { context: row.context } : {}),
+      ...(row.meeting !== undefined ? { meeting: row.meeting } : {}),
       ...(row.actor !== undefined ? { actor: row.actor } : {}),
       workspaceId,
     };

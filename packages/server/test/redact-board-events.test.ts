@@ -94,7 +94,7 @@ describe('redactBoardEventForVisitor', () => {
     expect(redactBoardEventForVisitor(payload)).toBe(payload);
   });
 
-  it('drops the voice transcript, ack and context — §3.3 never enumerated them', () => {
+  it('drops the voice transcript, ack, context and meeting — §3.3 never enumerated them', () => {
     const out = redactBoardEventForVisitor({
       event: 'voice.request',
       workspaceId: 'w-1',
@@ -102,6 +102,7 @@ describe('redactBoardEventForVisitor', () => {
       route: 'agent',
       ack: 'Heard: "hold the release…". Sent to the workspace agent.',
       context: { surface: 'board' },
+      meeting: { notes: '- Move the ticket office', heard: 'Dredge the channel.' },
       actor: { id: 'known-jordan', name: 'Jordan', kind: 'person' },
       ts: 11,
     });
@@ -117,6 +118,7 @@ describe('redactBoardEventForVisitor', () => {
     expect(out.transcript).toBeUndefined();
     expect(out.ack).toBeUndefined();
     expect(out.context).toBeUndefined();
+    expect(out.meeting).toBeUndefined();
   });
 
   it('redacts the actor on every review_item event — the Activity tab reads these', () => {

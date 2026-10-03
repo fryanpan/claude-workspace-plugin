@@ -53,6 +53,7 @@ import {
   resolveVoiceAction,
 } from './voice-action.ts';
 import { type VoiceClassifier, type VoiceComplete, jsonClassifier } from './voice-classifier.ts';
+import type { MeetingContext } from './voice-meeting-context.ts';
 import {
   type VoiceClassification,
   type VoiceContext,
@@ -823,11 +824,14 @@ export class VoiceRouter {
       transcript: string;
       context?: VoiceContext;
       actor: VoiceActor;
+      /** Asked in a meeting: its notes and recent speech, for the model and
+       *  the lead. Untrusted (`voice-meeting-context.ts`). */
+      meeting?: MeetingContext;
     },
   ): Promise<VoiceHandleResult> {
     const workspace = this.tasks.getWorkspace(workspaceId);
     if (!workspace) return { ok: false, error: 'workspace-not-found' };
-    const { transcript, actor } = req;
+    const { transcript, actor, meeting } = req;
     // Everything below reads `context`, and nothing below re-checks it.
     const context = this.validateContext(workspaceId, req.context);
 
@@ -973,6 +977,7 @@ export class VoiceRouter {
             ...(context !== undefined ? { context } : {}),
             ...(resource !== undefined ? { resource } : {}),
             ...(instructions !== undefined ? { instructions } : {}),
+            ...(meeting !== undefined ? { meeting } : {}),
           })
         ).classification;
         if (!classification) fastPathDown = true;
@@ -1102,6 +1107,7 @@ export class VoiceRouter {
       queueId = this.tasks.queueVoiceRequest(workspaceId, {
         transcript,
         ...(context !== undefined ? { context } : {}),
+        ...(meeting !== undefined ? { meeting } : {}),
         actor,
       });
       const live =
@@ -1129,6 +1135,7 @@ export class VoiceRouter {
       ack: result.ack,
       ...(context !== undefined ? { context } : {}),
       ...(queueId !== false ? { queueId } : {}),
+      ...(meeting !== undefined && queueId !== false ? { meeting } : {}),
       actor,
     });
     if (queueId !== false && result.route === 'agent') {

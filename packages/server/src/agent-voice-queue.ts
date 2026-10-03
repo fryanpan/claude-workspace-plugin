@@ -17,6 +17,7 @@ import { classifyActor } from './actor-identity.ts';
 import type { AgentStorePersistence } from './task-agents.ts';
 import { cryptoId } from './task-fields.ts';
 import type { VoiceRoute } from './tasks.ts';
+import type { MeetingContext } from './voice-meeting-context.ts';
 
 /**
  * How long an emitted utterance is left alone before the queue offers it again.
@@ -49,6 +50,8 @@ export interface QueuedVoiceRequest {
   emittedAt?: number;
   transcript: string;
   context?: unknown;
+  /** What a meeting's request was asked with: its notes and recent speech. */
+  meeting?: MeetingContext;
   actor: TaskActor;
   /**
    * What the voice fast path ALREADY applied to the board for this utterance,
@@ -94,6 +97,8 @@ export class AgentVoiceQueue {
        *  acknowledges it, which is what takes the row off the queue. */
       queueId?: string;
       actor: { id: string; name: string; kind?: string };
+      /** A meeting's notes and recent speech (`voice-meeting-context.ts`). */
+      meeting?: MeetingContext;
     },
   ): boolean {
     if (!this.p.hasWorkspace(workspaceId)) return false;
@@ -105,6 +110,7 @@ export class AgentVoiceQueue {
       ack: req.ack,
       ...(req.queueId !== undefined ? { queueId: req.queueId } : {}),
       ...(req.context !== undefined ? { context: req.context } : {}),
+      ...(req.meeting !== undefined ? { meeting: req.meeting } : {}),
       actor: {
         id: req.actor.id,
         name: req.actor.name,
@@ -129,6 +135,7 @@ export class AgentVoiceQueue {
       context?: unknown;
       actor: { id: string; name: string; kind?: string };
       applied?: string;
+      meeting?: MeetingContext;
     },
   ): string | false {
     if (!this.p.hasWorkspace(workspaceId)) return false;
@@ -137,6 +144,7 @@ export class AgentVoiceQueue {
       id,
       transcript: item.transcript,
       ...(item.context !== undefined ? { context: item.context } : {}),
+      ...(item.meeting !== undefined ? { meeting: item.meeting } : {}),
       actor: { id: item.actor.id, name: item.actor.name, kind: classifyActor(item.actor) },
       ...(item.applied !== undefined ? { applied: item.applied } : {}),
       ts: Date.now(),

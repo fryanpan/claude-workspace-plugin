@@ -153,6 +153,9 @@ eval (`scripts/voice-router-eval.ts`). The choice question offers the quick
 actions as options: `voice-quick.ts` holds those actions, which the page does
 with no agent (another board, a plan or a meeting, feedback about the app,
 help), their word-only detectors, and every ack of six words or fewer.
+`voice-meeting-context.ts` is what a meeting's "Claude, …" is asked with
+besides its words — the doc's text and the room's last two minutes — and
+the fence both prompts and the lead's line put it in.
 
 **Model prompts are a subsystem, not a scatter of literals.** Every set of
 words this server sends to a model is one row of `prompt-catalog.ts`, and

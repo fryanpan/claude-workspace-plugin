@@ -41,6 +41,7 @@ import type {
   VoiceRoute,
   WorkspaceState,
 } from './tasks.ts';
+import type { MeetingContext } from './voice-meeting-context.ts';
 import { isRetired, normalizeWorkspaceName, retiredNotice } from './workspace-store.ts';
 
 export {
@@ -804,6 +805,8 @@ export class AgentStore {
        *  acknowledges it, which is what takes the row off the queue. */
       queueId?: string;
       actor: { id: string; name: string; kind?: string };
+      /** A meeting's notes and recent speech (`voice-meeting-context.ts`). */
+      meeting?: MeetingContext;
     },
   ): boolean {
     return this.voice.recordVoiceRequest(workspaceId, req);
@@ -817,6 +820,7 @@ export class AgentStore {
       context?: unknown;
       actor: { id: string; name: string; kind?: string };
       applied?: string;
+      meeting?: MeetingContext;
     },
   ): string | false {
     return this.voice.queueVoiceRequest(workspaceId, item);
@@ -949,6 +953,7 @@ export class AgentStore {
           ? `Delivered from the queue. Already applied: ${q.applied}`
           : 'Delivered from the queue.',
         ...(q.context !== undefined ? { context: q.context } : {}),
+        ...(q.meeting !== undefined ? { meeting: q.meeting } : {}),
         actor: q.actor,
       });
     }

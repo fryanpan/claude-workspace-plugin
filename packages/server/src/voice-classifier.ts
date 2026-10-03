@@ -12,6 +12,7 @@
  * completion, and `parseVoiceReply`. The alternatives the router eval scores
  * (`scripts/voice-router-eval.ts`) live in `voice-choice.ts`.
  */
+import type { MeetingContext } from './voice-meeting-context.ts';
 import {
   type VoiceClassification,
   type VoiceContext,
@@ -40,6 +41,8 @@ export interface VoiceClassifyInput {
   resource?: VoiceResource;
   /** The settings page's override of the shipped system prompt. */
   instructions?: string;
+  /** Asked in a meeting: its notes and recent speech. Untrusted. */
+  meeting?: MeetingContext;
 }
 
 export interface VoiceClassified {
@@ -53,9 +56,9 @@ export type VoiceClassifier = (input: VoiceClassifyInput) => Promise<VoiceClassi
 
 /** The shipped classifier: one JSON-shaped completion. */
 export function jsonClassifier(complete: VoiceComplete): VoiceClassifier {
-  return async ({ index, transcript, context, resource, instructions }) => {
+  return async ({ index, transcript, context, resource, instructions, meeting }) => {
     const reply = await complete(
-      buildVoicePrompt(index, transcript, context, resource, instructions),
+      buildVoicePrompt(index, transcript, context, resource, instructions, meeting),
     );
     return { classification: parseVoiceReply(reply) };
   };
