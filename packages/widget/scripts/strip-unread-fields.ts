@@ -49,6 +49,8 @@ export const READER_CUTS: readonly ReaderCut[] = [
       // lifts it for nobody.
       "        const pageEdits = readPageEdits(c.get('pageEdits'));\n",
       '          ...(pageEdits ? { pageEdits } : {}),\n',
+      // An agent's suggested words: read by the edit chunk too, off the raw map.
+      "          ...readSuggestionField(c.get('pageSuggestion')),\n",
       "        const via = readWriteVia(c.get('via'));\n",
       '          ...(via ? { via } : {}),\n',
       "  const statusVia = readWriteVia(threadMap.get('statusVia'));\n",
@@ -94,6 +96,7 @@ export const STRIPPED_FIELDS: readonly string[] = [
   'summary',
   'edits',
   'pageEdits',
+  'pageSuggestion',
   'via',
   'statusVia',
   'commentCount',

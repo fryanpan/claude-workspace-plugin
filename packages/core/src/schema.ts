@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { type PageEdit, readPageEdits } from './page-edits.ts';
+import { readPageEdits, readSuggestionField } from './page-edits.ts';
 import { type ReviewPayload, readReviewPayload } from './review-item.ts';
 import { readStoredSummary } from './thread-summary.ts';
 import {
@@ -223,6 +223,7 @@ export function readThread(threadMap: Y.Map<unknown>, threadId: string): Thread 
           ...(deliveredAt !== undefined ? { deliveredAt } : {}),
           ...(voice ? { voice } : {}),
           ...(pageEdits ? { pageEdits } : {}),
+          ...readSuggestionField(c.get('pageSuggestion')),
           ...(review ? { review } : {}),
           ...(edits ? { edits } : {}),
         });
@@ -265,15 +266,11 @@ export interface CreateThreadArgs {
   threadId: string;
   anchor: Anchor;
   createdBy: User;
-  firstComment: {
-    id: string;
-    text: string;
-    review?: ReviewPayload;
-    voice?: VoiceNote;
-    /** Words the reader changed on the page — see `page-edits.ts`. */
-    pageEdits?: PageEdit[];
-    via?: WriteVia;
-  };
+  /** `pageEdits` and `pageSuggestion` are the page's words — see `page-edits.ts`. */
+  firstComment: Pick<
+    Comment,
+    'id' | 'text' | 'review' | 'voice' | 'pageEdits' | 'pageSuggestion' | 'via'
+  >;
 }
 
 export function createThread(doc: Y.Doc, args: CreateThreadArgs): Thread {
@@ -288,10 +285,9 @@ export function createThread(doc: Y.Doc, args: CreateThreadArgs): Thread {
     firstCommentMap.set('author', args.createdBy);
     firstCommentMap.set('text', args.firstComment.text);
     firstCommentMap.set('ts', now);
-    if (args.firstComment.review) firstCommentMap.set('review', args.firstComment.review);
-    if (args.firstComment.voice) firstCommentMap.set('voice', args.firstComment.voice);
-    if (args.firstComment.pageEdits) firstCommentMap.set('pageEdits', args.firstComment.pageEdits);
-    if (args.firstComment.via) firstCommentMap.set('via', args.firstComment.via);
+    for (const k of ['review', 'voice', 'pageEdits', 'pageSuggestion', 'via'] as const) {
+      if (args.firstComment[k]) firstCommentMap.set(k, args.firstComment[k]);
+    }
     comments.push([firstCommentMap]);
 
     threadMap.set('anchor', args.anchor);

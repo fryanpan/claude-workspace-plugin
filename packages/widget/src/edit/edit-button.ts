@@ -80,6 +80,25 @@ function loadChunk(src: string): Promise<EditChunk> {
   return loading;
 }
 
+/**
+ * Does the doc hold a thread an agent anchored by words (`createWordsAnchor`),
+ * or a suggestion nobody has taken or left yet? The chunk holds the resolver
+ * that pins the first and the buttons that answer the second. The same raw
+ * read as `hasOpenEdits`, kept here so the loader stays free of the chunk it
+ * loads.
+ */
+export function hasAgentPageThread(threads: Record<string, unknown>): boolean {
+  return Object.values(threads).some((raw) => {
+    const t = raw as {
+      status?: unknown;
+      anchor?: { fingerprint?: { tag?: unknown } };
+      comments?: Array<{ pageSuggestion?: unknown }>;
+    } | null;
+    if (t?.anchor?.fingerprint?.tag === '*') return true;
+    return t?.status === 'open' && typeof t.comments?.[0]?.pageSuggestion === 'object';
+  });
+}
+
 /** Does the doc hold an edit the agent has not applied yet? Read off the
  *  threads map's JSON so this module needs no Yjs of its own. */
 export function hasOpenEdits(threads: Record<string, unknown>): boolean {
@@ -129,16 +148,18 @@ export function mountEditLoader(doc: Document, chunkSrc: string): HTMLButtonElem
     );
   });
 
-  // Marks for edits already waiting: load the mode, without entering it, as
-  // soon as the doc says there is one — or this tab holds unsent edits a
-  // reload interrupted (`draft-store.ts`), which the mode puts back.
+  // Marks for edits already waiting, and an agent's pins and suggestions:
+  // load the mode, without entering it, as soon as the doc says there is
+  // one — or this tab holds unsent edits a reload interrupted
+  // (`draft-store.ts`), which the mode puts back.
   // The doc is only read once it has synced; the tab's own drafts at once.
   const threads = widget.client?.ydoc.getMap('threads');
   const load = (): void => {
     if (!mode) void ready().catch(() => {});
   };
   const check = (): void => {
-    if (threads && hasOpenEdits(threads.toJSON())) load();
+    const all = threads?.toJSON() ?? {};
+    if (hasOpenEdits(all) || hasAgentPageThread(all)) load();
   };
   const unsent = (): void => {
     if (readDraft(draftKey('edits', widget.opts.docId)) !== null) load();

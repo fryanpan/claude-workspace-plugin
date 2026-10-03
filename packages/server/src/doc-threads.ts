@@ -2,6 +2,7 @@ import {
   type Anchor,
   type DeliveryStamp,
   type PageEdit,
+  type PageSuggestion,
   type ReviewAnswerUndone,
   type ReviewItemJudgement,
   type ReviewPayload,
@@ -151,6 +152,9 @@ export class DocThreads {
       /** Text a reviewer changed on the page — see `PageEdit`. New threads
        *  only: a send is its own thread. */
       pageEdits?: PageEdit[];
+      /** New words an agent proposes for the page — see `PageSuggestion`.
+       *  New threads only, like `pageEdits`. */
+      pageSuggestion?: PageSuggestion;
       /** This reply was a partial answer: the item's questions it left open,
        *  carried on the frame so a watching filer is told. */
       openParts?: string[];
@@ -173,6 +177,7 @@ export class DocThreads {
           ...(opts?.review ? { review: opts.review } : {}),
           ...(opts?.voice ? { voice: opts.voice } : {}),
           ...(opts?.pageEdits ? { pageEdits: opts.pageEdits } : {}),
+          ...(opts?.pageSuggestion ? { pageSuggestion: opts.pageSuggestion } : {}),
           ...(opts?.via ? { via: opts.via } : {}),
         },
       });

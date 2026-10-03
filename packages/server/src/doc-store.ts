@@ -18,6 +18,7 @@ import {
   type DocTitleSource,
   type DocType,
   type PageEdit,
+  type PageSuggestion,
   type ReviewItemJudgement,
   type ReviewPayload,
   type Thread,
@@ -2685,6 +2686,8 @@ export class DocStore {
       voice?: VoiceNote;
       /** Text a reviewer changed on the page — see `PageEdit`. */
       pageEdits?: PageEdit[];
+      /** New words an agent proposes for the page — see `PageSuggestion`. */
+      pageSuggestion?: PageSuggestion;
       /** Sent from inside a mock page — see `WriteVia`. */
       via?: WriteVia;
     },

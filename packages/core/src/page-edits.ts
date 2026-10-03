@@ -105,3 +105,57 @@ export function pageEditsText(edits: readonly PageEdit[]): string {
   );
   return [head, ...lines].join('\n');
 }
+
+/**
+ * A change an AGENT proposes to the words on a page, for the reader to take
+ * or leave where the words are.
+ *
+ * The agent cannot see the page, so it names the words rather than the
+ * element: `find` is text the page shows, and the thread's anchor finds the
+ * element that says it (`createWordsAnchor`). Accept turns it into the
+ * `PageEdit` a pencil send carries (`suggestedEdit`), so the agent hears it
+ * the way it hears the reader's own edits; Reject resolves the thread.
+ */
+export interface PageSuggestion {
+  /** The words on the page to replace. */
+  find: string;
+  /** What to put in their place. Empty deletes them. */
+  replacement: string;
+}
+
+/** The longest `find` an agent may anchor by. */
+export const MAX_PAGE_FIND = 300;
+
+/** Words as a reader sees them: runs of whitespace are one space. */
+const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+/** A stored or posted suggestion, or nothing. Read as defensively as
+ *  `readPageEdits`, and refused rather than cut when too long. */
+export function readPageSuggestion(raw: unknown): PageSuggestion | undefined {
+  if (!isRecord(raw)) return undefined;
+  const { find, replacement } = raw;
+  if (typeof find !== 'string' || norm(find) === '' || find.length > MAX_PAGE_FIND)
+    return undefined;
+  if (!okText(replacement) || norm(replacement) === norm(find)) return undefined;
+  return { find, replacement };
+}
+
+/** A comment's `pageSuggestion` field, spread-ready: `{}` when there is none. */
+export function readSuggestionField(raw: unknown): { pageSuggestion?: PageSuggestion } {
+  const pageSuggestion = readPageSuggestion(raw);
+  return pageSuggestion ? { pageSuggestion } : {};
+}
+
+/**
+ * The page edit an accepted suggestion is: the element's words with the
+ * first occurrence of `find` replaced. Null when the element no longer says
+ * `find`, or the change would leave its words as they were.
+ */
+export function suggestedEdit(at: Omit<PageEdit, 'after'>, s: PageSuggestion): PageEdit | null {
+  const before = norm(at.before);
+  const find = norm(s.find);
+  const i = before.indexOf(find);
+  if (i < 0) return null;
+  const after = norm(before.slice(0, i) + s.replacement + before.slice(i + find.length));
+  return after === before ? null : { ...at, before, after };
+}

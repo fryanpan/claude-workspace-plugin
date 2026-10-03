@@ -1,4 +1,4 @@
-import type { ElementAnchor, ElementFingerprint } from '../types.ts';
+import type { AnchorContext, ElementAnchor, ElementFingerprint } from '../types.ts';
 import type { ElementResolution, ElementResolveEnv } from './index.ts';
 
 /**
@@ -11,7 +11,6 @@ import type { ElementResolution, ElementResolveEnv } from './index.ts';
 export const SCORE_THRESHOLD = 40;
 
 const STABLE_ATTR_NAMES = ['role', 'aria-label', 'name', 'data-testid'] as const;
-const SNIPPET_MAX = 80;
 const TEXT_MAX = 60;
 
 export function createFingerprint(el: HTMLElement): ElementFingerprint {
@@ -33,15 +32,68 @@ export function createAnchor(el: HTMLElement): ElementAnchor {
     kind: 'element',
     fingerprint: fp,
     snippet: {
-      text: fp.text ? truncate(fp.text, SNIPPET_MAX) : `<${fp.tag.toLowerCase()}>`,
+      // `extractText` already cut the words to TEXT_MAX, under the snippet's 80.
+      text: fp.text || `<${fp.tag.toLowerCase()}>`,
       rect: fp.rect,
     },
   };
 }
 
+/**
+ * The tag of a fingerprint made from words alone (`createWordsAnchor`). Not
+ * a tag any element has, so `scoreMatch` gives every element 0 for it and
+ * only the words search below can resolve one.
+ */
+export const WORDS_TAG = '*';
+
+/**
+ * An anchor on the element that says `words`, for an author who cannot see
+ * the page: an agent opening a thread on an app or a mock. The shape is a
+ * person's element anchor, so every surface that renders one renders this;
+ * only its fingerprint is the words and nothing else.
+ */
+export function createWordsAnchor(words: string, context?: AnchorContext): ElementAnchor {
+  const text = words.replace(/\s+/g, ' ').trim();
+  return {
+    kind: 'element',
+    fingerprint: { tag: WORDS_TAG, stableAttrs: {}, classes: [], text, path: '', dataAttrs: {} },
+    snippet: { text },
+    ...(context ? { context } : {}),
+  };
+}
+
+declare global {
+  /** `resolveWords`, once something on the page has installed it. */
+  var cwWords: typeof resolveWords | undefined;
+}
+
+/**
+ * The first element, in page order, whose words hold `words` while none of
+ * its children's do: the smallest element that says it. Words that run
+ * across inline markup (`Riverbend <b>opens</b>`) are found in the element
+ * holding both.
+ *
+ * `resolve` reaches it only through `globalThis.cwWords`, so the budgeted
+ * widget bundle does not carry it: the widget's lazy edit chunk installs it
+ * when the doc holds a words anchor, and re-renders the pins. Anything else
+ * that resolves words anchors installs it the same way.
+ */
+export function resolveWords(words: string, root: ParentNode): ElementResolution {
+  const has = (e: Element) => (e.textContent ?? '').replace(/\s+/g, ' ').includes(words);
+  const element = [...root.querySelectorAll<HTMLElement>('body *')].find(
+    (e) =>
+      has(e) && ![...e.children].some(has) && !e.closest('[data-feedback-widget],script,style'),
+  );
+  return element ? { ok: true, element, score: 100 } : { ok: false, reason: 'not-found', score: 0 };
+}
+
 export function resolve(anchor: ElementAnchor, env: ElementResolveEnv): ElementResolution {
   const fp = anchor.fingerprint;
   const root = env.root as ParentNode & Pick<Document, 'getElementById'>;
+  // A words anchor (`WORDS_TAG`). Before its resolver is installed it falls
+  // through, and every element scores 0 against its tag.
+  const words = fp.tag === '*' && window.cwWords?.(fp.text, root);
+  if (words) return words;
 
   // fast path: id match
   if (fp.id) {
@@ -122,14 +174,12 @@ function readStableAttrs(el: HTMLElement): Record<string, string> {
     const v = el.getAttribute(name);
     if (v) out[name] = v;
   }
-  const named = el.getAttribute('name');
-  if (named) out.name = named;
   return out;
 }
 
 function readClasses(el: HTMLElement): string[] {
   return Array.from(el.classList)
-    .filter((c) => !c.startsWith('hover:') && !c.includes(':'))
+    .filter((c) => !c.includes(':'))
     .sort();
 }
 
