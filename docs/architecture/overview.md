@@ -1775,7 +1775,10 @@ rebuilds the destination from the row (`reply-target.ts`), and hands it to
 the one transport seam (`send-transport.ts`), behind which `send-gmail.ts`
 and `send-slack.ts` read their Keychain credentials (`send-keychain.ts`).
 `sends.ts` keeps the ledger the nonce and the hourly limit read. The reply
-box is `workspaces-app/src/landing-inbox-reply.ts`.
+box is `workspaces-app/src/landing-inbox-reply.ts`, and the snooze picker,
+the key list behind `?` and the Undo toast are `landing-inbox-modals.ts`
+beside it. Bryan's Remove is a tap like snooze: the row goes to `dismissed`
+with no reason, and a new message on its thread reopens it.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts

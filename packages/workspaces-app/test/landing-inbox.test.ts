@@ -9,7 +9,9 @@ import { snoozeChoices, startInbox } from '../src/landing-inbox.ts';
 const LINE = (id: string, purpose: string) =>
   `<div class="inbox-row" data-row="${id}" data-channel="Email"><div class="inbox-line"><div class="inbox-swipe-under"></div><button type="button" class="board-review-row" aria-expanded="false"><span class="board-review-row-title">${purpose}</span></button><div class="inbox-line-acts"><button type="button" class="inbox-snooze-btn" data-act="snooze" aria-label="Snooze"></button></div></div></div>`;
 
-const SECTION = `<section id="inbox" class="inbox-front"><div class="inbox-keys" hidden></div><div class="inbox-rows">${LINE('ib-aaaaaaaaaaaa', 'Wants a yes on the Saltmarsh dates')}${LINE('ib-bbbbbbbbbbbb', 'Asks about Thursday')}</div><div class="inbox-foot"><button type="button" class="inbox-keys-btn" aria-expanded="false">Keys (?)</button></div></section>`;
+const REMOVED = `<button type="button" class="inbox-fold-line" data-fold="removed" aria-expanded="false">Show 1 removed</button><div class="inbox-fold" data-fold-body="removed" hidden><div class="inbox-row inbox-row-folded" data-row="ib-cccccccccccc"><div class="board-review-row"><span class="board-review-row-title">Sends the Harborlight survey</span><button type="button" class="inbox-undo" data-act="reopen">Bring back</button></div></div></div>`;
+
+const SECTION = `<section id="inbox" class="inbox-front" tabindex="-1"><div class="inbox-rows">${LINE('ib-aaaaaaaaaaaa', 'Wants a yes on the Saltmarsh dates')}${LINE('ib-bbbbbbbbbbbb', 'Asks about Thursday')}</div>${REMOVED}<div class="inbox-foot"><span class="inbox-count">2 open</span></div></section>`;
 
 type Call = { url: string; init?: RequestInit };
 let calls: Call[];
@@ -99,6 +101,89 @@ describe('snooze', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(document.querySelector('.inbox-modal')).toBeNull();
+  });
+});
+
+const posted = (action: string) =>
+  calls
+    .filter((c) => c.url.endsWith('/state'))
+    .map((c) => ({ url: c.url, ...(JSON.parse(String(c.init?.body)) as { action: string }) }))
+    .filter((b) => b.action === action);
+const key = (k: string) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+
+describe('remove', () => {
+  it('`e` removes the cursor line, and the toast’s Undo brings it back', async () => {
+    key('e');
+    await until(() => posted('remove').length === 1);
+    expect(posted('remove')[0]?.url).toBe('/inbox/rows/ib-aaaaaaaaaaaa/state');
+    await until(
+      () => document.querySelector('.inbox-toast')?.textContent?.includes('Removed') ?? false,
+    );
+    document.querySelector<HTMLButtonElement>('.inbox-toast button')?.click();
+    await until(() => posted('undo').length === 1);
+    expect(posted('undo')[0]?.url).toBe('/inbox/rows/ib-aaaaaaaaaaaa/state');
+  });
+
+  it('an opened line has a Remove button beside the reply', async () => {
+    bodyReply = { body: 'Hi', link: null, reply: { kind: 'send' } };
+    document.querySelectorAll<HTMLButtonElement>('.inbox-line > .board-review-row')[1]?.click();
+    await until(() => document.querySelector('.inbox-card [data-act="remove"]') !== null);
+    const acts = document.querySelector('.inbox-card .inbox-actions');
+    expect(acts?.textContent).toContain('Send');
+    acts?.querySelector<HTMLButtonElement>('[data-act="remove"]')?.click();
+    await until(() => posted('remove').length === 1);
+    expect(posted('remove')[0]?.url).toBe('/inbox/rows/ib-bbbbbbbbbbbb/state');
+  });
+
+  it('the Removed fold opens, and Bring back reopens the line', async () => {
+    const toggle = document.querySelector<HTMLButtonElement>('[data-fold="removed"]');
+    expect(document.querySelector<HTMLElement>('[data-fold-body="removed"]')?.hidden).toBe(true);
+    toggle?.click();
+    expect(document.querySelector<HTMLElement>('[data-fold-body="removed"]')?.hidden).toBe(false);
+    expect(toggle?.textContent).toBe('Hide 1 removed');
+    document
+      .querySelector<HTMLButtonElement>('[data-row="ib-cccccccccccc"] [data-act="reopen"]')
+      ?.click();
+    await until(() => posted('reopen').length === 1);
+    expect(posted('reopen')[0]?.url).toBe('/inbox/rows/ib-cccccccccccc/state');
+  });
+});
+
+describe('the key list', () => {
+  const dialog = () => document.querySelector('[role="dialog"][aria-label="Keyboard shortcuts"]');
+
+  it('`?` opens it as a dialog naming `e`, and `?` again closes it', () => {
+    expect(dialog()).toBeNull();
+    key('?');
+    expect(dialog()?.textContent).toContain('Remove');
+    expect([...(dialog()?.querySelectorAll('dt') ?? [])].map((d) => d.textContent)).toContain('e');
+    key('?');
+    expect(dialog()).toBeNull();
+  });
+
+  it('Escape or a tap on the scrim closes it, and a tap inside does not', () => {
+    key('?');
+    key('Escape');
+    expect(dialog()).toBeNull();
+    key('?');
+    dialog()?.querySelector<HTMLElement>('dl')?.click();
+    expect(dialog()).not.toBeNull();
+    document.querySelector<HTMLElement>('.inbox-modal-back')?.click();
+    expect(dialog()).toBeNull();
+  });
+
+  it('keys other than `?` and Escape do nothing while it is open', () => {
+    key('?');
+    key('j');
+    expect(document.querySelectorAll('.inbox-row')[0]?.classList.contains('inbox-row-cursor')).toBe(
+      true,
+    );
+  });
+});
+
+describe('focus', () => {
+  it('the section holds keyboard focus once the page loads, so keys reach it', () => {
+    expect(document.activeElement?.id).toBe('inbox');
   });
 });
 

@@ -10,7 +10,7 @@ import { startInbox } from '../src/landing-inbox.ts';
 const LINE = (id: string, channel: string) =>
   `<div class="inbox-row" data-row="${id}" data-channel="${channel}" data-sender="Alice"><div class="inbox-line"><button type="button" class="board-review-row" aria-expanded="false"><span class="board-review-row-title">Wants a yes</span></button></div></div>`;
 const SECTION = (lines: string) =>
-  `<section id="inbox" class="inbox-front"><div class="inbox-keys" hidden></div><div class="inbox-rows">${lines}</div></section>`;
+  `<section id="inbox" class="inbox-front" tabindex="-1"><div class="inbox-rows">${lines}</div></section>`;
 const SENT = `<div class="inbox-row inbox-cleared" data-row="ib-aaaaaaaaaaaa"><div class="board-review-row"><span class="board-review-row-title">Wants a yes</span><span class="board-review-row-sub">You replied on Email · clears at the next check</span></div></div>`;
 
 type Call = { url: string; init?: RequestInit };

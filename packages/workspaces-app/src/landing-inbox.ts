@@ -7,8 +7,14 @@
  *  - a tap opens a line, fetches its message text, and scrolls the line to
  *    the top of the screen;
  *  - a right swipe, the hover clock or `b` opens one "Snooze until…" modal;
- *  - Gmail's keys move a cursor and open lines, and `r` opens the reply box
- *    (`landing-inbox-reply.ts`).
+ *  - `e` or the opened line's Remove button removes a line, with Undo, and
+ *    the Removed fold brings it back;
+ *  - Gmail's keys move a cursor and open lines, `r` opens the reply box
+ *    (`landing-inbox-reply.ts`), and `?` lists them in a modal
+ *    (`landing-inbox-modals.ts`).
+ *
+ * The section takes keyboard focus when the page loads and when a tap lands
+ * in it, so a key pressed on an iPad has a focused element to go to.
  *
  * After any tap that changes a row, the section is re-read from `/` and
  * swapped in whole, so there is one renderer and the page never draws a
@@ -16,10 +22,19 @@
  * `textContent` and never parsed as markup.
  */
 
+import {
+  closeModal,
+  keysOpen,
+  openKeys,
+  openSnoozePicker,
+  toast,
+  whenLabel,
+} from './landing-inbox-modals.ts';
 import { el, replyBox, replyKindOf } from './landing-inbox-reply.ts';
 
+export { snoozeChoices } from './landing-inbox-modals.ts';
+
 const SECTION = '#inbox';
-const EIGHT_AM = 8;
 /** As `INBOX_VISIBLE_LINES` on the server. */
 const VISIBLE_LINES = 5;
 
@@ -27,16 +42,15 @@ interface ViewState {
   open: string | null;
   cursor: string | null;
   expanded: boolean;
-  showSnoozed: boolean;
-  showKeys: boolean;
+  /** Which folds are open: `snoozed`, `removed`. */
+  folds: Set<string>;
 }
 
 const state: ViewState = {
   open: null,
   cursor: null,
   expanded: false,
-  showSnoozed: false,
-  showKeys: false,
+  folds: new Set(),
 };
 
 const section = (): HTMLElement | null => document.querySelector<HTMLElement>(SECTION);
@@ -74,8 +88,13 @@ async function refresh(): Promise<void> {
     const fresh = doc.querySelector(SECTION);
     const here = section();
     if (!fresh || !here) return;
+    const hadFocus =
+      here.contains(document.activeElement) ||
+      !document.activeElement ||
+      document.activeElement === document.body;
     here.replaceWith(document.importNode(fresh, true));
     applyView();
+    if (hadFocus) takeFocus();
   } catch {
     // The page keeps what it showed; the next load corrects it.
   }
@@ -94,17 +113,14 @@ function applyView(): void {
     more.dataset.label ??= more.textContent ?? '';
     more.textContent = state.expanded ? 'Show fewer' : more.dataset.label;
   }
-  const fold = s.querySelector<HTMLElement>('.inbox-snoozed');
-  const toggle = s.querySelector<HTMLButtonElement>('[data-snoozed-toggle]');
-  if (fold && toggle) {
-    fold.hidden = !state.showSnoozed;
-    toggle.setAttribute('aria-expanded', String(state.showSnoozed));
-    toggle.textContent =
-      toggle.textContent?.replace(/^(Show|Hide)/, state.showSnoozed ? 'Hide' : 'Show') ?? '';
+  for (const toggle of s.querySelectorAll<HTMLButtonElement>('[data-fold]')) {
+    const kind = toggle.dataset.fold ?? '';
+    const open = state.folds.has(kind);
+    const body = s.querySelector<HTMLElement>(`[data-fold-body="${CSS.escape(kind)}"]`);
+    if (body) body.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.textContent = toggle.textContent?.replace(/^(Show|Hide)/, open ? 'Hide' : 'Show') ?? '';
   }
-  const keys = s.querySelector<HTMLElement>('.inbox-keys');
-  if (keys) keys.hidden = !state.showKeys;
-  s.querySelector('.inbox-keys-btn')?.setAttribute('aria-expanded', String(state.showKeys));
   if (state.open && !rowEl(state.open)?.closest('.inbox-rows')) state.open = null;
   for (const r of s.querySelectorAll<HTMLElement>('.inbox-rows > .inbox-row')) {
     const id = r.dataset.row ?? '';
@@ -149,7 +165,7 @@ async function showCard(row: HTMLElement, id: string): Promise<void> {
     const kind = replyKindOf(data.reply);
     const focus = focusReply;
     focusReply = false;
-    const acts = kind
+    let acts = kind
       ? replyBox(
           card,
           id,
@@ -163,18 +179,23 @@ async function showCard(row: HTMLElement, id: string): Promise<void> {
           { sent: afterSend, toast },
         )
       : null;
+    if (!acts) {
+      acts = el('div', 'inbox-actions');
+      card.append(acts);
+    }
+    const before = acts.querySelector('.inbox-hint, .inbox-unset');
     if (link && kind?.kind !== 'messages' && /^(https:|sms:|imessage:)/.test(link)) {
       const a = el('a', 'board-btn', `Open in ${row.dataset.channel ?? 'the app'}`);
       a.href = link;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      if (acts) acts.insertBefore(a, acts.querySelector('.inbox-hint, .inbox-unset'));
-      else {
-        const own = el('div', 'inbox-actions');
-        own.append(a);
-        card.append(own);
-      }
+      acts.insertBefore(a, before);
     }
+    const remove = el('button', 'board-btn', 'Remove');
+    remove.type = 'button';
+    remove.dataset.act = 'remove';
+    remove.title = 'Remove (e)';
+    acts.insertBefore(remove, before);
   } catch {
     msg.textContent = 'Could not load this message.';
   }
@@ -187,6 +208,21 @@ async function afterSend(id: string, channel: string): Promise<void> {
   toast(channel === 'slack' ? 'Sent on Slack.' : channel === 'gmail' ? 'Sent by email.' : 'Sent.');
 }
 
+/** Remove a line: it folds into "Removed", and the toast can undo it. */
+async function removeRow(id: string): Promise<void> {
+  closeModal();
+  if (!(await post(id, { action: 'remove' }))) {
+    toast('Could not remove that message.');
+    return;
+  }
+  moveCursorPast(id);
+  if (state.open === id) state.open = null;
+  await refresh();
+  toast('Removed.', async () => {
+    if (await post(id, { action: 'undo' })) await refresh();
+  });
+}
+
 function toggleOpen(id: string): void {
   state.open = state.open === id ? null : id;
   state.cursor = id;
@@ -194,83 +230,15 @@ function toggleOpen(id: string): void {
   applyView();
 }
 
-// ---------- snooze: the modal, its times, the undo ----------
-
-function at(days: number, hour: number, from = new Date()): Date {
-  const d = new Date(from);
-  d.setDate(d.getDate() + days);
-  d.setHours(hour, 0, 0, 0);
-  return d;
-}
-
-/** Gmail's four choices, less the ones already past. */
-export function snoozeChoices(now = new Date()): Array<[label: string, when: Date]> {
-  const day = now.getDay();
-  const out: Array<[string, Date]> = [];
-  const evening = at(0, 18, now);
-  if (evening.getTime() - now.getTime() > 60 * 60_000) out.push(['Later today', evening]);
-  out.push(['Tomorrow', at(1, EIGHT_AM, now)]);
-  if (day >= 1 && day <= 4) out.push(['This weekend', at(6 - day, EIGHT_AM, now)]);
-  out.push(['Next week', at((8 - day) % 7 || 7, EIGHT_AM, now)]);
-  return out;
-}
-
-const whenLabel = (d: Date): string =>
-  d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-
-function closeModal(): void {
-  document.querySelector('.inbox-modal-back')?.remove();
-  for (const b of document.querySelectorAll('.inbox-snooze-btn[aria-expanded="true"]')) {
-    b.setAttribute('aria-expanded', 'false');
-  }
-}
+// ---------- snooze ----------
 
 function openSnooze(id: string): void {
-  closeModal();
   state.cursor = id;
   applyView();
+  const s = section();
+  if (!s) return;
+  openSnoozePicker(s, (when) => void snooze(id, when));
   rowEl(id)?.querySelector('.inbox-snooze-btn')?.setAttribute('aria-expanded', 'true');
-  const back = el('div', 'inbox-modal-back');
-  back.addEventListener('click', (ev) => {
-    if (ev.target === back) closeModal();
-  });
-  const box = el('div', 'inbox-modal');
-  box.setAttribute('role', 'dialog');
-  box.setAttribute('aria-modal', 'true');
-  box.setAttribute('aria-label', 'Snooze until');
-  box.append(el('div', 'inbox-modal-title', 'Snooze until…'));
-  for (const [label, when] of snoozeChoices()) {
-    const b = el('button', 'inbox-modal-opt');
-    b.type = 'button';
-    b.append(el('span', '', label), el('span', 'inbox-modal-when', whenLabel(when)));
-    b.addEventListener('click', () => void snooze(id, when));
-    box.append(b);
-  }
-  box.append(el('div', 'inbox-modal-rule'));
-  const pick = el('button', 'inbox-modal-opt', 'Select date and time');
-  pick.type = 'button';
-  const form = el('div', 'inbox-modal-pick');
-  form.hidden = true;
-  const input = el('input');
-  input.type = 'datetime-local';
-  const tomorrow = at(1, 9);
-  input.value = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}T09:00`;
-  const save = el('button', 'board-btn', 'Save');
-  save.type = 'button';
-  save.addEventListener('click', () => {
-    const when = new Date(input.value);
-    if (!Number.isNaN(when.getTime())) void snooze(id, when);
-  });
-  pick.addEventListener('click', () => {
-    pick.hidden = true;
-    form.hidden = false;
-    input.focus();
-  });
-  form.append(input, save);
-  box.append(pick, form);
-  back.append(box);
-  section()?.append(back);
-  box.querySelector<HTMLButtonElement>('.inbox-modal-opt')?.focus();
 }
 
 function moveCursorPast(id: string): void {
@@ -291,26 +259,6 @@ async function snooze(id: string, when: Date): Promise<void> {
   toast(`Snoozed until ${whenLabel(when)}.`, async () => {
     if (await post(id, { action: 'undo' })) await refresh();
   });
-}
-
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function toast(text: string, undo?: () => Promise<void>): void {
-  document.querySelector('.inbox-toast')?.remove();
-  clearTimeout(toastTimer);
-  const t = el('div', 'inbox-toast');
-  t.setAttribute('role', 'status');
-  t.append(el('span', '', text));
-  if (undo) {
-    const b = el('button', '', 'Undo');
-    b.type = 'button';
-    b.addEventListener('click', () => {
-      t.remove();
-      void undo();
-    });
-    t.append(b);
-  }
-  document.body.append(t);
-  toastTimer = setTimeout(() => t.remove(), 6000);
 }
 
 // ---------- the swipe ----------
@@ -372,17 +320,17 @@ function onClick(ev: MouseEvent): void {
   const row = t.closest<HTMLElement>('.inbox-row');
   const id = row?.dataset.row ?? '';
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
+  if (!document.activeElement || document.activeElement === document.body) takeFocus();
   if (act === 'snooze' && id) openSnooze(id);
+  else if (act === 'remove' && id) void removeRow(id);
   else if (act === 'reopen' && id) {
     void post(id, { action: 'reopen' }).then((ok) => (ok ? refresh() : undefined));
   } else if (t.closest('[data-more]')) {
     state.expanded = !state.expanded;
     applyView();
-  } else if (t.closest('[data-snoozed-toggle]')) {
-    state.showSnoozed = !state.showSnoozed;
-    applyView();
-  } else if (t.closest('.inbox-keys-btn')) {
-    state.showKeys = !state.showKeys;
+  } else if (t.closest('[data-fold]')) {
+    const kind = t.closest<HTMLElement>('[data-fold]')?.dataset.fold ?? '';
+    if (!state.folds.delete(kind)) state.folds.add(kind);
     applyView();
   } else if (t.closest('.inbox-line > .board-review-row') && id) toggleOpen(id);
 }
@@ -420,6 +368,12 @@ function onKey(ev: KeyboardEvent): void {
     return;
   }
   const k = ev.key;
+  if (keysOpen()) {
+    if (k !== '?' && k !== 'Escape') return;
+    closeModal();
+    ev.preventDefault();
+    return;
+  }
   const cursor = state.cursor ?? openRows()[0]?.dataset.row ?? null;
   const onControl = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement;
   if (k === 'j' || k === 'k') step(k === 'j' ? 1 : -1);
@@ -437,16 +391,22 @@ function onKey(ev: KeyboardEvent): void {
       applyView();
     }
   } else if (k === 'b' && cursor) openSnooze(cursor);
+  else if (k === 'e' && cursor) void removeRow(cursor);
   else if (k === 'u' || k === 'Escape') {
     closeModal();
     state.open = null;
-    state.showKeys = false;
     applyView();
   } else if (k === '?') {
-    state.showKeys = !state.showKeys;
-    applyView();
+    const s = section();
+    if (s) openKeys(s);
   } else return;
   ev.preventDefault();
+}
+
+/** Give the section keyboard focus without scrolling to it. Safari does not
+ *  focus a tapped button, so without this nothing in the page holds focus. */
+function takeFocus(): void {
+  section()?.focus({ preventScroll: true });
 }
 
 let listening = false;
@@ -454,9 +414,10 @@ let listening = false;
 export function startInbox(): void {
   const s = section();
   if (!s) return;
-  Object.assign(state, { open: null, expanded: false, showSnoozed: false, showKeys: false });
+  Object.assign(state, { open: null, expanded: false, folds: new Set() });
   state.cursor = openRows()[0]?.dataset.row ?? null;
   applyView();
+  if (!document.activeElement || document.activeElement === document.body) takeFocus();
   if (listening) return;
   listening = true;
   document.addEventListener('click', onClick);
