@@ -35,6 +35,9 @@ export function interviewDocs(
   boardDocIds: (workspaceId: string) => readonly string[] | undefined,
   /** Where a planning meeting's notes are held while a question is out. */
   ears?: MeetingEars,
+  /** An answer was written under `headingId`: the section now talked about
+   *  (`plan-minutes.ts`). */
+  wrote?: (docId: string, headingId: string) => void,
 ): InterviewDocs {
   let seq = 0;
   return {
@@ -55,7 +58,10 @@ export function interviewDocs(
       );
       if (!res.ok) return res.error === 'not-found' ? 'gone' : 'failed';
       const outcome = res.outcomes[0];
-      if (outcome?.status === 'applied' || outcome?.status === 'suggested') return 'written';
+      if (outcome?.status === 'applied' || outcome?.status === 'suggested') {
+        wrote?.(docId, headingId);
+        return 'written';
+      }
       return outcome?.error === 'unknown-block' || outcome?.error === 'not-a-heading'
         ? 'gone'
         : 'failed';

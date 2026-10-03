@@ -596,7 +596,7 @@ export class SpokenSession {
       this.sayAside(a);
       return;
     }
-    if (done.note) this.room.note(done.note);
+    if (done.note) this.room.note(done.note, done.about);
     this.deps.sendJson({ type: 'doing', label: done.label });
     this.sayHeldIfQuiet();
   }

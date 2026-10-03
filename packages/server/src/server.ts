@@ -200,6 +200,7 @@ import { interviewDocs } from './spoken-reply/interview-docs.ts';
 import { INTERVIEW_TIMINGS_FILE, InterviewLog } from './spoken-reply/interview-log.ts';
 import { LeadAnswers } from './spoken-reply/lead-answer.ts';
 import { MeetingEars } from './spoken-reply/meeting-ears.ts';
+import { PlanMinutes } from './spoken-reply/plan-minutes.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
@@ -717,6 +718,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       ownerId: () => ownerIdentityIds()[0] ?? 'owner',
       notesOf: (docId) => docStore.readMarkdownBody(docId),
       leads: leadAnswers,
+      planMinute: (docId, markdown, about) => planMinutes.place(docId, markdown, about),
     }),
   });
   /**
@@ -765,6 +767,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     ...(opts.editSessionIdleMs !== undefined ? { editSessionIdleMs: opts.editSessionIdleMs } : {}),
     ...(summarizer ? { summarizer } : {}),
   });
+  // A planning meeting's minutes, under the plan section each is about.
+  const boardDocIds = (ws: string) => taskStore.getWorkspace(ws)?.docIds;
+  const planMinutes = new PlanMinutes(
+    interviewDocs(docStore, boardDocIds),
+    (docId) => docStore.peekMeta(docId)?.huddleKind === 'plan',
+  );
   // Materialize the shared board-feedback doc at startup rather than letting
   // the first widget connection conjure it. A doc created by a `/y/<id>`
   // connect has no title and no type, so it reads as a ghost in list_docs —
@@ -1625,7 +1633,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     parseContext: parseVoiceContext,
     // The planning voice: a plan read at each pause, answers written in.
     interview: {
-      docs: interviewDocs(docStore, (ws) => taskStore.getWorkspace(ws)?.docIds, meetingEars),
+      docs: interviewDocs(docStore, boardDocIds, meetingEars, (docId, headingId) =>
+        planMinutes.talkedAbout(docId, headingId),
+      ),
       log: new InterviewLog(join(dataDir, INTERVIEW_TIMINGS_FILE)),
       ...(opts.voiceComplete ? { complete: opts.voiceComplete } : {}),
       ...(opts.planWarmupMs !== undefined ? { warmupMs: opts.planWarmupMs } : {}),
@@ -1637,7 +1647,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         ? {
             engine: meetingEars.engine(docId),
             plan: docStore.peekMeta(docId)?.huddleKind === 'plan',
-            note: (markdown) => meetingEars.note(docId, markdown),
+            note: (markdown, about) => {
+              if (!planMinutes.place(docId, markdown, about)) meetingEars.note(docId, markdown);
+            },
             recent: () =>
               meetingContext(docStore.readMarkdownBody(docId), meetingEars.recentSpeech(docId)),
           }

@@ -56,8 +56,9 @@ export interface MeetingRoom {
   engine: TranscriptionEngine;
   /** A planning meeting: the planning voice asks at its pauses. */
   plan: boolean;
-  /** Writes lines into this meeting's own notes section. */
-  note(markdown: string): void;
+  /** Writes a minute into this meeting: its notes section, or in a plan the
+   *  section `about` (what was asked) names (`plan-minutes.ts`). */
+  note(markdown: string, about?: string): void;
   /** The meeting's notes and the speech before now, which a "Claude, …" is
    *  asked with (`voice-meeting-context.ts`). Untrusted. */
   recent?(): MeetingContext | undefined;
@@ -123,7 +124,7 @@ export async function meetingAnswer(
     // gives one, is written when it comes (`meeting-errands.ts`).
     if (a.awaiting) return { ...a, asking: false, request };
     const minute = minuteFor(a);
-    if (minute) turn.room.note(minute);
+    if (minute) turn.room.note(minute, request);
     return { ...meetingLine(a), asking: false };
   }
   return turn.room.plan ? meetingLine(await answerer.answer(heard, actor, context, true)) : SILENT;

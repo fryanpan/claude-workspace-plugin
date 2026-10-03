@@ -31,30 +31,34 @@ export function doingLabel(request: string): string {
 export interface ErrandDone {
   /** For the meeting's notes: the lead's minute, or null for none. */
   note: string | null;
+  /** What was asked, which a planning meeting places the minute by. */
+  about: string;
   /** The page's line now: the latest work still out, or null. */
   label: string | null;
 }
 
 export class MeetingErrands {
   /** Work out with the lead, oldest first: queue id to its label. */
-  private readonly out = new Map<string, { label: string }>();
+  private readonly out = new Map<string, { label: string; request: string }>();
   /** Answers in, waiting for a pause to be said. */
   private held: SpokenAnswer[] = [];
 
   /** The lead took `request` as `queueId`; the page's line now. */
   started(queueId: string, request: string): string {
     const label = doingLabel(request);
-    this.out.set(queueId, { label });
+    this.out.set(queueId, { label, request });
     return label;
   }
 
   /** The lead answered `queueId`; null when the meeting did not ask it. */
   answered(queueId: string, a: SpokenAnswer): ErrandDone | null {
-    if (!this.out.has(queueId)) return null;
+    const asked = this.out.get(queueId);
+    if (!asked) return null;
     this.out.delete(queueId);
     this.held.push({ ...meetingLine(a), detail: [], asking: false });
     return {
       note: minuteFor(a),
+      about: asked.request,
       label: [...this.out.values()].pop()?.label ?? null,
     };
   }
