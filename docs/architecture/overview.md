@@ -1550,7 +1550,12 @@ per-edit reasons to the dialog, which has a card where this has one row.
 `notes-link-affordance.ts` joins the editor tier beside
 `task-link-chips.ts`, and is the one plugin there that WRITES: the chips are
 render-time and change nothing, while accepting a note's suggestion or undoing
-a link edits the stored doc and calls the board. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+a link edits the stored doc and calls the board. `yjs-observer-guard.ts`
+joins the editor tier too and changes none of the picture: an extension in
+`editor.ts`'s base list that keeps a transaction dispatched from inside a
+Yjs observer from writing the editor's not-yet-redrawn doc back over the
+change being observed, which is how a reconnecting tab re-inserted an
+agent's deleted blocks. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"

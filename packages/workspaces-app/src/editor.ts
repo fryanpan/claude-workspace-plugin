@@ -37,6 +37,7 @@ import { CODE_BLOCK_MARKS, SuggestDelete, SuggestInsert } from './suggest-marks.
 import { SuggestionChips } from './suggestions/suggestion-chips.ts';
 import { TaskLinkChips } from './task-link-chips.ts';
 import { ThreadDecorations, type ThreadRange, setThreadDecorations } from './thread-decorations.ts';
+import { YjsObserverGuard } from './yjs-observer-guard.ts';
 
 /**
  * WYSIWYG markdown editor backed by Tiptap (ProseMirror) + Yjs collaboration.
@@ -221,6 +222,9 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
         document: opts.ydoc,
         field: fragmentName,
       }),
+      // A dispatch from a Yjs observer must not write a stale doc back over
+      // the change being observed — see yjs-observer-guard.ts.
+      YjsObserverGuard.configure({ ydoc: opts.ydoc }),
       ThreadDecorations,
       // Live status chips beside workspace task links — render-time only,
       // never written into the fragment. In the base list because every
