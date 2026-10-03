@@ -144,21 +144,30 @@ function decorate(widget: FeedbackWidgetEl, pop: HTMLElement): void {
     n.className = 'cw-sugg-note';
     n.textContent = text;
   };
+  const buttons = block.querySelectorAll<HTMLButtonElement>('button');
+  // One answer at a time: a second tap while the first posts would file twice.
+  const busy = (on: boolean): void => {
+    for (const b of buttons) b.disabled = on;
+  };
   block.querySelector('[data-accept]')?.addEventListener('click', async () => {
     let done = false;
+    busy(true);
     try {
       done = await acceptSuggestion(widget, id, anchor, s);
     } catch {}
+    busy(false);
     if (done) pop.remove();
     else note('Could not accept. The page may have changed; reply instead.');
   });
   block.querySelector('[data-reject]')?.addEventListener('click', async () => {
+    busy(true);
     try {
       await widget.setStatus(id, 'resolved');
       pop.remove();
     } catch {
       note('Could not reject. Try again.');
     }
+    busy(false);
   });
   pop.querySelector('.actions')?.before(block);
 }

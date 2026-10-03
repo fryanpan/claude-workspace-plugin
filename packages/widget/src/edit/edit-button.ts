@@ -139,9 +139,10 @@ export function mountEditLoader(doc: Document, chunkSrc: string): HTMLButtonElem
     );
   });
 
-  // Marks for edits already waiting, and an agent's suggestion's buttons:
-  // load the mode, without entering it, as soon as the doc says there is one — or this tab holds unsent edits a
-  // reload interrupted (`draft-store.ts`), which the mode puts back.
+  // Marks for edits already waiting, and the buttons of an agent's
+  // suggestion: load the mode, without entering it, as soon as the doc says
+  // there is one — or this tab holds unsent edits a reload interrupted
+  // (`draft-store.ts`), which the mode puts back.
   // The doc is only read once it has synced; the tab's own drafts at once.
   const threads = widget.client?.ydoc.getMap('threads');
   const load = (): void => {
