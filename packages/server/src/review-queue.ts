@@ -40,6 +40,7 @@ import {
   threadReviewItemId,
 } from '@claude-workspaces/core';
 import { withPartialNote } from '@claude-workspaces/core/answer-coverage-prompt';
+import { pageUrlOf } from '@claude-workspaces/core/page-thread-link';
 import { type ReviewGateNote, gateNoteOf } from '@claude-workspaces/core/review-hold';
 import { classifyActor } from './actor-identity.ts';
 import { asksPerson, extractAsk } from './ask-detection.ts';
@@ -99,6 +100,9 @@ export interface ReviewThreadItem {
    *  rendering of its HTML. Absent on the two task-shaped kinds, whose docs
    *  are always ticket bodies. */
   docType?: DocType;
+  /** The page an `app` doc's thread is pinned to (its anchor's context), so a
+   *  link opens that page rather than the app's root (`pageThreadHref`). */
+  pageUrl?: string;
   threadId: string;
   /** The comment this row is about: the declaration if there is one, else the
    *  comment being quoted. Needed to stamp an answer back onto the item. */
@@ -402,6 +406,7 @@ export function reviewThreadItems(args: {
     const title = decodeEntities(rawTitle);
     for (const thread of args.source.threadsOf(docId)) {
       const run = unansweredRun(thread);
+      const pageUrl = docType === 'app' ? pageUrlOf(thread.anchor) : undefined;
       // A DECLARATION beats every heuristic below it, and the newest one wins
       // for the same reason the newest ask does: it is the one still standing.
       // Asked over the whole thread rather than over the run, so a person
@@ -436,6 +441,7 @@ export function reviewThreadItems(args: {
           band: 'declared',
           docId,
           ...(docType ? { docType } : {}),
+          ...(pageUrl ? { pageUrl } : {}),
           threadId: thread.id,
           commentId: declaring.id,
           reviewItemId: threadReviewItemId(docId, thread.id, declaring.id),
@@ -492,6 +498,7 @@ export function reviewThreadItems(args: {
         band: 'unreplied',
         docId,
         ...(docType ? { docType } : {}),
+        ...(pageUrl ? { pageUrl } : {}),
         threadId: thread.id,
         commentId: asked.id,
         ...(taskId ? { taskId } : {}),

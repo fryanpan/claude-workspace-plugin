@@ -124,6 +124,21 @@ describe('a cross-board row as a card', () => {
   });
 });
 
+describe('an app thread on another board', () => {
+  it('opens the page it is pinned to, with the thread selected', () => {
+    const [app] = entries([
+      docRow({
+        docId: 'd-site',
+        docType: 'app',
+        pageUrl: '/workspaces/w-harbor/apps/d-site/transportation/bike/?cw-frame=1',
+      }),
+    ]);
+    expect(crossItemHref(app!)).toBe(
+      '/workspaces/w-harbor/apps/d-site/transportation/bike/?thread=th-9',
+    );
+  });
+});
+
 describe('the walk opens where Home pointed', () => {
   const queue = () =>
     entries([

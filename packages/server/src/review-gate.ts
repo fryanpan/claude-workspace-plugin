@@ -34,6 +34,7 @@ import {
   isGetItAnywayHold,
   refusalProof,
 } from '@claude-workspaces/core/done-when-refusal';
+import { pageThreadHref, pageUrlOf } from '@claude-workspaces/core/page-thread-link';
 import {
   REVIEW_HOLD_UNUSABLE_REASON,
   boundHoldWords,
@@ -178,12 +179,17 @@ export function createReviewGate(ctx: ReviewGateContext) {
   } = ctx;
   /** Where a comment-borne review item opens. A task discussion opens the
    *  TICKET — the board reveals the thread from its own state — while a doc
-   *  thread opens the doc at the comment rather than at its top. */
+   *  thread opens the doc at the comment rather than at its top, and an app
+   *  thread opens the page it is pinned to. */
   function reviewThreadLink(docId: string, threadId: string): string | undefined {
     const base = threadUrl(docId, false);
     if (!base) return undefined;
     if (docId.startsWith('task:')) return base;
-    return `${base}?thread=${encodeURIComponent(threadId)}`;
+    const anchor =
+      docStore.peekMeta(docId)?.type === 'app'
+        ? docStore.getThread(docId, threadId)?.anchor
+        : undefined;
+    return pageThreadHref(base, threadId, anchor ? pageUrlOf(anchor) : undefined);
   }
 
   /** What the reader is being asked ABOUT: the ticket's title for a task

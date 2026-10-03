@@ -23,6 +23,7 @@ import type { BootLocation } from '../boot-env.ts';
 import type { BoardState } from './board-actions.ts';
 import type { BoardHandlers } from './board-island.tsx';
 import { type ReviewItem, reviewRow } from './board-review-model.ts';
+import { docThreadHref } from './doc-thread-href.ts';
 
 /** Everything the openers need from `bootBoard`, and nothing else. */
 export interface BoardQueueOpenDeps {
@@ -111,19 +112,15 @@ export function createBoardQueueOpeners(deps: BoardQueueOpenDeps): BoardQueueOpe
     }
     // The doc's canonical workspace address rather than the legacy `/review/`
     // one, so what lands in the reader's address bar is the shape every other
-    // surface emits and the link-chip renderer titles.
+    // surface emits and the link-chip renderer titles. A mock or an app opens
+    // as the page it is, where the widget docks the item on it: `/docs/`
+    // renders a mockup's stored HTML in the markdown editor, the one surface
+    // on which "does this screen read right" cannot be answered.
     //
-    // A MOCKUP goes to `/mockups/`, where the mock is a page you can look at
-    // and the widget docks the item on it. `/docs/` renders a mockup's stored
-    // HTML in the markdown editor: a 200, and the one surface on which "does
-    // this screen read right" cannot be answered. `docType` is absent on an
-    // older server's payload and the destination is then the one it always
-    // was.
-    const surface = t.docType === 'mockup' ? 'mockups' : 'docs';
-    const back = returnItem ? `&item=${encodeURIComponent(returnItem)}` : '';
-    location.assign(
-      `/workspaces/${encodeURIComponent(workspaceId)}/${surface}/${encodeURIComponent(t.docId)}?thread=${encodeURIComponent(t.threadId)}${back}`,
-    );
+    // An app page gets no `item`: the address is the app's own, and a query
+    // the app never wrote would stop its pins matching the page.
+    const back = returnItem && t.docType !== 'app' ? `&item=${encodeURIComponent(returnItem)}` : '';
+    location.assign(`${docThreadHref(workspaceId, t)}${back}`);
     return false;
   }
 
