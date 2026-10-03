@@ -691,6 +691,9 @@ export interface ServerOptions {
    * offers no setup and the board keeps its plain mic.
    */
   spokenReply?: SpokenEngines;
+  /** How long a planning meeting is heard before its voice asks anything
+   *  unprompted (`MEETING_WARMUP_MS`). Tests pass 0. */
+  planWarmupMs?: number;
   /** How long after a voice page goes before the server writes its notes
    *  (`VOICE_KEEP_GRACE_MS`). Tests pass 0. */
   voiceKeepGraceMs?: number;

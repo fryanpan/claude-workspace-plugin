@@ -73,12 +73,14 @@ export async function heardMeeting(
     board?: SpokenBoard;
     markdown?: string;
     complete?: PlanComplete;
+    warmup?: boolean;
   } = {},
 ): Promise<HeardMeeting> {
   const ears = new MeetingEars();
   const fx = await planFixture({
     ...(o.markdown !== undefined ? { markdown: o.markdown } : {}),
     ...(o.complete ? { complete: o.complete } : {}),
+    ...(o.warmup ? { warmup: true } : {}),
     ears,
   });
   const notes: string[] = [];

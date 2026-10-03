@@ -739,7 +739,8 @@ the voice mic by `doc/doc-voice-mount.ts`) opens the spoken-reply socket with
 board the session ends each turn only at a confirmed pause
 (`spoken-reply/pause-gate.ts`: the listener's endpoint, then a quiet window
 that is longer after a turn ending mid-sentence), and every turn is
-`spoken-reply/interview.ts`'s: the first pause begins the run. It reads the
+`spoken-reply/interview.ts`'s: the first pause begins the run (in a
+meeting, the first pause after its first minute, `MeetingWarmup`). It reads the
 plan's gaps off the doc's outline (`interview-gaps.ts`: empty, placeholder,
 open-question and short sections, ranked by heading), holds them as slots in
 `interview-state.ts` (each asked once, then placed, skipped, deferred, gone or

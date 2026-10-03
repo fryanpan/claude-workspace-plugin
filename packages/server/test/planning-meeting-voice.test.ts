@@ -106,6 +106,8 @@ describe('the planning voice in a planning meeting', () => {
       dataDir,
       transcription: createMockTranscriptionEngine(SCRIPT),
       meetingNotes: { composer, quietMs: 60_000, schedule: NEVER },
+      // The first pause may ask; the quiet first minute is meeting-warmup.test.ts's.
+      planWarmupMs: 0,
       spokenReply: {
         // Never opened: the meeting is the ears.
         listener: { name: 'unused', open: () => Promise.reject(new Error('not this one')) },

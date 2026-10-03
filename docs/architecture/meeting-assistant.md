@@ -2830,6 +2830,18 @@ meeting path transcribes and writes notes but never speaks.
   and as a `pause` message on every change, which times the next wait.
   Untested so far: whether Soniox's end of utterance usually comes before
   1.5s, in which case 1.5s rarely decides.
+- **Not in the first minute** (`MeetingWarmup` in `interview-state.ts`,
+  Bryan, 3 Oct: it cut in too soon early on, and was better later). Nothing
+  is asked unprompted for the first 60s after the meeting is first heard at a
+  pause on that doc; what is said meanwhile is kept, so the first reading
+  after it hears the opening too. "Any questions?" is answered at once. The
+  cause is inferred, not measured: at the opening the plan is nearly empty,
+  so the reader's first rule (why the plan exists is unclear) holds at the
+  first finished "Hi everyone.", and a replay of a first minute of small talk
+  (`meeting-warmup.test.ts`) asked at 2s before the change. The pause default
+  was ruled out by reading the code (page and server share
+  `SPOKEN_PAUSE_DEFAULT`); whether Soniox also finalizes early while it warms
+  up is not known, and the warm-up holds either way.
 - **What it asks** (`interview-reader.ts`). Rarely, and only when the reason
   for the plan or its outcome is unclear, who it is for or the workflow it
   changes is unclear, or a decision the plan depends on is unanswered. There
