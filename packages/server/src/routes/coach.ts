@@ -61,7 +61,7 @@ export interface CoachRouteRequest {
 
 const MAX_BODY_BYTES = 4_000;
 const ANSWER_PATH = /^\/coach\/moments\/(cm-[A-Za-z0-9_-]{12})\/answer$/;
-const REPLY_PATH = /^\/coach\/candidates\/(cc-[A-Za-z0-9_-]{12})\/reply$/;
+const REPLY_PATH = /^\/coach\/candidates\/([^/]+)\/reply$/;
 const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
 const HEADING_CHARS = 120;
 

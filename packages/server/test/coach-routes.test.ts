@@ -242,13 +242,16 @@ describe('POST /coach/check — this machine only', () => {
 });
 
 describe('POST /coach/candidates/:id/reply — the coach session, this machine only', () => {
-  it('refuses the edge, leaves a malformed id to the owner-only gate, and names a candidate nobody is waiting on', async () => {
+  it('refuses the edge whatever the id, and names a candidate nobody is waiting on, malformed or not', async () => {
     const path = '/coach/candidates/cc-aaaaaaaaaaaa/reply';
     expect(
       (await postJson(path, { verdict: 'quiet' }, await ownerHeaders(), OWNER_HOST)).status,
     ).toBe(403);
     expect(
       (await postJson('/coach/candidates/cc-x/reply', { verdict: 'quiet' }, {}, local())).status,
+    ).toBe(404);
+    expect(
+      (await postJson('/coach/candidates/cc-x/reply', { verdict: 'quiet' }, {}, OWNER_HOST)).status,
     ).toBe(403);
     const res = await postJson(path, { verdict: 'quiet' }, {}, local());
     expect(res.status).toBe(404);
