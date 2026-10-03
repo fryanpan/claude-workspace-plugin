@@ -25,8 +25,9 @@ import type { prose } from '@claude-workspaces/core';
 import { planHeadings } from './interview-gaps.ts';
 import type { InterviewDocs } from './interview.ts';
 
-/** Words too common to tell one heading from another. */
-const COMMON = new Set(['and', 'the', 'for', 'with', 'from', 'into', 'about']);
+/** Words too common to tell one heading from another; every minute opens
+ *  with "Claude:", so that name names no section. */
+const COMMON = new Set(['and', 'the', 'for', 'with', 'from', 'into', 'about', 'claude']);
 
 /** A text's words, lowercased, with a plural's trailing "s" dropped. */
 function wordsOf(text: string): string[] {

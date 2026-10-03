@@ -48,6 +48,13 @@ describe('the section a minute goes under', () => {
     expect(minuteHeading(OUTLINE, 'the Harborlight launch date', 'h-goals')?.id).toBe('h-goals');
   });
 
+  it('not a heading named for Claude, which every minute says', () => {
+    const withClaude = [...OUTLINE, entry('h-claude', 'Claude', 2)];
+    expect(minuteHeading(withClaude, '- Claude: Decided: ferry on Friday', 'h-goals')?.id).toBe(
+      'h-goals',
+    );
+  });
+
   it('else the section last talked about, else the last section', () => {
     expect(minuteHeading(OUTLINE, 'book the ferry', 'h-goals')?.id).toBe('h-goals');
     expect(minuteHeading(OUTLINE, 'book the ferry', 'h-gone')?.id).toBe('h-open');
