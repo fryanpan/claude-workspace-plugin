@@ -1803,7 +1803,7 @@ beside it. Bryan's Remove is a tap like snooze: the row goes to `dismissed`
 with no reason, and a new message on its thread reopens it.
 
 **The coach** helps Bryan with habits he names, in three parts. It is not a
-board feature, and nothing in it reaches an agent's stream.
+board feature; the one agent it reaches is its own session.
 (A) *Goals*: "Set up my coach" on the front page makes one learning-goals doc
 on a board of its own (`coach/setup.ts`, `coach/goals-doc.ts`), which the
 planning interview fills when he taps Talk; the front page's section
@@ -1819,7 +1819,10 @@ only then asks the coach's Claude Code session, the Coach board's lead, with
 one addressed `coach.candidate` frame (`coach/session-judge.ts`); the session
 answers on `/coach/candidates/:id/reply`, and `coach/judge.ts` refuses an
 answer that does not quote one of his "act differently when" lines. A moment goes to his pages over `/coach/stream`
-(`coach/hub.ts`) and draws the card; his answer lowers the rate.
+(`coach/hub.ts`) and draws the card; his answer lowers the rate. In the
+session, `mcp/src/coach-line.ts` renders the frame and `coach_reply` answers
+it; the persona is the plugin's `coaching` skill. With no session holding a
+stream the coach asks nothing and the front page says it is offline.
 `coach/store.ts` keeps it all in `coach/state.json`, mode 600; `coach/wiring.ts`
 composes it for `server.ts`. `scripts/coach-eval.ts` asks the real model at
 each labelled point of the fixture day, as a check that the candidate's
