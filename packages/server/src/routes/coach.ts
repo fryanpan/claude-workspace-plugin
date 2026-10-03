@@ -21,6 +21,8 @@
  *    asks for the same-origin fetch mark alone. The gate is Incoming
  *    Messages' (`routes/inbox.ts`), repeated rather than imported so neither
  *    family reaches into the other.
+ *  - `/coach/here` answers anyone but the owner with an empty 204, which
+ *    the page reads as "stop": every board and doc page sends it.
  *  - The check is for a process on this machine (`refuseNonLocal`). It
  *    passes every gate a trigger does, including at most one judgement in
  *    twenty minutes, so a loop here cannot run up the bill.
@@ -146,6 +148,13 @@ export async function handleCoachRoutes(
     return j(200, await coach.judgeNow());
   }
 
+  // Every board and doc page sends where he is, whoever is reading it, and
+  // only the owner's is used. Anyone else's gets an empty answer that the
+  // page reads as "no coach here", so it stops, and a reader's console shows
+  // no refusal for a feature that was never theirs.
+  if (pathname === '/coach/here' && (rq.visitor || !rq.ownerProven())) {
+    return new Response(null, { status: 204 });
+  }
   const denied = refuseNonOwner(ctx, rq);
   if (denied) return denied;
   if (tooLarge(req)) return j(413, { error: 'too-large' });

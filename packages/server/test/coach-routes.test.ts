@@ -180,7 +180,7 @@ describe('the owner’s settings and answers', () => {
 });
 
 describe('POST /coach/here', () => {
-  it('takes where he is on a board and doc that exist, and refuses the rest', async () => {
+  it('takes where he is on a board and doc that exist, refuses the rest, and tells anyone else to stop', async () => {
     const { workspaceId, docId } = ids();
     const h = await ownerHeaders();
     const ok = await postJson(
@@ -201,9 +201,18 @@ describe('POST /coach/here', () => {
     ];
     for (const body of cases)
       expect((await postJson('/coach/here', body, h, OWNER_HOST)).status).toBe(400);
+    // Not the owner: an empty answer that tells the page to stop, not a refusal.
     expect(
       (await postJson('/coach/here', { workspaceId, visible: true }, {}, local())).status,
-    ).toBe(403);
+    ).toBe(204);
+    // The owner's cookie from another site is still refused.
+    const cross = await postJson(
+      '/coach/here',
+      { workspaceId, visible: true },
+      { ...h, 'sec-fetch-site': 'cross-site' },
+      OWNER_HOST,
+    );
+    expect(cross.status).toBe(403);
   });
 });
 

@@ -8,9 +8,8 @@
  * server counts no time for it. The doc page adds how far down he is and the
  * heading he is under.
  *
- * Only the owner has a coach. Anyone else's first POST is refused, and the
- * page then stops: no more beacons, and the stream is never opened (a refused
- * EventSource does not retry, but it costs a request on every page).
+ * Only the owner has a coach. Anyone else's first POST gets an empty 204,
+ * and the page then stops: no more beacons, and the stream is never opened.
  *
  * The card: calm by default. It sits in the bottom-left corner, does not
  * move or pulse, and leaves when he answers, when the server clears it, or
@@ -42,7 +41,8 @@ export interface CoachCardOptions {
   /** The doc's editor, whose headings say which part he is reading. */
   root?: HTMLElement;
   /** Injected by tests. */
-  post?: (url: string, body: unknown) => Promise<boolean>;
+  /** Answers the status, or 0 when the request never landed. */
+  post?: (url: string, body: unknown) => Promise<number>;
   openStream?: (url: string) => EventSource;
   now?: () => number;
 }
@@ -60,7 +60,7 @@ const STYLES = `
 .cw-coach-acts button:disabled { opacity: .55; cursor: default; }
 `;
 
-async function defaultPost(url: string, body: unknown): Promise<boolean> {
+async function defaultPost(url: string, body: unknown): Promise<number> {
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -68,9 +68,9 @@ async function defaultPost(url: string, body: unknown): Promise<boolean> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return res.ok;
+    return res.status;
   } catch {
-    return false;
+    return 0;
   }
 }
 
@@ -113,7 +113,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   let shown: CoachMomentView | null = null;
   let expiry: ReturnType<typeof setTimeout> | undefined;
 
-  const send = async (): Promise<boolean> => {
+  const send = async (): Promise<number> => {
     sentAt = now();
     movedSince = false;
     return post(HERE_URL, {
@@ -148,7 +148,8 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
 
   const answer = async (id: string, value: string, buttons: HTMLButtonElement[]) => {
     for (const b of buttons) b.disabled = true;
-    if (await post(`/coach/moments/${encodeURIComponent(id)}/answer`, { answer: value })) hide(id);
+    if ((await post(`/coach/moments/${encodeURIComponent(id)}/answer`, { answer: value })) === 200)
+      hide(id);
     else for (const b of buttons) b.disabled = false;
   };
 
@@ -226,8 +227,9 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     hide();
   };
 
-  void send().then((ok) => {
-    if (!ok) return destroy();
+  // 200 is the owner; anything else (204 for anyone else) stops the page.
+  void send().then((status) => {
+    if (status !== 200) return destroy();
     if (stopped) return;
     if (!opts.openStream && typeof EventSource === 'undefined') return;
     stream = (opts.openStream ?? ((url) => new EventSource(url)))(STREAM_URL);

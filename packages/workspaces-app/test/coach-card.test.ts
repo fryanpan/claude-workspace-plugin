@@ -9,7 +9,7 @@ import { BEACON_EVERY_MS, MOMENT_TTL_MS, mountCoachCard } from '../src/coach-car
 
 type Posted = { url: string; body: Record<string, unknown> };
 let posted: Posted[];
-let accept: boolean;
+let status: number;
 let clock: number;
 
 class FakeStream {
@@ -46,7 +46,7 @@ function mount(extra: Partial<Parameters<typeof mountCoachCard>[0]> = {}) {
     workspaceId: 'w-harbor',
     post: async (url, body) => {
       posted.push({ url, body: body as Record<string, unknown> });
-      return accept;
+      return status;
     },
     openStream: (url) => new FakeStream(url) as unknown as EventSource,
     now: () => clock,
@@ -57,7 +57,7 @@ function mount(extra: Partial<Parameters<typeof mountCoachCard>[0]> = {}) {
 beforeEach(() => {
   vi.useFakeTimers();
   posted = [];
-  accept = true;
+  status = 200;
   clock = 1_000_000;
   FakeStream.last = null;
 });
@@ -88,8 +88,8 @@ describe('where he is', () => {
     c.destroy();
   });
 
-  it('a refused first ping stops it: no stream, and no ping after', async () => {
-    accept = false;
+  it('a first ping answered 204 (not the owner) stops it: no stream, and no ping after', async () => {
+    status = 204;
     mount();
     await flush();
     expect(FakeStream.last).toBeNull();
@@ -123,7 +123,7 @@ describe('the card', () => {
     mount();
     await flush();
     FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: clock } });
-    accept = false;
+    status = 0;
     card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.click();
     await flush();
     expect(card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.disabled).toBe(
