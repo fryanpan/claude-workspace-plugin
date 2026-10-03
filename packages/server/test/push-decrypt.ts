@@ -22,7 +22,9 @@ export async function pushDevice(endpoint: string) {
   return { subscription, privateKey: pair.privateKey, publicKey, auth };
 }
 
-async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: number) {
+type Bytes = Uint8Array<ArrayBuffer>;
+
+async function hkdf(salt: Bytes, ikm: Bytes, info: Bytes, bytes: number): Promise<Bytes> {
   const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt, info },
@@ -35,7 +37,7 @@ async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: 
 /** The plaintext of one `aes128gcm` body sent to `device`. */
 export async function decryptPush(
   device: Awaited<ReturnType<typeof pushDevice>>,
-  body: Uint8Array,
+  body: Bytes,
 ): Promise<string> {
   const salt = body.slice(0, 16);
   const idLen = body[20] ?? 0;

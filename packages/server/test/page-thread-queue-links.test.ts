@@ -27,7 +27,7 @@ describe("a review item on an app page's thread", () => {
   let base: string;
   let dev: DevServerFixture;
   let device: Awaited<ReturnType<typeof pushDevice>>;
-  const sent: Uint8Array[] = [];
+  const sent: Uint8Array<ArrayBuffer>[] = [];
   let ws = '';
   let app = '';
   let mock = '';
