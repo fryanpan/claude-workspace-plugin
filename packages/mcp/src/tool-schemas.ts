@@ -364,6 +364,23 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'coach_reply',
+      description:
+        'The coach session\'s answer to a coach.candidate line. Send {"verdict":"quiet"} unless what they are doing plainly matches one goal\'s "Act differently when", and then the moment object the line describes. The server checks the quote, the spacing and the daily cap, so a moment can still stay quiet. settled:false means the candidate lapsed or was already answered.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          candidateId: { type: 'string', description: 'From the coach.candidate line.' },
+          verdict: {
+            type: 'object',
+            description:
+              '{"verdict":"quiet"}, or {"verdict":"moment","goal":N,"matched":"...","observed":"...","line":"..."} as the line says.',
+          },
+        },
+        required: ['candidateId', 'verdict'],
+      },
+    },
+    {
       name: 'create_thread',
       description:
         'Open a comment thread on a doc. Pass find to anchor the thread to a phrase, or omit find for a thread about the whole doc. Pass review when you ask a person to decide or to look. `held: true` in the result means the item waits for a revision. Use revise_review_item for the next round, not a new thread.',

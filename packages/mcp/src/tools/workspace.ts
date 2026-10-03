@@ -788,6 +788,20 @@ export async function handleWorkspaceTool(
           : { note: 'No page is waiting for this answer. Post it on the task or a thread.' }),
       });
     }
+    case 'coach_reply': {
+      const { candidateId, verdict } = a as { candidateId?: unknown; verdict?: unknown };
+      if (typeof candidateId !== 'string' || candidateId === '')
+        return err('candidateId is required');
+      if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict))
+        return err('verdict must be an object, such as {"verdict":"quiet"}');
+      try {
+        await http('POST', `/coach/candidates/${encodeURIComponent(candidateId)}/reply`, verdict);
+      } catch (e) {
+        if (!String(e).includes('no-such-candidate')) throw e;
+        return ok({ settled: false, note: 'This candidate lapsed or was already answered.' });
+      }
+      return ok({ settled: true });
+    }
     case 'request_plugin_refresh': {
       // No arguments reach the process this runs — the server's argv is
       // fixed. Nothing a caller can send gets spawned.

@@ -11,6 +11,7 @@ import type { CoachStore } from './store.ts';
 export function coachSectionFor(
   store: CoachStore,
   readGoals: () => GoalsDocReading | null,
+  online: boolean,
   now: number = Date.now(),
 ): string {
   const doc = store.goalsDoc;
@@ -21,6 +22,7 @@ export function coachSectionFor(
       ? `/workspaces/${encodeURIComponent(doc.workspaceId)}/docs/${encodeURIComponent(doc.docId)}`
       : null,
     name: reading?.name ?? DEFAULT_COACH_NAME,
+    online,
     goals: goals.map(goalTitle),
     unready: reading ? goals.length - actionableGoals(reading).length : 0,
     reviewDue: store.reviewDue(now),

@@ -18,6 +18,8 @@ export interface CoachSectionInput {
   /** The goals doc's page, once it exists. */
   docUrl: string | null;
   name: string;
+  /** A coach session is listening. Without one the coach says nothing. */
+  online: boolean;
   /** Goal titles, in the doc's order. */
   goals: readonly string[];
   /** Goals with no "Act differently when" yet: the coach cannot use them. */
@@ -65,7 +67,10 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
     w.moments > 0
       ? `<p class="coach-sub">This week: ${w.moments} ${w.moments === 1 ? 'moment' : 'moments'} · Thanks ${w.thanks} · Not now ${w.notNow} · Not this ${w.notThis}</p>`
       : '';
-  return `${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}`;
+  const offline = input.online
+    ? ''
+    : '<p class="coach-sub">Offline. No coach session is running, so it will not speak up.</p>';
+  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}`;
 }
 
 export function renderCoachSection(input: CoachSectionInput): string {

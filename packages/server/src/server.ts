@@ -1427,8 +1427,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     transport: opts.inboxTransport ?? systemTransport(),
   });
   /** The coach: Bryan's learning goals, what he is doing, and the moments
-   *  it raises (coach/wiring.ts). The model call rides the summarizer's
-   *  seam, so a server with no summarizer never makes one. */
+   *  it raises (coach/wiring.ts). The Coach board's lead session judges each
+   *  candidate; with no session listening, the coach stays quiet. */
   const coachWiring = wireCoach({
     dataDir,
     docStore,
@@ -1451,6 +1451,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     sendToAgent: (workspaceId, agentId, frame) =>
       sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
+    agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
   });
   // One queue over every board, in project order, and the ledger that records
   // where each answered item stood in it. Composed beside the Home pane

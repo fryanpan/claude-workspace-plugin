@@ -108,6 +108,7 @@ describe('wireCoach', () => {
       workspaceOf: () => 'w-coach',
       leadOf: () => undefined,
       sendToAgent: () => 0,
+      agentConnected: () => false,
       now: () => at(9),
     });
   }

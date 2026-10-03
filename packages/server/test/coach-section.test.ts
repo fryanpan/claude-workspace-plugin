@@ -18,6 +18,7 @@ const WEEK = {
 const base: CoachSectionInput = {
   docUrl: null,
   name: 'Your coach',
+  online: true,
   goals: [],
   unready: 0,
   reviewDue: false,
@@ -52,6 +53,17 @@ describe('renderCoachSection', () => {
     expect(html).toContain('at most every 3 hours');
     expect(html).not.toContain('data-review');
     expect(html).not.toContain('This week:');
+    expect(html).not.toContain('Offline');
+  });
+
+  it('says it is offline when no coach session is listening', () => {
+    const html = renderCoachSection({
+      ...base,
+      docUrl: '/workspaces/w-coach/docs/d-goals',
+      goals: ['Hard work first'],
+      online: false,
+    });
+    expect(html).toContain('Offline. No coach session is running, so it will not speak up.');
   });
 
   it('shows the weekly offer when due, and the week’s answers once there are moments', () => {

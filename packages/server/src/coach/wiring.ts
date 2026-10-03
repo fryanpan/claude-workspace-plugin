@@ -48,6 +48,8 @@ export interface CoachWiringDeps {
   /** The board's lead agent, if one is seated. */
   leadOf: (workspaceId: string) => string | undefined;
   sendToAgent: (workspaceId: string, agentId: string, frame: CandidateFrame) => number;
+  /** Whether that agent holds a stream on the board right now. */
+  agentConnected: (workspaceId: string, agentId: string) => boolean;
   now?: () => number;
 }
 
@@ -77,6 +79,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
       return ws && agentId ? { workspaceId: ws, agentId } : null;
     },
     send: deps.sendToAgent,
+    connected: deps.agentConnected,
     ...(deps.now ? { now: deps.now } : {}),
   });
   const coach = createCoach({
@@ -122,7 +125,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     hub,
     judge,
     setup,
-    landing: () => coachSectionFor(store, readGoals, (deps.now ?? Date.now)()),
+    landing: () => coachSectionFor(store, readGoals, judge.reachable(), (deps.now ?? Date.now)()),
     stop: () => {
       unsubscribe();
       judge.close();

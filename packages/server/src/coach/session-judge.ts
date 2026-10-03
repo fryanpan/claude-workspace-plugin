@@ -42,6 +42,8 @@ export interface SessionJudgeDeps {
   lead: () => { workspaceId: string; agentId: string } | null;
   /** Sends one addressed frame; answers how many of the lead's streams took it. */
   send: (workspaceId: string, agentId: string, frame: CandidateFrame) => number;
+  /** Whether the lead is holding a stream on its board now. */
+  connected?: (workspaceId: string, agentId: string) => boolean;
   now?: () => number;
   answerWithinMs?: number;
 }
@@ -56,9 +58,11 @@ export class SessionJudge {
 
   constructor(private readonly deps: SessionJudgeDeps) {}
 
-  /** Whether a session could be asked now: the board has a lead. */
+  /** Whether a session could be asked now: the board has a lead, and it is listening. */
   reachable(): boolean {
-    return this.deps.lead() !== null;
+    const lead = this.deps.lead();
+    if (!lead) return false;
+    return this.deps.connected?.(lead.workspaceId, lead.agentId) ?? true;
   }
 
   /** The coach's model seam, answered by the session. */

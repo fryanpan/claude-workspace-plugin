@@ -10,7 +10,9 @@ import { waitFor } from './wait-for.ts';
 const PROMPT = { system: 'You are Saltmarsh.', user: 'It is Wednesday, 10:10 his time.' };
 const LEAD = { workspaceId: 'w-coach', agentId: 'coach-session' };
 
-function judge(opts: { lead?: typeof LEAD | null; streams?: number; within?: number } = {}) {
+function judge(
+  opts: { lead?: typeof LEAD | null; streams?: number; within?: number; listening?: boolean } = {},
+) {
   const sent: { workspaceId: string; agentId: string; frame: CandidateFrame }[] = [];
   const j = new SessionJudge({
     lead: () => (opts.lead === undefined ? LEAD : opts.lead),
@@ -19,6 +21,7 @@ function judge(opts: { lead?: typeof LEAD | null; streams?: number; within?: num
       return opts.streams ?? 1;
     },
     now: () => 1_000,
+    connected: () => opts.listening ?? true,
     ...(opts.within !== undefined ? { answerWithinMs: opts.within } : {}),
   });
   return { j, sent };
@@ -49,6 +52,8 @@ describe('SessionJudge', () => {
     expect(none.j.reachable()).toBe(false);
     expect(await none.j.generate(PROMPT)).toBeNull();
     expect(none.sent).toHaveLength(0);
+    expect(judge({ listening: false }).j.reachable()).toBe(false);
+    expect(judge().j.reachable()).toBe(true);
     const deaf = judge({ streams: 0 });
     expect(await deaf.j.generate(PROMPT)).toBeNull();
     expect(deaf.j.waiting).toBe(0);

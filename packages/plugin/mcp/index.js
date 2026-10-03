@@ -14128,6 +14128,22 @@ function isBookkeepingEvent(event, payload) {
   return false;
 }
 
+// packages/mcp/src/coach-line.ts
+function coachCandidateLine(p) {
+  if (typeof p.candidateId !== "string" || p.candidateId === "")
+    return null;
+  return [
+    `[coach.candidate] Judge this as the coach (skill claude-workspaces:coaching). Answer within 3 minutes with coach_reply(candidateId="${p.candidateId}", verdict). Quiet unless it plainly matches.`,
+    "",
+    "How to judge:",
+    p.system ?? "(not sent)",
+    "",
+    "What they are doing:",
+    p.prompt ?? "(not sent)"
+  ].join(`
+`);
+}
+
 // packages/mcp/src/decision-line.ts
 function openPartsClause(openParts) {
   if (!Array.isArray(openParts))
@@ -14730,7 +14746,7 @@ function nowMs(deps) {
 function nowIso(deps) {
   return new Date(nowMs(deps)).toISOString();
 }
-var BOARD_EVENT_RE = /^(task|decision|workspace|agent|voice|dispatch)\./;
+var BOARD_EVENT_RE = /^(task|decision|workspace|agent|voice|dispatch|coach)\./;
 function dispatchReportedLine(p) {
   const who = p.agentName ?? p.actor?.name ?? "a builder";
   const commit = (p.headCommit ?? "").slice(0, 7);
@@ -14819,6 +14835,13 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       break;
     case "voice.request": {
       const line = voiceRequestLine(p);
+      if (line === null)
+        return;
+      body = line;
+      break;
+    }
+    case "coach.candidate": {
+      const line = coachCandidateLine(rawPayload);
       if (line === null)
         return;
       body = line;
@@ -15896,6 +15919,21 @@ var TOOL_LIST = {
           }
         },
         required: ["workspaceId", "queueId", "text"]
+      }
+    },
+    {
+      name: "coach_reply",
+      description: `The coach session's answer to a coach.candidate line. Send {"verdict":"quiet"} unless what they are doing plainly matches one goal's "Act differently when", and then the moment object the line describes. The server checks the quote, the spacing and the daily cap, so a moment can still stay quiet. settled:false means the candidate lapsed or was already answered.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          candidateId: { type: "string", description: "From the coach.candidate line." },
+          verdict: {
+            type: "object",
+            description: '{"verdict":"quiet"}, or {"verdict":"moment","goal":N,"matched":"...","observed":"...","line":"..."} as the line says.'
+          }
+        },
+        required: ["candidateId", "verdict"]
       }
     },
     {
@@ -20429,6 +20467,21 @@ async function handleWorkspaceTool(name, a, ctx) {
         ...res.delivered === true ? {} : { note: "No page is waiting for this answer. Post it on the task or a thread." }
       });
     }
+    case "coach_reply": {
+      const { candidateId, verdict } = a;
+      if (typeof candidateId !== "string" || candidateId === "")
+        return err2("candidateId is required");
+      if (!verdict || typeof verdict !== "object" || Array.isArray(verdict))
+        return err2('verdict must be an object, such as {"verdict":"quiet"}');
+      try {
+        await http("POST", `/coach/candidates/${encodeURIComponent(candidateId)}/reply`, verdict);
+      } catch (e) {
+        if (!String(e).includes("no-such-candidate"))
+          throw e;
+        return ok2({ settled: false, note: "This candidate lapsed or was already answered." });
+      }
+      return ok2({ settled: true });
+    }
     case "request_plugin_refresh": {
       return ok2(await http("POST", "/api/plugin/refresh"));
     }
@@ -20918,7 +20971,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.284";
+var PLUGIN_VERSION = "0.1.285";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
