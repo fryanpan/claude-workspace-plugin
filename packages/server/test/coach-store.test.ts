@@ -1,95 +1,121 @@
 /**
- * The coach's calendar and its one file: which week a goal list belongs to,
- * when a check is due, and that nothing saved is ever lost.
+ * The coach's calendar and its one file: when it may speak, what each
+ * answer does to that, the weekly review offer, and that nothing saved is
+ * ever lost.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkDue, localDay, weekOf } from '../src/coach/clock.ts';
-import { CoachStore, cleanGoals } from '../src/coach/store.ts';
+import { localDay, spacingAllows } from '../src/coach/clock.ts';
+import { CoachStore } from '../src/coach/store.ts';
+import { MOMENT_TTL_MS, REVIEW_AFTER_MS } from '../src/coach/types.ts';
 import { ZONE, at } from './coach-fixtures.ts';
 
-describe('the coach calendar', () => {
-  it('names a week by its Monday, in Bryan’s zone rather than UTC', () => {
-    expect(weekOf(at(0, 9), ZONE)).toBe('2026-10-05');
-    expect(weekOf(at(6, 23, 30), ZONE)).toBe('2026-10-05'); // Sunday night, after midnight UTC
-    expect(weekOf(at(7, 0, 5), ZONE)).toBe('2026-10-12');
-    expect(localDay(at(2, 23, 30), ZONE)).toBe('2026-10-07');
+const moment = (when: number) => ({
+  at: when,
+  goalIndex: 0,
+  goal: 'Do the hard work first',
+  matched: 'more than twenty minutes on styling',
+  observed: 'Half an hour on the hover mock',
+  line: 'Hi, I’m noticing half an hour on hover states. Back to the post?',
+});
+
+let dir: string;
+let store: CoachStore;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'coach-store-'));
+  store = new CoachStore(dir, at(8));
+  store.noteTimeZone(ZONE);
+});
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+describe('when the coach may speak', () => {
+  it('waits his setting after a moment, and each “not now” today doubles it', () => {
+    expect(spacingAllows(at(9), [], 'normal', ZONE)).toBe(true);
+    const m = store.addMoment(moment(at(9)));
+    expect(spacingAllows(at(9, 59), store.moments(), 'normal', ZONE)).toBe(false);
+    expect(spacingAllows(at(10), store.moments(), 'normal', ZONE)).toBe(true);
+    expect(spacingAllows(at(9, 30), store.moments(), 'more', ZONE)).toBe(true);
+    expect(spacingAllows(at(11), store.moments(), 'less', ZONE)).toBe(false);
+    store.answer(m.id, 'not-now', at(9, 2));
+    expect(spacingAllows(at(10, 30), store.moments(), 'normal', ZONE)).toBe(false);
+    expect(spacingAllows(at(11), store.moments(), 'normal', ZONE)).toBe(true);
   });
 
-  it('is due every three hours between 9am and 9pm, and never at night', () => {
-    expect(checkDue(at(2, 8, 45), undefined, ZONE)).toBe(false);
-    expect(checkDue(at(2, 9), undefined, ZONE)).toBe(true);
-    expect(checkDue(at(2, 11, 45), at(2, 9), ZONE)).toBe(false);
-    expect(checkDue(at(2, 12), at(2, 9), ZONE)).toBe(true);
-    expect(checkDue(at(2, 21), at(2, 15), ZONE)).toBe(false);
+  it('names the local day in his zone, not UTC', () => {
+    expect(localDay(at(23, 30), ZONE)).toBe('2026-10-07');
   });
 });
 
-describe('cleanGoals', () => {
-  it('trims, drops blanks and refuses what is not three lines of text', () => {
-    expect(cleanGoals(['  Ship it ', '', 'Write\nthe post'])).toEqual({
-      goals: ['Ship it', 'Write the post'],
+describe('the moments', () => {
+  it('closes one he left after its time, and takes an answer only once', () => {
+    const m = store.addMoment(moment(at(9)));
+    expect(store.openMoment(at(9, 5))?.id).toBe(m.id);
+    expect(store.answer(m.id, 'thanks', at(9, 6))).toBe(true);
+    expect(store.answer(m.id, 'not-this', at(9, 7))).toBe(false);
+    const left = store.addMoment(moment(at(11)));
+    expect(store.openMoment(at(11) + MOMENT_TTL_MS)).toBeNull();
+    expect(store.moments().find((x) => x.id === left.id)?.state).toBe('expired');
+  });
+
+  it('counts the week: answers, unanswered, and the quiet share of judgements', () => {
+    const a = store.addMoment(moment(at(9)));
+    store.answer(a.id, 'not-this', at(9, 1));
+    store.addMoment(moment(at(11)));
+    store.openMoment(at(12));
+    store.recordJudgement({ at: at(9), outcome: 'moment', cause: 'trigger' });
+    store.recordJudgement({ at: at(10), outcome: 'quiet', cause: 'trigger' });
+    store.recordJudgement({ at: at(10, 30), outcome: 'quiet', cause: 'trigger' });
+    expect(store.week(at(12))).toEqual({
+      moments: 2,
+      thanks: 0,
+      notNow: 0,
+      notThis: 1,
+      unanswered: 1,
+      judgements: 3,
+      quiet: 2,
     });
-    expect(cleanGoals('Ship it')).toEqual({ error: 'goals must be a list' });
-    expect(cleanGoals(['a', 2])).toEqual({ error: 'every goal must be text' });
-    expect(cleanGoals(['a', 'b', 'c', 'd'])).toEqual({ error: 'at most 3 goals' });
-    expect('error' in cleanGoals(['x'.repeat(141)])).toBe(true);
   });
 });
 
-describe('CoachStore', () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'coach-store-'));
+describe('the weekly review offer', () => {
+  it('is due a week after the last change, and a week after “no update needed”', () => {
+    expect(store.reviewDue(at(8))).toBe(false); // no doc yet
+    store.setGoalsDoc({ workspaceId: 'w-coach', docId: 'd-goals', createdAt: at(8) });
+    expect(store.reviewDue(at(8) + REVIEW_AFTER_MS - 1)).toBe(false);
+    expect(store.reviewDue(at(8) + REVIEW_AFTER_MS)).toBe(true);
+    store.declineReview(at(8) + REVIEW_AFTER_MS);
+    expect(store.reviewDue(at(8) + REVIEW_AFTER_MS * 2 - 1)).toBe(false);
+    store.noteGoalsChanged(at(8) + REVIEW_AFTER_MS * 2);
+    expect(store.reviewDue(at(8) + REVIEW_AFTER_MS * 2 + 1)).toBe(false);
   });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
+});
 
-  it('keeps every list: an edit replaces the week’s goals and the old list stays in the file', () => {
-    const store = new CoachStore(dir);
-    store.setGoals(['Old goal'], ZONE, at(0, 9));
-    store.setGoals(['New goal'], ZONE, at(1, 9));
-    expect(store.currentGoals(at(2, 9))?.goals).toEqual(['New goal']);
-    expect(store.currentGoals(at(7, 9))).toBeNull();
-    const reread = new CoachStore(dir);
-    expect(reread.timeZone).toBe(ZONE);
-    expect(reread.currentGoals(at(2, 9))?.goals).toEqual(['New goal']);
+describe('the file', () => {
+  it('survives a restart, owner-only, and a bad setting falls back', () => {
+    store.setSpacing('less');
+    store.addMoment(moment(at(9)));
     const path = join(dir, 'coach', 'state.json');
-    expect(readFileSync(path, 'utf8')).toContain('Old goal');
     expect(statSync(path).mode & 0o777).toBe(0o600);
+    const again = new CoachStore(dir, at(10));
+    expect(again.spacing).toBe('less');
+    expect(again.timeZone).toBe(ZONE);
+    expect(again.moments()).toHaveLength(1);
+    const raw = JSON.parse(readFileSync(path, 'utf8'));
+    writeFileSync(path, JSON.stringify({ ...raw, spacing: 'always', timeZone: 'Mars/Olympus' }));
+    const fixed = new CoachStore(dir, at(10));
+    expect(fixed.spacing).toBe('normal');
+    expect(fixed.timeZone).not.toBe('Mars/Olympus');
   });
 
-  it('a nudge is answered once, and an unanswered one expires the next day', () => {
-    const store = new CoachStore(dir);
-    store.setGoals(['A goal'], ZONE, at(0, 9));
-    const draft = {
-      goalIndex: 0,
-      goal: 'A goal',
-      drift: 'Fonts all day',
-      question: 'Still on it?',
-    };
-    const a = store.addNudge({ ...draft, at: at(2, 12) });
-    expect(store.openNudge(at(2, 13))?.id).toBe(a.id);
-    expect(store.answer(a.id, 'plans-changed', at(2, 13))).toBe(true);
-    expect(store.answer(a.id, 'back-to-it', at(2, 14))).toBe(false);
-    const b = store.addNudge({ ...draft, at: at(2, 15) });
-    expect(store.openNudge(at(3, 9))).toBeNull();
-    expect(store.nudgesToday(at(2, 20)).map((n) => [n.id, n.state])).toEqual([
-      [a.id, 'plans-changed'],
-      [b.id, 'expired'],
-    ]);
-  });
-
-  it('a file that does not parse is moved aside, not overwritten', () => {
-    const store = new CoachStore(dir);
-    store.setGoals(['A goal'], ZONE, at(0, 9));
-    const path = join(dir, 'coach', 'state.json');
-    Bun.write(path, '{ not json');
-    const reread = new CoachStore(dir, 1234);
-    expect(reread.currentGoals(at(0, 10))).toBeNull();
-    expect(readFileSync(`${path}.corrupt-1234`, 'utf8')).toBe('{ not json');
+  it('moves a corrupt file aside and starts empty', () => {
+    store.setSpacing('more');
+    writeFileSync(join(dir, 'coach', 'state.json'), '{not json');
+    const fresh = new CoachStore(dir, at(10));
+    expect(fresh.spacing).toBe('normal');
+    expect(fresh.moments()).toEqual([]);
   });
 });

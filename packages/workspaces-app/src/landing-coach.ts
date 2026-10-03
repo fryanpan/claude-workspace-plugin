@@ -1,20 +1,21 @@
 /**
- * "This week" on the front page: what Edit, Save and the two answer buttons
- * do. The server draws the section (`packages/server/src/coach/section.ts`);
- * after a save or an answer the section is re-read from `/` and swapped in
- * whole, so the page never shows a state the server does not hold.
+ * "Your coach" on the front page: what its buttons do. The server draws the
+ * section (`packages/server/src/coach/section.ts`); after every answer the
+ * section is re-read from `/` and swapped in whole, so the page never shows a
+ * state the server does not hold.
  *
- * "Plans changed" opens the editor once the answer is saved, because a
- * change of plan usually means the list is out of date.
+ *  - "Set up my coach" makes the learning-goals doc and opens it, where Talk
+ *    starts the interview.
+ *  - "Add a goal" adds an empty goal to that doc.
+ *  - "No update needed" answers the weekly offer.
+ *  - Less / Normal / More sets how often the coach may speak up.
  */
 
 const SECTION = '#coach';
 
 const section = (): HTMLElement | null => document.querySelector<HTMLElement>(SECTION);
-const editor = (): HTMLFormElement | null =>
-  section()?.querySelector<HTMLFormElement>('[data-coach-edit]') ?? null;
 
-async function post(url: string, body: unknown): Promise<boolean> {
+async function post(url: string, body: unknown): Promise<Response | null> {
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -22,22 +23,9 @@ async function post(url: string, body: unknown): Promise<boolean> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return res.ok;
+    return res.ok ? res : null;
   } catch {
-    return false;
-  }
-}
-
-/** Times the server wrote in its own zone, rewritten in the viewer's. */
-function localTimes(): void {
-  for (const t of section()?.querySelectorAll<HTMLTimeElement>('time[data-at]') ?? []) {
-    const at = Number(t.dataset.at);
-    if (!Number.isFinite(at)) continue;
-    t.dateTime = new Date(at).toISOString();
-    t.textContent = new Date(at).toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    return null;
   }
 }
 
@@ -49,66 +37,48 @@ async function refresh(): Promise<void> {
     const fresh = doc.querySelector(SECTION);
     const here = section();
     if (fresh && here) here.replaceWith(document.importNode(fresh, true));
-    localTimes();
   } catch {
     // The page keeps what it showed; the next load corrects it.
   }
 }
 
-function openEditor(): void {
-  const form = editor();
-  if (!form) return;
-  form.hidden = false;
-  form.querySelector<HTMLInputElement>('input')?.focus();
+function setBusy(busy: boolean): void {
+  for (const b of section()?.querySelectorAll<HTMLButtonElement>('button') ?? []) b.disabled = busy;
 }
 
-function setBusy(scope: Element, busy: boolean): void {
-  for (const b of scope.querySelectorAll<HTMLButtonElement>('button')) b.disabled = busy;
+/** The request a button makes, or null for a click that is not ours. */
+function requestFor(btn: HTMLButtonElement): { url: string; body: unknown } | null {
+  if (btn.dataset.act === 'setup') return { url: '/coach/setup', body: {} };
+  if (btn.dataset.act === 'add-goal') return { url: '/coach/goals/add', body: {} };
+  if (btn.dataset.review === 'no-update')
+    return { url: '/coach/review', body: { answer: 'no-update' } };
+  if (btn.dataset.spacing) return { url: '/coach/prefs', body: { spacing: btn.dataset.spacing } };
+  return null;
 }
 
 async function onClick(ev: MouseEvent): Promise<void> {
-  const target = ev.target as Element | null;
-  const btn = target?.closest<HTMLButtonElement>('button');
+  const btn = (ev.target as Element | null)?.closest<HTMLButtonElement>('button');
   if (!btn || !section()?.contains(btn)) return;
-  if (btn.dataset.act === 'edit') return openEditor();
-  if (btn.dataset.act === 'cancel') {
-    const form = editor();
-    if (form) {
-      form.reset();
-      form.hidden = true;
+  const request = requestFor(btn);
+  if (!request) return;
+  setBusy(true);
+  const res = await post(request.url, request.body);
+  if (!res) return setBusy(false);
+  if (btn.dataset.act === 'setup') {
+    const { url } = (await res.json().catch(() => ({}))) as { url?: unknown };
+    if (typeof url === 'string' && url.startsWith('/')) {
+      location.assign(url);
+      return;
     }
-    return;
   }
-  const answer = btn.dataset.answer;
-  const nudge = btn.closest<HTMLElement>('[data-nudge]');
-  if (!answer || !nudge) return;
-  setBusy(nudge, true);
-  const ok = await post(`/coach/nudges/${encodeURIComponent(nudge.dataset.nudge ?? '')}/answer`, {
-    answer,
-  });
-  if (!ok) return setBusy(nudge, false);
   await refresh();
-  if (answer === 'plans-changed') openEditor();
-}
-
-async function onSubmit(ev: SubmitEvent): Promise<void> {
-  const form = (ev.target as Element | null)?.closest<HTMLFormElement>('[data-coach-edit]');
-  if (!form || !section()?.contains(form)) return;
-  ev.preventDefault();
-  const goals = [...form.querySelectorAll<HTMLInputElement>('input[name="goal"]')].map(
-    (i) => i.value,
-  );
-  setBusy(form, true);
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  if (await post('/coach/goals', { goals, timeZone })) await refresh();
-  else setBusy(form, false);
 }
 
 /** Wire the section, when the page carries it. Listens on the document so a
- *  swapped-in section needs no re-wiring. */
-export function startCoach(): void {
-  if (!section()) return;
-  localTimes();
-  document.addEventListener('click', (ev) => void onClick(ev));
-  document.addEventListener('submit', (ev) => void onSubmit(ev));
+ *  swapped-in section needs no re-wiring. Returns the unwiring. */
+export function startCoach(): () => void {
+  if (!section()) return () => {};
+  const listener = (ev: MouseEvent) => void onClick(ev);
+  document.addEventListener('click', listener);
+  return () => document.removeEventListener('click', listener);
 }

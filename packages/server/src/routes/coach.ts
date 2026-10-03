@@ -1,34 +1,46 @@
 /**
- * ── The goal coach: Bryan's goals, his answers, and a check on demand ──
+ * ── The coach: Bryan's learning goals, where he is, and his answers ──
  *
- *   POST /coach/goals              this week's goals, `{ goals, timeZone }`
- *   POST /coach/nudges/:id/answer  `{ answer: 'back-to-it' | 'plans-changed' }`
- *   POST /coach/check              run a check now, whatever the clock says
+ *   POST /coach/setup                make the learning-goals doc, once → `{ url }`
+ *   POST /coach/goals/add            add a goal's four empty parts to it
+ *   POST /coach/review               `{ answer: 'no-update' }` to the weekly offer
+ *   POST /coach/prefs                `{ spacing: 'less' | 'normal' | 'more' }`
+ *   POST /coach/here                 where he is: `{ workspaceId, docId?, visible,
+ *                                    scrollPct?, heading?, timeZone? }`
+ *   GET  /coach/stream               the moments, as server-sent events
+ *   POST /coach/moments/:id/answer   `{ answer: 'thanks' | 'not-now' | 'not-this' }`
+ *   POST /coach/check                judge now, from this machine only
  *
- * Owner-level, not under a board: the goals and nudges are Bryan's, so
- * nothing here is on a share or member allowlist and a visitor is refused
- * before anything is read.
+ * Owner-level, not under a board: everything here is Bryan's, so nothing is
+ * on a share or member allowlist and a visitor is refused before anything
+ * is read.
  *
- *  - The goals and the answers are for Bryan alone: a person proof that
- *    resolves to the owner, from the front page's own origin. The gate is
- *    Incoming Messages' (`routes/inbox.ts`), repeated here rather than
- *    imported so neither family reaches into the other.
- *  - The check is for a process on this machine (`refuseNonLocal`: not
- *    through the edge, not from another host, not from a page). It spends at
- *    most one model call, and a second one inside `CHECK_FLOOR_MS` is
- *    refused, so a loop on this machine cannot run up the bill.
+ *  - Every page route is for Bryan alone: a person proof that resolves to
+ *    the owner, from this server's own pages. A POST must also carry this
+ *    origin; the stream is a GET, which a browser sends without one, so it
+ *    asks for the same-origin fetch mark alone. The gate is Incoming
+ *    Messages' (`routes/inbox.ts`), repeated rather than imported so neither
+ *    family reaches into the other.
+ *  - The check is for a process on this machine (`refuseNonLocal`). It
+ *    passes every gate a trigger does, including at most one judgement in
+ *    twenty minutes, so a loop here cannot run up the bill.
  *
- * No event is emitted. The goals and nudges reach a page when the front
- * page loads and never reach an agent's stream.
+ * Nothing here reaches an agent's stream.
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
-import type { Coach } from '../coach/pass.ts';
-import { type CoachStore, cleanGoals } from '../coach/store.ts';
-import { NUDGE_ANSWERS, type NudgeAnswer } from '../coach/types.ts';
+import { addGoal, ensureGoalsDoc } from '../coach/setup.ts';
+import {
+  COACH_SPACINGS,
+  type CoachSpacing,
+  MOMENT_ANSWERS,
+  type MomentAnswer,
+} from '../coach/types.ts';
+import type { CoachWiring } from '../coach/wiring.ts';
 
 export interface CoachRoutesContext {
-  store: CoachStore;
-  coach: Coach;
+  wiring: CoachWiring;
+  boardExists: (workspaceId: string) => boolean;
+  docOnBoard: (workspaceId: string, docId: string) => boolean;
   refuseNonLocal: (req: Request) => Extract<AgentCallerVerdict, { ok: false }> | null;
   j: (status: number, body: unknown) => Response;
   safeJson: (req: Request) => Promise<Record<string, unknown> | null>;
@@ -43,25 +55,29 @@ export interface CoachRouteRequest {
   requestOrigin: () => string | undefined;
 }
 
-/** The least time between two checks asked for by route. */
-export const CHECK_FLOOR_MS = 10 * 60_000;
-const MAX_BODY_BYTES = 8_000;
-const ANSWER_PATH = /^\/coach\/nudges\/(cn-[A-Za-z0-9_-]{12})\/answer$/;
+const MAX_BODY_BYTES = 4_000;
+const ANSWER_PATH = /^\/coach\/moments\/(cm-[A-Za-z0-9_-]{12})\/answer$/;
+const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
+const HEADING_CHARS = 120;
 
-/** Bryan's own front page, and nobody else's. */
+/** Bryan's own pages, and nobody else's. */
 function refuseNonOwner(ctx: CoachRoutesContext, rq: CoachRouteRequest): Response | null {
   const { j } = ctx;
   if (rq.visitor) return j(403, { error: 'not available to share visitors' });
   if (!rq.ownerProven()) {
     return j(403, {
       error: 'owner-proof-required',
-      message: 'Only the owner, signed in, can set goals or answer the coach.',
+      message: 'Only the owner, signed in, has a coach.',
     });
   }
-  const own = rq.requestOrigin();
-  const sameSite = rq.req.headers.get('sec-fetch-site') === 'same-origin';
-  if (!sameSite || own === undefined || rq.req.headers.get('origin') !== own) {
-    return j(403, { error: 'same-origin-only', message: 'Use the front page itself.' });
+  if (rq.req.headers.get('sec-fetch-site') !== 'same-origin') {
+    return j(403, { error: 'same-origin-only', message: 'Use this server’s own pages.' });
+  }
+  if (rq.req.method !== 'GET') {
+    const own = rq.requestOrigin();
+    if (own === undefined || rq.req.headers.get('origin') !== own) {
+      return j(403, { error: 'same-origin-only', message: 'Use this server’s own pages.' });
+    }
   }
   return null;
 }
@@ -71,6 +87,40 @@ const tooLarge = (req: Request): boolean => {
   return !Number.isFinite(length) || length > MAX_BODY_BYTES;
 };
 
+/** The where-I-am body, or the reason it is refused. */
+function parseHere(
+  ctx: CoachRoutesContext,
+  body: Record<string, unknown> | null,
+):
+  | { workspaceId: string; docId?: string; visible: boolean; scrollPct?: number; heading?: string }
+  | string {
+  const ws = body?.workspaceId;
+  if (typeof ws !== 'string' || !ID.test(ws) || !ctx.boardExists(ws)) return 'unknown board';
+  const doc = body?.docId;
+  if (doc !== undefined && (typeof doc !== 'string' || !ID.test(doc) || !ctx.docOnBoard(ws, doc))) {
+    return 'unknown doc';
+  }
+  if (typeof body?.visible !== 'boolean') return 'visible must be true or false';
+  const pct = body?.scrollPct;
+  if (
+    pct !== undefined &&
+    (typeof pct !== 'number' || !Number.isInteger(pct) || pct < 0 || pct > 100)
+  ) {
+    return 'scrollPct is a whole number from 0 to 100';
+  }
+  const heading = body?.heading;
+  if (heading !== undefined && typeof heading !== 'string') return 'heading must be text';
+  return {
+    workspaceId: ws,
+    ...(typeof doc === 'string' ? { docId: doc } : {}),
+    visible: body.visible,
+    ...(typeof pct === 'number' ? { scrollPct: pct } : {}),
+    ...(typeof heading === 'string' && heading.trim()
+      ? { heading: heading.replace(/\s+/g, ' ').trim().slice(0, HEADING_CHARS) }
+      : {}),
+  };
+}
+
 export async function handleCoachRoutes(
   ctx: CoachRoutesContext,
   rq: CoachRouteRequest,
@@ -78,42 +128,74 @@ export async function handleCoachRoutes(
   const { pathname, req } = rq;
   if (!pathname.startsWith('/coach/')) return undefined;
   const { j } = ctx;
+  const { store, coach, hub, setup } = ctx.wiring;
   const now = ctx.now ?? Date.now;
+
+  if (pathname === '/coach/stream') {
+    if (req.method !== 'GET') return j(405, { error: 'method not allowed' });
+    const denied = refuseNonOwner(ctx, rq);
+    if (denied) return denied;
+    return hub.open(coach.openFrame());
+  }
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
 
   if (pathname === '/coach/check') {
     if (rq.visitor) return j(403, { error: 'not available to share visitors' });
     const notLocal = ctx.refuseNonLocal(req);
     if (notLocal) return j(notLocal.status, notLocal.body);
-    const last = ctx.store.lastPass();
-    if (last && now() - last.at < CHECK_FLOOR_MS) {
-      return j(429, { error: 'too-soon', retryAfterMs: CHECK_FLOOR_MS - (now() - last.at) });
-    }
-    return j(200, await ctx.coach.check());
+    return j(200, await coach.judgeNow());
   }
 
-  if (pathname === '/coach/goals') {
-    const denied = refuseNonOwner(ctx, rq);
-    if (denied) return denied;
-    if (tooLarge(req)) return j(413, { error: 'too-large' });
-    const body = await ctx.safeJson(req);
-    const cleaned = cleanGoals(body?.goals);
-    if ('error' in cleaned) return j(400, { error: 'bad-goals', message: cleaned.error });
-    const tz = typeof body?.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined;
-    return j(200, ctx.store.setGoals(cleaned.goals, tz, now()));
+  const denied = refuseNonOwner(ctx, rq);
+  if (denied) return denied;
+  if (tooLarge(req)) return j(413, { error: 'too-large' });
+  const body = await ctx.safeJson(req);
+
+  if (pathname === '/coach/setup') {
+    const doc = await ensureGoalsDoc(store, setup, now());
+    if (!doc) return j(500, { error: 'setup-failed', message: 'The goals doc could not be made.' });
+    return j(200, {
+      url: `/workspaces/${encodeURIComponent(doc.workspaceId)}/docs/${encodeURIComponent(doc.docId)}`,
+    });
+  }
+  if (pathname === '/coach/goals/add') {
+    if (!store.goalsDoc) return j(409, { error: 'not-set-up' });
+    return addGoal(store, setup) ? j(200, { ok: true }) : j(500, { error: 'add-failed' });
+  }
+  if (pathname === '/coach/review') {
+    if (body?.answer !== 'no-update')
+      return j(400, { error: 'bad-answer', message: 'answer is no-update' });
+    store.declineReview(now());
+    return j(200, { ok: true });
+  }
+  if (pathname === '/coach/prefs') {
+    const spacing = body?.spacing;
+    if (!COACH_SPACINGS.includes(spacing as CoachSpacing)) {
+      return j(400, {
+        error: 'bad-spacing',
+        message: `spacing is one of ${COACH_SPACINGS.join(', ')}`,
+      });
+    }
+    store.setSpacing(spacing as CoachSpacing);
+    return j(200, { ok: true });
+  }
+  if (pathname === '/coach/here') {
+    const here = parseHere(ctx, body);
+    if (typeof here === 'string') return j(400, { error: 'bad-here', message: here });
+    store.noteTimeZone(body?.timeZone);
+    coach.here(here);
+    return j(200, { ok: true });
   }
 
   const m = pathname.match(ANSWER_PATH);
   if (!m) return j(404, { error: 'not-found' });
-  const denied = refuseNonOwner(ctx, rq);
-  if (denied) return denied;
-  if (tooLarge(req)) return j(413, { error: 'too-large' });
-  const answer = (await ctx.safeJson(req))?.answer;
-  if (!NUDGE_ANSWERS.includes(answer as NudgeAnswer)) {
-    return j(400, { error: 'bad-answer', message: `answer is one of ${NUDGE_ANSWERS.join(', ')}` });
+  const answer = body?.answer;
+  if (!MOMENT_ANSWERS.includes(answer as MomentAnswer)) {
+    return j(400, {
+      error: 'bad-answer',
+      message: `answer is one of ${MOMENT_ANSWERS.join(', ')}`,
+    });
   }
-  if (!ctx.store.answer(m[1] ?? '', answer as NudgeAnswer, now())) {
-    return j(404, { error: 'no-open-nudge' });
-  }
+  if (!coach.answer(m[1] ?? '', answer as MomentAnswer)) return j(404, { error: 'no-open-moment' });
   return j(200, { ok: true });
 }

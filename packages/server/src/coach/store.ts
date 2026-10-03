@@ -1,41 +1,47 @@
 /**
- * The coach's one file, `<dataDir>/coach/state.json`: the goal lists, the
- * nudges and the record of each check. Owner-only on disk (mode 600), and
- * written whole through a temp file, like the inbox's files.
+ * The coach's one file, `<dataDir>/coach/state.json`: where the goals doc
+ * is, his how-often setting, the moments and the record of each judgement.
+ * Owner-only on disk (mode 600), and written whole through a temp file, like
+ * the inbox's files.
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { isKnownTimezone } from '@claude-workspaces/core/schedule-timezone';
 import { readJsonFile, writeJsonFile } from '../inbox/json-file.ts';
-import { localDay, weekOf } from './clock.ts';
+import { localDay } from './clock.ts';
 import {
-  type CoachGoalList,
-  type CoachNudge,
-  type CoachPassRecord,
+  COACH_SPACINGS,
+  type CoachGoalsDoc,
+  type CoachJudgement,
+  type CoachMoment,
+  type CoachSpacing,
   type CoachState,
-  MAX_GOALS,
-  MAX_GOAL_CHARS,
-  MAX_PASS_RECORDS,
-  type NudgeAnswer,
+  MAX_JUDGEMENTS,
+  MOMENT_TTL_MS,
+  type MomentAnswer,
+  REVIEW_AFTER_MS,
 } from './types.ts';
 
 export const COACH_DIRNAME = 'coach';
-/** Before Bryan saves goals from a browser, the zone this machine is in. */
+/** Until a browser says otherwise, the zone this machine is in. */
 const DEFAULT_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-const empty = (): CoachState => ({ timeZone: DEFAULT_ZONE, lists: [], nudges: [], passes: [] });
+const empty = (): CoachState => ({
+  timeZone: DEFAULT_ZONE,
+  spacing: 'normal',
+  moments: [],
+  judgements: [],
+});
 
-/** The goals as typed, cleaned to at most three single lines, or the reason
- *  they cannot be saved. Blank lines are dropped, not counted. */
-export function cleanGoals(raw: unknown): { goals: string[] } | { error: string } {
-  if (!Array.isArray(raw)) return { error: 'goals must be a list' };
-  if (raw.some((g) => typeof g !== 'string')) return { error: 'every goal must be text' };
-  const goals = (raw as string[]).map((g) => g.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  if (goals.length > MAX_GOALS) return { error: `at most ${MAX_GOALS} goals` };
-  if (goals.some((g) => g.length > MAX_GOAL_CHARS)) {
-    return { error: `a goal is at most ${MAX_GOAL_CHARS} characters` };
-  }
-  return { goals };
+/** One week's answers, for the front page's line and the wrong-call rate. */
+export interface CoachWeek {
+  moments: number;
+  thanks: number;
+  notNow: number;
+  notThis: number;
+  unanswered: number;
+  judgements: number;
+  quiet: number;
 }
 
 export class CoachStore {
@@ -48,91 +54,132 @@ export class CoachStore {
     if (error) console.warn(`[coach] state unreadable: ${error}; starting empty`);
     this.state = { ...empty(), ...value };
     if (!isKnownTimezone(this.state.timeZone)) this.state.timeZone = DEFAULT_ZONE;
+    if (!COACH_SPACINGS.includes(this.state.spacing)) this.state.spacing = 'normal';
   }
 
   get timeZone(): string {
     return this.state.timeZone;
   }
 
-  /** This week's goals, or null when none have been set for it. */
-  currentGoals(now: number): CoachGoalList | null {
-    const week = weekOf(now, this.state.timeZone);
-    for (let i = this.state.lists.length - 1; i >= 0; i -= 1) {
-      const list = this.state.lists[i];
-      if (list?.week === week) return list;
-    }
-    return null;
+  get spacing(): CoachSpacing {
+    return this.state.spacing;
   }
 
-  /** Replace this week's goals. The old list stays in the file. */
-  setGoals(goals: string[], timeZone: string | undefined, now: number): CoachGoalList {
-    if (timeZone && isKnownTimezone(timeZone)) this.state.timeZone = timeZone;
-    const list = { week: weekOf(now, this.state.timeZone), goals, setAt: now };
-    this.state.lists.push(list);
-    this.write();
-    return list;
+  get goalsDoc(): CoachGoalsDoc | undefined {
+    return this.state.goalsDoc;
   }
 
-  /** The nudge on the page, after retiring any from an earlier day. */
-  openNudge(now: number): CoachNudge | null {
-    this.expireOld(now);
-    return this.state.nudges.find((n) => n.state === 'open') ?? null;
-  }
-
-  /** Nudges raised on the local day `now` falls on, any state. */
-  nudgesToday(now: number): CoachNudge[] {
-    const day = localDay(now, this.state.timeZone);
-    return this.state.nudges.filter((n) => n.day === day);
-  }
-
-  addNudge(n: Omit<CoachNudge, 'id' | 'day' | 'state'>): CoachNudge {
-    const nudge: CoachNudge = {
-      ...n,
-      id: `cn-${randomBytes(9).toString('base64url').slice(0, 12)}`,
-      day: localDay(n.at, this.state.timeZone),
-      state: 'open',
-    };
-    this.state.nudges.push(nudge);
-    this.write();
-    return nudge;
-  }
-
-  /** Bryan's answer. False when there is no such open nudge. */
-  answer(id: string, answer: NudgeAnswer, now: number): boolean {
-    const n = this.state.nudges.find((x) => x.id === id);
-    if (!n || n.state !== 'open') return false;
-    n.state = answer;
-    n.answeredAt = now;
-    this.write();
-    return true;
-  }
-
-  passes(): readonly CoachPassRecord[] {
-    return this.state.passes;
-  }
-
-  lastPass(): CoachPassRecord | undefined {
-    return this.state.passes.at(-1);
-  }
-
-  recordPass(rec: CoachPassRecord): void {
-    this.state.passes.push(rec);
-    if (this.state.passes.length > MAX_PASS_RECORDS) {
-      this.state.passes.splice(0, this.state.passes.length - MAX_PASS_RECORDS);
-    }
+  noteTimeZone(timeZone: unknown): void {
+    if (typeof timeZone !== 'string' || timeZone === this.state.timeZone) return;
+    if (!isKnownTimezone(timeZone)) return;
+    this.state.timeZone = timeZone;
     this.write();
   }
 
-  private expireOld(now: number): void {
-    const today = localDay(now, this.state.timeZone);
+  setGoalsDoc(doc: CoachGoalsDoc): void {
+    this.state.goalsDoc = doc;
+    this.state.goalsChangedAt = doc.createdAt;
+    this.write();
+  }
+
+  setSpacing(spacing: CoachSpacing): void {
+    this.state.spacing = spacing;
+    this.write();
+  }
+
+  /** He edited the goals doc. Written at most once a minute. */
+  noteGoalsChanged(at: number): void {
+    const last = this.state.goalsChangedAt ?? 0;
+    if (at - last < 60_000) return;
+    this.state.goalsChangedAt = at;
+    this.write();
+  }
+
+  declineReview(now: number): void {
+    this.state.reviewDeclinedAt = now;
+    this.write();
+  }
+
+  /** Is the weekly offer to review the goals due? Seven days after the
+   *  later of his last change and his last "no update needed". */
+  reviewDue(now: number): boolean {
+    if (!this.state.goalsDoc) return false;
+    const since = Math.max(this.state.goalsChangedAt ?? 0, this.state.reviewDeclinedAt ?? 0);
+    return now - since >= REVIEW_AFTER_MS;
+  }
+
+  moments(): readonly CoachMoment[] {
+    return this.state.moments;
+  }
+
+  /** The moment on the page, after closing any he left past its time. */
+  openMoment(now: number): CoachMoment | null {
     let changed = false;
-    for (const n of this.state.nudges) {
-      if (n.state === 'open' && n.day !== today) {
-        n.state = 'expired';
+    for (const m of this.state.moments) {
+      if (m.state === 'open' && now - m.at >= MOMENT_TTL_MS) {
+        m.state = 'expired';
         changed = true;
       }
     }
     if (changed) this.write();
+    return this.state.moments.find((m) => m.state === 'open') ?? null;
+  }
+
+  /** Moments raised on the local day `now` falls on, any state. */
+  momentsToday(now: number): CoachMoment[] {
+    const day = localDay(now, this.state.timeZone);
+    return this.state.moments.filter((m) => m.day === day);
+  }
+
+  addMoment(m: Omit<CoachMoment, 'id' | 'day' | 'state'>): CoachMoment {
+    const moment: CoachMoment = {
+      ...m,
+      id: `cm-${randomBytes(9).toString('base64url').slice(0, 12)}`,
+      day: localDay(m.at, this.state.timeZone),
+      state: 'open',
+    };
+    this.state.moments.push(moment);
+    this.write();
+    return moment;
+  }
+
+  /** His answer. False when there is no such open moment. */
+  answer(id: string, answer: MomentAnswer, now: number): boolean {
+    const m = this.state.moments.find((x) => x.id === id);
+    if (!m || m.state !== 'open') return false;
+    m.state = answer;
+    m.answeredAt = now;
+    this.write();
+    return true;
+  }
+
+  judgements(): readonly CoachJudgement[] {
+    return this.state.judgements;
+  }
+
+  recordJudgement(rec: CoachJudgement): void {
+    this.state.judgements.push(rec);
+    if (this.state.judgements.length > MAX_JUDGEMENTS) {
+      this.state.judgements.splice(0, this.state.judgements.length - MAX_JUDGEMENTS);
+    }
+    this.write();
+  }
+
+  /** The seven days before `now`. */
+  week(now: number): CoachWeek {
+    const since = now - 7 * 24 * 60 * 60_000;
+    const moments = this.state.moments.filter((m) => m.at >= since);
+    const judged = this.state.judgements.filter((j) => j.at >= since);
+    const count = (s: CoachMoment['state']) => moments.filter((m) => m.state === s).length;
+    return {
+      moments: moments.length,
+      thanks: count('thanks'),
+      notNow: count('not-now'),
+      notThis: count('not-this'),
+      unanswered: count('expired'),
+      judgements: judged.length,
+      quiet: judged.filter((j) => j.outcome === 'quiet').length,
+    };
   }
 
   private write(): void {

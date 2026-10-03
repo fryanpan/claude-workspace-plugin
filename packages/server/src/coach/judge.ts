@@ -1,76 +1,100 @@
 /**
- * The coach's one judgement: did today's work drift from this week's goals?
+ * Workflow C's one judgement: is what Bryan is doing right now the moment
+ * one of his goals says he wants to act differently?
  *
- * The prompt carries the goals, the nudges already raised today with
- * Bryan's answers, and the day's activity lines. The reply is one JSON
- * object, and anything that is not exactly the expected shape is refused,
- * so a malformed or chatty reply raises no nudge rather than a strange one.
- * Being wrong by staying quiet is the cheaper mistake: "calm by default".
+ * QUIET BY DEFAULT. Models asked when to coach step in far too often: in
+ * MetaCLASS (arXiv 2602.02457) they stayed quiet in 4% of cases where quiet
+ * was right in 42%. So a moment must name one goal AND quote words from
+ * that goal's "Act differently when", and the quote is checked here against
+ * the goal's own text. A reply that matches nothing, or is not exactly the
+ * expected shape, is quiet.
  */
 import { zonedParts } from '@claude-workspaces/core/schedule-timezone';
-import type { CoachNudge } from './types.ts';
+import { type LearningGoal, goalTitle } from './goals-doc.ts';
+import type { CoachMoment } from './types.ts';
 
-export const DRIFT_MAX_CHARS = 140;
-export const QUESTION_MAX_CHARS = 180;
+export const OBSERVED_MAX_CHARS = 140;
+export const LINE_MAX_CHARS = 220;
+/** The fewest words a quote of a longer trigger may have. */
+const MIN_QUOTE_WORDS = 3;
 
-export const COACH_SYSTEM = `You are a calm work coach for one person. Each week he names up to three goals, most important first. A few times a day you read what he worked on today and decide whether his time is still serving those goals.
+export function coachSystem(name: string): string {
+  return `You are ${name}, a calm coach for one person. He wrote down what he wants to do better, and for each goal the moment he wants to act differently. You see what he is doing on his work pages right now and in the last hour.
 
-Call it drift only when most of today's time went to work that serves none of the goals, or to easier or lower-priority work while the first goal got little or no time. Going deep on something that plainly serves a goal is not drift. Short looks at other things are not drift. When you are unsure, it is on track.
+Your default is to stay quiet. Speak only when what he is doing right now plainly matches the "Act differently when" of one of his goals. Being near a goal's topic is not a match. Working on a goal is not a match. When you are unsure, stay quiet.
 
-If he already answered a nudge today with "plans changed", do not nudge about the same goal again today. Do not repeat a nudge he answered with "back to it" unless the drift has clearly continued since.
+Do not raise the same goal again today if he answered a moment about it with "not now" or "not this". Do not repeat yourself.
 
 Reply with ONE JSON object and nothing else:
-{"verdict":"on-track"}
+{"verdict":"quiet"}
 or
-{"verdict":"drift","goal":<the goal's number>,"drift":"<what the time went to instead, at most ${DRIFT_MAX_CHARS} characters, naming the actual work>","question":"<one plain question, at most ${QUESTION_MAX_CHARS} characters, asking whether he is still pursuing that goal>"}
+{"verdict":"moment","goal":<the goal's number>,"matched":"<words copied exactly from that goal's Act differently when>","observed":"<what you see him doing, at most ${OBSERVED_MAX_CHARS} characters, naming the actual work>","line":"<what you say to him, at most ${LINE_MAX_CHARS} characters: start with \\"Hi, I'm noticing\\", name what he is doing and the goal, and end with one short question>"}
 
 Write to him as "you". No praise, no lecturing, no markdown.`;
+}
 
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const ANSWER_WORDS: Record<CoachNudge['state'], string> = {
+const ANSWER_WORDS: Record<CoachMoment['state'], string> = {
   open: 'not answered yet',
-  'back-to-it': 'back to it',
-  'plans-changed': 'plans changed',
-  expired: 'not answered',
+  thanks: 'thanks',
+  'not-now': 'not now',
+  'not-this': 'not this',
+  expired: 'no answer',
+};
+
+const hhmm = (instant: number, timeZone: string) => {
+  const p = zonedParts(instant, timeZone);
+  return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
 };
 
 export function coachPrompt(args: {
-  goals: readonly string[];
-  today: readonly CoachNudge[];
-  lines: readonly string[];
-  now: number;
+  goals: readonly LearningGoal[];
+  today: readonly CoachMoment[];
+  now: string | null;
+  where: readonly string[];
+  did: readonly string[];
+  at: number;
   timeZone: string;
 }): string {
-  const p = zonedParts(args.now, args.timeZone);
+  const p = zonedParts(args.at, args.timeZone);
   const dow = WEEKDAY[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()];
-  const time = `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
-  const goals = args.goals.map((g, i) => `${i + 1}. ${g}`).join('\n');
-  const nudges =
+  const goals = args.goals
+    .map(
+      (g, i) =>
+        `${i + 1}. ${goalTitle(g)}\n   Why: ${g.behind || '(not said)'}\n   Act differently when: ${g.when}\n   Instead: ${g.how || '(not said)'}`,
+    )
+    .join('\n');
+  const moments =
     args.today.length === 0
       ? '(none)'
       : args.today
-          .map((n) => {
-            const at = zonedParts(n.at, args.timeZone);
-            const when = `${String(at.hour).padStart(2, '0')}:${String(at.minute).padStart(2, '0')}`;
-            return `${when} about goal ${n.goalIndex + 1}: "${n.drift}" — his answer: ${ANSWER_WORDS[n.state]}`;
-          })
+          .map(
+            (m) =>
+              `${hhmm(m.at, args.timeZone)} about goal ${m.goalIndex + 1} ("${m.observed}") — his answer: ${ANSWER_WORDS[m.state]}`,
+          )
           .join('\n');
-  return `It is ${dow} ${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}, ${time} his time.
+  const list = (xs: readonly string[]) => (xs.length ? xs.join('\n') : '(nothing)');
+  return `It is ${dow}, ${hhmm(args.at, args.timeZone)} his time.
 
-This week's goals, most important first:
+His goals:
 ${goals}
 
-Nudges already raised today:
-${nudges}
+Moments you raised today:
+${moments}
 
-What he worked on today, one line per doc, oldest first:
-${args.lines.join('\n')}`;
+Right now: ${args.now ?? '(no page open)'}
+
+Where he was in the last hour, oldest first:
+${list(args.where)}
+
+What he did in the last hour, one line per doc:
+${list(args.did)}`;
 }
 
 export type CoachVerdict =
-  | { verdict: 'on-track' }
-  | { verdict: 'drift'; goalIndex: number; drift: string; question: string };
+  | { verdict: 'quiet' }
+  | { verdict: 'moment'; goalIndex: number; matched: string; observed: string; line: string };
 
 const clean = (s: string) =>
   s
@@ -78,8 +102,29 @@ const clean = (s: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/** Lower case, apostrophes and punctuation dropped, single spaces. */
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/** Are `quote`'s words, in order, a run of the trigger's words? */
+export function quotesTrigger(quote: string, trigger: string): boolean {
+  const q = words(quote);
+  const t = words(trigger);
+  if (!q || !t) return false;
+  const n = q.split(' ').length;
+  if (n < Math.min(MIN_QUOTE_WORDS, t.split(' ').length)) return false;
+  return ` ${t} `.includes(` ${q} `);
+}
+
 /** The reply as a verdict, or null when it is not exactly one. */
-export function parseCoachReply(reply: string | null, goalCount: number): CoachVerdict | null {
+export function parseCoachReply(
+  reply: string | null,
+  goals: readonly LearningGoal[],
+): CoachVerdict | null {
   if (reply === null) return null;
   const body = reply
     .trim()
@@ -93,16 +138,20 @@ export function parseCoachReply(reply: string | null, goalCount: number): CoachV
   }
   if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
   const r = o as Record<string, unknown>;
-  if (r.verdict === 'on-track') return { verdict: 'on-track' };
-  if (r.verdict !== 'drift') return null;
-  const { goal, drift, question } = r;
-  if (typeof goal !== 'number' || !Number.isInteger(goal) || goal < 1 || goal > goalCount) {
+  if (r.verdict === 'quiet') return { verdict: 'quiet' };
+  if (r.verdict !== 'moment') return null;
+  const { goal, matched, observed, line } = r;
+  if (typeof goal !== 'number' || !Number.isInteger(goal) || goal < 1 || goal > goals.length) {
     return null;
   }
-  if (typeof drift !== 'string' || typeof question !== 'string') return null;
-  const d = clean(drift);
-  const q = clean(question);
-  if (d.length < 8 || d.length > DRIFT_MAX_CHARS) return null;
-  if (q.length < 12 || q.length > QUESTION_MAX_CHARS || !q.endsWith('?')) return null;
-  return { verdict: 'drift', goalIndex: goal - 1, drift: d, question: q };
+  if (typeof matched !== 'string' || typeof observed !== 'string' || typeof line !== 'string') {
+    return null;
+  }
+  const target = goals[goal - 1];
+  if (!target || !quotesTrigger(matched, target.when)) return null;
+  const o2 = clean(observed);
+  const l = clean(line);
+  if (o2.length < 8 || o2.length > OBSERVED_MAX_CHARS) return null;
+  if (l.length < 20 || l.length > LINE_MAX_CHARS || !l.endsWith('?')) return null;
+  return { verdict: 'moment', goalIndex: goal - 1, matched: clean(matched), observed: o2, line: l };
 }

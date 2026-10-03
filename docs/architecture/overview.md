@@ -1797,18 +1797,26 @@ the key list behind `?` and the Undo toast are `landing-inbox-modals.ts`
 beside it. Bryan's Remove is a tap like snooze: the row goes to `dismissed`
 with no reason, and a new message on its thread reopens it.
 
-**This week** is the goal coach's section at the top of the landing page:
-Bryan's three goals for the week and, at most once at a time, one line
-asking whether he is still pursuing one of them. It is not a board feature.
-`coach/` holds the store (`coach/state.json`, mode 600, every goal list kept),
-the calendar (a check every 3 hours from 9am to 9pm in his zone), the digest
-of his own `activity.jsonl` rows for the day, the Haiku prompt and the strict
-reply parser, and the section. The check rides the summarizer's seam
-(`generateHomeBrief`), so a server without a summarizer never calls a model.
-`routes/coach.ts` takes the goals and the two answers from the owner's own
-front page, and an on-demand check from this machine only. The behaviour is
-`workspaces-app/src/landing-coach.ts`, in the landing bundle. No event is
-emitted. `scripts/coach-eval.ts` runs the fixture weeks through the real model.
+**The coach** helps Bryan with habits he names, in three parts. It is not a
+board feature, and nothing in it reaches an agent's stream.
+(A) *Goals*: "Set up my coach" on the front page makes one learning-goals doc
+on a board of its own (`coach/setup.ts`, `coach/goals-doc.ts`), which the
+planning interview fills when he taps Talk; the front page's section
+(`coach/section.ts`, `coach/landing.ts`) lists the goals, offers a review when
+they have not changed in a week, and holds the how-often setting.
+(B) *Observe*: every board and doc page sends where he is to `/coach/here`
+(`workspaces-app/src/coach-card.ts`), and `coach/stream.ts` turns that and his
+own `activity.jsonl` rows (through `onActivity` in `activity.ts`) into
+active time per page and a free trigger.
+(C) *Intervene*: on a trigger, `coach/moment.ts` checks its gates (goals that
+say when, no open moment, his spacing, one judgement in twenty minutes) and
+only then asks Haiku through the summarizer's seam (`generateHomeBrief`);
+`coach/judge.ts` refuses a reply that does not quote one of his "act
+differently when" lines. A moment goes to his pages over `/coach/stream`
+(`coach/hub.ts`) and draws the card; his answer lowers the rate.
+`coach/store.ts` keeps it all in `coach/state.json`, mode 600; `coach/wiring.ts`
+composes it for `server.ts`. `scripts/coach-eval.ts` asks the real model at
+each labelled point of the fixture day.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts

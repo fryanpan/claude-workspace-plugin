@@ -1,52 +1,24 @@
 /**
- * What Bryan did today, as the coach's check reads it.
+ * What Bryan did in the last hour, as the coach's judgement reads it.
  *
- * The source is `activity.jsonl`, the hands-on record the server already
- * keeps across every board: docs and mockups opened and read (with active
- * reading time), edit sessions, and the comments and replies written. Only
- * rows marked `isOwner` count, so an agent's work never reads as his.
+ * The rows are the activity record's (`activity.jsonl`), as the live feed
+ * hands them over (`coach/stream.ts`): docs and mockups opened and read
+ * (with active reading time), edit sessions, and the comments and replies
+ * written. Only rows marked `isOwner` count, so an agent's work never reads
+ * as his.
  *
- * The rows are folded into one line per doc, newest last, so the prompt
- * carries what the time went to rather than every event. Comment text is
- * cut to its first 200 characters. The file is read from its tail only: a
- * day's rows are at the end, and the whole file grows without bound.
+ * They are folded into one line per doc, newest last, so the prompt carries
+ * what the time went to rather than every event. Comment text is cut to its
+ * first 200 characters.
  */
-import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { zonedParts } from '@claude-workspaces/core/schedule-timezone';
 import type { Event } from '../activity.ts';
 
-/** The most of the file's tail one check reads. */
-export const TAIL_BYTES = 4 * 1024 * 1024;
 /** At most this many docs in the prompt; the most recent are kept. */
 export const MAX_DIGEST_DOCS = 40;
 const MAX_COMMENTS_PER_DOC = 3;
 const COMMENT_CHARS = 200;
 const TITLE_CHARS = 120;
-
-/** The parsed rows in the last `maxBytes` of a JSON-lines file. A first
- *  line cut by the window is dropped; a line that does not parse is skipped. */
-export function readJsonlTail(path: string, maxBytes: number = TAIL_BYTES): unknown[] {
-  if (!existsSync(path)) return [];
-  const fd = openSync(path, 'r');
-  try {
-    const size = fstatSync(fd).size;
-    const start = Math.max(0, size - maxBytes);
-    const buf = Buffer.alloc(size - start);
-    readSync(fd, buf, 0, buf.length, start);
-    const lines = buf.toString('utf8').split('\n');
-    if (start > 0) lines.shift();
-    return lines.flatMap((line) => {
-      if (!line.trim()) return [];
-      try {
-        return [JSON.parse(line) as unknown];
-      } catch {
-        return [];
-      }
-    });
-  } finally {
-    closeSync(fd);
-  }
-}
 
 /** One doc's share of the day. */
 export interface DigestDoc {

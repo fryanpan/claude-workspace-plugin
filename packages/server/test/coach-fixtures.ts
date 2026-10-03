@@ -1,133 +1,222 @@
 /**
- * Two invented working weeks for the goal coach, as `activity.jsonl` rows.
+ * An invented learning-goals doc and two invented working days for the
+ * coach, as the signals its stream hears: where-I-am pings from the pages
+ * every two minutes while he is active, and activity rows.
  *
- * Both weeks share the goals and Monday, Tuesday and Thursday, which are
- * spent on them. They differ on Wednesday:
+ * DRIFTING_DAY wanders twice in ways his goals name: half an hour on a
+ * button-hover mock while the launch post is unfinished (goal 1), and a
+ * partner's message read and left without a reply (goal 2). ON_TRACK_DAY is
+ * the same hours spent on the launch post and the booking spec.
  *
- *  - ON_TRACK: the morning on the launch post, the afternoon on the booking
- *    flow spec, a short look at a colour mock.
- *  - DRIFTING: an hour on the launch post, then the rest of the day on board
- *    colour tokens, a button-hover mock and font experiments, none of which
- *    serves a goal.
+ * LABELLED_POINTS are instants in the drifting day with what a good coach
+ * does there, "speak" or "stay quiet". `scripts/coach-eval.ts` asks the
+ * real model at each one and counts how many of each it gets right.
  *
  * House names only (Harborlight, Riverbend, Saltmarsh). Agent rows are mixed
- * in so a reader that forgot `isOwner` would see a different week. Shared
- * by `coach-pass.test.ts` and `scripts/coach-eval.ts`, which runs the same
- * weeks through the real model.
+ * in so a reader that forgot `isOwner` would see a different day.
  */
 import { instantForLocal } from '@claude-workspaces/core/schedule-timezone';
+import type { Event } from '../src/activity.ts';
+import type { HereSignal } from '../src/coach/stream.ts';
 
 export const ZONE = 'America/Los_Angeles';
-export const GOALS = [
-  'Publish the Harborlight launch post',
-  'Ship the Riverbend booking flow',
-  'Reply to the Saltmarsh partners',
-];
+export const WS = 'w-harbor';
 
-/** 5 October 2026 is a Monday. */
-export const at = (day: number, hour: number, minute = 0): number =>
-  instantForLocal(ZONE, 2026, 10, 5 + day, hour, minute);
-export const WEEK_START = at(0, 0);
-export const WEEK_END = at(5, 0);
+/** Wednesday 7 October 2026, at `hour:minute` his time. */
+export const at = (hour: number, minute = 0): number =>
+  instantForLocal(ZONE, 2026, 10, 7, hour, minute);
+export const DAY_START = at(8);
+export const DAY_END = at(18);
 
-interface Row {
-  ts: string;
-  type: string;
-  actor: 'person' | 'agent';
-  isOwner: boolean;
-  doc: { docId: string; title: string; kind: string };
-  payload: Record<string, unknown>;
-}
+export const GOALS_DOC = `# Learning goals
 
-const DOCS = {
-  post: { docId: 'd-post', title: 'Harborlight launch post draft', kind: 'markdown' },
-  booking: { docId: 'd-booking', title: 'Riverbend booking flow spec', kind: 'markdown' },
-  bookingMock: { docId: 'd-book-mock', title: 'Riverbend booking flow mock', kind: 'mockup' },
-  partners: { docId: 'task:t-partners', title: 'Saltmarsh partner replies', kind: 'markdown' },
-  tokens: { docId: 'd-tokens', title: 'Board colour tokens', kind: 'markdown' },
-  hover: { docId: 'd-hover', title: 'Button hover states mock', kind: 'mockup' },
-  fonts: { docId: 'd-fonts', title: 'Font size experiments', kind: 'mockup' },
-} as const;
-type DocKey = keyof typeof DOCS;
+## Your coach’s name
 
-/** `minutes` of reading, in 20-minute sessions, starting at `start`. */
-function reading(doc: DocKey, start: number, minutes: number, owner = true): Row[] {
-  const rows: Row[] = [];
-  for (let m = 0; m < minutes; m += 20) {
-    const span = Math.min(20, minutes - m);
-    rows.push({
-      ts: new Date(start + (m + span) * 60_000).toISOString(),
-      type: 'read_session',
+Let’s call it Saltmarsh.
+
+## Goal 1
+
+### What I want to do better
+
+Do the hard, important work before the easy polish.
+
+### What’s behind it
+
+The Harborlight launch post slips every week while I tidy styles.
+
+### Act differently when
+
+I spend more than twenty minutes on styling or polish while the launch post is unfinished.
+
+### How
+
+Close the styling page and open the launch post draft.
+
+## Goal 2
+
+### What I want to do better
+
+Answer people who are waiting on me the same day.
+
+### What’s behind it
+
+Riverbend partners wait days for a reply.
+
+### Act differently when
+
+I read a message from someone waiting on me and move on without replying.
+
+### How
+
+Reply in two lines before leaving the page.
+`;
+
+export const DOCS: Record<string, { title: string; board: string; kind: string }> = {
+  'd-post': { title: 'Harborlight launch post draft', board: 'Harborlight', kind: 'markdown' },
+  'd-hover': { title: 'Button hover states mock', board: 'Harborlight', kind: 'mockup' },
+  'd-partner': {
+    title: 'Message from a Riverbend partner, waiting on your answer',
+    board: 'Riverbend',
+    kind: 'markdown',
+  },
+  'd-tokens': { title: 'Board colour tokens', board: 'Harborlight', kind: 'markdown' },
+  'd-booking': { title: 'Riverbend booking flow spec', board: 'Riverbend', kind: 'markdown' },
+  'd-saltmarsh': {
+    title: 'Question from a Saltmarsh partner, waiting on your answer',
+    board: 'Riverbend',
+    kind: 'markdown',
+  },
+};
+
+export const label = (docId: string) => {
+  const d = DOCS[docId];
+  return d ? { title: d.title, board: d.board } : {};
+};
+
+export type Signal = { at: number } & ({ here: Omit<HereSignal, 'at'> } | { row: Event });
+
+function row(
+  type: Event['type'],
+  docId: string,
+  when: number,
+  payload: Event['payload'] = {},
+  owner = true,
+): Signal {
+  const d = DOCS[docId];
+  return {
+    at: when,
+    row: {
+      eventId: `ev-${docId}-${when}-${type}`,
+      ts: new Date(when).toISOString(),
+      type,
       actor: owner ? 'person' : 'agent',
       isOwner: owner,
-      doc: DOCS[doc],
-      payload: { durationMs: span * 60_000 },
+      doc: {
+        docId,
+        sourceUrl: null,
+        relPath: null,
+        title: d?.title ?? docId,
+        kind: (d?.kind ?? 'markdown') as Event['doc']['kind'],
+        repo: { owner: null, name: null, remote: null },
+        producedBy: { agentId: null, sessionId: null, cwd: null },
+      },
+      payload,
+    } as unknown as Event,
+  };
+}
+
+/** Pings every two minutes on `docId` from `start` for `minutes`, heading
+ *  in view and scroll depth moving down the page. */
+function stay(docId: string, start: number, minutes: number, heading: string): Signal[] {
+  const out: Signal[] = [];
+  for (let m = 0; m <= minutes; m += 2) {
+    out.push({
+      at: start + m * 60_000,
+      here: {
+        workspaceId: WS,
+        docId,
+        visible: true,
+        scrollPct: Math.min(100, Math.round((m / minutes) * 100)),
+        heading,
+      },
     });
   }
-  return rows;
+  return out;
 }
 
-function edit(doc: DocKey, when: number): Row {
-  return {
-    ts: new Date(when).toISOString(),
-    type: 'edit_session',
-    actor: 'person',
-    isOwner: true,
-    doc: DOCS[doc],
-    payload: { source: 'editor', editCount: 12 },
-  };
+const away = (when: number): Signal => ({
+  at: when,
+  here: { workspaceId: WS, docId: 'd-post', visible: false },
+});
+
+const byTime = (xs: Signal[]) => xs.sort((a, b) => a.at - b.at);
+
+export const DRIFTING_DAY: Signal[] = byTime([
+  ...stay('d-post', at(9), 40, 'Why we built it'),
+  row('edit_session', 'd-post', at(9, 30), { editCount: 14 }),
+  ...stay('d-hover', at(9, 41), 49, 'Hover, pressed, focus'),
+  row('comment', 'd-hover', at(10, 12), { text: 'Try a softer shadow on hover, and a 2px lift.' }),
+  ...stay('d-partner', at(10, 31), 12, 'Can we move the launch?'),
+  ...stay('d-tokens', at(10, 44), 14, 'Greys'),
+  row('edit_session', 'd-booking', at(10, 20), { editCount: 40 }, false),
+  away(at(10, 59)),
+  ...stay('d-booking', at(11), 40, 'Payment step'),
+  row('edit_session', 'd-booking', at(11, 25), { editCount: 9 }),
+  away(at(11, 41)),
+  ...stay('d-post', at(13), 30, 'What it costs'),
+  row('edit_session', 'd-post', at(13, 20), { editCount: 22 }),
+  ...stay('d-saltmarsh', at(13, 31), 18, 'Pricing question'),
+  row('reply', 'd-saltmarsh', at(13, 48), {
+    text: 'Yes, the Saltmarsh price holds until December.',
+  }),
+  away(at(13, 50)),
+]);
+
+export const ON_TRACK_DAY: Signal[] = byTime([
+  ...stay('d-post', at(9), 90, 'Why we built it'),
+  row('edit_session', 'd-post', at(9, 30), { editCount: 14 }),
+  row('edit_session', 'd-post', at(10, 15), { editCount: 30 }),
+  away(at(10, 31)),
+  ...stay('d-booking', at(11), 40, 'Payment step'),
+  row('edit_session', 'd-booking', at(11, 25), { editCount: 9 }),
+  away(at(11, 41)),
+  ...stay('d-post', at(13), 50, 'What it costs'),
+  row('edit_session', 'd-post', at(13, 20), { editCount: 22 }),
+  away(at(13, 51)),
+]);
+
+export interface LabelledPoint {
+  at: number;
+  expect: 'speak' | 'quiet';
+  /** 0-based, for a "speak" point. */
+  goalIndex?: number;
+  why: string;
 }
 
-function comment(doc: DocKey, when: number, text: string): Row {
-  return {
-    ts: new Date(when).toISOString(),
-    type: 'comment',
-    actor: 'person',
-    isOwner: true,
-    doc: DOCS[doc],
-    payload: { text },
-  };
-}
-
-/** A day spent on the goals: the post, the booking flow, the partners. */
-function goalDay(day: number): Row[] {
-  return [
-    ...reading('post', at(day, 9), 100),
-    edit('post', at(day, 10, 45)),
-    comment('post', at(day, 11), 'Tighten the opening and move the pricing note down.'),
-    ...reading('booking', at(day, 13), 80),
-    ...reading('bookingMock', at(day, 14, 30), 40),
-    comment('bookingMock', at(day, 15, 15), 'The confirm step needs the date on it.'),
-    ...reading('partners', at(day, 16), 30),
-    comment('partners', at(day, 16, 30), 'Sent Alice the revised terms; waiting on Bob.'),
-    // An agent's afternoon on the colour tokens is not Bryan's.
-    ...reading('tokens', at(day, 13), 120, false),
-  ];
-}
-
-const onTrackWednesday = (): Row[] => [
-  ...reading('post', at(2, 9), 140),
-  edit('post', at(2, 11, 30)),
-  ...reading('booking', at(2, 13), 120),
-  edit('booking', at(2, 14, 50)),
-  ...reading('tokens', at(2, 15, 30), 15),
-  ...reading('partners', at(2, 16), 30),
+export const LABELLED_POINTS: LabelledPoint[] = [
+  { at: at(9, 30), expect: 'quiet', why: 'half an hour into the launch post itself' },
+  {
+    at: at(9, 50),
+    expect: 'quiet',
+    why: 'nine minutes on the hover mock: under the twenty he named',
+  },
+  {
+    at: at(10, 10),
+    expect: 'speak',
+    goalIndex: 0,
+    why: 'half an hour on hover states, post unfinished',
+  },
+  {
+    at: at(10, 50),
+    expect: 'speak',
+    goalIndex: 1,
+    why: 'read the partner’s message and moved on without replying',
+  },
+  {
+    at: at(11, 30),
+    expect: 'quiet',
+    why: 'half an hour on the booking spec, which no trigger names',
+  },
+  { at: at(13, 25), expect: 'quiet', why: 'back on the launch post' },
+  { at: at(13, 49), expect: 'quiet', why: 'read the Saltmarsh question and replied' },
 ];
-
-const driftingWednesday = (): Row[] => [
-  ...reading('post', at(2, 9), 60),
-  ...reading('tokens', at(2, 10, 30), 100),
-  edit('tokens', at(2, 12, 15)),
-  ...reading('hover', at(2, 13), 120),
-  comment('hover', at(2, 14, 30), 'Try a softer shadow on hover, and a 2px lift.'),
-  ...reading('fonts', at(2, 15), 140),
-  edit('fonts', at(2, 17, 15)),
-];
-
-const week = (wednesday: () => Row[]): Row[] =>
-  [goalDay(0), goalDay(1), wednesday(), goalDay(3), goalDay(4)]
-    .flat()
-    .sort((a, b) => a.ts.localeCompare(b.ts));
-
-export const ON_TRACK_WEEK = week(onTrackWednesday);
-export const DRIFTING_WEEK = week(driftingWednesday);
