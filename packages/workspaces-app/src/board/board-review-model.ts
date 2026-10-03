@@ -213,6 +213,9 @@ export interface ReviewThreadItem {
    * which reads as the doc destination it always had.
    */
   docType?: string;
+  /** On an `app` doc's row, the page its thread is pinned to; the link opens
+   *  that page rather than the app's root (`docThreadHref`). */
+  pageUrl?: string;
   threadId: string;
   taskId?: string;
   title: string;

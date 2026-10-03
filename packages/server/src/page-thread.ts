@@ -28,23 +28,17 @@
 import type { Anchor, DocType, ElementAnchor, PageSuggestion } from '@claude-workspaces/core';
 import { createWordsAnchor } from '@claude-workspaces/core/anchor/element';
 import { MAX_PAGE_FIND, readPageSuggestion } from '@claude-workspaces/core/page-edits';
+import {
+  MOCK_FRAME_PARAM,
+  pageThreadHref,
+  pageUrlOf,
+  withoutBoardParams,
+} from '@claude-workspaces/core/page-thread-link';
 import { appPrefix, upstreamUrl } from './app-proxy.ts';
-import { MOCK_FRAME_PARAM } from './mockup-frame.ts';
 
-/** Query parameters the board adds to a page's address; never the app's. */
-const BOARD_PARAMS = new Set([MOCK_FRAME_PARAM, 'thread']);
 /** Redirects followed to find the page, and how long each answer may take. */
 const MAX_HOPS = 5;
 const PROBE_MS = 3000;
-
-/** `search` without the board's parameters, every other byte as written. */
-function withoutBoardParams(search: string): string {
-  const parts = search
-    .replace(/^\?/, '')
-    .split('&')
-    .filter((part) => part !== '' && !BOARD_PARAMS.has(part.split('=')[0] ?? ''));
-  return parts.length === 0 ? '' : `?${parts.join('&')}`;
-}
 
 export type PageThreadPlan =
   | { ok: true; anchor: ElementAnchor; suggestion?: PageSuggestion }
@@ -131,11 +125,7 @@ export async function servedPath(
  * the anchor's context, which a mock's thread has none of: a mock is one page.
  */
 export function pageThreadLink(docUrl: string, thread: { id: string; anchor: Anchor }): string {
-  const frameUrl = thread.anchor.kind === 'element' ? thread.anchor.context?.url : undefined;
-  const u = new URL(frameUrl ?? '', docUrl);
-  const rest = withoutBoardParams(u.search);
-  const param = `thread=${encodeURIComponent(thread.id)}`;
-  return `${u.origin}${u.pathname}${rest ? `${rest}&` : '?'}${param}${u.hash}`;
+  return pageThreadHref(docUrl, thread.id, pageUrlOf(thread.anchor));
 }
 
 /** What to store for an agent's `find` on a page, or why it is refused. */

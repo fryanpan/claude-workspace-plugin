@@ -526,6 +526,15 @@ chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
 Reject, which only resolves it.
 
+Every link to such a thread is the page plus `?thread=<id>`, built by
+`page-thread-link.ts`, a top-level module of core so the server and the
+board client share it: the agent's `threadUrl`, a review item's push
+(`review-gate.ts`), the Home opener (`board-queue-open.ts`) and the
+cross-board review (`cross-walk-model.ts`), the last two through
+`board/doc-thread-href.ts`. An app's Home-queue row carries `pageUrl`, its
+thread's anchor context, because the client has no anchors to read it from.
+A page outside the doc falls back to the doc itself.
+
 **A review item raised on a mockup is answerable on the mockup.** The ask used
 to live only on the ticket, so a reader opened the mock, looked at it, and
 then left for the Home queue to say what they thought. `widget-dock.ts` — a

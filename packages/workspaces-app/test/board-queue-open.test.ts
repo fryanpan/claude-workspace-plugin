@@ -92,6 +92,45 @@ describe('createBoardQueueOpeners', () => {
     expect(o.assigned).toEqual(['/workspaces/w-1/mockups/d-mock?thread=th-2']);
   });
 
+  it('opens an app comment on the app page it is pinned to, at the thread', () => {
+    const o = openers();
+    const still = o.openReviewItem(
+      item({
+        thread: {
+          kind: 'doc-thread',
+          docId: 'd-site',
+          threadId: 'th-4',
+          docType: 'app',
+          pageUrl: '/workspaces/w-1/apps/d-site/transportation/bike/?day=sun&cw-frame=1#map',
+        },
+      }),
+      'k-42',
+    );
+    expect(still).toBe(false);
+    // No `item`: it would land in the app's own query.
+    expect(o.assigned).toEqual([
+      '/workspaces/w-1/apps/d-site/transportation/bike/?day=sun&thread=th-4#map',
+    ]);
+  });
+
+  it("opens an app comment without a page at the app's root, never off the app", () => {
+    const o = openers();
+    for (const pageUrl of [undefined, 'https://elsewhere.test/x', '/workspaces/w-1/docs/plan-a']) {
+      o.openReviewItem(
+        item({
+          thread: {
+            kind: 'doc-thread',
+            docId: 'd-site',
+            threadId: 'th-4',
+            docType: 'app',
+            ...(pageUrl ? { pageUrl } : {}),
+          },
+        }),
+      );
+    }
+    expect(o.assigned).toEqual(Array(3).fill('/workspaces/w-1/apps/d-site/?thread=th-4'));
+  });
+
   it('CONTROL: the same row without the kind still opens the doc surface', () => {
     // An older server ships no `docType`, and the destination it always had
     // has to survive that. Without this control the assertion above would
