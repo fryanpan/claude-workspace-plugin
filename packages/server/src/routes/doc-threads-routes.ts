@@ -45,6 +45,7 @@ import { classifyActor } from '../actor-identity.ts';
 import { threadOpenParts } from '../answer-coverage.ts';
 import { claudeKeyAddHint } from '../claude-key-source.ts';
 import { mayTouchFrom, writeViaOf } from '../mockup-frame.ts';
+import { isPageDoc, pageThreadPlan } from '../page-thread.ts';
 import { reviewItemAnsweredEvent } from '../review-items/analytics.ts';
 import { refuseOwnerOnlyWrite } from '../share/board-role.ts';
 import { isCategoryAuthor } from '../task-owner.ts';
@@ -1012,19 +1013,51 @@ export async function handleDocThreadRoutes(
     }
     const declared = reviewFromBody(body?.review, text);
     if (!declared.ok) return j(400, { error: declared.error });
-    const res = await docStore.createThreadByFind(
-      docId,
-      {
+    // Visitor-authored text becomes the entire prompt on this route.
+    const writeOpts = {
+      generate: !visitor,
+      ...(declared.review ? { review: declared.review } : {}),
+    };
+    // An app or a mock holds no text of its own to find: the words are the
+    // page's, and the anchor is the widget's (`page-thread.ts`).
+    const type = rq.doc.meta.type;
+    let res: Awaited<ReturnType<typeof docStore.createThreadByFind>>;
+    if (isPageDoc(type)) {
+      const plan = pageThreadPlan({
+        type,
+        workspaceId: rq.scope?.workspaceId ?? resolveWorkspaceForDoc(docId),
+        docId,
         find,
-        contextBefore: body?.contextBefore ? String(body.contextBefore) : undefined,
-        contextAfter: body?.contextAfter ? String(body.contextAfter) : undefined,
-        occurrence: typeof body?.occurrence === 'number' ? Number(body.occurrence) : undefined,
-      },
-      author,
-      text,
-      // Visitor-authored text becomes the entire prompt on this route.
-      { generate: !visitor, ...(declared.review ? { review: declared.review } : {}) },
-    );
+        path: body?.path,
+        suggest: body?.suggest,
+        narrowed: ['contextBefore', 'contextAfter', 'occurrence'].some((k) => body?.[k] != null),
+      });
+      if (!plan.ok) return j(400, { error: plan.error });
+      const pageSuggestion = plan.suggestion ? { pageSuggestion: plan.suggestion } : {};
+      const t = await docStore.postComment(docId, null, author, text, plan.anchor, {
+        ...writeOpts,
+        ...pageSuggestion,
+        ...viaOpt,
+      });
+      res = t ? { ok: true, thread: t } : { ok: false, error: 'no-doc' };
+    } else if (body?.suggest !== undefined) {
+      return j(400, {
+        error: 'suggest is for app and mock pages. On this doc, use find_and_replace with suggest.',
+      });
+    } else {
+      res = await docStore.createThreadByFind(
+        docId,
+        {
+          find,
+          contextBefore: body?.contextBefore ? String(body.contextBefore) : undefined,
+          contextAfter: body?.contextAfter ? String(body.contextAfter) : undefined,
+          occurrence: typeof body?.occurrence === 'number' ? Number(body.occurrence) : undefined,
+        },
+        author,
+        text,
+        writeOpts,
+      );
+    }
     const findGate =
       res.ok && declared.review
         ? await gateThreadDeclaration(docId, res.thread, declared.review, author)

@@ -108,3 +108,27 @@ describe('threadCreateRequest — the review declaration', () => {
     );
   });
 });
+
+describe('threadCreateRequest — a page and a suggestion', () => {
+  it('carries the page and the new words on the by_find branch', () => {
+    const r = threadCreateRequest(
+      {
+        docId: 'd-app',
+        find: 'Riverbend walk',
+        path: '/calendar',
+        suggest: { replacement: 'Riverbend Street walk' },
+        text: 't',
+      },
+      AUTHOR,
+      BOARD,
+    );
+    expect(r.path).toBe(`${BOARD}/docs/d-app/threads/by_find`);
+    expect(r.body.path).toBe('/calendar');
+    expect(r.body.suggest).toEqual({ replacement: 'Riverbend Street walk' });
+  });
+
+  it('sends neither key on a plain find', () => {
+    const r = threadCreateRequest({ docId: 'd-1', find: 'x', text: 't' }, AUTHOR, BOARD);
+    expect('path' in r.body || 'suggest' in r.body).toBe(false);
+  });
+});
