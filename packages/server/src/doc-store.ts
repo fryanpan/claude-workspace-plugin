@@ -4415,6 +4415,24 @@ export class DocStore {
     }
   }
 
+  /**
+   * A parked doc that somebody edited owes its file those edits.
+   *
+   * The park remembers that only while the doc is resident (`editedBefore`).
+   * Eviction and restart drop the park, and the next hydrate then arbitrates
+   * by mtime alone, where a file touched after the `.ydoc`'s save — a sync
+   * client re-materialising it — wins and is read in over the edit. Putting
+   * the claim on the index row makes that hydrate pass `liveWins`, as it
+   * does for a write-back a shutdown left owed. A doc parked again before it
+   * re-bound keeps a claim it already had.
+   */
+  private parkedWriteOwed(doc: LiveDoc): boolean {
+    const park = this.parkedSources.get(doc.docId);
+    if (!park || this.bindings.has(doc.docId)) return false;
+    if (this.docIndex.get(doc.docId)?.pendingFileWrite) return true;
+    return doc.lastContentChangeAt !== undefined && doc.lastContentChangeAt !== park.editedBefore;
+  }
+
   /** The doc's listing row, built from the live doc. */
   private indexEntryFor(doc: LiveDoc): DocIndexEntry {
     const threads = listThreads(doc.ydoc);
@@ -4431,7 +4449,9 @@ export class DocStore {
     // The ydoc save runs at 200ms and the file write-back at 800ms, so a
     // pending write-back is always visible from here. See `DocIndexEntry`.
     const pendingFileWrite =
-      this.bindings.hasPendingWrite(doc.docId) || this.bindings.hasFailedWrite(doc.docId);
+      this.bindings.hasPendingWrite(doc.docId) ||
+      this.bindings.hasFailedWrite(doc.docId) ||
+      this.parkedWriteOwed(doc);
     return {
       v: DOC_INDEX_VERSION,
       // A copy, not the live object: `doc.meta` keeps being mutated and the
