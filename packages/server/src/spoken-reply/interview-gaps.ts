@@ -91,6 +91,14 @@ function isQuestion(text: string): boolean {
   return t.endsWith('?') || OPEN_MARK.test(t);
 }
 
+/** The plan's sections, by heading, in the doc's order: every heading but
+ *  the title (a level-1 heading above deeper ones). */
+export function planHeadings(blocks: readonly prose.OutlineEntry[]): prose.OutlineEntry[] {
+  const headings = blocks.filter((b) => b.kind === 'heading' && b.text.trim());
+  const titled = headings.some((h) => (h.level ?? 1) > 1);
+  return headings.filter((h) => !titled || (h.level ?? 1) > 1);
+}
+
 /** The gaps in `blocks`, most important first. */
 export function findPlanGaps(blocks: readonly prose.OutlineEntry[]): PlanGap[] {
   const headings = blocks.filter((b) => b.kind === 'heading');

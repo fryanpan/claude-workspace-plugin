@@ -30,7 +30,8 @@
  * the router hands to the lead is acknowledged ("On it.") and the lead's
  * answer is said into the call when it arrives, once the bot is not already
  * speaking, with its minute written by the same `minuteFor` rule
- * (`spoken-reply/meeting-errands.ts`).
+ * (`spoken-reply/meeting-errands.ts`). In a planning meeting either minute
+ * goes under the plan section the request names (`spoken-reply/plan-minutes.ts`).
  */
 import type { RecallClient } from './recall.ts';
 import { type SpokenAnswer, SpokenAnswerer, type SpokenBoard } from './spoken-reply/answer.ts';
@@ -76,6 +77,9 @@ export interface MeetingClaudeDeps {
   voice: SpokenVoice | null;
   /** Plays MP3 into the call (`RecallClient.outputAudio`). */
   play(botId: string, mp3: Uint8Array): Promise<void>;
+  /** Writes a minute into a planning meeting's plan, under the section
+   *  `about` names; false, or absent, and it goes to the notes. */
+  planMinute?(docId: string, markdown: string, about: string): boolean;
   /** The meeting doc's text as it stands, which a request is asked with. */
   notesOf?(docId: string): string | null;
   /** Where the lead's answers to requests it took are waited for; absent,
@@ -257,7 +261,7 @@ export class MeetingClaude {
       this.awaitLead(u, call, a.awaiting, request);
     } else {
       const minute = minuteFor(a);
-      if (minute) u.note(minute);
+      if (minute) this.minute(u.docId, call, minute, request);
     }
     await this.say(u.botId, spokenLine(a));
   }
@@ -270,9 +274,13 @@ export class MeetingClaude {
     lead.answers.wait(workspaceId, queueId, call, (a) => {
       const done = this.calls.get(u.botId) === call ? call.errands.answered(queueId, a) : null;
       if (!done) return;
-      if (done.note) call.note(done.note);
+      if (done.note) this.minute(u.docId, call, done.note, done.about);
       void this.sayHeld(u.botId, call, u.docId);
     });
+  }
+
+  private minute(docId: string, call: BotCall, markdown: string, about: string): void {
+    if (!this.deps.planMinute?.(docId, markdown, about)) call.note(markdown);
   }
 
   /** The lead's answers that came in, said while nothing else is. */
@@ -325,6 +333,8 @@ export function createMeetingClaude(o: {
   notesOf?: (docId: string) => string | null;
   /** The waits the spoken-reply sockets share, so a lead answers one route. */
   leads?: LeadAnswers;
+  /** A planning meeting's minutes, placed in the plan (`PlanMinutes.place`). */
+  planMinute?: (docId: string, markdown: string, about: string) => boolean;
   log?: (line: string) => void;
 }): MeetingClaude | null {
   const ownerEmail = o.ownerEmail?.trim() ?? '';
@@ -350,6 +360,7 @@ export function createMeetingClaude(o: {
     play: (botId, mp3) => client.outputAudio(botId, mp3),
     ...(o.notesOf ? { notesOf: o.notesOf } : {}),
     ...(o.leads ? { lead: { answers: o.leads, boardOf: o.boardOf } } : {}),
+    ...(o.planMinute ? { planMinute: o.planMinute } : {}),
     log: (line) => console.error(line),
   });
 }
