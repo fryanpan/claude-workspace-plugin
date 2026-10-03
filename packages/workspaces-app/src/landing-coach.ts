@@ -8,7 +8,7 @@
  *    starts the interview.
  *  - "Add a goal" adds an empty goal to that doc.
  *  - "No update needed" answers the weekly offer.
- *  - Less / Normal / More sets how often the coach may speak up.
+ *  - Less / Normal / More sets how readily the coach speaks up.
  */
 
 const SECTION = '#coach';
@@ -52,7 +52,8 @@ function requestFor(btn: HTMLButtonElement): { url: string; body: unknown } | nu
   if (btn.dataset.act === 'add-goal') return { url: '/coach/goals/add', body: {} };
   if (btn.dataset.review === 'no-update')
     return { url: '/coach/review', body: { answer: 'no-update' } };
-  if (btn.dataset.spacing) return { url: '/coach/prefs', body: { spacing: btn.dataset.spacing } };
+  if (btn.dataset.readiness)
+    return { url: '/coach/prefs', body: { readiness: btn.dataset.readiness } };
   return null;
 }
 

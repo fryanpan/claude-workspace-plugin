@@ -17,7 +17,7 @@ const READY = (pressed: string) =>
   ]
     .map(
       (s) =>
-        `<button type="button" data-spacing="${s}" aria-pressed="${s === pressed}">${s}</button>`,
+        `<button type="button" data-readiness="${s}" aria-pressed="${s === pressed}">${s}</button>`,
     )
     .join('')}</section>`;
 
@@ -71,15 +71,15 @@ describe('Your coach', () => {
     expect(assign).toHaveBeenCalledWith('/workspaces/w-coach/docs/d-goals');
   });
 
-  it('How often posts the setting and redraws the section with it pressed', async () => {
+  it('How readily posts the setting and redraws the section with it pressed', async () => {
     start(READY('normal'), READY('less'));
-    click('[data-spacing="less"]');
+    click('[data-readiness="less"]');
     await until(() => calls.some((c) => c.url === '/'));
     await until(
       () =>
-        document.querySelector('[data-spacing="less"]')?.getAttribute('aria-pressed') === 'true',
+        document.querySelector('[data-readiness="less"]')?.getAttribute('aria-pressed') === 'true',
     );
-    expect(bodyOf('/coach/prefs')).toEqual({ spacing: 'less' });
+    expect(bodyOf('/coach/prefs')).toEqual({ readiness: 'less' });
   });
 
   it('Add a goal and No update needed each post their own request', async () => {

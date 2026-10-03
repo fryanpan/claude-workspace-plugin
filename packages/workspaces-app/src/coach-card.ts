@@ -1,29 +1,35 @@
 /**
- * The coach on a board or a doc: where Bryan is, sent to the server, and the
- * coach's "Hi, I'm noticing…" card when it has something to say.
+ * The coach on a board or a doc: what Bryan is looking at and writing, sent
+ * to the server, and the coach's "Hi, I'm noticing…" card when it has
+ * something to say.
  *
- * Where he is: one small POST to `/coach/here` when the page opens, when it
- * is hidden or shown, and at most once a minute while he is scrolling, typing
- * or pointing. A page left open with nobody at it sends nothing, so the
- * server counts no time for it. The doc page adds how far down he is and the
- * heading he is under.
+ * What he is looking at: one small POST to `/coach/here` when the page
+ * opens, when it is hidden or shown, and when he stops scrolling, with the
+ * heading and the passage in view. The server drops a repeat, so only a
+ * change reaches the coach.
+ *
+ * What he writes (doc pages): the paragraph he is typing in, sent when he
+ * pauses for `WROTE_PAUSE_MS` or moves to another paragraph. A pause is where
+ * a thought ends; sending each keystroke would make each one a coach turn.
  *
  * Only the owner has a coach. Anyone else's first POST gets an empty 204,
  * and the page then stops: no more beacons, and the stream is never opened.
  *
  * The card: calm by default. It sits in the bottom-left corner, does not
- * move or pulse, and leaves when he answers, when the server clears it, or
- * when the moment's ten minutes are up. Drawn in a shadow root so neither
- * page's stylesheet reaches it and it adds no rule to either.
+ * move or pulse, and stays until he answers it or the server clears it,
+ * which it does when he moves to another doc or board. Drawn in a shadow
+ * root so neither page's stylesheet reaches it and it adds no rule to either.
  */
 
 const HERE_URL = '/coach/here';
 const STREAM_URL = '/coach/stream';
-/** The longest a beacon waits after he does something. */
-export const BEACON_EVERY_MS = 60_000;
-/** The server's MOMENT_TTL_MS: a moment unanswered after this is gone. */
-export const MOMENT_TTL_MS = 10 * 60_000;
-const ACTIVITY_EVENTS = ['scroll', 'keydown', 'pointerdown', 'input', 'wheel'] as const;
+/** A typing pause this long sends the paragraph. */
+export const WROTE_PAUSE_MS = 3_000;
+/** Scrolling has stopped once it is this quiet: the passage he stopped at is
+ *  the one he reads, not each one he scrolled past. */
+export const SCROLL_SETTLE_MS = 1_000;
+const PASSAGE_CHARS = 600;
+const BLOCKS = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td';
 
 export interface CoachMomentView {
   id: string;
@@ -44,7 +50,6 @@ export interface CoachCardOptions {
   /** Answers the status, or 0 when the request never landed. */
   post?: (url: string, body: unknown) => Promise<number>;
   openStream?: (url: string) => EventSource;
-  now?: () => number;
 }
 
 const STYLES = `
@@ -74,27 +79,52 @@ async function defaultPost(url: string, body: unknown): Promise<number> {
   }
 }
 
-/** The element that scrolls the page: the doc's own pane, or the document. */
-function scroller(root: HTMLElement | undefined): Element | null {
-  for (let el = root?.parentElement ?? null; el; el = el.parentElement) {
-    const y = getComputedStyle(el).overflowY;
-    if ((y === 'auto' || y === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
-  }
-  return document.scrollingElement;
-}
-
-/** How far down, as a whole percent, and the last heading above the fold. */
-function readingPlace(root: HTMLElement | undefined): { scrollPct?: number; heading?: string } {
-  if (!root) return {};
-  const el = scroller(root);
-  const range = el ? el.scrollHeight - el.clientHeight : 0;
-  const scrollPct = el && range > 0 ? Math.round((el.scrollTop / range) * 100) : 0;
+/** The last heading above the fold. */
+function headingInView(root: HTMLElement): string | undefined {
   let heading: string | undefined;
   for (const h of root.querySelectorAll<HTMLElement>('h1, h2, h3')) {
     if (h.getBoundingClientRect().top > 120) break;
     heading = h.textContent?.trim() || heading;
   }
-  return { scrollPct: Math.min(100, Math.max(0, scrollPct)), ...(heading ? { heading } : {}) };
+  return heading;
+}
+
+/** The text of the blocks on screen, up to `PASSAGE_CHARS`. */
+function passageInView(root: HTMLElement): string | undefined {
+  const parts: string[] = [];
+  let length = 0;
+  for (const el of root.querySelectorAll<HTMLElement>(BLOCKS)) {
+    if (el.parentElement?.closest(BLOCKS)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom < 0) continue;
+    if (r.top > window.innerHeight) break;
+    const t = el.textContent?.replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    parts.push(t);
+    length += t.length + 1;
+    if (length >= PASSAGE_CHARS) break;
+  }
+  return parts.length ? parts.join(' ').slice(0, PASSAGE_CHARS) : undefined;
+}
+
+/** The paragraph the caret is in, inside the doc. */
+function blockAtCaret(root: HTMLElement): HTMLElement | null {
+  const node = document.getSelection()?.anchorNode ?? null;
+  const el = node instanceof Element ? node : (node?.parentElement ?? null);
+  const block = el?.closest<HTMLElement>(BLOCKS) ?? null;
+  return block && root.contains(block) ? block : null;
+}
+
+/** The last heading before `block` in the doc. */
+function headingBefore(root: HTMLElement, block: HTMLElement): string | undefined {
+  let heading: string | undefined;
+  for (const h of root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')) {
+    if (h === block || !(h.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      break;
+    }
+    heading = h.textContent?.trim() || heading;
+  }
+  return heading;
 }
 
 export interface CoachCard {
@@ -103,44 +133,71 @@ export interface CoachCard {
 
 export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   const post = opts.post ?? defaultPost;
-  const now = opts.now ?? Date.now;
+  const root = opts.root;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   let stopped = false;
-  let sentAt = 0;
-  let movedSince = false;
   let stream: EventSource | null = null;
   let host: HTMLElement | null = null;
   let shown: CoachMomentView | null = null;
-  let expiry: ReturnType<typeof setTimeout> | undefined;
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  let pause: ReturnType<typeof setTimeout> | undefined;
+  /** The paragraph he is typing in, until it is sent. */
+  let writing: HTMLElement | null = null;
 
-  const send = async (): Promise<number> => {
-    sentAt = now();
-    movedSince = false;
+  const where = () => ({
+    workspaceId: opts.workspaceId,
+    ...(opts.docId ? { docId: opts.docId } : {}),
+    visible: document.visibilityState !== 'hidden',
+  });
+
+  const view = (): Promise<number> => {
+    const heading = root ? headingInView(root) : undefined;
+    const text = root ? passageInView(root) : undefined;
     return post(HERE_URL, {
-      workspaceId: opts.workspaceId,
-      ...(opts.docId ? { docId: opts.docId } : {}),
-      visible: document.visibilityState !== 'hidden',
+      kind: 'view',
+      ...where(),
       timeZone,
-      ...readingPlace(opts.root),
+      ...(heading ? { heading } : {}),
+      ...(text ? { text } : {}),
     });
   };
-  const onActivity = () => {
+
+  const sendWriting = () => {
+    clearTimeout(pause);
+    const block = writing;
+    writing = null;
+    if (stopped || !block || !root || !opts.docId) return;
+    const text = block.textContent?.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    const heading = headingBefore(root, block);
+    void post(HERE_URL, { kind: 'wrote', ...where(), ...(heading ? { heading } : {}), text });
+  };
+
+  const onInput = () => {
+    if (stopped || !root) return;
+    const block = blockAtCaret(root);
+    if (writing && block !== writing) sendWriting();
+    writing = block;
+    clearTimeout(pause);
+    pause = setTimeout(sendWriting, WROTE_PAUSE_MS);
+  };
+  // Moving the caret to another paragraph ends the one he was writing.
+  const onSelection = () => {
+    if (writing && root && blockAtCaret(root) !== writing) sendWriting();
+  };
+  const onScroll = () => {
     if (stopped) return;
-    movedSince = true;
-    if (now() - sentAt >= BEACON_EVERY_MS) void send();
+    clearTimeout(settle);
+    settle = setTimeout(() => void view(), SCROLL_SETTLE_MS);
   };
   const onVisibility = () => {
-    if (!stopped) void send();
+    if (stopped) return;
+    if (document.visibilityState === 'hidden') sendWriting();
+    void view();
   };
-  // A burst of activity sends its first ping at once; this sends the rest at
-  // most once a minute, and only if he did something since.
-  const tick = setInterval(() => {
-    if (!stopped && movedSince && document.visibilityState !== 'hidden') void send();
-  }, BEACON_EVERY_MS);
 
   const hide = (id?: string) => {
     if (id && shown?.id !== id) return;
-    clearTimeout(expiry);
     shown = null;
     host?.remove();
     host = null;
@@ -154,8 +211,6 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   };
 
   const show = (m: CoachMomentView) => {
-    const left = m.at + MOMENT_TTL_MS - now();
-    if (left <= 0) return;
     hide();
     shown = m;
     host = document.createElement('div');
@@ -199,7 +254,6 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     );
     shadow.append(style, card);
     document.body.appendChild(host);
-    expiry = setTimeout(() => hide(m.id), left);
   };
 
   const onFrame = (ev: MessageEvent) => {
@@ -213,14 +267,18 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     else if (frame.type === 'clear') hide(frame.id);
   };
 
-  for (const e of ACTIVITY_EVENTS)
-    document.addEventListener(e, onActivity, { capture: true, passive: true });
+  root?.addEventListener('input', onInput);
+  document.addEventListener('selectionchange', onSelection);
+  document.addEventListener('scroll', onScroll, { capture: true, passive: true });
   document.addEventListener('visibilitychange', onVisibility);
 
   const destroy = () => {
+    sendWriting();
     stopped = true;
-    clearInterval(tick);
-    for (const e of ACTIVITY_EVENTS) document.removeEventListener(e, onActivity, { capture: true });
+    clearTimeout(settle);
+    root?.removeEventListener('input', onInput);
+    document.removeEventListener('selectionchange', onSelection);
+    document.removeEventListener('scroll', onScroll, { capture: true });
     document.removeEventListener('visibilitychange', onVisibility);
     stream?.close();
     stream = null;
@@ -228,7 +286,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   };
 
   // 200 is the owner; anything else (204 for anyone else) stops the page.
-  void send().then((status) => {
+  void view().then((status) => {
     if (status !== 200) return destroy();
     if (stopped) return;
     if (!opts.openStream && typeof EventSource === 'undefined') return;
