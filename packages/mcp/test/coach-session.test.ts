@@ -1,30 +1,53 @@
 /**
- * The coach session's half of a candidate: the line it reads carries the
- * whole question and names the reply, and `coach_reply` posts the verdict to
- * the candidate's route, telling the session when the candidate had lapsed.
+ * The coach session's half: each frame reads as one line naming what the
+ * owner did, and `coach_moment` posts a moment, handing back the server's
+ * refusal as an answer the session can read.
  */
 import { describe, expect, it } from 'vitest';
-import { coachCandidateLine } from '../src/coach-line.ts';
+import { coachLine } from '../src/coach-line.ts';
 import { handleWorkspaceTool } from '../src/tools/workspace.ts';
 
-const FRAME = {
-  candidateId: 'cc-aaaaaaaaaaaa',
-  system: 'You are Saltmarsh, a calm coach. Your default is to stay quiet.',
-  prompt: 'Right now: 24 min active on "Button hover states mock" on board "Harborlight".',
-};
-
-describe('coachCandidateLine', () => {
-  it('carries the rules, what they are doing, and the reply to send', () => {
-    const line = coachCandidateLine(FRAME) ?? '';
-    expect(line.startsWith('[coach.candidate]')).toBe(true);
-    expect(line).toContain('coach_reply(candidateId="cc-aaaaaaaaaaaa", verdict)');
-    expect(line).toContain('claude-workspaces:coaching');
-    expect(line).toContain(FRAME.system);
-    expect(line).toContain(FRAME.prompt);
+describe('coachLine', () => {
+  it('names what the owner did, where, and carries their words', () => {
+    const line =
+      coachLine(
+        'coach.event',
+        {
+          at: Date.UTC(2026, 9, 7, 17, 5),
+          kind: 'wrote',
+          boardId: 'w-1',
+          board: 'Harborlight',
+          docId: 'd-1',
+          doc: 'Launch post',
+          heading: 'Pricing',
+          text: 'We should build the importer first.',
+        },
+        'America/Los_Angeles',
+      ) ?? '';
+    expect(line).toBe(
+      '[coach.event 10:05] The owner wrote, in "Launch post" on board "Harborlight", under "Pricing".\nWe should build the importer first.',
+    );
+    expect(coachLine('coach.event', { kind: 'left', boardId: 'w-1', board: 'Riverbend' })).toBe(
+      '[coach.event] The owner left the page of board "Riverbend".',
+    );
   });
 
-  it('says nothing for a frame with no candidate to answer', () => {
-    expect(coachCandidateLine({ system: FRAME.system })).toBeNull();
+  it('reads an answer and a preference as things to remember', () => {
+    expect(
+      coachLine('coach.answer', {
+        momentId: 'cm-aaaaaaaaaaaa',
+        answer: 'not-now',
+        goal: 'Ask why first',
+        line: "Hi, I'm noticing you're designing the fix. Why first?",
+      }),
+    ).toContain('answered "Not now": right goal, wrong time');
+    expect(coachLine('coach.preference', { readiness: 'less' })).toContain('less readily');
+  });
+
+  it('says nothing for a frame it cannot read', () => {
+    expect(coachLine('coach.event', { kind: 'danced', boardId: 'w-1' })).toBeNull();
+    expect(coachLine('coach.answer', { answer: 'thanks' })).toBeNull();
+    expect(coachLine('coach.preference', { readiness: 'loud' })).toBeNull();
   });
 });
 
@@ -43,36 +66,32 @@ function ctxFor(answer: (path: string) => unknown) {
 
 const text = (r: unknown) => (r as { content: { text: string }[] }).content[0]?.text ?? '';
 
-describe('coach_reply', () => {
-  it('posts the verdict to the candidate it names', async () => {
-    const { calls, ctx } = ctxFor(() => ({ ok: true }));
-    const verdict = { verdict: 'quiet' };
-    const r = await handleWorkspaceTool(
-      'coach_reply',
-      { candidateId: FRAME.candidateId, verdict },
-      ctx,
-    );
-    expect(calls).toEqual([['POST', '/coach/candidates/cc-aaaaaaaaaaaa/reply', verdict]]);
-    expect(JSON.parse(text(r))).toEqual({ settled: true });
+const MOMENT = {
+  goal: 1,
+  matched: 'I start on a solution',
+  observed: 'Designing the importer before saying why',
+  line: "Hi, I'm noticing you're designing the importer. What is it for?",
+};
+
+describe('coach_moment', () => {
+  it('posts the moment and returns its id', async () => {
+    const { calls, ctx } = ctxFor(() => ({ id: 'cm-aaaaaaaaaaaa' }));
+    const r = await handleWorkspaceTool('coach_moment', MOMENT, ctx);
+    expect(calls).toEqual([['POST', '/coach/moments', MOMENT]]);
+    expect(JSON.parse(text(r))).toEqual({ raised: true, id: 'cm-aaaaaaaaaaaa' });
   });
 
-  it('tells the session a lapsed candidate settled nothing, and refuses a verdict that is not an object', async () => {
-    const { ctx } = ctxFor(() => {
+  it('hands back a refusal with its reason, and throws anything else', async () => {
+    const refused = ctxFor(() => {
       throw new Error(
-        'POST /coach/candidates/cc-aaaaaaaaaaaa/reply → 404: {"error":"no-such-candidate"}',
+        'POST /coach/moments → 409: {"error":"moment-open","message":"A moment is already on his page."}',
       );
     });
-    const lapsed = await handleWorkspaceTool(
-      'coach_reply',
-      { candidateId: FRAME.candidateId, verdict: { verdict: 'quiet' } },
-      ctx,
-    );
-    expect(JSON.parse(text(lapsed))).toMatchObject({ settled: false });
-    const bad = await handleWorkspaceTool(
-      'coach_reply',
-      { candidateId: FRAME.candidateId, verdict: 'quiet' },
-      ctx,
-    );
-    expect(bad).toMatchObject({ isError: true });
+    const r = await handleWorkspaceTool('coach_moment', MOMENT, refused.ctx);
+    expect(JSON.parse(text(r))).toMatchObject({ raised: false, reason: 'moment-open' });
+    const broken = ctxFor(() => {
+      throw new Error('POST /coach/moments → 500: boom');
+    });
+    await expect(handleWorkspaceTool('coach_moment', MOMENT, broken.ctx)).rejects.toThrow('500');
   });
 });

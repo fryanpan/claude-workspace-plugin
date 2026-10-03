@@ -14129,19 +14129,63 @@ function isBookkeepingEvent(event, payload) {
 }
 
 // packages/mcp/src/coach-line.ts
-function coachCandidateLine(p) {
-  if (typeof p.candidateId !== "string" || p.candidateId === "")
+var VERB = {
+  view: "is reading",
+  wrote: "wrote, in",
+  comment: "commented on",
+  reply: "replied on",
+  open: "opened",
+  left: "left"
+};
+var ANSWER = {
+  thanks: 'answered "Thanks": it helped',
+  "not-now": 'answered "Not now": right goal, wrong time',
+  "not-this": 'answered "Not this": a wrong call',
+  "moved-on": "moved on without answering"
+};
+var READINESS = {
+  less: "less readily: only when the match is plain",
+  normal: "as readily as before: when you see a clear match",
+  more: "more readily: also when you are less sure"
+};
+function clock(at, timeZone) {
+  if (typeof at !== "number" || !Number.isFinite(at))
+    return "";
+  const t = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    ...timeZone ? { timeZone } : {}
+  }).format(at);
+  return ` ${t}`;
+}
+function eventLine(p, timeZone) {
+  const verb = p.kind ? VERB[p.kind] : undefined;
+  if (!verb || !p.boardId)
     return null;
-  return [
-    `[coach.candidate] Judge this as the coach (skill claude-workspaces:coaching). Answer within 3 minutes with coach_reply(candidateId="${p.candidateId}", verdict). Quiet unless it plainly matches.`,
-    "",
-    "How to judge:",
-    p.system ?? "(not sent)",
-    "",
-    "What they are doing:",
-    p.prompt ?? "(not sent)"
-  ].join(`
-`);
+  const board = `board "${p.board ?? p.boardId}"`;
+  const where = p.docId ? `"${p.doc ?? p.docId}" on ${board}` : `the page of ${board}`;
+  const under = p.heading ? `, under "${p.heading}"` : "";
+  const head = `[coach.event${clock(p.at, timeZone)}] The owner ${verb} ${where}${under}.`;
+  return p.text ? `${head}
+${p.text}` : head;
+}
+function coachLine(event, p, timeZone) {
+  if (event === "coach.event")
+    return eventLine(p, timeZone);
+  if (event === "coach.answer") {
+    const how = p.answer ? ANSWER[p.answer] : undefined;
+    if (!how || !p.momentId)
+      return null;
+    return `[coach.answer${clock(p.at, timeZone)}] The owner ${how}. Your moment ${p.momentId} (goal: ${p.goal ?? "?"}) said: "${p.line ?? ""}". Write what it teaches you in your memory doc.`;
+  }
+  if (event === "coach.preference") {
+    const how = p.readiness ? READINESS[p.readiness] : undefined;
+    if (!how)
+      return null;
+    return `[coach.preference${clock(p.at, timeZone)}] The owner wants you to speak up ${how}. Write it in your memory doc.`;
+  }
+  return null;
 }
 
 // packages/mcp/src/decision-line.ts
@@ -14188,8 +14232,8 @@ function capClause(cap, now2, style) {
   let setter = "";
   if (change !== undefined && typeof name === "string" && name.length > 0) {
     const at = typeof change.ts === "number" ? change.ts : undefined;
-    const clock = typeof now2 === "number" ? now2 : Date.now();
-    const ago = at === undefined ? "" : ` ${humanDuration2(Math.max(0, clock - at))} ago`;
+    const clock2 = typeof now2 === "number" ? now2 : Date.now();
+    const ago = at === undefined ? "" : ` ${humanDuration2(Math.max(0, clock2 - at))} ago`;
     const was = typeof change.from === "number" ? `, was ${change.from}` : "";
     setter = `, set by ${name}${ago}${was}`;
   }
@@ -14840,8 +14884,10 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       body = line;
       break;
     }
-    case "coach.candidate": {
-      const line = coachCandidateLine(rawPayload);
+    case "coach.event":
+    case "coach.answer":
+    case "coach.preference": {
+      const line = coachLine(event, rawPayload);
       if (line === null)
         return;
       body = line;
@@ -15922,18 +15968,29 @@ var TOOL_LIST = {
       }
     },
     {
-      name: "coach_reply",
-      description: `The coach session's answer to a coach.candidate line. Send {"verdict":"quiet"} unless what they are doing plainly matches one goal's "Act differently when", and then the moment object the line describes. The server checks the quote, the spacing and the daily cap, so a moment can still stay quiet. settled:false means the candidate lapsed or was already answered.`,
+      name: "coach_moment",
+      description: `The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.event plainly matches one goal's "Act differently when"; otherwise say nothing. The server refuses a quote that is not that goal's words, a goal with no trigger, and a second moment while one is open, and says why (raised:false).`,
       inputSchema: {
         type: "object",
         properties: {
-          candidateId: { type: "string", description: "From the coach.candidate line." },
-          verdict: {
-            type: "object",
-            description: '{"verdict":"quiet"}, or {"verdict":"moment","goal":N,"matched":"...","observed":"...","line":"..."} as the line says.'
+          goal: {
+            type: "number",
+            description: "The goal's number in the Learning goals doc, from 1."
+          },
+          matched: {
+            type: "string",
+            description: `At least three words copied in order from that goal's "Act differently when".`
+          },
+          observed: {
+            type: "string",
+            description: "What you saw them do, naming the actual work. 8 to 140 characters."
+          },
+          line: {
+            type: "string",
+            description: `What the card says, 20 to 220 characters: start "Hi, I'm noticing", name what they are doing and the goal, end with one short question.`
           }
         },
-        required: ["candidateId", "verdict"]
+        required: ["goal", "matched", "observed", "line"]
       }
     },
     {
@@ -20467,20 +20524,24 @@ async function handleWorkspaceTool(name, a, ctx) {
         ...res.delivered === true ? {} : { note: "No page is waiting for this answer. Post it on the task or a thread." }
       });
     }
-    case "coach_reply": {
-      const { candidateId, verdict } = a;
-      if (typeof candidateId !== "string" || candidateId === "")
-        return err2("candidateId is required");
-      if (!verdict || typeof verdict !== "object" || Array.isArray(verdict))
-        return err2('verdict must be an object, such as {"verdict":"quiet"}');
+    case "coach_moment": {
+      const { goal, matched, observed, line } = a;
       try {
-        await http("POST", `/coach/candidates/${encodeURIComponent(candidateId)}/reply`, verdict);
+        const r = await http("POST", "/coach/moments", { goal, matched, observed, line });
+        return ok2({ raised: true, id: r.id });
       } catch (e) {
-        if (!String(e).includes("no-such-candidate"))
+        const m = String(e).match(/→ (409|422): (.*)$/s);
+        if (!m)
           throw e;
-        return ok2({ settled: false, note: "This candidate lapsed or was already answered." });
+        const body = (() => {
+          try {
+            return JSON.parse(m[2] ?? "");
+          } catch {
+            return {};
+          }
+        })();
+        return ok2({ raised: false, reason: body.error ?? "refused", message: body.message });
       }
-      return ok2({ settled: true });
     }
     case "request_plugin_refresh": {
       return ok2(await http("POST", "/api/plugin/refresh"));

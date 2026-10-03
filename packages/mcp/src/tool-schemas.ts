@@ -364,20 +364,32 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
-      name: 'coach_reply',
+      name: 'coach_moment',
       description:
-        'The coach session\'s answer to a coach.candidate line. Send {"verdict":"quiet"} unless what they are doing plainly matches one goal\'s "Act differently when", and then the moment object the line describes. The server checks the quote, the spacing and the daily cap, so a moment can still stay quiet. settled:false means the candidate lapsed or was already answered.',
+        "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.event plainly matches one goal's \"Act differently when\"; otherwise say nothing. The server refuses a quote that is not that goal's words, a goal with no trigger, and a second moment while one is open, and says why (raised:false).",
       inputSchema: {
         type: 'object',
         properties: {
-          candidateId: { type: 'string', description: 'From the coach.candidate line.' },
-          verdict: {
-            type: 'object',
+          goal: {
+            type: 'number',
+            description: "The goal's number in the Learning goals doc, from 1.",
+          },
+          matched: {
+            type: 'string',
             description:
-              '{"verdict":"quiet"}, or {"verdict":"moment","goal":N,"matched":"...","observed":"...","line":"..."} as the line says.',
+              'At least three words copied in order from that goal\'s "Act differently when".',
+          },
+          observed: {
+            type: 'string',
+            description: 'What you saw them do, naming the actual work. 8 to 140 characters.',
+          },
+          line: {
+            type: 'string',
+            description:
+              'What the card says, 20 to 220 characters: start "Hi, I\'m noticing", name what they are doing and the goal, end with one short question.',
           },
         },
-        required: ['candidateId', 'verdict'],
+        required: ['goal', 'matched', 'observed', 'line'],
       },
     },
     {

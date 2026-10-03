@@ -15,7 +15,7 @@
  */
 import { appUnreachableLine } from './app-unreachable-line.ts';
 import { isBookkeepingEvent } from './bookkeeping-events.ts';
-import { coachCandidateLine } from './coach-line.ts';
+import { type CoachPayload, coachLine } from './coach-line.ts';
 import { decisionAnsweredLine, fromMockNote, openPartsClause } from './decision-line.ts';
 import { doneWhenReadyLine } from './done-when-ready-line.ts';
 import {
@@ -418,9 +418,11 @@ async function emitBoardChannelMessage(
       body = line;
       break;
     }
-    // Addressed to the coach session alone: the question and its rules.
-    case 'coach.candidate': {
-      const line = coachCandidateLine(rawPayload as Parameters<typeof coachCandidateLine>[0]);
+    // Addressed to the coach session alone: what the owner does, and says.
+    case 'coach.event':
+    case 'coach.answer':
+    case 'coach.preference': {
+      const line = coachLine(event, rawPayload as CoachPayload);
       if (line === null) return;
       body = line;
       break;
