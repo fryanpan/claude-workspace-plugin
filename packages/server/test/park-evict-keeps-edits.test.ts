@@ -13,7 +13,15 @@
  * returns. The doc and its text are invented.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as Y from 'yjs';
@@ -74,39 +82,59 @@ describe('a parked doc edited, then evicted', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('writes the edit to the file when it comes back, rather than reading the file over it', async () => {
-    store = newStore();
-    store.get(DOC_ID);
-    await waitFor(() => store?.getDocStatus(DOC_ID)?.sourceParked?.reason.includes('quarantined'), {
+  /** Park the doc, delete a block in it, evict it, then bring the file back
+   *  holding `fileText`, written after the `.ydoc`'s save, and re-open it. */
+  const editParkEvictReopen = async (fileText: string): Promise<DocStore> => {
+    const live = newStore();
+    store = live;
+    live.get(DOC_ID);
+    await waitFor(() => live.getDocStatus(DOC_ID)?.sourceParked?.reason.includes('quarantined'), {
       describe: 'the doc to park on its quarantined file',
     });
 
-    const cut = store.deleteBlocksInRange(DOC_ID, {
+    const cut = live.deleteBlocksInRange(DOC_ID, {
       startFind: 'Riverbend mill.',
       endFind: 'Riverbend mill.',
     });
     expect(cut.ok).toBe(true);
     // The `.ydoc` save is what eviction would otherwise hold for; settle it
     // so the eviction below is the ordinary idle one.
-    store.flush();
+    live.flush();
 
     storeNow += SHORT_KEEP_MS + 1;
-    expect(await store.evictIdleDocs()).toContain(DOC_ID);
+    expect(await live.evictIdleDocs()).toContain(DOC_ID);
     // Eviction itself loses nothing: the `.ydoc` it left holds the edit.
     expect(persistedBody()).not.toContain('Riverbend mill.');
 
-    // The folder comes back, and the file is touched after the `.ydoc`'s
-    // save without its content changing.
     await releaseFifosIn(dataDir);
     unlinkSync(boundPath);
-    writeFileSync(boundPath, FIRST);
+    writeFileSync(boundPath, fileText);
     boundFiles.reset();
 
-    // Somebody opens the doc again.
-    store.get(DOC_ID);
-    await waitFor(() => store?.boundPathOf(DOC_ID), { describe: 'the doc to bind again' });
+    live.get(DOC_ID);
+    await waitFor(() => live.boundPathOf(DOC_ID), { describe: 'the doc to bind again' });
+    return live;
+  };
 
-    expect(store.readMarkdownBody(DOC_ID)).not.toContain('Riverbend mill.');
+  const backups = (): string[] => {
+    const dir = join(dataDir, 'clobber-backups');
+    return existsSync(dir) ? readdirSync(dir).map((f) => readFileSync(join(dir, f), 'utf8')) : [];
+  };
+
+  it('writes the edit to the file when it comes back, rather than reading the file over it', async () => {
+    // The file is touched without its content changing.
+    const live = await editParkEvictReopen(FIRST);
+    expect(live.readMarkdownBody(DOC_ID)).not.toContain('Riverbend mill.');
     await waitForFile(boundPath, (text) => !text.includes('Riverbend mill.'));
+  });
+
+  it('keeps a copy of a file a person edited meanwhile before writing over it', async () => {
+    // Somebody edited the file in another editor while the doc was parked.
+    const theirs = FIRST.replace('Saltmarsh dyke.', 'Saltmarsh dyke, raised in spring.');
+    const live = await editParkEvictReopen(theirs);
+    expect(live.readMarkdownBody(DOC_ID)).not.toContain('Riverbend mill.');
+    await waitForFile(boundPath, (text) => !text.includes('Riverbend mill.'));
+    // Their version is not lost: it is in clobber-backups/ byte for byte.
+    expect(backups()).toContain(theirs);
   });
 });
