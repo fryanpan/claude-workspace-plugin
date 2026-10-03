@@ -161,6 +161,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   // The post is the reader's alone and checks its peer address and token
   // (`authorizeAgentCaller`); the read and the taps are trusted-local and
   // then refuse every caller but the owner's own signed-in front page.
+  ...family('routes/coach.ts', [
+    ['loopback-only', '/coach/check', 'POST'],
+    ['trusted-local', '/coach/goals', 'POST'],
+    ['trusted-local', '/coach/nudges/:id/answer', 'POST'],
+  ]),
   ...family('routes/inbox.ts', [
     ['loopback-only', '/inbox/rows', 'POST'],
     ['trusted-local', '/inbox/rows/:id/body', 'GET'],

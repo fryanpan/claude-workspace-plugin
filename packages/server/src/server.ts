@@ -14,6 +14,7 @@ import {
 } from '@claude-workspaces/core';
 import { createAccessDeps } from './access-deps.ts';
 import { releaseActivityLock } from './activity-lock.ts';
+import { activityLogPath } from './activity.ts';
 import { isOwnerActor, ownerIdentityIds } from './actor-identity.ts';
 import { AgentNoteLog } from './agent-note-log.ts';
 import { AgentNoteRing } from './agent-notes.ts';
@@ -43,6 +44,10 @@ import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-mem
 import { createBoardSummaries } from './board-summary.ts';
 import { type BrowserSentryConfig } from './browser-sentry.ts';
 import { ChatAudit } from './chat-audit.ts';
+import { readJsonlTail } from './coach/digest.ts';
+import { coachSectionFor } from './coach/landing.ts';
+import { createCoach } from './coach/pass.ts';
+import { CoachStore } from './coach/store.ts';
 import { maybeCompress, maybeNotModified } from './compress.ts';
 import { type ConnectorHost, createConnectorHost } from './connector/host.ts';
 import { hostedSessionFactory } from './connector/session-factory.ts';
@@ -126,6 +131,7 @@ import { type AppRoutesContext, handleAppRoutes } from './routes/apps.ts';
 import { type ArchiveRoutesContext, createArchiveRoutes } from './routes/archive.ts';
 import { type AuthShareRoutesContext, handleAuthShareRoutes } from './routes/auth-share.ts';
 import { type ChatAuditRoutesContext, handleChatAuditRoutes } from './routes/chat-audit-routes.ts';
+import { type CoachRoutesContext, handleCoachRoutes } from './routes/coach.ts';
 import { type DocMoveRoutesContext, handleDocMoveRoute } from './routes/doc-move.ts';
 import type { DocRoutesContext } from './routes/docs-routes-context.ts';
 import {
@@ -1424,6 +1430,22 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     config: inboxConfig,
     transport: opts.inboxTransport ?? systemTransport(),
   });
+  /** The goal coach: Bryan's week's goals and the check that reads his day
+   *  against them (coach/pass.ts). The model call rides the summarizer's
+   *  seam, so a server with no summarizer never makes one. */
+  const coachStore = new CoachStore(dataDir);
+  const coach = createCoach({
+    store: coachStore,
+    readRows: () => readJsonlTail(activityLogPath(dataDir)),
+    label: (docId) => {
+      const task = docId.startsWith('task:') ? taskStore.getTask(docId.slice(5)) : undefined;
+      const ws = task?.workspaceId ?? taskStore.workspaceOfDoc(docId);
+      const board = ws ? taskStore.getWorkspace(ws)?.name : undefined;
+      return { ...(task ? { title: task.title } : {}), ...(board ? { board } : {}) };
+    },
+    generate: summarizer ? (prompt) => summarizer.generateHomeBrief(prompt) : null,
+  });
+  coach.start();
   // One queue over every board, in project order, and the ledger that records
   // where each answered item stood in it. Composed beside the Home pane
   // because it reads that pane's own rows — the cross-board order and a
@@ -2155,6 +2177,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     defaultBoardWorkspaceName: DEFAULT_BOARD_WORKSPACE_NAME,
     landingInbox: (rankOf) =>
       inboxSectionFor({ store: inboxStore, config: inboxConfig(), taskStore, rankOf }),
+    landingCoach: () => coachSectionFor(coachStore),
   });
 
   /**
@@ -2276,6 +2299,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         key: agentTokenKeyFor(),
         requireToken: true,
       }),
+    j,
+    safeJson,
+  };
+
+  /** The goal coach's goals, answers and on-demand check (routes/coach.ts). */
+  const coachRoutesCtx: CoachRoutesContext = {
+    store: coachStore,
+    coach,
+    refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     j,
     safeJson,
   };
@@ -3554,6 +3586,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         if (handled) return handled;
       }
 
+      // --- REST: the goal coach --- see ./routes/coach.ts. Top-level for
+      // the inbox's reason: the goals are the owner's, not a board's.
+      // Claims `/coach/` alone, which nothing above answers.
+      {
+        const handled = await handleCoachRoutes(coachRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          requestOrigin: () => policyFor(req).requestOrigin,
+        });
+        if (handled) return handled;
+      }
+
       // --- Web log --- see ./routes/ops.ts. Same chain position as before
       // the split: under the doc resource routes, above the shell tail.
       {
@@ -3984,6 +4030,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // output for the rest of the run.
       loopLag.stop();
       taskScheduler.stop();
+      coach.stop();
       leadPresence.stop();
       // The boot re-scoring pass runs for as long as there are stale rows, so
       // a short-lived server (every test) can still be mid-loop here. Setting
