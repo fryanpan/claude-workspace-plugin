@@ -177,6 +177,13 @@ describe('a moment', () => {
     expect(h.frames.filter((f) => f.type === 'moment')).toHaveLength(1);
   });
 
+  it('raised before any page said where he was, it closes on his first move', () => {
+    const h = harness();
+    const raised = h.coach.raise(MOMENTS[0] ?? null);
+    h.coach.here({ kind: 'view', workspaceId: WS, docId: 'd-post', visible: true });
+    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('moved-on');
+  });
+
   it('stays however long he leaves it on the same page', () => {
     const h = harness();
     h.coach.here({ kind: 'view', workspaceId: WS, docId: 'd-hover', visible: true });

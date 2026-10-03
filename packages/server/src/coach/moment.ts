@@ -97,11 +97,12 @@ export function createCoach(deps: CoachDeps): Coach {
     if (sent) deps.store.countEvent(e.at);
   };
 
-  /** He moved: a moment raised somewhere else closes, then the events go. */
+  /** He moved: a moment raised somewhere else closes, then the events go.
+   *  One raised before any page said where he was closes on his first move. */
   const take = (step: StreamStep, t: number) => {
     const open = deps.store.openMoment();
     const place = deps.stream.current;
-    if (step.moved && open?.workspaceId && place) {
+    if (step.moved && open && place) {
       const there = open.docId
         ? open.docId === place.docId
         : !place.docId && open.workspaceId === place.workspaceId;

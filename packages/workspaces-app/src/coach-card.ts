@@ -4,8 +4,9 @@
  * something to say.
  *
  * What he is looking at: one small POST to `/coach/here` when the page
- * opens, when it is hidden or shown, and when he stops scrolling, with the
- * heading and the passage in view. The server drops a repeat, so only a
+ * opens (and again once a doc's text has arrived), when it is hidden or
+ * shown, and when he stops scrolling, with the heading and the passage in
+ * view. The server drops a repeat, so only a
  * change reaches the coach.
  *
  * What he writes (doc pages): the paragraph he is typing in, sent when he
@@ -275,6 +276,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   const destroy = () => {
     sendWriting();
     stopped = true;
+    arriving?.disconnect();
     clearTimeout(settle);
     root?.removeEventListener('input', onInput);
     document.removeEventListener('selectionchange', onSelection);
@@ -286,9 +288,27 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   };
 
   // 200 is the owner; anything else (204 for anyone else) stops the page.
+  // The doc's text arrives after the page opens, so the first view may have
+  // none: send one more once the text has settled, then stop watching.
+  let arriving: MutationObserver | null = null;
+  const awaitText = () => {
+    if (!root || passageInView(root) || typeof MutationObserver === 'undefined') return;
+    arriving = new MutationObserver(() => {
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        if (stopped || !passageInView(root)) return;
+        arriving?.disconnect();
+        arriving = null;
+        void view();
+      }, SCROLL_SETTLE_MS);
+    });
+    arriving.observe(root, { childList: true, subtree: true, characterData: true });
+  };
+
   void view().then((status) => {
     if (status !== 200) return destroy();
     if (stopped) return;
+    awaitText();
     if (!opts.openStream && typeof EventSource === 'undefined') return;
     stream = (opts.openStream ?? ((url) => new EventSource(url)))(STREAM_URL);
     stream.addEventListener('coach', onFrame as EventListener);

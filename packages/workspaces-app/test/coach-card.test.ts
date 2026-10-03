@@ -100,6 +100,23 @@ describe('what he is looking at and writing', () => {
     c.destroy();
   });
 
+  it('sends one more view once a doc that opened empty has its text', async () => {
+    document.body.innerHTML = '<main id="ed" contenteditable="true"></main>';
+    const ed = document.getElementById('ed') as HTMLElement;
+    const c = mount({ docId: 'd-post', root: ed });
+    await flush();
+    expect(posted).toHaveLength(1);
+    ed.innerHTML = '<h2>Why</h2><p>Paper books get wet.</p>';
+    await flush();
+    vi.advanceTimersByTime(SCROLL_SETTLE_MS);
+    expect(posted.at(-1)?.body).toMatchObject({ kind: 'view', heading: 'Why' });
+    ed.appendChild(document.createElement('p')).textContent = 'More.';
+    await flush();
+    vi.advanceTimersByTime(SCROLL_SETTLE_MS);
+    expect(posted).toHaveLength(2);
+    c.destroy();
+  });
+
   it('sends a paragraph once when he pauses, and at once when he moves to another', async () => {
     document.body.innerHTML =
       '<main id="ed" contenteditable="true"><h2>Plan</h2><p id="a">Build the importer</p><p id="b">Ship</p></main>';
