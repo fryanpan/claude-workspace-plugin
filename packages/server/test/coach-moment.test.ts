@@ -13,7 +13,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readGoalsDoc } from '../src/coach/goals-doc.ts';
-import { type CoachFrame, MIN_JUDGE_GAP_MS, createCoach } from '../src/coach/moment.ts';
+import {
+  type CoachFrame,
+  type CoachGenerator,
+  MIN_JUDGE_GAP_MS,
+  createCoach,
+} from '../src/coach/moment.ts';
 import { CoachStore } from '../src/coach/store.ts';
 import { CoachStream } from '../src/coach/stream.ts';
 import {
@@ -52,7 +57,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function harness(opts: { goals?: string | null; generate?: typeof standInJudge | null } = {}) {
+function harness(opts: { goals?: string | null; generate?: CoachGenerator | null } = {}) {
   let clock = DAY_START;
   const store = new CoachStore(dir, clock);
   store.noteTimeZone(ZONE);
@@ -146,10 +151,17 @@ describe('the gates before a model is asked', () => {
     expect(none.store.judgements()).toHaveLength(0);
   });
 
-  it('no model records that, once a trigger fires, and raises nothing', async () => {
+  it('no session records that, once a trigger fires, and raises nothing', async () => {
     const h = harness({ generate: null });
     await h.play(DRIFTING_DAY, at(10, 30));
-    expect(h.store.judgements().map((j) => j.outcome)).toContain('no-model');
+    expect(h.store.judgements().map((j) => j.outcome)).toContain('no-session');
+    expect(h.store.moments()).toHaveLength(0);
+  });
+
+  it('a session that never answers is no answer, and raises nothing', async () => {
+    const h = harness({ generate: async () => null });
+    h.setClock(at(9));
+    expect(await h.coach.judgeNow()).toMatchObject({ outcome: 'no-answer' });
     expect(h.store.moments()).toHaveLength(0);
   });
 

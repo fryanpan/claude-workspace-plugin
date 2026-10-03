@@ -9,9 +9,9 @@
  * judgement is in flight. Each judgement leaves one record
  * (`CoachJudgement`), which is what the wrong-call figures are counted from.
  *
- * The model is reached through the summarizer's seam (`generate` is
- * `ThreadSummarizer.generateHomeBrief` in the real server), so a test or a
- * server without a key never calls the API.
+ * The judge is reached through one seam, `generate`. In the real server it
+ * is the coach's Claude Code session (`coach/session-judge.ts`); a test
+ * hands in a stand-in, so no test reaches a model.
  */
 import type { Event } from '../activity.ts';
 import { spacingAllows } from './clock.ts';
@@ -22,8 +22,9 @@ import type { CoachStore } from './store.ts';
 import type { CoachStream, HereSignal } from './stream.ts';
 import type { CoachJudgement, CoachMoment, JudgementOutcome, MomentAnswer } from './types.ts';
 
-/** At most one judgement in this window, so a day is at most ~30 calls. */
-export const MIN_JUDGE_GAP_MS = 20 * 60_000;
+/** At most one judgement in this window: a session turn each, so a day of
+ *  ten active hours asks at most 60. */
+export const MIN_JUDGE_GAP_MS = 10 * 60_000;
 export const DEFAULT_COACH_NAME = 'Your coach';
 
 export type CoachGenerator = (prompt: { system: string; user: string }) => Promise<string | null>;
@@ -41,8 +42,10 @@ export interface CoachDeps {
   label: (docId: string) => DocLabel;
   boardName: (workspaceId: string) => string | undefined;
   workspaceOf: (docId: string) => string | undefined;
-  /** Null when this server has no model key. */
+  /** Null when there is no judge at all. */
   generate: CoachGenerator | null;
+  /** False when the judge cannot be asked now (no session attached). */
+  reachable?: () => boolean;
   publish: (frame: CoachFrame) => void;
   now?: () => number;
   log?: (line: string) => void;
@@ -100,7 +103,7 @@ export function createCoach(deps: CoachDeps): Coach {
       log(`[coach] judged (${cause}): ${outcome}`);
       return rec;
     };
-    if (!deps.generate) return record('no-model');
+    if (!deps.generate || deps.reachable?.() === false) return record('no-session');
     const tz = deps.store.timeZone;
     const seen = deps.stream.lines(t, tz, deps.label, deps.boardName);
     const reply = await deps
@@ -115,6 +118,7 @@ export function createCoach(deps: CoachDeps): Coach {
         }),
       })
       .catch(() => null);
+    if (reply === null) return record('no-answer');
     const verdict = parseCoachReply(reply, goals);
     if (!verdict) return record('unusable-reply');
     if (verdict.verdict === 'quiet') return record('quiet');

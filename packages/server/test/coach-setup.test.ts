@@ -106,7 +106,8 @@ describe('wireCoach', () => {
       label: () => ({}),
       boardName: () => undefined,
       workspaceOf: () => 'w-coach',
-      generate: null,
+      leadOf: () => undefined,
+      sendToAgent: () => 0,
       now: () => at(9),
     });
   }

@@ -1448,7 +1448,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       docId.startsWith('task:')
         ? taskStore.getTask(docId.slice(5))?.workspaceId
         : (taskStore.workspaceOfDoc(docId) ?? undefined),
-    generate: summarizer ? (prompt) => summarizer.generateHomeBrief(prompt) : null,
+    leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
+    sendToAgent: (workspaceId, agentId, frame) =>
+      sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
   });
   // One queue over every board, in project order, and the ledger that records
   // where each answered item stood in it. Composed beside the Home pane

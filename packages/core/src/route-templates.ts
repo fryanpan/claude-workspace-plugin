@@ -283,6 +283,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['api', 'threads'],
   ['api', 'workspaces'],
   ['apple-touch-icon.png'],
+  ['coach', 'candidates', ':id', 'reply'],
   ['coach', 'check'],
   ['coach', 'goals', 'add'],
   ['coach', 'here'],

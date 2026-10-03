@@ -163,6 +163,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   // then refuse every caller but the owner's own signed-in front page.
   ...family('routes/coach.ts', [
     ['loopback-only', '/coach/check', 'POST'],
+    ['loopback-only', '/coach/candidates/:id/reply', 'POST'],
     ['trusted-local', '/coach/setup', 'POST'],
     ['trusted-local', '/coach/goals/add', 'POST'],
     ['trusted-local', '/coach/review', 'POST'],

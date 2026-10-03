@@ -6,14 +6,16 @@
  *  - the doc store, to make, read and append to the learning-goals doc;
  *  - the task store, to make the coach's board and to name a doc's board;
  *  - the activity record's live feed (`onActivity`), for this data dir only;
- *  - the summarizer's model seam, or nothing when this server has no key.
+ *  - the Coach board's lead, and an addressed frame to it: the coach's
+ *    Claude Code session, which judges each candidate (`session-judge.ts`).
  */
 import { type Event, onActivity } from '../activity.ts';
 import type { DocLabel } from './digest.ts';
 import { type GoalsDocReading, readGoalsDoc } from './goals-doc.ts';
 import { CoachHub } from './hub.ts';
 import { coachSectionFor } from './landing.ts';
-import { type Coach, type CoachGenerator, createCoach } from './moment.ts';
+import { type Coach, createCoach } from './moment.ts';
+import { type CandidateFrame, SessionJudge } from './session-judge.ts';
 import type { CoachSetupDeps } from './setup.ts';
 import { CoachStore } from './store.ts';
 import { CoachStream } from './stream.ts';
@@ -43,7 +45,9 @@ export interface CoachWiringDeps {
   label: (docId: string) => DocLabel;
   boardName: (workspaceId: string) => string | undefined;
   workspaceOf: (docId: string) => string | undefined;
-  generate: CoachGenerator | null;
+  /** The board's lead agent, if one is seated. */
+  leadOf: (workspaceId: string) => string | undefined;
+  sendToAgent: (workspaceId: string, agentId: string, frame: CandidateFrame) => number;
   now?: () => number;
 }
 
@@ -51,6 +55,7 @@ export interface CoachWiring {
   store: CoachStore;
   coach: Coach;
   hub: CoachHub;
+  judge: SessionJudge;
   setup: CoachSetupDeps;
   /** The front page's section, for the owner. */
   landing: () => string;
@@ -65,6 +70,15 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     const md = doc ? deps.docStore.readMarkdownBody(doc.docId) : null;
     return md === null ? null : readGoalsDoc(md);
   };
+  const judge = new SessionJudge({
+    lead: () => {
+      const ws = store.goalsDoc?.workspaceId;
+      const agentId = ws ? deps.leadOf(ws) : undefined;
+      return ws && agentId ? { workspaceId: ws, agentId } : null;
+    },
+    send: deps.sendToAgent,
+    ...(deps.now ? { now: deps.now } : {}),
+  });
   const coach = createCoach({
     store,
     stream: new CoachStream(),
@@ -72,7 +86,8 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     label: deps.label,
     boardName: deps.boardName,
     workspaceOf: deps.workspaceOf,
-    generate: deps.generate,
+    generate: judge.generate,
+    reachable: () => judge.reachable(),
     publish: (frame) => hub.publish(frame),
     ...(deps.now ? { now: deps.now } : {}),
   });
@@ -105,10 +120,12 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     store,
     coach,
     hub,
+    judge,
     setup,
     landing: () => coachSectionFor(store, readGoals, (deps.now ?? Date.now)()),
     stop: () => {
       unsubscribe();
+      judge.close();
       hub.close();
     },
   };

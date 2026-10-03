@@ -10,6 +10,8 @@
  *   GET  /coach/stream               the moments, as server-sent events
  *   POST /coach/moments/:id/answer   `{ answer: 'thanks' | 'not-now' | 'not-this' }`
  *   POST /coach/check                judge now, from this machine only
+ *   POST /coach/candidates/:id/reply the coach session's verdict on a candidate,
+ *                                    from this machine only
  *
  * Owner-level, not under a board: everything here is Bryan's, so nothing is
  * on a share or member allowlist and a visitor is refused before anything
@@ -59,6 +61,7 @@ export interface CoachRouteRequest {
 
 const MAX_BODY_BYTES = 4_000;
 const ANSWER_PATH = /^\/coach\/moments\/(cm-[A-Za-z0-9_-]{12})\/answer$/;
+const REPLY_PATH = /^\/coach\/candidates\/(cc-[A-Za-z0-9_-]{12})\/reply$/;
 const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
 const HEADING_CHARS = 120;
 
@@ -140,6 +143,26 @@ export async function handleCoachRoutes(
     return hub.open(coach.openFrame());
   }
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
+
+  const reply = pathname.match(REPLY_PATH);
+  if (reply) {
+    // The session's verdict. It is checked like a model's reply would be:
+    // the quote, the spacing and the cap all run in the coach.
+    if (rq.visitor) return j(403, { error: 'not available to share visitors' });
+    const notLocal = ctx.refuseNonLocal(req);
+    if (notLocal) return j(notLocal.status, notLocal.body);
+    if (tooLarge(req)) return j(413, { error: 'too-large' });
+    const verdict = await ctx.safeJson(req);
+    if (!verdict)
+      return j(400, { error: 'bad-reply', message: 'send the verdict as a JSON object' });
+    if (!ctx.wiring.judge.reply(reply[1] ?? '', JSON.stringify(verdict))) {
+      return j(404, {
+        error: 'no-such-candidate',
+        message: 'unknown, already answered, or lapsed',
+      });
+    }
+    return j(200, { ok: true });
+  }
 
   if (pathname === '/coach/check') {
     if (rq.visitor) return j(403, { error: 'not available to share visitors' });

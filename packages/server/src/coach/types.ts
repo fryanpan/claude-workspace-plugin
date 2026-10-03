@@ -61,7 +61,14 @@ export interface CoachMoment {
 }
 
 /** What one judgement did. Outcomes and counts only, never his activity. */
-export type JudgementOutcome = 'moment' | 'quiet' | 'unusable-reply' | 'no-model';
+export type JudgementOutcome =
+  | 'moment'
+  | 'quiet'
+  | 'unusable-reply'
+  /** The session was asked and did not answer in time. */
+  | 'no-answer'
+  /** No session to ask: the Coach board has no lead attached. */
+  | 'no-session';
 
 export interface CoachJudgement {
   at: number;

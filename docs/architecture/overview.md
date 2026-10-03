@@ -1809,14 +1809,16 @@ they have not changed in a week, and holds the how-often setting.
 own `activity.jsonl` rows (through `onActivity` in `activity.ts`) into
 active time per page and a free trigger.
 (C) *Intervene*: on a trigger, `coach/moment.ts` checks its gates (goals that
-say when, no open moment, his spacing, one judgement in twenty minutes) and
-only then asks Haiku through the summarizer's seam (`generateHomeBrief`);
-`coach/judge.ts` refuses a reply that does not quote one of his "act
-differently when" lines. A moment goes to his pages over `/coach/stream`
+say when, no open moment, his spacing, one judgement in ten minutes) and
+only then asks the coach's Claude Code session, the Coach board's lead, with
+one addressed `coach.candidate` frame (`coach/session-judge.ts`); the session
+answers on `/coach/candidates/:id/reply`, and `coach/judge.ts` refuses an
+answer that does not quote one of his "act differently when" lines. A moment goes to his pages over `/coach/stream`
 (`coach/hub.ts`) and draws the card; his answer lowers the rate.
 `coach/store.ts` keeps it all in `coach/state.json`, mode 600; `coach/wiring.ts`
 composes it for `server.ts`. `scripts/coach-eval.ts` asks the real model at
-each labelled point of the fixture day.
+each labelled point of the fixture day, as a check that the candidate's
+text carries what a judge needs.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts

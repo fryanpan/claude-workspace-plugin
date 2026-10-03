@@ -1,8 +1,14 @@
 #!/usr/bin/env bun
 /**
- * The coach's fixture days, judged by the real model.
+ * The coach's fixture days, read by a cheap model: a check on the PROMPT.
  *
  * `bun scripts/coach-eval.ts`
+ *
+ * The coach's judge is its Claude Code session (`coach/session-judge.ts`),
+ * which this cannot run. What it can check is whether the candidate the
+ * session is sent says enough: if Haiku, reading only that text, speaks and
+ * stays quiet where a good coach would, the facts are on the page. A miss
+ * here is a prompt to fix before blaming the session.
  *
  * `coach-moment.test.ts` runs the same days with a stand-in judge, which
  * proves the plumbing and nothing about judgement. This is the other half,
