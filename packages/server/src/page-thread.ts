@@ -14,12 +14,37 @@
  * page's own query with the frame flag after it (`frameSrcFor`), then the
  * hash. A mock is one page, so its threads carry no context and show on it
  * whatever version is open.
+ *
+ * An agent's `path` is the page as the agent spelled it, so two things are
+ * done to it first (`servedPath`). The board's own query (`cw-frame`,
+ * `thread`) comes off, because an agent copies addresses from links that
+ * carry it. And the dev server is asked for the page: a site that answers
+ * `/bike` with a redirect to `/bike/` puts the frame, and every person's
+ * thread on it, at `/bike/`.
+ *
+ * The link handed back (`pageThreadLink`) is the page a person opens, with
+ * `?thread=` for the frame to open the thread by (`mock-bridge.ts`).
  */
-import type { DocType, ElementAnchor, PageSuggestion } from '@claude-workspaces/core';
+import type { Anchor, DocType, ElementAnchor, PageSuggestion } from '@claude-workspaces/core';
 import { createWordsAnchor } from '@claude-workspaces/core/anchor/element';
 import { MAX_PAGE_FIND, readPageSuggestion } from '@claude-workspaces/core/page-edits';
-import { appPrefix } from './app-proxy.ts';
-import { frameSrcFor } from './mockup-frame.ts';
+import { appPrefix, upstreamUrl } from './app-proxy.ts';
+import { MOCK_FRAME_PARAM } from './mockup-frame.ts';
+
+/** Query parameters the board adds to a page's address; never the app's. */
+const BOARD_PARAMS = new Set([MOCK_FRAME_PARAM, 'thread']);
+/** Redirects followed to find the page, and how long each answer may take. */
+const MAX_HOPS = 5;
+const PROBE_MS = 3000;
+
+/** `search` without the board's parameters, every other byte as written. */
+function withoutBoardParams(search: string): string {
+  const parts = search
+    .replace(/^\?/, '')
+    .split('&')
+    .filter((part) => part !== '' && !BOARD_PARAMS.has(part.split('=')[0] ?? ''));
+  return parts.length === 0 ? '' : `?${parts.join('&')}`;
+}
 
 export type PageThreadPlan =
   | { ok: true; anchor: ElementAnchor; suggestion?: PageSuggestion }
@@ -53,7 +78,64 @@ export function appFrameUrl(workspaceId: string, docId: string, path: string): s
     return null;
   }
   if (!u.pathname.startsWith(prefix)) return null;
-  return u.pathname + frameSrcFor(u) + u.hash;
+  // `frameSrcFor`'s shape, with `thread` dropped as well as the frame flag.
+  const rest = withoutBoardParams(u.search);
+  return `${u.pathname}${rest ? `${rest}&` : '?'}${MOCK_FRAME_PARAM}=1${u.hash}`;
+}
+
+/**
+ * The address inside the app that the dev server answers `path` at: the
+ * board's query dropped, and redirects on the app's own origin followed.
+ * `path` unchanged past the first step when the app is down or the path is
+ * not one the proxy would fetch; `appFrameUrl` decides what to refuse.
+ */
+export async function servedPath(
+  origin: string,
+  prefix: string,
+  path: string,
+  get: typeof fetch = fetch,
+): Promise<string> {
+  const hashAt = path.indexOf('#');
+  const hash = hashAt < 0 ? '' : path.slice(hashAt);
+  const bare = hashAt < 0 ? path : path.slice(0, hashAt);
+  const queryAt = bare.indexOf('?');
+  const tail = queryAt < 0 ? bare : bare.slice(0, queryAt);
+  const search = withoutBoardParams(queryAt < 0 ? '' : bare.slice(queryAt));
+  let u = upstreamUrl(origin, tail, search);
+  if (!u) return tail + search + hash;
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    let res: Response;
+    try {
+      res = await get(u, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_MS) });
+    } catch {
+      break;
+    }
+    void res.body?.cancel().catch(() => {});
+    const to = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    let next: URL | null = null;
+    try {
+      next = to ? new URL(to, u) : null;
+    } catch {}
+    if (!next || next.origin !== u.origin) break;
+    // A site built under the board's prefix redirects to it; the app's own
+    // address is what follows the prefix.
+    if (next.pathname.startsWith(prefix)) next.pathname = `/${next.pathname.slice(prefix.length)}`;
+    u = next;
+  }
+  return u.pathname + withoutBoardParams(u.search) + hash;
+}
+
+/**
+ * The link a person opens for a page thread: the page, with `thread` added
+ * to its own query. `docUrl` is the doc's address on the board; the page is
+ * the anchor's context, which a mock's thread has none of: a mock is one page.
+ */
+export function pageThreadLink(docUrl: string, thread: { id: string; anchor: Anchor }): string {
+  const frameUrl = thread.anchor.kind === 'element' ? thread.anchor.context?.url : undefined;
+  const u = new URL(frameUrl ?? '', docUrl);
+  const rest = withoutBoardParams(u.search);
+  const param = `thread=${encodeURIComponent(thread.id)}`;
+  return `${u.origin}${u.pathname}${rest ? `${rest}&` : '?'}${param}${u.hash}`;
 }
 
 /** What to store for an agent's `find` on a page, or why it is refused. */
@@ -97,4 +179,17 @@ export function pageThreadPlan(a: PageThreadArgs): PageThreadPlan {
   const url = a.workspaceId ? appFrameUrl(a.workspaceId, a.docId, a.path) : null;
   if (!url) return { ok: false, error: `path ${a.path} is not a page inside this app` };
   return { ok: true, anchor: createWordsAnchor(a.find, { url }), ...extra };
+}
+
+/** `pageThreadPlan`, after asking the dev server at `origin` which address
+ *  an app's `path` is (`servedPath`). */
+export async function planPageThread(
+  a: PageThreadArgs & { origin?: string },
+  get: typeof fetch = fetch,
+): Promise<PageThreadPlan> {
+  const { origin, ...args } = a;
+  if (a.type !== 'app' || !origin || !a.workspaceId) return pageThreadPlan(args);
+  if (typeof a.path !== 'string' || !a.path.startsWith('/')) return pageThreadPlan(args);
+  const prefix = appPrefix(a.workspaceId, a.docId);
+  return pageThreadPlan({ ...args, path: await servedPath(origin, prefix, a.path, get) });
 }
