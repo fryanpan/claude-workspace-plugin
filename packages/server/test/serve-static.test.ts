@@ -88,4 +88,11 @@ describe('serveStaticUnder', () => {
   it('returns null for a path that runs through a file as if it were a directory', () => {
     expect(serveStatic(join(root, 'ok.txt', 'child.txt'))).toBeNull();
   });
+
+  it('serves a KaTeX font as a font, not as octet-stream', () => {
+    writeFileSync(join(root, 'KaTeX_Main-Regular.woff2'), 'wOF2');
+    expect(serveStatic(join(root, 'KaTeX_Main-Regular.woff2'))?.headers.get('content-type')).toBe(
+      'font/woff2',
+    );
+  });
 });

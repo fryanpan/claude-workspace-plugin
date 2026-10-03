@@ -68,8 +68,8 @@ const LITERAL_ORDERED = /^[ \t]*\d+\.[ \t]+\S/;
  * Block children are separated by `\n` so "line-leading" means something: a
  * list item whose own text begins with `- ` is a marker that was inserted as
  * characters, and that is exactly what this has to be able to say. Code
- * blocks contribute nothing, and a `code`-marked run contributes a space, so
- * neither can raise a false alarm.
+ * blocks contribute nothing, and a `code`- or `math`-marked run contributes a
+ * space, so none of them can raise a false alarm (`$a**b**c$` is TeX).
  */
 function blockPlainText(node: Y.XmlElement | Y.XmlText): string {
   if (node instanceof Y.XmlText) {
@@ -79,7 +79,8 @@ function blockPlainText(node: Y.XmlElement | Y.XmlText): string {
       attributes?: Record<string, unknown>;
     }>) {
       if (typeof op.insert !== 'string') continue;
-      out += op.attributes?.code != null ? ' '.repeat(op.insert.length) : op.insert;
+      const opaque = op.attributes?.code != null || op.attributes?.math != null;
+      out += opaque ? ' '.repeat(op.insert.length) : op.insert;
     }
     return out;
   }

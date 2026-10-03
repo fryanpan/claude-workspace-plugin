@@ -1661,6 +1661,23 @@ the picture above. `mdx-chart-props.ts` also uses the site's defaults (horizonta
 bars, percent) and lists every prop the preview does not draw, or that the site
 itself ignores, so `mdx-preview.ts` can print them under the chart.
 
+`prose-math.ts` joins the same tier and does not move the picture. It is the
+grammar of a remark-math equation — `$x$` inline, `$$` … `$$` on lines of
+their own — measured against remark-math 6, with two places where it reads
+less math (a price like `$5 and $10`, an unclosed fence). The parser holds
+inline TeX as a `math` text attribute that is never parsed for emphasis or
+escapes, and a display equation as a code block in the `math-display`
+language holding its exact lines, the way an `.mdx` component is held, so the
+file comes back byte for byte. Four client modules draw it and do not move
+the picture either. `math-inline.ts` is the mark and the decorations that
+fold the TeX behind a KaTeX widget until the caret reaches it;
+`mermaid-code-block.ts` draws the display block. `math-katex.ts` fetches
+KaTeX from `/app/katex/` the first time a doc shows an equation, never
+before, and fixes its options (`trust: false`, `throwOnError: false`);
+`katex-entry.ts` is what the build compiles to that path.
+`math-markdown-it.ts` gives tiptap-markdown, which the redline and paste use,
+the same boundaries through the same core functions.
+
 `prose-identity.ts`, `prose-outline.ts` and `prose-batch.ts` join that same
 document-model tier, and together they are how an agent addresses a block
 rather than a region of text. `prose-identity.ts` is the leaf that names the

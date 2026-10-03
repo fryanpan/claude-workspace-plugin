@@ -26,6 +26,7 @@ import { workspaceIdFromPath } from './doc-path.ts';
 import { FootnoteDecorations } from './doc/footnote-decorations.ts';
 import { resolveDocLink, safeLinkHref } from './link-open.ts';
 import { ListBehavior } from './list-behavior.ts';
+import { MathInline } from './math-inline.ts';
 import { MermaidCodeBlock } from './mermaid-code-block.ts';
 import { NotesLinkAffordance, type NotesLinkAffordanceOptions } from './notes-link-affordance.ts';
 import { PlanPlaceholder } from './plan-placeholder.ts';
@@ -185,6 +186,11 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // this extension the schema has no `image` node and sync would drop them.
       // Works for remote URLs and relative/local paths alike.
       Image.configure({ inline: false, allowBase64: false }),
+      // `$x_e$` — the `math` mark the server's parser writes, drawn with KaTeX
+      // (math-inline.ts). In the base list for the image's reason: without
+      // the mark in the schema, sync would drop it and the TeX would lose
+      // its dollars on the next write-back.
+      MathInline,
       Markdown.configure({
         html: false,
         tightLists: true,

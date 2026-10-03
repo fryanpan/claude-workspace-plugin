@@ -63,6 +63,9 @@ const CT: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  // KaTeX's fonts (`/app/katex/fonts/`, fetched only once a doc shows an
+  // equation). A browser loads a font served as octet-stream, but logs it.
+  '.woff2': 'font/woff2',
   // Without this the manifest ships as application/octet-stream and the
   // browser declines to install it — which presents as "Add to Home Screen
   // makes a bookmark, not an app", with nothing in the console about why.
