@@ -182,19 +182,40 @@ export class CoachStream {
       .filter((s) => s.lastAt >= since && s !== this.current)
       .map(
         (s) =>
-          `${hhmm(s.startedAt, timeZone)}–${hhmm(s.lastAt, timeZone)} ${name(s)}: ${mins(s.activeMs)} active`,
+          `${hhmm(s.startedAt, timeZone)}–${hhmm(s.lastAt, timeZone)} ${name(s)}: ${mins(s.activeMs)} active; ${this.wrote(s, timeZone)}`,
       );
     const cur = this.current;
     const nowLine =
       cur && cur.lastAt >= since
         ? `Since ${hhmm(cur.startedAt, timeZone)} on ${name(cur)}: ${mins(cur.activeMs)} active${
             cur.heading ? `, reading the part headed "${cur.heading}"` : ''
-          }${cur.scrollPct !== undefined ? `, ${cur.scrollPct}% of the way down` : ''}.`
+          }${cur.scrollPct !== undefined ? `, ${cur.scrollPct}% of the way down` : ''}; ${this.wrote(cur, timeZone)}.`
         : null;
     const did = digestLines(digestActivity(this.rows, since, label), timeZone);
     return { now: nowLine, where, did };
   }
+
+  /**
+   * Whether he wrote anything on a stretch's page while he was on it, said
+   * outright: "moved on without replying" is otherwise a thing the model has
+   * to infer from two lists, and it missed it.
+   */
+  private wrote(s: FocusStretch, timeZone: string): string {
+    if (!s.docId) return 'a board page';
+    const mine = this.rows.filter((r) => {
+      if (r.doc?.docId !== s.docId || !WRITES.has(r.type)) return false;
+      const t = Date.parse(r.ts);
+      return t >= s.startedAt && t <= s.lastAt + ACTIVE_GAP_MS;
+    });
+    const last = mine.at(-1);
+    if (!last) return 'he wrote nothing there';
+    const verb = last.type === 'edit_session' ? 'edited it' : 'commented there';
+    return `he ${verb} at ${hhmm(Date.parse(last.ts), timeZone)}`;
+  }
 }
+
+/** The rows that mean he wrote on a page. */
+const WRITES: ReadonlySet<string> = new Set(['edit_session', 'comment', 'reply']);
 
 const hhmm = (instant: number, timeZone: string): string => {
   const p = zonedParts(instant, timeZone);

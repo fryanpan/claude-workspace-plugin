@@ -29,6 +29,7 @@ import { coachPrompt, coachSystem, parseCoachReply } from '../packages/server/sr
 import { createCoach } from '../packages/server/src/coach/moment.ts';
 import { CoachStore } from '../packages/server/src/coach/store.ts';
 import { CoachStream } from '../packages/server/src/coach/stream.ts';
+import type { CoachMoment } from '../packages/server/src/coach/types.ts';
 import { ThreadSummarizer } from '../packages/server/src/summarize.ts';
 import {
   DAY_END,
@@ -74,13 +75,16 @@ function replay(stream: CoachStream, signals: readonly Signal[], until: number):
 
 console.log('== the drifting day, at each labelled point');
 let right = 0;
+// The moments a good coach raised before each point, as the loop would have
+// them: a later point is judged knowing what was already said today.
+const raised: CoachMoment[] = [];
 for (const point of LABELLED_POINTS) {
   const stream = new CoachStream();
   replay(stream, DRIFTING_DAY, point.at);
   const seen = stream.lines(point.at, ZONE, label, boardName);
   const reply = await ask({
     system: coachSystem(name),
-    user: coachPrompt({ goals, today: [], ...seen, at: point.at, timeZone: ZONE }),
+    user: coachPrompt({ goals, today: raised, ...seen, at: point.at, timeZone: ZONE }),
   });
   const verdict = parseCoachReply(reply, goals);
   const said = verdict?.verdict === 'moment' ? 'speak' : 'quiet';
@@ -98,6 +102,20 @@ for (const point of LABELLED_POINTS) {
   );
   if (verdict?.verdict === 'moment')
     console.log(`        goal ${verdict.goalIndex + 1}: ${verdict.line}`);
+  const goal = point.goalIndex === undefined ? undefined : goals[point.goalIndex];
+  if (point.expect === 'speak' && goal && point.goalIndex !== undefined) {
+    raised.push({
+      id: `cm-eval${raised.length}`,
+      at: point.at,
+      day: '2026-10-07',
+      goalIndex: point.goalIndex,
+      goal: goal.what,
+      matched: goal.when,
+      observed: point.why,
+      line: `Hi, I'm noticing ${point.why}?`,
+      state: 'expired',
+    });
+  }
 }
 console.log(`  ${right} of ${LABELLED_POINTS.length} right`);
 

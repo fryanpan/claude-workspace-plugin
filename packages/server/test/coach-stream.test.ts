@@ -63,7 +63,7 @@ describe('the trigger', () => {
 });
 
 describe('the last hour, as the prompt reads it', () => {
-  it('names where he is, where he was and what he did, with no agent rows', () => {
+  it('names where he is, where he was, whether he wrote there, and what he did, with no agent rows', () => {
     const s = new CoachStream();
     for (const sig of DRIFTING_DAY) {
       if (sig.at > at(10, 50)) break;
@@ -72,13 +72,13 @@ describe('the last hour, as the prompt reads it', () => {
     }
     const seen = s.lines(at(10, 50), ZONE, label, () => 'Harborlight');
     expect(seen.now).toBe(
-      'Since 10:44 on "Board colour tokens" on board "Harborlight": 6 min active, reading the part headed "Greys", 43% of the way down.',
+      'Since 10:44 on "Board colour tokens" on board "Harborlight": 6 min active, reading the part headed "Greys", 43% of the way down; he wrote nothing there.',
     );
     expect(seen.where).toContain(
-      '09:41–10:31 "Button hover states mock" on board "Harborlight": 50 min active',
+      '09:41–10:31 "Button hover states mock" on board "Harborlight": 50 min active; he commented there at 10:12',
     );
     expect(seen.where.at(-1)).toBe(
-      '10:31–10:44 "Message from a Riverbend partner, waiting on your answer" on board "Riverbend": 13 min active',
+      '10:31–10:44 "Message from a Riverbend partner, waiting on your answer" on board "Riverbend": 13 min active; he wrote nothing there',
     );
     expect(seen.did.join('\n')).toContain(
       'commented: "Try a softer shadow on hover, and a 2px lift."',
