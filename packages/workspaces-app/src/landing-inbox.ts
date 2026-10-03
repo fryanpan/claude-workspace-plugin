@@ -7,13 +7,16 @@
  *  - a tap opens a line, fetches its message text, and scrolls the line to
  *    the top of the screen;
  *  - a right swipe, the hover clock or `b` opens one "Snooze until…" modal;
- *  - Gmail's keys move a cursor and open lines.
+ *  - Gmail's keys move a cursor and open lines, and `r` opens the reply box
+ *    (`landing-inbox-reply.ts`).
  *
  * After any tap that changes a row, the section is re-read from `/` and
  * swapped in whole, so there is one renderer and the page never draws a
  * state the server does not hold. The message text is set with
  * `textContent` and never parsed as markup.
  */
+
+import { el, replyBox, replyKindOf } from './landing-inbox-reply.ts';
 
 const SECTION = '#inbox';
 const EIGHT_AM = 8;
@@ -39,21 +42,14 @@ const state: ViewState = {
 const section = (): HTMLElement | null => document.querySelector<HTMLElement>(SECTION);
 const rowEl = (id: string): HTMLElement | null =>
   section()?.querySelector<HTMLElement>(`.inbox-row[data-row="${CSS.escape(id)}"]`) ?? null;
+/** The lines a cursor can rest on: open ones, not one already answered. */
 const openRows = (): HTMLElement[] =>
-  [...(section()?.querySelectorAll<HTMLElement>('.inbox-rows > .inbox-row') ?? [])].filter(
-    (r) => !r.hidden,
-  );
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  cls?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
-}
+  [
+    ...(section()?.querySelectorAll<HTMLElement>('.inbox-rows > .inbox-row:not(.inbox-cleared)') ??
+      []),
+  ].filter((r) => !r.hidden);
+/** Set by `r`: the next card to open puts the caret in its reply box. */
+let focusReply = false;
 
 async function post(id: string, body: Record<string, unknown>): Promise<boolean> {
   try {
@@ -147,21 +143,48 @@ async function showCard(row: HTMLElement, id: string): Promise<void> {
       credentials: 'same-origin',
     });
     if (!res.ok) throw new Error(String(res.status));
-    const data = (await res.json()) as { body?: unknown; link?: unknown };
+    const data = (await res.json()) as { body?: unknown; link?: unknown; reply?: unknown };
     msg.textContent = typeof data.body === 'string' ? data.body : '';
     const link = typeof data.link === 'string' ? data.link : null;
-    if (link && /^(https:|sms:|imessage:)/.test(link)) {
-      const acts = el('div', 'inbox-actions');
+    const kind = replyKindOf(data.reply);
+    const focus = focusReply;
+    focusReply = false;
+    const acts = kind
+      ? replyBox(
+          card,
+          id,
+          {
+            kind,
+            link,
+            channel: row.dataset.channel ?? '',
+            sender: row.dataset.sender ?? '',
+            focus,
+          },
+          { sent: afterSend, toast },
+        )
+      : null;
+    if (link && kind?.kind !== 'messages' && /^(https:|sms:|imessage:)/.test(link)) {
       const a = el('a', 'board-btn', `Open in ${row.dataset.channel ?? 'the app'}`);
       a.href = link;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      acts.append(a);
-      card.append(acts);
+      if (acts) acts.insertBefore(a, acts.querySelector('.inbox-hint, .inbox-unset'));
+      else {
+        const own = el('div', 'inbox-actions');
+        own.append(a);
+        card.append(own);
+      }
     }
   } catch {
     msg.textContent = 'Could not load this message.';
   }
+}
+
+async function afterSend(id: string, channel: string): Promise<void> {
+  moveCursorPast(id);
+  if (state.open === id) state.open = null;
+  await refresh();
+  toast(channel === 'slack' ? 'Sent on Slack.' : channel === 'gmail' ? 'Sent by email.' : 'Sent.');
 }
 
 function toggleOpen(id: string): void {
@@ -390,7 +413,10 @@ function onKey(ev: KeyboardEvent): void {
     t &&
     (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)
   ) {
-    if (ev.key === 'Escape') closeModal();
+    if (ev.key === 'Escape') {
+      closeModal();
+      if (t instanceof HTMLTextAreaElement) t.blur();
+    }
     return;
   }
   const k = ev.key;
@@ -401,6 +427,15 @@ function onKey(ev: KeyboardEvent): void {
     state.open = cursor;
     state.cursor = cursor;
     applyView();
+  } else if (k === 'r' && cursor) {
+    const box = state.open === cursor ? rowEl(cursor)?.querySelector('textarea') : null;
+    if (box) box.focus();
+    else {
+      focusReply = true;
+      state.open = cursor;
+      state.cursor = cursor;
+      applyView();
+    }
   } else if (k === 'b' && cursor) openSnooze(cursor);
   else if (k === 'u' || k === 'Escape') {
     closeModal();

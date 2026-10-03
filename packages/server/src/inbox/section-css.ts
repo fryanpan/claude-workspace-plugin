@@ -5,8 +5,7 @@
  * borrows the board's review-row anatomy under the same class names, scoped
  * to `.inbox-front` so nothing leaks into the rest of the page.
  *
- * From the round-3 mock, less the reply box, the reply-by menus and the
- * struck-through sent line: those arrive with Send.
+ * From the round-3 mock, less the reply-by menus Bryan dropped.
  */
 export const INBOX_SECTION_CSS = `
 .inbox-front{--accent:#2e7dd7;--border:#e6e9ed;--fg:#1b1f23;--fg-muted:#6e7781;--bg-panel:#fff;--bg-subtle:#f6f8fa;--bg-hover:#f8f9fb;--radius:8px;--radius-lg:10px;margin:0 0 22px}
@@ -19,6 +18,9 @@ export const INBOX_SECTION_CSS = `
 .inbox-front .board-review-row-sub{font-size:12.5px;line-height:1.4;color:var(--fg-muted)}
 .inbox-front .board-btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;min-width:112px;padding:4px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);color:var(--fg);font:inherit;font-size:14px;cursor:pointer}
 .inbox-front .board-btn:hover{background:var(--bg-hover);text-decoration:none}
+.inbox-front .board-btn-ink{background:var(--fg);border-color:var(--fg);color:var(--bg-panel)}
+.inbox-front .board-btn-ink:hover{background:color-mix(in srgb,var(--fg) 85%,var(--bg-panel))}
+.inbox-front .board-btn:disabled{opacity:.6;cursor:default}
 .inbox-front .board-linklike{min-height:36px;padding:0;border:none;background:none;font:inherit;font-size:13px;color:var(--fg-muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .inbox-front .board-home-quiet{margin:0;padding:10px 0;font-size:14px;color:var(--fg-muted)}
 .inbox-row{border-top:1px solid var(--border);scroll-margin-top:12px}
@@ -45,6 +47,14 @@ export const INBOX_SECTION_CSS = `
 .inbox-card{padding:0 8px 12px}
 .inbox-msg{margin:0 0 10px;padding:10px 12px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .inbox-actions{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+/* The reply box: under the message, as wide as it, Send below. */
+.inbox-reply{display:block;box-sizing:border-box;width:100%;min-height:72px;margin:0 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);color:var(--fg);font:inherit;font-size:14px;resize:vertical}
+.inbox-reply:focus{outline:2px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:0;border-color:var(--accent)}
+.inbox-unset{font-size:13.5px;color:var(--fg-muted)}
+/* A line answered by Send stays in its place, struck through, until the next pass. */
+.inbox-cleared .board-review-row{cursor:default}
+.inbox-cleared .board-review-row:hover{background:none}
+.inbox-cleared .board-review-row-title{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--fg-muted) 55%,transparent);color:var(--fg-muted)}
 .inbox-hint{font-size:12.5px;color:var(--fg-muted)}
 .inbox-more,.inbox-snoozed-line{display:block;width:100%;min-height:40px;padding:10px 8px;border:none;border-top:1px solid var(--border);background:none;text-align:left;font:inherit;font-size:13px;color:var(--fg-muted);cursor:pointer}
 .inbox-more{color:var(--accent)}
