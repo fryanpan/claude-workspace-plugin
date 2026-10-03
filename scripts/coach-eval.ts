@@ -1,45 +1,50 @@
 #!/usr/bin/env bun
 /**
- * The coach's fixture days, read by a cheap model: a check on the PROMPT.
+ * The coach's fixture days, played to a real coach session.
  *
  * `bun scripts/coach-eval.ts`
  *
- * The coach's judge is its Claude Code session (`coach/session-judge.ts`),
- * which this cannot run. What it can check is whether the candidate the
- * session is sent says enough: if Haiku, reading only that text, speaks and
- * stays quiet where a good coach would, the facts are on the page. A miss
- * here is a prompt to fix before blaming the session.
+ * The coach's judgement is its Claude Code session, so this runs one: a
+ * print-mode `claude` on the coach's model, with the coaching skill as its
+ * instructions, fed each line the real session would read. The lines come
+ * from the real loop (`createCoach`, the stream's dedupe, and the MCP
+ * child's `coachLine`), and a moment the session raises goes through the
+ * server's own check (`raise`), so a moment with a bad quote is refused here
+ * exactly as it would be on his page. A card it raises stays open until the
+ * day moves him on, and the session reads that answer too.
  *
- * `coach-moment.test.ts` runs the same days with a stand-in judge, which
- * proves the plumbing and nothing about judgement. This is the other half,
- * in two parts:
+ * Two days, one session each:
  *
- *  1. Each labelled point of the drifting day (`LABELLED_POINTS`): the day
- *     replayed up to that instant, the prompt the coach would send, and
- *     whether the model spoke or stayed quiet where a good coach would.
- *     Every point is asked, whatever the gates would have said, so each
- *     label is tested.
- *  2. The on-track day through the whole loop, gates and all: the number of
- *     calls a quiet day costs, and the moments it raised (zero is right).
+ *  1. The drifting day, scored at each labelled point (`LABELLED_POINTS`):
+ *     a moment on the right goal where a good coach speaks, none where it
+ *     stays quiet. A moment after a signal with no label is reported too.
+ *  2. The on-track day: the moments it raised (zero is right).
  *
- * SPENDS MONEY, on the eval key: outside the prod launchd job the
- * summarizer reads only the eval Keychain item (`claude-key-source.ts`), and
- * this script never sees the value. Fixture text only. A run is about 20
- * calls of under 2,000 tokens each.
+ * It also measures what a turn costs, since every event is one turn of this
+ * session: the cost per event, from the CLI's own per-turn figures.
+ *
+ * Rehearsal differences, all in the session's instructions below: it has no
+ * tools, so it answers with a moment's arguments as JSON, a memory line as
+ * text, or `quiet`; its start-up reads are done for it.
+ *
+ * SPENDS MONEY, on the eval key: the key is resolved the way the server
+ * resolves it outside prod (`claude-key-source.ts`) and handed to the child
+ * as its environment, never printed. `--bare` keeps the child off this
+ * machine's hooks, plugins, MCP servers and settings. Fixture text only.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionableGoals, readGoalsDoc } from '../packages/server/src/coach/goals-doc.ts';
-import { coachPrompt, coachSystem, parseCoachReply } from '../packages/server/src/coach/judge.ts';
+import { coachLine } from '../packages/mcp/src/coach-line.ts';
+import { claudeKeyServices } from '../packages/server/src/claude-key-source.ts';
+import { readGoalsDoc } from '../packages/server/src/coach/goals-doc.ts';
 import { createCoach } from '../packages/server/src/coach/moment.ts';
+import type { SessionNews } from '../packages/server/src/coach/session-feed.ts';
+import { MEMORY_TEMPLATE } from '../packages/server/src/coach/setup.ts';
 import { CoachStore } from '../packages/server/src/coach/store.ts';
 import { CoachStream } from '../packages/server/src/coach/stream.ts';
-import type { CoachMoment } from '../packages/server/src/coach/types.ts';
-import { ThreadSummarizer } from '../packages/server/src/summarize.ts';
+import { readKeychainPassword } from '../packages/server/src/share/keychain.ts';
 import {
-  DAY_END,
-  DAY_START,
   DRIFTING_DAY,
   GOALS_DOC,
   LABELLED_POINTS,
@@ -47,123 +52,229 @@ import {
   type Signal,
   WS,
   ZONE,
+  at,
   label,
 } from '../packages/server/test/coach-fixtures.ts';
 
-const summarizer = new ThreadSummarizer();
-if (!summarizer.enabled) {
+const MODEL = 'claude-opus-5-5';
+const SKILL = readFileSync(
+  join(import.meta.dir, '../packages/plugin/skills/coaching/SKILL.md'),
+  'utf8',
+).replace(/^---[\s\S]*?---\n/, '');
+
+const REHEARSAL = `
+## This run is a rehearsal
+
+You have no tools. Your start-up reads are done: both docs are in the first message. Answer every line with exactly one of:
+- a coach_moment call, written as its arguments in one JSON object and nothing else, such as {"goal":1,"matched":"...","observed":"...","line":"..."};
+- \`memory: <the line you would write>\`, for an answer or a preference;
+- \`quiet\`.`;
+
+function evalKey(): string | null {
+  for (const service of claudeKeyServices(process.env)) {
+    try {
+      return readKeychainPassword(service);
+    } catch {
+      // Not there: try the next, then give up below.
+    }
+  }
+  return null;
+}
+
+const key = evalKey();
+if (!key) {
   console.error('No eval key in this process; nothing was sent.');
   process.exit(2);
 }
 
-const reading = readGoalsDoc(GOALS_DOC);
-const goals = actionableGoals(reading);
-const name = reading.name ?? 'Your coach';
-const boardName = () => 'Harborlight';
-const workspaceOf = () => WS;
-const promptChars: number[] = [];
-const replyChars: number[] = [];
-
-async function ask(prompt: { system: string; user: string }): Promise<string | null> {
-  promptChars.push(prompt.system.length + prompt.user.length);
-  const reply = await summarizer.generateHomeBrief(prompt);
-  replyChars.push(reply?.length ?? 0);
-  return reply;
+interface Turn {
+  reply: string;
+  costUsd: number;
 }
 
-function replay(stream: CoachStream, signals: readonly Signal[], until: number): void {
-  for (const s of signals) {
-    if (s.at > until) break;
-    if ('here' in s) stream.here({ ...s.here, at: s.at });
-    else stream.activity(s.row, s.at, workspaceOf);
-  }
+/** One coach session: a turn per `say`, and its cost. */
+function session() {
+  const proc = Bun.spawn(
+    [
+      'claude',
+      '--bare',
+      '-p',
+      '--model',
+      MODEL,
+      '--input-format',
+      'stream-json',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--tools',
+      '',
+      '--strict-mcp-config',
+      '--no-session-persistence',
+      '--append-system-prompt',
+      `${SKILL}\n${REHEARSAL}`,
+    ],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'inherit',
+      env: { ...process.env, ANTHROPIC_API_KEY: key ?? '' },
+    },
+  );
+  const reader = proc.stdout.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let spent = 0;
+  const nextResult = async (): Promise<Record<string, unknown>> => {
+    for (;;) {
+      const nl = buffered.indexOf('\n');
+      if (nl >= 0) {
+        const line = buffered.slice(0, nl);
+        buffered = buffered.slice(nl + 1);
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line) as Record<string, unknown>;
+        if (msg.type === 'result') return msg;
+        continue;
+      }
+      const { value, done } = await reader.read();
+      if (done) throw new Error('the session ended before answering');
+      buffered += decoder.decode(value, { stream: true });
+    }
+  };
+  return {
+    async say(text: string): Promise<Turn> {
+      proc.stdin.write(
+        `${JSON.stringify({ type: 'user', message: { role: 'user', content: text } })}\n`,
+      );
+      await proc.stdin.flush();
+      const r = await nextResult();
+      // The figure is the session's running total; a turn is its step.
+      const total = typeof r.total_cost_usd === 'number' ? r.total_cost_usd : spent;
+      const costUsd = Math.max(0, total - spent);
+      spent = Math.max(spent, total);
+      return { reply: String(r.result ?? '').trim(), costUsd };
+    },
+    async close() {
+      proc.stdin.end();
+      await proc.exited;
+    },
+    get spent() {
+      return spent;
+    },
+  };
 }
 
-console.log('== the drifting day, at each labelled point');
-let right = 0;
-// The moments a good coach raised before each point, as the loop would have
-// them: a later point is judged knowing what was already said today.
-const raised: CoachMoment[] = [];
-for (const point of LABELLED_POINTS) {
-  const stream = new CoachStream();
-  replay(stream, DRIFTING_DAY, point.at);
-  const seen = stream.lines(point.at, ZONE, label, boardName);
-  const reply = await ask({
-    system: coachSystem(name),
-    user: coachPrompt({ goals, today: raised, ...seen, at: point.at, timeZone: ZONE }),
-  });
-  const verdict = parseCoachReply(reply, goals);
-  const said = verdict?.verdict === 'moment' ? 'speak' : 'quiet';
-  const goalOk =
-    said !== 'speak' || verdict?.verdict !== 'moment' || verdict.goalIndex === point.goalIndex;
-  const ok = said === point.expect && goalOk;
-  if (ok) right += 1;
-  const time = new Date(point.at).toLocaleTimeString('en-GB', {
+const fmtTime = (t: number) =>
+  new Intl.DateTimeFormat('en-GB', {
     timeZone: ZONE,
     hour: '2-digit',
     minute: '2-digit',
-  });
-  console.log(
-    `  ${ok ? 'right' : 'WRONG'} ${time} expected ${point.expect}, got ${verdict ? said : 'unusable'} (${point.why})`,
-  );
-  if (verdict?.verdict === 'moment')
-    console.log(`        goal ${verdict.goalIndex + 1}: ${verdict.line}`);
-  const goal = point.goalIndex === undefined ? undefined : goals[point.goalIndex];
-  if (point.expect === 'speak' && goal && point.goalIndex !== undefined) {
-    raised.push({
-      id: `cm-eval${raised.length}`,
-      at: point.at,
-      day: '2026-10-07',
-      goalIndex: point.goalIndex,
-      goal: goal.what,
-      matched: goal.when,
-      observed: point.why,
-      line: `Hi, I'm noticing ${point.why}?`,
-      state: 'expired',
+    hourCycle: 'h23',
+  }).format(t);
+
+interface DayResult {
+  /** Index of the signal after which each accepted moment was raised, and its goal. */
+  moments: { after: number; goal: number; line: string }[];
+  refused: { after: number; message: string }[];
+  eventTurns: number;
+  eventCostUsd: number;
+  totalUsd: number;
+}
+
+async function playDay(name: string, day: readonly Signal[]): Promise<DayResult> {
+  console.log(`\n== ${name}`);
+  const dir = mkdtempSync(join(tmpdir(), 'coach-eval-'));
+  const s = session();
+  const result: DayResult = {
+    moments: [],
+    refused: [],
+    eventTurns: 0,
+    eventCostUsd: 0,
+    totalUsd: 0,
+  };
+  try {
+    let clock = at(8);
+    const store = new CoachStore(dir, clock);
+    store.noteTimeZone(ZONE);
+    let queued: { news: SessionNews; at: number }[] = [];
+    const coach = createCoach({
+      store,
+      stream: new CoachStream(),
+      readGoals: () => readGoalsDoc(GOALS_DOC),
+      label,
+      boardName: () => 'Harborlight',
+      workspaceOf: () => WS,
+      tell: (news, t) => {
+        queued.push({ news, at: t });
+        return true;
+      },
+      publish: () => {},
+      now: () => clock,
     });
+    await s.say(`Learning goals:\n\n${GOALS_DOC}\n\nCoach memory:\n\n${MEMORY_TEMPLATE}`);
+    for (const [i, signal] of day.entries()) {
+      clock = signal.at;
+      if ('here' in signal) coach.here(signal.here);
+      else coach.activity(signal.row);
+      const lines = queued;
+      queued = [];
+      for (const { news, at: t } of lines) {
+        const line = coachLine(news.event, { ...news, at: t }, ZONE);
+        if (!line) continue;
+        const turn = await s.say(line);
+        if (news.event === 'coach.event') {
+          result.eventTurns += 1;
+          result.eventCostUsd += turn.costUsd;
+        }
+        const shown = turn.reply.length > 120 ? `${turn.reply.slice(0, 117)}...` : turn.reply;
+        console.log(`  [${i}] ${line.split('\n')[0]}\n      -> ${shown}`);
+        const json = turn.reply.match(/\{[\s\S]*\}/)?.[0];
+        if (!json || news.event !== 'coach.event') continue;
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = JSON.parse(json) as Record<string, unknown>;
+        } catch {
+          // Not JSON after all: counted as quiet.
+        }
+        const raised = coach.raise(body);
+        if (raised.ok) {
+          result.moments.push({ after: i, goal: Number(body?.goal), line: String(body?.line) });
+        } else {
+          result.refused.push({ after: i, message: `${raised.error}: ${raised.message}` });
+          console.log(`      refused: ${raised.error}: ${raised.message}`);
+        }
+      }
+    }
+  } finally {
+    await s.close();
+    result.totalUsd = s.spent;
+    rmSync(dir, { recursive: true, force: true });
   }
-}
-console.log(`  ${right} of ${LABELLED_POINTS.length} right`);
-
-console.log('\n== the on-track day, through the whole loop');
-const dir = mkdtempSync(join(tmpdir(), 'coach-eval-'));
-try {
-  let clock = DAY_START;
-  const store = new CoachStore(dir, clock);
-  store.noteTimeZone(ZONE);
-  const coach = createCoach({
-    store,
-    stream: new CoachStream(),
-    readGoals: () => reading,
-    label,
-    boardName,
-    workspaceOf,
-    generate: ask,
-    publish: () => {},
-    now: () => clock,
-    log: () => {},
-  });
-  const before = promptChars.length;
-  for (const s of ON_TRACK_DAY) {
-    clock = s.at;
-    if ('here' in s) coach.here(s.here);
-    else coach.activity(s.row);
-    await coach.settled();
-  }
-  clock = DAY_END;
-  const outcomes = store.judgements().map((j) => j.outcome);
-  console.log(`  ${promptChars.length - before} calls; outcomes ${JSON.stringify(outcomes)}`);
-  console.log(`  moments raised: ${store.moments().length} (zero is right)`);
-  for (const m of store.moments()) console.log(`    ${m.line}`);
-} finally {
-  rmSync(dir, { recursive: true, force: true });
+  return result;
 }
 
-const mean = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length));
-// Four characters a token is the usual English rate; Haiku 4.5 is $1 in, $5 out per MTok.
-const inTok = promptChars.reduce((s, x) => s + x, 0) / 4;
-const outTok = replyChars.reduce((s, x) => s + x, 0) / 4;
+const drifting = await playDay('the drifting day', DRIFTING_DAY);
+let right = 0;
+console.log('\n  at each labelled point:');
+for (const point of LABELLED_POINTS) {
+  const m = drifting.moments.find((x) => x.after === point.after);
+  const said = m ? 'speak' : 'quiet';
+  const ok = said === point.expect && (!m || m.goal - 1 === point.goalIndex);
+  if (ok) right += 1;
+  const when = DRIFTING_DAY[point.after]?.at ?? 0;
+  console.log(
+    `  ${ok ? 'right' : 'WRONG'} ${fmtTime(when)} expected ${point.expect}, got ${said}${m ? ` on goal ${m.goal}` : ''} (${point.why})`,
+  );
+}
+const labelled = new Set(LABELLED_POINTS.map((p) => p.after));
+const unlabelled = drifting.moments.filter((m) => !labelled.has(m.after));
+console.log(`  ${right} of ${LABELLED_POINTS.length} labelled points right`);
+console.log(`  moments after an unlabelled signal: ${unlabelled.length}`);
+
+const onTrack = await playDay('the on-track day', ON_TRACK_DAY);
+console.log(`\n  moments raised on the on-track day: ${onTrack.moments.length} (0 is right)`);
+
+const turns = drifting.eventTurns + onTrack.eventTurns;
+const perEvent = (drifting.eventCostUsd + onTrack.eventCostUsd) / Math.max(1, turns);
 console.log(
-  `\n${promptChars.length} calls; prompt chars mean ${mean(promptChars)}, max ${Math.max(...promptChars)}; reply chars mean ${mean(replyChars)}`,
+  `\n== cost: $${(drifting.totalUsd + onTrack.totalUsd).toFixed(4)} for both days; ${turns} event turns at $${perEvent.toFixed(4)} each on average`,
 );
-console.log(`this run cost about $${((inTok * 1 + outTok * 5) / 1e6).toFixed(4)}`);

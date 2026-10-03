@@ -1805,28 +1805,29 @@ with no reason, and a new message on its thread reopens it.
 **The coach** helps Bryan with habits he names, in three parts. It is not a
 board feature; the one agent it reaches is its own session.
 (A) *Goals*: "Set up my coach" on the front page makes one learning-goals doc
-on a board of its own (`coach/setup.ts`, `coach/goals-doc.ts`), which the
-planning interview fills when he taps Talk; the front page's section
-(`coach/section.ts`, `coach/landing.ts`) lists the goals, offers a review when
-they have not changed in a week, and holds the how-often setting.
-(B) *Observe*: every board and doc page sends where he is to `/coach/here`
-(`workspaces-app/src/coach-card.ts`), and `coach/stream.ts` turns that and his
-own `activity.jsonl` rows (through `onActivity` in `activity.ts`) into
-active time per page and a free trigger.
-(C) *Intervene*: on a trigger, `coach/moment.ts` checks its gates (goals that
-say when, no open moment, his spacing, one judgement in ten minutes) and
-only then asks the coach's Claude Code session, the Coach board's lead, with
-one addressed `coach.candidate` frame (`coach/session-judge.ts`); the session
-answers on `/coach/candidates/:id/reply`, and `coach/judge.ts` refuses an
-answer that does not quote one of his "act differently when" lines. A moment goes to his pages over `/coach/stream`
-(`coach/hub.ts`) and draws the card; his answer lowers the rate. In the
-session, `mcp/src/coach-line.ts` renders the frame and `coach_reply` answers
-it; the persona is the plugin's `coaching` skill. With no session holding a
-stream the coach asks nothing and the front page says it is offline.
-`coach/store.ts` keeps it all in `coach/state.json`, mode 600; `coach/wiring.ts`
-composes it for `server.ts`. `scripts/coach-eval.ts` asks the real model at
-each labelled point of the fixture day, as a check that the candidate's
-text carries what a judge needs.
+and the session's Coach memory doc on a board of their own (`coach/setup.ts`,
+`coach/goals-doc.ts`); the planning interview fills the goals when he taps
+Talk. The front page's section (`coach/section.ts`, `coach/landing.ts`) lists
+the goals, offers a review when they have not changed in a week, holds the
+how-readily setting, and says how many events the session read today.
+(B) *Observe*: board and doc pages send what he is looking at, and each
+paragraph he writes when he pauses, to `/coach/here`
+(`workspaces-app/src/coach-card.ts`); `coach/stream.ts` turns that and his
+own comment, reply and open rows (through `onActivity` in `activity.ts`)
+into one event per thing he does, dropping repeats.
+(C) *Intervene*: `coach/moment.ts` sends every event, his answers and his
+how-readily setting to the coach's Claude Code session, the Coach board's
+lead, as addressed frames (`coach/session-feed.ts`); there is no trigger, cap
+or timer. The session raises a moment on `POST /coach/moments`, and
+`coach/judge.ts` refuses one that does not quote a goal's "act differently
+when", or arrives while another is open. A moment goes to his pages over
+`/coach/stream` (`coach/hub.ts`) and stays until he answers or moves to
+another page. In the session, `mcp/src/coach-line.ts` renders each frame and
+`coach_moment` raises a moment; the persona is the plugin's `coaching` skill.
+With no session holding a stream nothing is sent and the front page says it
+is offline. `coach/store.ts` keeps it all in `coach/state.json`, mode 600;
+`coach/wiring.ts` composes it for `server.ts`. `scripts/coach-eval.ts` plays
+the fixture days to a real coach session and scores it.
 
 **How long an item waited to be READ** is two rows on the board's own event
 log, and nothing else: `review_item.viewed` when somebody's client first puts
