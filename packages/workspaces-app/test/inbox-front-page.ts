@@ -15,6 +15,7 @@ import { type Cdp, sleep } from '../../../scripts/headless-chrome.ts';
 import { InboxBodies } from '../../server/src/inbox/bodies.ts';
 import { InboxStore } from '../../server/src/inbox/store.ts';
 import type { InboxRowInput } from '../../server/src/inbox/types.ts';
+import type { CfAccessOptions } from '../../server/src/middleware/cf-access.ts';
 
 export const TEAM = 'drive.cloudflareaccess.com';
 export const AUD = 'aud-owner-drive';
@@ -26,9 +27,15 @@ export const OWNER_EMAIL = ['owner', 'harborlight.test'].join('@');
 const b64url = (b: Buffer | string) => Buffer.from(b).toString('base64url');
 
 /** An RS256 Access assertion for the owner, and the key set that checks it. */
-export function accessKeys(): { jwks: { keys: Record<string, unknown>[] }; assertion: string } {
+export function accessKeys(): { jwks: NonNullable<CfAccessOptions['jwks']>; assertion: string } {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: KID, alg: 'RS256', use: 'sig' };
+  const jwk = {
+    kty: 'RSA',
+    ...publicKey.export({ format: 'jwk' }),
+    kid: KID,
+    alg: 'RS256',
+    use: 'sig',
+  };
   const now = Math.floor(Date.now() / 1000);
   const head = b64url(JSON.stringify({ alg: 'RS256', kid: KID, typ: 'JWT' }));
   const body = b64url(
