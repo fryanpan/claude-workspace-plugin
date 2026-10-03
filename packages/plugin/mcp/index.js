@@ -14693,7 +14693,7 @@ function voiceRequestLine(p) {
   if (p.route === "fast-path-action") {
     return `${said} — the fast path ALREADY applied this to the board on the speaker's behalf; ` + `they were told: "${told}". Do NOT redo it — reconcile your own picture of the board ` + "with what changed, and pick up only whatever the utterance asked for beyond it.";
   }
-  const answer = p.queueId ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ""}", queueId="${p.queueId}", text) in one or two short spoken sentences.` : "";
+  const answer = p.queueId ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ""}", queueId="${p.queueId}", text) as the shortest spoken answer that works ("No." beats a sentence).` : "";
   return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}`;
 }
 
@@ -15860,13 +15860,16 @@ var TOOL_LIST = {
     },
     {
       name: "answer_voice",
-      description: "Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, so keep it to one or two short sentences, with no preamble. delivered:false means that page has closed: post the answer on the task or a thread instead.",
+      description: 'Answer a spoken request (a voice.request line names its queueId). The text is said aloud on the page that asked, and voice is slow: give the shortest answer that works, with no preamble. "No." beats a sentence, and one sentence beats two. delivered:false means that page has closed: post the answer on the task or a thread instead.',
       inputSchema: {
         type: "object",
         properties: {
           workspaceId: { type: "string", description: "The board the request came from." },
           queueId: { type: "string", description: "From the voice.request line." },
-          text: { type: "string", description: "What to say. One or two short sentences." }
+          text: {
+            type: "string",
+            description: "What to say: the shortest answer that works, one sentence at most."
+          }
         },
         required: ["workspaceId", "queueId", "text"]
       }
@@ -20889,7 +20892,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.282";
+var PLUGIN_VERSION = "0.1.283";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -28,12 +28,16 @@
  * Bryan's with a board status brief. Any other "Claude, …" still goes to the
  * router, and a discussion meeting is unchanged.
  *
+ * SAID SHORT. Whoever answers — the router, the lead, the planning voice —
+ * the meeting hears one sentence of at most `MEETING_SPOKEN_MAX_WORDS`
+ * words (`meetingLine`).
+ *
  * ANYTHING A SESSION CAN DO. A "Claude, …" is not narrowed to lookups here:
  * the router decides, and what it hands to the lead ("On it.") is worked on
  * while the meeting goes on, its answer said at a later pause
  * (`meeting-errands.ts`).
  */
-import { noteFor, spokenLine, wakeRequest } from '../meeting-claude.ts';
+import { meetingLine, noteFor, wakeRequest } from '../meeting-claude.ts';
 import type { TranscriptionEngine } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
@@ -99,7 +103,7 @@ export async function meetingAnswer(
 ): Promise<MeetingAnswer> {
   const request = turn.owner ? wakeRequestIn(turn.own) : null;
   if (request !== null && turn.room.plan && asksForQuestions(request)) {
-    return answerer.invite(heard, actor, context);
+    return meetingLine(await answerer.invite(heard, actor, context));
   }
   if (request !== null) {
     // No `navigate`: following it would take the page off the meeting it
@@ -110,8 +114,7 @@ export async function meetingAnswer(
     // it comes (`meeting-errands.ts`).
     if (a.awaiting) return { ...a, asking: false, request };
     turn.room.note(noteFor(request, a, actor.name));
-    const line = spokenLine(a);
-    return { ...a, spoken: line, points: [{ say: line }], asking: false };
+    return { ...meetingLine(a), asking: false };
   }
-  return turn.room.plan ? answerer.answer(heard, actor, context, true) : SILENT;
+  return turn.room.plan ? meetingLine(await answerer.answer(heard, actor, context, true)) : SILENT;
 }

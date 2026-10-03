@@ -188,7 +188,8 @@ describe('"Claude, …" in a meeting the page records', () => {
     await m.say('The berth opens in spring. Claude, any open questions?', 'mic');
     await waitFor(() => m.replies().length === 1, { describe: 'the planning voice' });
     expect(m.replies()[0]).toMatchObject({ route: 'interview', asking: true });
-    expect(m.replies()[0]?.spoken).toBe('I found 4 gaps. First: What goes under Goals?');
+    // A meeting hears the question alone (`meetingLine`).
+    expect(m.replies()[0]?.spoken).toBe('What goes under Goals?');
     expect(m.said.some((s) => s.startsWith('Routed:'))).toBe(false);
     expect(m.notes).toEqual([]);
     m.session.close();

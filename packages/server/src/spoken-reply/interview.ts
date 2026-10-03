@@ -112,10 +112,6 @@ function docOf(context: VoiceContext | undefined): string | undefined {
   return context?.surface === 'doc' ? context.docId : undefined;
 }
 
-function lowerFirst(s: string): string {
-  return s.charAt(0).toLowerCase() + s.slice(1);
-}
-
 function plural(n: number, one: string): string {
   return `${n} ${one}${n === 1 ? '' : 's'}`;
 }
@@ -267,13 +263,10 @@ export class SpokenInterview {
         return this.question(this.open(docId, [read.ask], true), '');
       }
       if (why !== 'invited') return this.hush(true);
+      // "No." is the answer; the reason is written, never said (Bryan,
+      // 3 Oct: a sentence where "no" would do wastes the listener's time).
       const reason = read.none.replace(/[.!]*$/, '');
-      return {
-        ...this.say(
-          reason ? `No questions from me: ${lowerFirst(reason)}.` : 'No questions from me.',
-        ),
-        asking: true,
-      };
+      return { ...this.say('No.'), detail: reason ? [`${reason}.`] : [], asking: true };
     }
     if (gaps.length === 0) {
       // Unasked, there is nothing to say: keep listening, and look again at

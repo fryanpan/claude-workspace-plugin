@@ -6,7 +6,7 @@
  * notes at once, and its first sentence waits for the next pause to be said,
  * so the voice never talks over the meeting (`session.ts`, `sayLead`).
  */
-import { noteFor, spokenLine } from '../meeting-claude.ts';
+import { meetingLine, noteFor } from '../meeting-claude.ts';
 import type { SpokenAnswer } from './answer.ts';
 
 /** The most words the page's line names the work in. */
@@ -52,8 +52,7 @@ export class MeetingErrands {
     const asked = this.out.get(queueId);
     if (!asked) return null;
     this.out.delete(queueId);
-    const line = spokenLine(a);
-    this.held.push({ ...a, spoken: line, points: [{ say: line }], detail: [], asking: false });
+    this.held.push({ ...meetingLine(a), detail: [], asking: false });
     return {
       note: noteFor(asked.request, a, asker),
       label: [...this.out.values()].pop()?.label ?? null,

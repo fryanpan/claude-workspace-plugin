@@ -45,14 +45,14 @@ export const READER_SYSTEM = [
   '3. a decision the plan depends on is still unanswered.',
   'Otherwise stay quiet, even when something smaller is missing.',
   'Never ask about what the plan already settles, and never repeat a question already asked.',
-  'The question is one plain sentence under 25 words.',
+  'The question is the shortest plain sentence that asks it, under 15 words. It is said aloud, and voice is slow.',
   'Reply with JSON only, one of:',
   '{"ask": "<question>", "heading": "<the exact heading its answer belongs under>", "quote": "<exact words from the plan it is about, or empty>"}',
   '{"ask": null, "why": "<one short sentence: why there is nothing to ask>"}',
 ].join('\n');
 
 const INVITED =
-  'They just asked whether you have any questions. Ask your best one if any is worth asking; otherwise say why not.';
+  'They just asked whether you have any questions. Ask your best one if any is worth asking; otherwise say why not, in a few words.';
 
 /** The plan as the model reads it: headings marked, every block on a line. */
 export function planText(outline: readonly prose.OutlineEntry[]): string {
