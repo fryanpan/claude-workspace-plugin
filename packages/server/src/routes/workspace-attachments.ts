@@ -32,7 +32,7 @@ import {
   readReleasedPluginVersion,
 } from '../plugin-release.ts';
 import { sentryWatchPlan } from '../sentry-projects.ts';
-import { LEAD_ANSWER_MAX } from '../spoken-reply/lead-answer.ts';
+import { LEAD_ANSWER_MAX, LEAD_MINUTE_MAX } from '../spoken-reply/lead-answer.ts';
 import { isAttachmentRuntime } from '../tasks.ts';
 import { matchWorkspaceRoute, safeDecodeSegment } from '../workspace-path.ts';
 import type { WorkspaceRouteRequest, WorkspaceRoutesContext } from './workspace-routes-context.ts';
@@ -365,7 +365,19 @@ export async function handleWorkspaceAttachments(
     if (text.length > LEAD_ANSWER_MAX) {
       return j(400, { error: `text over ${LEAD_ANSWER_MAX} chars` });
     }
-    return j(200, { ok: true, delivered: spokenRelay.answerRequest(workspaceId, entryId, text) });
+    // The line for a meeting's minutes, when the answer is worth keeping:
+    // written into the notes on one line (`minuteFor`), never said.
+    const minute = body?.minute;
+    if (minute !== undefined && typeof minute !== 'string') {
+      return j(400, { error: 'minute must be a string' });
+    }
+    if (typeof minute === 'string' && minute.length > LEAD_MINUTE_MAX) {
+      return j(400, { error: `minute over ${LEAD_MINUTE_MAX} chars` });
+    }
+    return j(200, {
+      ok: true,
+      delivered: spokenRelay.answerRequest(workspaceId, entryId, text, minute),
+    });
   }
   const wsAgentDetachMatch = pathname.match(/^\/workspaces\/([^/]+)\/agents\/([^/]+)$/);
   if (wsAgentDetachMatch && req.method === 'DELETE') {

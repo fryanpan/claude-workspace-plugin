@@ -2,8 +2,8 @@
  * "Claude, …" said in a meeting recorded from the page's own microphone (or
  * microphone plus Mac audio): the same wake phrase and owner rule a Recall
  * bot meeting uses (`meeting-claude.ts`), answered through the page's
- * spoken-reply socket rather than into a call, with the detail written into
- * the meeting's notes.
+ * spoken-reply socket rather than into a call. Nothing is written into the
+ * meeting's notes unless the answer holds a minute (`minuteFor`).
  *
  * WHO ASKED. A bot meeting knows each speaker's email; a mic meeting knows
  * only the page. So the speaker is the person signed in on the page that
@@ -37,7 +37,7 @@
  * while the meeting goes on, its answer said at a later pause
  * (`meeting-errands.ts`).
  */
-import { meetingLine, noteFor, wakeRequest } from '../meeting-claude.ts';
+import { meetingLine, minuteFor, wakeRequest } from '../meeting-claude.ts';
 import type { TranscriptionEngine } from '../transcribe.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
@@ -110,10 +110,11 @@ export async function meetingAnswer(
     // is recording.
     const { navigate: _, ...a } = await answerer.ask(request, actor, context);
     if (!a.spoken) return SILENT;
-    // Handed to the lead, "On it." is no answer: the lead's is noted when
-    // it comes (`meeting-errands.ts`).
+    // Handed to the lead, "On it." is no answer: the lead's minute, if it
+    // gives one, is written when it comes (`meeting-errands.ts`).
     if (a.awaiting) return { ...a, asking: false, request };
-    turn.room.note(noteFor(request, a, actor.name));
+    const minute = minuteFor(a);
+    if (minute) turn.room.note(minute);
     return { ...meetingLine(a), asking: false };
   }
   return turn.room.plan ? meetingLine(await answerer.answer(heard, actor, context, true)) : SILENT;

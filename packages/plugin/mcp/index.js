@@ -15869,6 +15869,10 @@ var TOOL_LIST = {
           text: {
             type: "string",
             description: "What to say: the shortest answer that works, one sentence at most."
+          },
+          minute: {
+            type: "string",
+            description: 'Only when your answer belongs in the minutes for future reference: a decision made, a fact found, or tasks created. One short line, such as "Tasks created: A, B". A request asked in a meeting writes this line into its notes and nothing else; omit it and the notes get nothing.'
           }
         },
         required: ["workspaceId", "queueId", "text"]
@@ -20392,13 +20396,14 @@ async function handleWorkspaceTool(name, a, ctx) {
       });
     }
     case "answer_voice": {
-      const { workspaceId, queueId, text } = a;
+      const { workspaceId, queueId, text, minute } = a;
       const words = typeof text === "string" ? text.trim() : "";
+      const kept = typeof minute === "string" ? minute.trim() : "";
       if (!workspaceId || !queueId)
         return err2("workspaceId and queueId are required");
       if (words === "")
         return err2("text is empty — say the answer");
-      const res = await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`, { agentId: AUTHOR.id, text: words });
+      const res = await http("POST", `/workspaces/${encodeURIComponent(workspaceId)}/voice-queue/${encodeURIComponent(queueId)}/answer`, { agentId: AUTHOR.id, text: words, ...kept ? { minute: kept } : {} });
       return ok2({
         delivered: res.delivered === true,
         ...res.delivered === true ? {} : { note: "No page is waiting for this answer. Post it on the task or a thread." }

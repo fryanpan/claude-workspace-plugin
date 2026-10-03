@@ -3,7 +3,8 @@
  * REAL server: a discussion huddle records on its audio socket, and the
  * page's spoken-reply socket hears it (`ears: 'meeting'`). The owner is the
  * person whose signed session cookie the socket's upgrade carried, never a
- * name: signed in as the owner, the request is answered aloud and noted;
+ * name: signed in as the owner, the request is answered aloud (and noted
+ * only when the answer holds a minute, which a brief does not);
  * signed in as anybody else, the socket is told no and nothing is said.
  *
  * Mock transcription, a voice that records what it was given, the server's
@@ -178,7 +179,7 @@ describe('"Claude, …" in a mic meeting', () => {
     return { audio, page, speak, stop, markdown };
   }
 
-  it('answers the signed-in owner aloud in one line, and writes the detail into the notes', async () => {
+  it('answers the signed-in owner aloud in one line, and leaves a brief out of the notes', async () => {
     const m = await micMeeting(await signIn(OWNER));
     m.speak(ASK);
     const replies = () => m.page.frames.filter((f) => f.type === 'reply');
@@ -191,10 +192,11 @@ describe('"Claude, …" in a mic meeting', () => {
       describe: 'the answer said',
     });
     await m.stop();
-    await waitFor(() => m.markdown().includes('Claude, asked by'), {
-      describe: 'the note',
+    await waitFor(() => m.markdown().includes('the berth opens in spring'), {
+      describe: 'the notes section',
     });
-    expect(m.markdown()).toContain('“where are we?”');
+    expect(m.markdown()).not.toContain('where are we');
+    expect(m.markdown()).not.toContain('Claude:');
   });
 
   it('anybody else signed in on the page is told no, and nothing is said', async () => {

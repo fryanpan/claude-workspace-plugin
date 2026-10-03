@@ -1,8 +1,8 @@
 /**
  * "Claude, …" in a meeting, when the board hands it to the lead: the voice
  * says "On it.", the page is told what Claude is working on in a few words
- * (`doing`), and the lead's answer is written into the notes at once and
- * said in one sentence at the next pause — never over the meeting. A
+ * (`doing`), and the lead's answer is said in one sentence at the next
+ * pause — never over the meeting — with only its minute, if any, noted. A
  * spoken-reply session hears the meeting through `MeetingEars` on a fake
  * clock; the board is a script and the voice records what it was given.
  */
@@ -121,7 +121,7 @@ async function meeting() {
 }
 
 describe('"Claude, …" handed to the lead in a meeting', () => {
-  it('says On it, shows what it is doing, then notes the answer and says it at the next pause', async () => {
+  it('says On it, shows what it is doing, then says the answer at the next pause, noting nothing', async () => {
     const m = await meeting();
     await m.listen();
     m.hear('Claude, can you find the Riverbend ferry fares for spring?', true);
@@ -135,9 +135,8 @@ describe('"Claude, …" handed to the lead in a meeting', () => {
     await m.listen();
     m.hear('The berth opens in', false);
     m.session.sayLead('q-fares', shapedAnswer(FARES, LEAD_ANSWER_ROUTE));
-    expect(m.notes).toHaveLength(1);
-    expect(m.notes[0]).toContain('find the Riverbend ferry fares for spring?');
-    expect(m.notes[0]).toContain('Children under twelve ride free.');
+    // A fact with no minute from the lead stays out of the notes.
+    expect(m.notes).toEqual([]);
     expect(m.doing()).toEqual(['find the Riverbend ferry', null]);
     // Not over the speaker.
     expect(m.said).toEqual(['On it.']);

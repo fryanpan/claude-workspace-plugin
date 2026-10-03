@@ -1,6 +1,7 @@
 /**
  * "Claude, …" said in a bot meeting: a one-line spoken answer into the call,
- * and the detail written into the meeting's notes.
+ * and a minute in the meeting's notes only when the answer is worth keeping
+ * (`minuteFor`).
  *
  * Two rules decide whether anything happens, and both fail closed:
  *
@@ -20,12 +21,13 @@
  * The answer comes from the board's own answerer (`spoken-reply/answer.ts`),
  * the one setups 1 to 4 use, so a meeting hears what the board mic would
  * say. Only its first sentence is said, in at most `MEETING_SPOKEN_MAX_WORDS`
- * words; the rest is the note. The note is
- * written before the voice is tried, so a voice that fails still leaves it.
+ * words. A minute is written before the voice is tried, so a voice that
+ * fails still leaves it.
  */
 import type { RecallClient } from './recall.ts';
 import { type SpokenAnswer, SpokenAnswerer, type SpokenBoard } from './spoken-reply/answer.ts';
 import { INTERVIEW_ROUTE } from './spoken-reply/interview.ts';
+import { LEAD_MINUTE_MAX } from './spoken-reply/lead-answer.ts';
 import { sentences } from './spoken-reply/reply-shape.ts';
 import type { SpokenVoice } from './spoken-reply/tts.ts';
 import type { VoiceActor } from './voice-action.ts';
@@ -112,11 +114,23 @@ export function meetingLine<T extends SpokenAnswer>(a: T): T {
   return { ...a, spoken: line, points: [{ say: line }] };
 }
 
-/** The note: the request, the whole answer, and its written detail. */
-export function noteFor(request: string, a: SpokenAnswer, asker: string | null): string {
-  const lines = [`- Claude, asked by ${asker ?? 'the owner'} “${request}”: ${a.spoken}`];
-  for (const d of a.detail) lines.push(`  - ${d}`);
-  return lines.join('\n');
+/**
+ * The line a "Claude, …" leaves in the meeting's notes, or null for none —
+ * which is the default (Bryan, 3 Oct: a request and Claude's reply do not
+ * belong in the notes). An answer is minuted only when it holds something to
+ * keep for future reference: a decision, a fact found or tasks created, named
+ * by the lead in its answer (`answer_voice`'s `minute`), or a change the board
+ * made itself (`notes.ts`). The line is the minute alone, never the exchange,
+ * on one line so it is one block of its own.
+ */
+export function minuteFor(a: SpokenAnswer): string | null {
+  const minute =
+    a.minute ??
+    (a.route === 'fast-path-action'
+      ? a.points.flatMap((p) => (p.note ? [p.note] : [])).join('; ')
+      : '');
+  const line = minute.replace(/\s+/g, ' ').trim().slice(0, LEAD_MINUTE_MAX);
+  return line ? `- Claude: ${line}` : null;
 }
 
 export class MeetingClaude {
@@ -176,7 +190,8 @@ export class MeetingClaude {
           route: 'none',
         };
     if (!a.spoken) return;
-    u.note(noteFor(request, a, u.speaker.name));
+    const minute = minuteFor(a);
+    if (minute) u.note(minute);
     const voice = this.deps.voice;
     if (!voice) return;
     const chunks: Uint8Array[] = [];

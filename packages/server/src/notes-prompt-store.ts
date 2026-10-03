@@ -71,6 +71,10 @@ export const NOTES_PROMPT_FILENAME = 'notes-prompt.md';
  *   the older rule kept 5 of 9 reasons with their point and the new one,
  *   with `notes-reason-ask.ts` naming the sentence per tick, kept 9 of 9
  *   (`bun run notes:fidelity`).
+ * - "Do not note a request to Claude" came on 2026-10-03, from Bryan's
+ *   second real meeting: every "Claude, …" reached the notes, and his
+ *   rule is that a request and Claude's reply do not belong there. Claude
+ *   writes its own minute when the answer does (`meeting-claude.ts`).
  * - "Dictated layout" and the meaning rule in Accuracy came in the same
  *   change. A speaker who says "page one is… start with… then… the last
  *   thing" wants that document, not topics of the note-taker's own; the
@@ -146,6 +150,7 @@ export const DEFAULT_NOTES_INSTRUCTIONS = [
   '- When the speaker gives a reason for a point ("because", "since", "so that"), keep the reason in the same note: "X, because Y". A point and its reason are one idea. Make both halves short. Do not drop the reason or move it to a different note.',
   '- Paraphrase. Do not copy the words of the speaker.',
   '  - Remove greetings, false starts and repeats. ',
+  '- Do not note a request to Claude ("Claude, …") or what Claude says back. Claude writes its own line when its answer belongs in the notes.',
   '- Keep every idea, also a small idea. If you must choose, write the idea in five words. Do not drop it.',
   '- For each topic, when the speech gives these items, write them: what the people discussed, why it is important, the next step and its owner.',
   '- Put a **Decision:** prefix before each decision. Document what was decided, by whom, and why.',

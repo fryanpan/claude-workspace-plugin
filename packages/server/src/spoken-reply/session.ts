@@ -587,15 +587,16 @@ export class SpokenSession {
     if (say) void this.speak(voice, answer, ++this.turn);
   }
 
-  /** The lead's answer to `queueId`. One a meeting asked for is noted now
-   *  and said at the next pause (`meeting-errands.ts`); any other is an aside. */
+  /** The lead's answer to `queueId`. One a meeting asked for has its minute
+   *  noted now and is said at the next pause (`meeting-errands.ts`); any
+   *  other is an aside. */
   sayLead(queueId: string, a: SpokenAnswer): void {
-    const done = this.room ? this.errands.answered(queueId, a, this.actor.name) : null;
+    const done = this.room ? this.errands.answered(queueId, a) : null;
     if (!done || !this.room) {
       this.sayAside(a);
       return;
     }
-    this.room.note(done.note);
+    if (done.note) this.room.note(done.note);
     this.deps.sendJson({ type: 'doing', label: done.label });
     this.sayHeldIfQuiet();
   }

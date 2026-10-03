@@ -13,7 +13,7 @@ import {
   wakeRequest,
 } from '../src/meeting-claude.ts';
 import type { RecallClient } from '../src/recall.ts';
-import type { SpokenAnswerer, SpokenBoard } from '../src/spoken-reply/answer.ts';
+import { type SpokenAnswerer, type SpokenBoard, shapedAnswer } from '../src/spoken-reply/answer.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
 
 const OWNER = 'riverbend@example.test';
@@ -80,22 +80,16 @@ function utterance(text: string, notes: string[]): MeetingUtterance {
   };
 }
 
-const answerer = (said: string, gate?: Promise<void>): SpokenAnswerer =>
+const answerer = (said: string, route = 'fast-path', gate?: Promise<void>): SpokenAnswerer =>
   ({
     answer: async () => {
       await gate;
-      return {
-        spoken: said,
-        points: [{ say: said }],
-        detail: ['More below.'],
-        asking: false,
-        route: 'fast-path',
-      };
+      return shapedAnswer(said, route, ['More below.']);
     },
   }) as unknown as SpokenAnswerer;
 
 describe('answering', () => {
-  it('writes the note even when the voice fails', async () => {
+  it('writes the minute even when the voice fails, and nothing for an answer with none', async () => {
     const notes: string[] = [];
     const broken: SpokenVoice = {
       name: 'broken',
@@ -104,17 +98,26 @@ describe('answering', () => {
     const logged: string[] = [];
     const claude = new MeetingClaude({
       ownerEmail: OWNER,
-      answererFor: () => answerer('Two tasks wait on you.'),
+      answererFor: () => answerer('Moved "Berth" from todo to done.', 'fast-path-action'),
       actor: () => ({ id: 'o', name: 'Riverbend' }),
       voice: broken,
       play: () => Promise.reject(new Error('never reached')),
       log: (l) => logged.push(l),
     });
-    expect(await claude.heard(utterance('Claude, what waits?', notes))).toBe('answered');
-    expect(notes).toEqual([
-      '- Claude, asked by Riverbend “what waits?”: Two tasks wait on you.\n  - More below.',
-    ]);
+    expect(await claude.heard(utterance('Claude, mark the berth done.', notes))).toBe('answered');
+    expect(notes).toEqual(['- Claude: “Berth”: todo → done']);
     expect(logged.join(' ')).toContain('voice down');
+
+    const quiet = new MeetingClaude({
+      ownerEmail: OWNER,
+      answererFor: () => answerer('Two tasks wait on you.'),
+      actor: () => ({ id: 'o', name: 'Riverbend' }),
+      voice: null,
+      play: async () => {},
+    });
+    const none: string[] = [];
+    expect(await quiet.heard(utterance('Claude, what waits?', none))).toBe('answered');
+    expect(none).toEqual([]);
   });
 
   it('drops a second request while the first is still being said', async () => {
@@ -125,7 +128,7 @@ describe('answering', () => {
     const played: number[] = [];
     const claude = new MeetingClaude({
       ownerEmail: OWNER,
-      answererFor: () => answerer('Done.', gate),
+      answererFor: () => answerer('Done.', 'fast-path', gate),
       actor: () => ({ id: 'o', name: 'Riverbend' }),
       voice: { name: 'v', speak: async (t, on) => on(new TextEncoder().encode(t)) },
       play: async (_b, mp3) => {
@@ -141,15 +144,23 @@ describe('answering', () => {
 
   it('says so when no board holds the meeting', async () => {
     const notes: string[] = [];
+    const said: string[] = [];
     const claude = new MeetingClaude({
       ownerEmail: OWNER,
       answererFor: () => null,
       actor: () => ({ id: 'o', name: 'Riverbend' }),
-      voice: null,
+      voice: {
+        name: 'v',
+        speak: async (t, on) => {
+          said.push(t);
+          on(new Uint8Array(4));
+        },
+      },
       play: async () => {},
     });
     await claude.heard(utterance('Claude, what is next?', notes));
-    expect(notes[0]).toContain('not on a board');
+    expect(said[0]).toContain('not on a board');
+    expect(notes).toEqual([]);
   });
 });
 

@@ -29,6 +29,9 @@ import { input } from './notes-compose-input.ts';
  *   point under the old wording and 9 of 9 under the new.
  * - "Dictated layout", the ask line and the meaning rule in Accuracy, scored
  *   by the same eval (`bun run notes:fidelity`).
+ * - "Do not note a request to Claude" (2026-10-03), Bryan's rule after his
+ *   second real meeting. Not yet measured by the notes eval: it is his
+ *   instruction, and Claude's own minute replaces what it drops.
  * A further rule goes in the same way: change both copies, and say here what
  * it was measured against.
  */

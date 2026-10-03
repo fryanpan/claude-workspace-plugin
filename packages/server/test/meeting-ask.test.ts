@@ -139,15 +139,14 @@ async function heardMeeting(o: { plan: boolean; owner: boolean }) {
 }
 
 describe('"Claude, …" in a meeting the page records', () => {
-  it('answers the owner aloud in one line and notes the detail', async () => {
+  it('answers the owner aloud in one line and notes nothing', async () => {
     const m = await heardMeeting({ plan: false, owner: true });
     m.listen();
     await m.say('The berth opens in spring. Claude, where are we?', 'mic');
     await waitFor(() => m.replies().length === 1, { describe: 'the answer' });
     expect(m.replies()[0]).toMatchObject({ asking: false });
     expect(m.said).toEqual(['Routed: where are we?.']);
-    expect(m.notes).toHaveLength(1);
-    expect(m.notes[0]).toContain('Claude, asked by Owner “where are we?”');
+    expect(m.notes).toEqual([]);
     m.session.close();
   });
 

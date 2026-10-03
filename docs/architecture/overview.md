@@ -760,8 +760,9 @@ socket's board, checked as the router checks it.
 The same answerer speaks in a bot meeting. `meeting-claude.ts` (a top-level
 server module) reads each final turn `recall-meeting.ts` records and acts only
 when it opens with "Claude," and the speaker's Recall participant email is the
-owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes the whole
-answer into the meeting's notes and says the first sentence into the call
+owner's (`CW_OWNER_EMAIL`); a display name never counts. It writes a minute
+into the meeting's notes only when the answer holds one (`minuteFor`), and
+says the first sentence into the call
 through Recall's `output_audio`, as MP3 from `tts.ts`. It is on unless
 `CW_MEETING_CLAUDE=0`, and a bot that may speak is created with audio output
 switched on. `scripts/recall-say.ts` (`bun run meeting:say`) is the

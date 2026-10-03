@@ -48,7 +48,7 @@ export const CHOICE_DEFINITIONS: readonly string[] = [
   'Open means go to, show, find or pull up something that already exists.',
   'A loose description opens the one listed title it means ("ticket sales" can mean a task about ticketing). A task or doc that is not listed does not exist here: pick none, never a title that only shares a word.',
   'Going to a board, workspace or project by name is "Go to the board"; only a board listed is one.',
-  'A status update is a question about how things are going, what is left or what is waiting. Summarizing, drafting, writing or doing something is none.',
+  'A status update is a question about how things are going, what is left or what is waiting. Summarizing, drafting, writing, reviewing or doing something is none, and so is asking whether you can or could do something.',
   'Feedback about the app is about how Workspaces itself works or looks, not about the work on the board.',
   'Two listed titles can share words. Pick one only when the request names it, not its neighbour; when the request fits both or neither, pick none.',
   '"This", "it" and "here" mean the item in view.',
@@ -239,6 +239,22 @@ export function parseChoiceReply(raw: string): { id?: string; confidence?: numbe
   }
 }
 
+/** Words a status ask uses: how things are going, what is left or waiting. */
+const STATUS_WORDS =
+  /\b(?:status|update|progress|going|doing|waiting|left|plate|stand|blocked|stuck|happening|occurring|new|catch me up|where are we)\b/i;
+
+/**
+ * A status pick holds only for words that ask how things stand. Haiku picked
+ * it for "do you have enough information to create tasks…" and "can you
+ * review all of the questions in this doc", and both were answered with the
+ * board's brief (Bryan's meeting, 3 Oct). Asking Claude to do something, or
+ * whether it can, is the lead's.
+ */
+export function heldStatus(c: VoiceClassified, transcript: string): VoiceClassified {
+  if (c.classification?.kind !== 'status' || STATUS_WORDS.test(transcript)) return c;
+  return { ...c, classification: { kind: 'change' } };
+}
+
 /**
  * The shipped router's model step: the choice question, unless somebody has
  * written their own router instructions on the settings page, which only the
@@ -247,9 +263,9 @@ export function parseChoiceReply(raw: string): { id?: string; confidence?: numbe
 export function routerClassifier(complete: VoiceComplete) {
   const choice = haikuChoiceClassifier(complete);
   const json = jsonClassifier(complete);
-  return (input: VoiceClassifyInput): Promise<VoiceClassified> =>
+  return async (input: VoiceClassifyInput): Promise<VoiceClassified> =>
     input.instructions === undefined || input.instructions === DEFAULT_VOICE_SYSTEM
-      ? choice(input)
+      ? heldStatus(await choice(input), input.transcript)
       : json(input);
 }
 

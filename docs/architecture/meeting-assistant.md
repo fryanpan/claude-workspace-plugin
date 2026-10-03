@@ -2845,9 +2845,8 @@ meeting path transcribes and writes notes but never speaks.
 A bot meeting answers "Claude, …" into the call (`meeting-claude.ts`). A
 meeting the page records from its microphone, or from the microphone plus
 Mac audio, now answers it too: the same wake phrase, the same owner rule,
-one spoken line through the page's spoken-reply player, and the request,
-the line and the detail written into the meeting's own notes section with
-`noteFor`, the bot path's own format.
+one spoken line through the page's spoken-reply player, and nothing in the
+notes unless the answer holds a minute (below).
 
 - **Who asked is the person signed in on the page.** A bot meeting knows each
   speaker's email; a mic meeting knows only the page. At the spoken-reply
@@ -2872,8 +2871,8 @@ the line and the detail written into the meeting's own notes section with
 - **Except asking for questions in a planning meeting.** There, "Claude, any
   questions?" (any phrasing `asksForQuestions` knows, "any open questions?"
   included) goes to the planning voice as an invitation
-  (`SpokenAnswerer.invite`): its best question, or one sentence saying there
-  is none. Bryan's went to the router and got a board status brief. Any
+  (`SpokenAnswerer.invite`): its best question, or "No." with the reason
+  written on the page and never said. Bryan's went to the router and got a board status brief. Any
   other "Claude, …" still goes to the router, and a discussion meeting is
   unchanged.
 - **A request the lead takes** (`meeting-errands.ts`). A "Claude, …" may ask
@@ -2881,14 +2880,31 @@ the line and the detail written into the meeting's own notes section with
   the router hands it to the lead, the voice says "On it." and nothing is
   noted yet. The page shows one steady line in the meeting bar, "Claude ·
   <up to four words of the request>…", until the answer is in
-  (`doing`). The lead's answer is then written into the notes at once, with
-  the request, and its first sentence is said at the next pause, or at once
-  when nobody is speaking.
+  (`doing`). The lead's minute, if it gave one, is written into the notes at
+  once, and its first sentence is said at the next pause, or at once when
+  nobody is speaking.
+- **Notes only for a minute** (`minuteFor`, 2026-10-03). A request and
+  Claude's reply are not written into the notes: Bryan's second meeting wrote
+  every exchange as one paragraph, `Claude, asked by … "…": …`, question and
+  answer run together. A line is written only when the answer holds
+  something to keep: a decision, a fact found or tasks created, which the
+  lead names in `answer_voice`'s `minute` ("Tasks created: A, B"), or a
+  change the board made itself (`fast-path-action`). The line is the minute
+  alone, `- Claude: <minute>`, flattened to one line so it is a block of its
+  own. The note-taker's prompt says the same from its side: it does not note
+  a "Claude, …" or what Claude says back.
+- **Said short.** Whoever answers, the meeting hears one sentence of at most
+  20 words (`meetingLine`); the planning voice's reply is said as its
+  question alone.
+- **A status pick needs status words** (`heldStatus`, `voice-choice.ts`).
+  Haiku picked the status option for "do you have enough information to
+  create tasks…" and "can you review all of the questions in this doc", so
+  both were answered with the board brief. A status pick now holds only when
+  the words ask how things stand; otherwise it is a change for the lead.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
-  The notes line
-  waits, as the bot path's does, until the meeting's first note opens its
-  section.
+  A minute waits, as the bot path's does, until the meeting's first note
+  opens its section.
 
 ## A meeting's title (`meeting-namer.ts`, `meeting-titler.ts`)
 

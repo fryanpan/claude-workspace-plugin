@@ -17,6 +17,7 @@ import {
   LEAD_ANSWER_MAX,
   LEAD_ANSWER_ROUTE,
   LEAD_ANSWER_WINDOW_MS,
+  LEAD_MINUTE_MAX,
   LeadAnswers,
 } from '../src/spoken-reply/lead-answer.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
@@ -208,6 +209,16 @@ describe('the lead’s answer through the real server', () => {
     expect((await post(path, lead)).status).toBe(400);
     expect((await post(path, { ...lead, text: '  ' })).status).toBe(400);
     expect((await post(path, { ...lead, text: 'a'.repeat(LEAD_ANSWER_MAX + 1) })).status).toBe(400);
+    // A minute is a line of text for a meeting's notes, and nothing else.
+    expect((await post(path, { ...lead, text: 'Fine.', minute: ['a'] })).status).toBe(400);
+    expect((await post(path, { ...lead, text: 'Fine.', minute: 7 })).status).toBe(400);
+    expect(
+      (await post(path, { ...lead, text: 'Fine.', minute: 'a'.repeat(LEAD_MINUTE_MAX + 1) }))
+        .status,
+    ).toBe(400);
+    expect(
+      await (await post(path, { ...lead, text: 'Fine.', minute: 'Decided: spring.' })).json(),
+    ).toEqual({ ok: true, delivered: false });
     expect(await (await post(path, { ...lead, text: 'Fine.' })).json()).toEqual({
       ok: true,
       delivered: false,

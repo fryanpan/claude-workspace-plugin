@@ -354,6 +354,11 @@ export const TOOL_LIST: ListToolsResult = {
             type: 'string',
             description: 'What to say: the shortest answer that works, one sentence at most.',
           },
+          minute: {
+            type: 'string',
+            description:
+              'Only when your answer belongs in the minutes for future reference: a decision made, a fact found, or tasks created. One short line, such as "Tasks created: A, B". A request asked in a meeting writes this line into its notes and nothing else; omit it and the notes get nothing.',
+          },
         },
         required: ['workspaceId', 'queueId', 'text'],
       },
