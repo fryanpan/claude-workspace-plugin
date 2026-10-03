@@ -7,7 +7,7 @@
  * how-readily control is three buttons of one width, and its hint is sized
  * for the longest, so pressing one moves nothing beside it.
  *
- * Only Bryan's own signed-in session gets this HTML (the caller decides).
+ * Only the owner's own signed-in session gets this HTML (the caller decides).
  * Every string here is his or the coach's, and all of it is escaped.
  */
 import { escapeHtml } from '@claude-workspaces/core';

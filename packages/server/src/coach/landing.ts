@@ -1,6 +1,6 @@
 /**
  * "Your coach" for one front-page load, drawn with its styles. Asked only
- * for Bryan's own signed-in session.
+ * for the owner's own signed-in session.
  */
 import { actionableGoals, goalTitle } from './goals-doc.ts';
 import type { GoalsDocReading } from './goals-doc.ts';

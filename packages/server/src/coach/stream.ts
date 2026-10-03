@@ -1,5 +1,5 @@
 /**
- * Workflow B: what Bryan is doing, as one event per thing he does.
+ * Workflow B: what the owner is doing, as one event per thing he does.
  *
  * Every event goes to the coach session as it happens; there is no trigger
  * and no spacing (the coach doc, "Version 1 design"). What this module does

@@ -1,7 +1,7 @@
 /**
  * The coach through the real server and its admission gate.
  *
- * Every page route is Bryan's alone: an Access assertion for the owner email
+ * Every page route is the owner's alone: an Access assertion for the owner email
  * from this server's own pages, proven the way `inbox-routes.test.ts` proves
  * it. Setup makes a real bound doc on a real board; the where-I-am signal is
  * checked against that board; the stream is an event stream for him and a

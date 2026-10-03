@@ -1,5 +1,5 @@
 /**
- * ── The coach: Bryan's learning goals, where he is, and his answers ──
+ * ── The coach: the owner's learning goals, where he is, and his answers ──
  *
  *   POST /coach/setup                make the learning-goals doc, once → `{ url }`
  *   POST /coach/goals/add            add a goal's four empty parts to it
@@ -14,11 +14,11 @@
  *                                    this machine only: `{ goal, matched,
  *                                    observed, line }`
  *
- * Owner-level, not under a board: everything here is Bryan's, so nothing is
+ * Owner-level, not under a board: everything here is the owner's, so nothing is
  * on a share or member allowlist and a visitor is refused before anything
  * is read.
  *
- *  - Every page route is for Bryan alone: a person proof that resolves to
+ *  - Every page route is for the owner alone: a person proof that resolves to
  *    the owner, from this server's own pages. A POST must also carry this
  *    origin; the stream is a GET, which a browser sends without one, so it
  *    asks for the same-origin fetch mark alone. The gate is Incoming
@@ -68,7 +68,7 @@ const MAX_BODY_BYTES = 8_000;
 const ANSWER_PATH = /^\/coach\/moments\/(cm-[A-Za-z0-9_-]{12})\/answer$/;
 const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
 
-/** Bryan's own pages, and nobody else's. */
+/** The owner's own pages, and nobody else's. */
 function refuseNonOwner(ctx: CoachRoutesContext, rq: CoachRouteRequest): Response | null {
   const { j } = ctx;
   if (rq.visitor) return j(403, { error: 'not available to share visitors' });

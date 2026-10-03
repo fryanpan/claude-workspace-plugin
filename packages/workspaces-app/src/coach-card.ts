@@ -1,5 +1,5 @@
 /**
- * The coach on a board or a doc: what Bryan is looking at and writing, sent
+ * The coach on a board or a doc: what the owner is looking at and writing, sent
  * to the server, and the coach's "Hi, I'm noticing…" card when it has
  * something to say.
  *

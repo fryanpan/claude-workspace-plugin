@@ -1,5 +1,5 @@
 /**
- * The coach: Bryan's learning goals, what it sees him doing, and the moments
+ * The coach: the owner's learning goals, what it sees him doing, and the moments
  * it raises when what he is doing matches a goal's "act differently when".
  *
  * The design is the "Version 1 design" section of the coach doc on the

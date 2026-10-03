@@ -1,5 +1,5 @@
 /**
- * The coach's calendar: which local day an instant falls on in Bryan's time
+ * The coach's calendar: which local day an instant falls on in the owner's time
  * zone. Pure, so the tests drive it with fixed instants.
  */
 import { zonedParts } from '@claude-workspaces/core/schedule-timezone';

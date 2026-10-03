@@ -1,5 +1,5 @@
 /**
- * "Your coach" on the front page, driven as Bryan drives it: each button
+ * "Your coach" on the front page, driven as the owner drives it: each button
  * posts its own request and the section is re-read from `/`; "Set up my
  * coach" opens the doc the server made. The markup is the shape
  * `coach/section.ts` draws.

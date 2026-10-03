@@ -1,7 +1,7 @@
 import { type SseStreamWriter, createSseStreamWriter } from '../sse-writer.ts';
 /**
  * The coach's own event stream, `GET /coach/stream`: the moment, to every
- * page Bryan has open, and its clearing once he answers it in any of them.
+ * page the owner has open, and its clearing once he answers it in any of them.
  *
  * Its own stream rather than a board channel because a board channel
  * reaches every member of that board, and a moment is his alone. It carries

@@ -1,6 +1,6 @@
 /**
  * The coach session's feed: every event, as it happens, to the Claude Code
- * session that is the coach (Bryan, 2026-10-03: "routing all events to a
+ * session that is the coach (the owner, 2026-10-03: "routing all events to a
  * long running Claude Code session ... that can hold an ongoing
  * conversation with context").
  *

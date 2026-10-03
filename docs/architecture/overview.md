@@ -1816,7 +1816,7 @@ the key list behind `?` and the Undo toast are `landing-inbox-modals.ts`
 beside it. Bryan's Remove is a tap like snooze: the row goes to `dismissed`
 with no reason, and a new message on its thread reopens it.
 
-**The coach** helps Bryan with habits he names, in three parts. It is not a
+**The coach** helps the owner with habits he names, in three parts. It is not a
 board feature; the one agent it reaches is its own session.
 (A) *Goals*: "Set up my coach" on the front page makes one learning-goals doc
 and the session's Coach memory doc on a board of their own (`coach/setup.ts`,

@@ -1426,7 +1426,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     config: inboxConfig,
     transport: opts.inboxTransport ?? systemTransport(),
   });
-  /** The coach: Bryan's learning goals, what he is doing, and the moments
+  /** The coach: the owner's learning goals, what he is doing, and the moments
    *  it raises (coach/wiring.ts). The Coach board's lead session hears every
    *  event; with no session listening, the coach stays quiet. */
   const coachWiring = wireCoach({
