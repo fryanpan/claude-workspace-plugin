@@ -26,6 +26,9 @@
  *   than as a sandboxed page inside the mock.
  * - A direct visit to the frame's address, with nothing holding it, goes to
  *   the host page instead.
+ * - A link to one thread (`?thread=`, `server/src/page-thread.ts`). The
+ *   widget reads it at start, then the address drops it, and the thread's pin
+ *   is tapped for the reader.
  *
  * Plain script, no imports: it is written into the frame's own bytes, and runs
  * before anything the mock declares. The work is `installBridge`, handed the
@@ -296,6 +299,48 @@ export function installBridge(window: Window & typeof globalThis): void {
     }
   }
   window.EventSource = RelayES as unknown as typeof EventSource;
+
+  // --- A link to one thread ---
+  // The widget pins a thread only where the address equals the one it was
+  // made on, so `thread` has to leave the address once the widget has read it
+  // (it opens a review item's dock with it), at DOMContentLoaded. A review
+  // item is the dock's to open; any other thread is opened at its pin.
+  const linked = here.searchParams.get('thread');
+  if (linked) {
+    const tap = (pin: HTMLElement): void => {
+      if (pin.dataset.state === 'review') return;
+      const b = pin.getBoundingClientRect();
+      const at = { clientX: b.left + b.width / 2, clientY: b.top + b.height / 2 };
+      pin.dispatchEvent(new MouseEvent('click', { bubbles: true, ...at }));
+    };
+    const settle = (): void => {
+      const rest = here.search
+        .replace(/^\?/, '')
+        .split('&')
+        .filter((part) => part !== '' && part.split('=')[0] !== 'thread');
+      const query = rest.length === 0 ? '' : `?${rest.join('&')}`;
+      window.history.replaceState(window.history.state, '', here.pathname + query + location.hash);
+      const pinOf = () =>
+        document.querySelector<HTMLElement>(`.cfw-pin[data-thread-id="${CSS.escape(linked)}"]`);
+      const now = pinOf();
+      if (now) {
+        tap(now);
+        return;
+      }
+      // Pins are drawn once the doc syncs, and a words anchor once edit.js has loaded.
+      const watch = new MutationObserver(() => {
+        const pin = pinOf();
+        if (!pin) return;
+        watch.disconnect();
+        tap(pin);
+      });
+      watch.observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(() => watch.disconnect(), 20_000);
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', settle, { once: true });
+    } else settle();
+  }
 
   // --- Links ---
   // Capture phase, before the default action, so the tap that follows the

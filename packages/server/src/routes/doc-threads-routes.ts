@@ -45,7 +45,7 @@ import { classifyActor } from '../actor-identity.ts';
 import { threadOpenParts } from '../answer-coverage.ts';
 import { claudeKeyAddHint } from '../claude-key-source.ts';
 import { mayTouchFrom, writeViaOf } from '../mockup-frame.ts';
-import { isPageDoc, pageThreadPlan } from '../page-thread.ts';
+import { isPageDoc, pageThreadLink, planPageThread } from '../page-thread.ts';
 import { reviewItemAnsweredEvent } from '../review-items/analytics.ts';
 import { refuseOwnerOnlyWrite } from '../share/board-role.ts';
 import { isCategoryAuthor } from '../task-owner.ts';
@@ -1023,8 +1023,9 @@ export async function handleDocThreadRoutes(
     const type = rq.doc.meta.type;
     let res: Awaited<ReturnType<typeof docStore.createThreadByFind>>;
     if (isPageDoc(type)) {
-      const plan = pageThreadPlan({
+      const plan = await planPageThread({
         type,
+        ...(rq.doc.meta.sourceUrl ? { origin: rq.doc.meta.sourceUrl } : {}),
         workspaceId: rq.scope?.workspaceId ?? resolveWorkspaceForDoc(docId),
         docId,
         find,
@@ -1062,8 +1063,11 @@ export async function handleDocThreadRoutes(
       res.ok && declared.review
         ? await gateThreadDeclaration(docId, res.thread, declared.review, author)
         : undefined;
-    const findHandoff = threadUrl(docId, Boolean(visitor));
+    const docLink = threadUrl(docId, Boolean(visitor));
     const found = res.ok ? (docStore.getThread(docId, res.thread.id) ?? res.thread) : null;
+    // A page thread's link opens its page with the thread selected.
+    const findHandoff =
+      docLink && found && isPageDoc(type) ? pageThreadLink(docLink, found) : docLink;
     return res.ok && found
       ? j(200, {
           thread: found,
