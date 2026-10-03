@@ -92,10 +92,26 @@ import { gzipSync } from 'node:zlib';
  * (`packages/widget/scripts/shims/y-protocols-awareness.ts`) and
  * `bundle-guard.ts` refuses a bundle that takes the real one back.
  *
+ * Raised by 128 bytes on 2026-10-03, for an agent's comment on a page:
+ *
+ *   origin/main   40,951 gz   (130,797 raw)       9 under 40,960
+ *   this branch   41,083 gz   (131,156 raw)       5 under 41,088
+ *
+ * An agent cannot see the page, so it anchors a thread by the words the page
+ * shows, and the pin is drawn by the bundle that draws every pin: 125 bytes
+ * find the smallest element saying those words (`resolveWords` in
+ * `packages/core/src/anchor/element.ts`), 7 put the thread's id on its
+ * popover so the lazy edit chunk can add Accept and Reject. The alternative
+ * was the resolver in that chunk behind a page global, which costs about 40
+ * bytes here anyway and leaves an agent's pins missing until 9 KB more has
+ * loaded. Nine bytes of room meant the next change to `packages/core` would
+ * have needed this paragraph whatever it was about; Bryan may still prefer
+ * the room found elsewhere.
+ *
  * Raising the ceiling is a decision about what the widget costs the pages it is
  * a guest on, so it takes a paragraph here, not a round-up.
  */
-const BUDGET_BYTES = 40 * 1024;
+const BUDGET_BYTES = 40 * 1024 + 128;
 const WIDGET_IIFE = join(import.meta.dir, '..', 'packages', 'widget', 'dist', 'widget.iife.js');
 
 if (!existsSync(WIDGET_IIFE)) {
