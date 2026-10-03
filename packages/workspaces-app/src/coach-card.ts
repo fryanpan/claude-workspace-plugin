@@ -50,7 +50,7 @@ export interface CoachCardOptions {
 const STYLES = `
 :host { all: initial; }
 * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-.cw-coach { position: fixed; left: 16px; bottom: calc(var(--kb-bottom, 0px) + var(--doc-dock-h, 0px) + 16px); z-index: 1050; width: min(340px, calc(100vw - 32px)); padding: 12px 14px; background: #fff; color: #1b1f23; border: 1px solid #d8dee4; border-left: 3px solid #5b7f4e; border-radius: 8px; box-shadow: 0 4px 16px rgba(27,31,35,.12); }
+.cw-coach { position: fixed; left: 16px; bottom: calc(var(--kb-bottom, 0px) + var(--doc-dock-h, 0px) + var(--board-bottom-bar, 0px) + 16px); z-index: 1050; width: min(340px, calc(100vw - 136px)); padding: 12px 14px; background: #fff; color: #1b1f23; border: 1px solid #d8dee4; border-left: 3px solid #5b7f4e; border-radius: 8px; box-shadow: 0 4px 16px rgba(27,31,35,.12); }
 .cw-coach-who { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: #5b7f4e; }
 .cw-coach-line { margin: 0 0 6px; font-size: 14.5px; line-height: 1.4; }
 .cw-coach-goal { margin: 0 0 10px; font-size: 12.5px; line-height: 1.35; color: #6e7781; }

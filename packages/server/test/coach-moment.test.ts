@@ -127,7 +127,7 @@ describe('a whole day', () => {
     expect(h.store.judgements().every((j) => j.outcome === 'quiet')).toBe(true);
   });
 
-  it('spends at most one call in twenty minutes, and a day in well under thirty', async () => {
+  it('asks the session at most once in ten minutes, and well under thirty times a day', async () => {
     const h = harness();
     await h.play(DRIFTING_DAY);
     const times = h.store.judgements().map((j) => j.at);
