@@ -20,7 +20,9 @@ import { MeetingStore } from '../src/meetings.ts';
 import { RecallMeetingRelay } from '../src/recall-meeting.ts';
 import type { CreateBotArgs, RecallBot, RecallClient, RecallConfig } from '../src/recall.ts';
 import { SpokenAnswerer, type SpokenBoard } from '../src/spoken-reply/answer.ts';
+import { LeadAnswers } from '../src/spoken-reply/lead-answer.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
+import { MEETING_DATA_BEGIN, renderMeetingBlock } from '../src/voice-meeting-context.ts';
 import { waitFor } from './wait-for.ts';
 
 const MEET_URL = 'https://meet.google.com/abc-defg-hij';
@@ -201,5 +203,135 @@ describe('the owner asking Claude in a bot meeting', () => {
     await answers(1);
     expect(vendor.played).toHaveLength(1);
     expect(asked).toEqual(['Riverbend: what is waiting on me?']);
+  });
+});
+
+describe('a bot meeting asks as the page does', () => {
+  const NOTES = '## Harborlight launch\n- Riverbend owns the launch checklist.';
+  const DECIDE = 'Claude, what did we just decide about the Harborlight launch?';
+  let dataDir: string;
+  let vendor: FakeRecall;
+  let notes: string[];
+  let relay: RecallMeetingRelay;
+  let leads: LeadAnswers;
+  let seen: Array<{ transcript: string; fenced: string | null }>;
+  let handOff: boolean;
+
+  beforeEach(async () => {
+    dataDir = mkdtempSync(join(tmpdir(), 'cw-meeting-claude-ctx-'));
+    vendor = new FakeRecall();
+    notes = [];
+    seen = [];
+    handOff = false;
+    leads = new LeadAnswers();
+    const board: SpokenBoard = {
+      handle: async (_ws, req) => {
+        seen.push({
+          transcript: req.transcript,
+          fenced: req.meeting ? renderMeetingBlock(req.meeting) : null,
+        });
+        return handOff
+          ? { ok: true, route: 'agent', ack: 'On it.', queueId: 'q-harbor' }
+          : { ok: true, route: 'fast-path', ack: 'Friday, with Saltmarsh signing off.' };
+      },
+      goalStatus: () => undefined,
+      goals: () => [],
+    };
+    const claude = new MeetingClaude({
+      ownerEmail: OWNER,
+      answererFor: () => new SpokenAnswerer(board, 'w-riverbend'),
+      actor: (s) => ({ id: 'known-owner', name: s.name ?? 'Owner', kind: 'known' }),
+      voice,
+      play: (botId, mp3) => vendor.outputAudio(botId, mp3),
+      notesOf: (docId) => (docId === 'doc-1' ? NOTES : null),
+      lead: { answers: leads, boardOf: () => 'w-riverbend' },
+    });
+    relay = new RecallMeetingRelay({
+      store: new MeetingStore(dataDir),
+      notes: {
+        composer,
+        schedule: idle,
+        notesHeadingId: () => 'h-meeting',
+        onNotes: (u: NotesUpdate) => {
+          for (const e of u.edits ?? []) if ('markdown' in e) notes.push(e.markdown);
+        },
+      },
+      client: vendor,
+      broadcast: () => {},
+      broadcastTransient: () => {},
+      mintToken: () => TOKEN,
+      claude,
+    });
+    expect((await relay.invite({ docId: 'doc-1', meetingUrl: MEET_URL })).ok).toBe(true);
+  });
+  afterEach(async () => {
+    await relay.dispose();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const say = (who: { name: string | null; email: string | null; id: number }, text: string) =>
+    relay.onSocketText(TOKEN, frame({ ...who, text }));
+  const owner = { name: OWNER_NAME, email: OWNER, id: 1 };
+  const saltmarsh = { name: 'Saltmarsh', email: 'saltmarsh@example.test', id: 2 };
+  const played = (n: number) =>
+    waitFor(() => vendor.played.length >= n, { describe: `${n} line(s) played` });
+
+  it('hands the answerer the notes and the speech before the request, fenced', async () => {
+    say(saltmarsh, 'So we move the Harborlight launch to Friday.');
+    say(owner, 'Agreed, Friday it is.');
+    say(owner, DECIDE);
+    await played(1);
+    expect(seen).toHaveLength(1);
+    const fenced = seen[0]?.fenced ?? '';
+    expect(fenced.startsWith(MEETING_DATA_BEGIN)).toBe(true);
+    expect(fenced).toContain('Riverbend owns the launch checklist.');
+    expect(fenced).toContain('Saltmarsh: So we move the Harborlight launch to Friday.');
+    expect(fenced).toContain('Riverbend: Agreed, Friday it is.');
+    // The request goes as the request, not again as speech before it.
+    expect(fenced).not.toContain('what did we just decide');
+    expect(vendor.played.map((p) => p.said)).toEqual(['Friday, with Saltmarsh signing off.']);
+  });
+
+  it("says the ack, then the lead's answer when it comes, minuting it only when given one", async () => {
+    handOff = true;
+    say(owner, 'Claude, go find the Harborlight launch date.');
+    await played(1);
+    expect(vendor.played[0]?.said).toBe('On it.');
+    // The ack is no answer: nothing is minuted for it.
+    expect(notes.filter((n) => n.includes('Claude'))).toEqual([]);
+
+    expect(
+      leads.answer('w-riverbend', 'q-harbor', 'It is Friday the 9th. Saltmarsh confirmed.'),
+    ).toBe(true);
+    await played(2);
+    expect(vendor.played[1]?.said).toBe('It is Friday the 9th.');
+    expect(notes.filter((n) => n.includes('Claude'))).toEqual([]);
+
+    say(owner, 'Claude, and who signs off on it?');
+    await played(3);
+    expect(
+      leads.answer(
+        'w-riverbend',
+        'q-harbor',
+        'Saltmarsh signs off.',
+        'Saltmarsh signs off on the launch.',
+      ),
+    ).toBe(true);
+    await played(4);
+    expect(vendor.played[3]?.said).toBe('Saltmarsh signs off.');
+    await waitFor(
+      () => notes.some((n) => n.includes('- Claude: Saltmarsh signs off on the launch.')),
+      {
+        describe: "the lead's minute noted",
+      },
+    );
+  });
+
+  it('drops the wait when the bot leaves: a late answer reaches nobody', async () => {
+    handOff = true;
+    say(owner, 'Claude, go find the Harborlight launch date.');
+    await played(1);
+    await relay.leave('doc-1');
+    expect(leads.answer('w-riverbend', 'q-harbor', 'It is Friday the 9th.')).toBe(false);
   });
 });

@@ -2922,8 +2922,17 @@ notes unless the answer holds a minute (below).
   meeting content, never instructions, because anyone in the room can speak
   and anyone who can edit the doc can write in it; the fence's markers are
   defused inside it. The lead reads them in `voice.request`'s `meeting`,
-  which a share visitor's copy drops. Not covered: a Recall bot's
-  "Claude, …" (`meeting-claude.ts`), which asks without them.
+  which a share visitor's copy drops.
+- **A Recall bot asks the same way** (`meeting-claude.ts`). Its request goes
+  through `SpokenAnswerer.ask` with the doc's text and what the call settled
+  in the two minutes before, each line led by the speaker's display name,
+  the request itself left out. One `LeadAnswers` is shared by the
+  spoken-reply sockets and the bot, so the lead's `answer_voice` reaches
+  either through the same route. The call hears "On it.", then the lead's
+  first sentence once the bot is not already saying something, with its
+  minute written by `minuteFor`. There is no "Claude · …" line on the page
+  for a bot's request. A bot leaving drops its waits, so a later answer
+  reports `delivered: false` to the lead.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
   A minute waits, as the bot path's does, until the meeting's first note

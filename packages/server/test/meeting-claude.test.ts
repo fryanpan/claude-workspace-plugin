@@ -14,6 +14,9 @@ import {
 } from '../src/meeting-claude.ts';
 import type { RecallClient } from '../src/recall.ts';
 import { type SpokenAnswerer, type SpokenBoard, shapedAnswer } from '../src/spoken-reply/answer.ts';
+import { LeadAnswers } from '../src/spoken-reply/lead-answer.ts';
+import { SpokenReplyRelay } from '../src/spoken-reply/relay.ts';
+import type { SpokenTimings } from '../src/spoken-reply/timings.ts';
 import type { SpokenVoice } from '../src/spoken-reply/tts.ts';
 
 const OWNER = 'riverbend@example.test';
@@ -82,7 +85,7 @@ function utterance(text: string, notes: string[]): MeetingUtterance {
 
 const answerer = (said: string, route = 'fast-path', gate?: Promise<void>): SpokenAnswerer =>
   ({
-    answer: async () => {
+    ask: async () => {
       await gate;
       return shapedAnswer(said, route, ['More below.']);
     },
@@ -196,5 +199,62 @@ describe('the server switch', () => {
       '[meeting-claude] off: no Recall client',
       '[meeting-claude] on',
     ]);
+  });
+});
+
+describe("the lead's answer in a bot meeting", () => {
+  it('waits while the bot is still saying something, then is said', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const leads = new LeadAnswers();
+    const said: string[] = [];
+    let first = true;
+    const claude = new MeetingClaude({
+      ownerEmail: OWNER,
+      answererFor: () =>
+        ({
+          ask: async () => {
+            if (first) {
+              first = false;
+              return { ...shapedAnswer('On it.', 'agent'), awaiting: 'q-1' };
+            }
+            await gate;
+            return shapedAnswer('Two tasks wait on you.', 'fast-path');
+          },
+        }) as unknown as SpokenAnswerer,
+      actor: () => ({ id: 'o', name: 'Riverbend' }),
+      voice: { name: 'v', speak: async (t, on) => on(new TextEncoder().encode(t)) },
+      play: async (_b, mp3) => {
+        said.push(new TextDecoder().decode(mp3));
+      },
+      lead: { answers: leads, boardOf: () => 'w-1' },
+    });
+    expect(await claude.heard(utterance('Claude, find the Harborlight date.', []))).toBe(
+      'answered',
+    );
+    const second = claude.heard(utterance('Claude, what waits?', []));
+    expect(leads.answer('w-1', 'q-1', 'Friday the 9th.')).toBe(true);
+    // Still answering the second request: the lead's line is held.
+    expect(said).toEqual(['On it.']);
+    release();
+    expect(await second).toBe('answered');
+    expect(said).toEqual(['On it.', 'Two tasks wait on you.', 'Friday the 9th.']);
+  });
+
+  it('is reached by the answer route through the relay the sockets use', () => {
+    const leads = new LeadAnswers();
+    const relay = new SpokenReplyRelay({
+      engines: { listener: null, voices: { 1: null, 2: null }, gemini: null },
+      board: {} as SpokenBoard,
+      timings: {} as SpokenTimings,
+      parseContext: () => undefined,
+      leads,
+    });
+    const heard: string[] = [];
+    leads.wait('w-1', 'q-1', {}, (a) => heard.push(a.spoken));
+    expect(relay.answerRequest('w-1', 'q-1', 'Friday the 9th.')).toBe(true);
+    expect(heard).toEqual(['Friday the 9th.']);
   });
 });

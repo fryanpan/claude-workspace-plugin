@@ -43,14 +43,19 @@ export interface SpokenReplyRelayDeps {
   /** The meeting recording on a doc, for a socket that hears it
    *  (`meeting-ears.ts`); absent, no socket can. */
   meetingEars?: (docId: string) => MeetingRoom | null;
+  /** Which socket or bot meeting waits for which lead answer; shared with
+   *  `meeting-claude.ts` so one answer route reaches either. */
+  leads?: LeadAnswers;
 }
 
 export class SpokenReplyRelay {
   private readonly sessions = new WeakMap<SpokenWs, SpokenSession>();
   /** Which socket waits for which lead answer. */
-  private readonly leads = new LeadAnswers();
+  private readonly leads: LeadAnswers;
 
-  constructor(private readonly deps: SpokenReplyRelayDeps) {}
+  constructor(private readonly deps: SpokenReplyRelayDeps) {
+    this.leads = deps.leads ?? new LeadAnswers();
+  }
 
   /** Which setups this server can run — none unless the engines were built. */
   setups() {
@@ -120,8 +125,8 @@ export class SpokenReplyRelay {
     this.sessions.delete(ws);
   }
 
-  /** The lead's answer to a spoken request: said on the socket that asked,
-   *  or false when none is waiting for it. */
+  /** The lead's answer to a spoken request: said on the socket or into the
+   *  bot meeting that asked, or false when none is waiting for it. */
   answerRequest(workspaceId: string, queueId: string, text: string, minute?: string): boolean {
     return this.leads.answer(workspaceId, queueId, text, minute);
   }
