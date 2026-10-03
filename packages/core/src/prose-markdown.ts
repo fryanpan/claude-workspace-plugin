@@ -21,6 +21,13 @@ import { footnoteEndAt } from './footnotes.ts';
 import { LCS_CELL_BUDGET, lcsKept } from './lcs.ts';
 import { getProseFragment, headingLevelOf } from './prose-fragment.ts';
 import { BLOCK_IDENTITY_ATTRS } from './prose-identity.ts';
+import {
+  MATH_DISPLAY_LANGUAGE,
+  mathDollars,
+  mathFenceOpen,
+  mathFlowEnd,
+  mathTextAt,
+} from './prose-math.ts';
 import { MDX_FLOW_LANGUAGE, type MarkdownParseOptions, mdxFlowEnd } from './prose-mdx.ts';
 import { SUGGEST_INSERT_MARK } from './suggest.ts';
 
@@ -46,7 +53,7 @@ import { SUGGEST_INSERT_MARK } from './suggest.ts';
 /**
  * Tokenize a line of inline prose into a Yjs delta with mark attributes.
  * Handles the common syntax round-tripped by tiptap-markdown:
- *   `code`   **bold**   *italic*   ~~strike~~   [text](url)
+ *   `code`   **bold**   *italic*   ~~strike~~   [text](url)   $math$
  * Underscore variants (__bold__, _italic_) are supported too.
  * Ambiguous text (unpaired asterisks etc.) passes through literal.
  */
@@ -84,6 +91,25 @@ export function inlineMarksToDelta(
         i += close + 1;
         continue;
       }
+    }
+
+    // $math$ — OPAQUE, like a code span: TeX is full of `_`, `*` and `\\`,
+    // and none of them may be read as markdown (prose-math.ts has the rules).
+    const math = mathTextAt(text, i);
+    if (math?.kind === 'math') {
+      flush();
+      const tex = text.slice(i + math.dollars, math.end - math.dollars);
+      out.push({
+        insert: tex,
+        attributes: { math: math.dollars === 1 ? true : { dollars: math.dollars } },
+      });
+      i = math.end;
+      continue;
+    }
+    if (math) {
+      buf += text.slice(i, math.end);
+      i = math.end;
+      continue;
     }
 
     // ^[an inline footnote] — OPAQUE. The body is emitted as one unmarked run
@@ -194,6 +220,13 @@ function findEmphasisClose(r: string, delim: '*' | '**' | '_' | '__'): number {
   let innerOpen = false;
   let p = want;
   while (p < r.length) {
+    // An equation's `*` and `_` are TeX, not delimiters: `*a $b*c$ d*` is one
+    // italic around one equation.
+    const math = r[p] === '$' ? mathTextAt(r, p) : null;
+    if (math) {
+      p = math.end;
+      continue;
+    }
     if (r[p] !== ch) {
       p++;
       continue;
@@ -550,10 +583,17 @@ export function parseMarkdownSource(
       // indented ATX heading as a heading.
       if (isHeading((lines[j] ?? '').trimStart())) return k;
       k = j; // consume intervening blanks now that we know content follows
+      const mathEnd = isMathFence(lines[k] ?? '') ? itemMathEnd(k, baseIndent, ind) : null;
       if (isListItemLine(lines[k] ?? '')) {
         const [sub, next] = parseListAt(k, ind);
         children.push(sub);
         k = next;
+      } else if (mathEnd !== null) {
+        // A display equation inside the item, its indent stripped the way a
+        // fenced code block's is just below.
+        const strip = (s: string) => (indentOf(s) >= ind ? s.slice(ind) : s.trimStart());
+        children.push(mkMathDisplay(lines.slice(k, mathEnd).map(strip)));
+        k = mathEnd;
       } else if (isFence((lines[k] ?? '').trim())) {
         // A fenced code block inside the item. The serializer emits it
         // indented one level under the marker; read it back as a codeBlock
@@ -584,7 +624,8 @@ export function parseMarkdownSource(
           indentOf(lines[k] ?? '') > baseIndent &&
           !isListItemLine(lines[k] ?? '') &&
           !isHeading((lines[k] ?? '').trimStart()) &&
-          !isFence((lines[k] ?? '').trim())
+          !isFence((lines[k] ?? '').trim()) &&
+          !(isMathFence(lines[k] ?? '') && itemMathEnd(k, baseIndent, ind) !== null)
         ) {
           paraLines.push((lines[k] ?? '').trim());
           k++;
@@ -592,6 +633,23 @@ export function parseMarkdownSource(
         children.push(mkParagraph(paraLines.join(' ')));
       }
     }
+  }
+
+  // A `$$` fence inside a list item: where its closing fence is, reading only
+  // the lines that still belong to the item (blank, or indented past the
+  // marker). remark-math closes an equation at the item's end too; this
+  // parser keeps it text instead, for the reason an unclosed top-level fence
+  // stays text (prose-math.ts).
+  const isMathFence = (s: string) => mathFenceOpen(s.trimStart()) > 0;
+  function itemMathEnd(start: number, baseIndent: number, ind: number): number | null {
+    const body: string[] = [];
+    for (let k = start; k < lines.length; k++) {
+      const ln = lines[k] ?? '';
+      if (ln.trim() !== '' && indentOf(ln) <= baseIndent) break;
+      body.push(indentOf(ln) >= ind ? ln.slice(ind) : ln.trimStart());
+    }
+    const end = mathFlowEnd(body, 0);
+    return end === null ? null : start + end;
   }
 
   // Parse a list whose items sit at exactly `baseIndent`. Consumes sibling
@@ -678,6 +736,14 @@ export function parseMarkdownSource(
       continue;
     }
 
+    // A `$$` display equation: one block holding its exact source lines.
+    const mathEnd = mathFlowEnd(lines, i);
+    if (mathEnd !== null) {
+      out.push(mkMathDisplay(lines.slice(i, mathEnd)));
+      i = mathEnd;
+      continue;
+    }
+
     if (isHeading(line.trimStart())) {
       const m = line.trimStart().match(/^(#{1,6})\s+(.*)$/);
       const level = Math.min(6, Math.max(1, m?.[1]?.length ?? 1));
@@ -736,7 +802,10 @@ export function parseMarkdownSource(
         i++;
       }
       const bq = new Y.XmlElement('blockquote');
-      bq.insert(0, [mkParagraph(quoted.join('\n'))]);
+      // A quote that is exactly one display equation holds it as a block, so
+      // it is drawn as one; any other quote stays the one paragraph it was.
+      const quotedMath = mathFlowEnd(quoted, 0) === quoted.length;
+      bq.insert(0, [quotedMath ? mkMathDisplay(quoted) : mkParagraph(quoted.join('\n'))]);
       out.push(bq);
       continue;
     }
@@ -775,13 +844,24 @@ export function parseMarkdownSource(
     i++;
     while (i < lines.length) {
       const nxt = lines[i] ?? '';
-      if (nxt.trim() === '' || isBlockStart(nxt)) break;
+      // A closed `$$` fence interrupts a paragraph, as a code fence does.
+      if (nxt.trim() === '' || isBlockStart(nxt) || mathFlowEnd(lines, i) !== null) break;
       paraLines.push(nxt.trimStart());
       i++;
     }
     out.push(mkParagraph(paraLines.join(' ')));
   }
   return { blocks: out, lines, starts };
+}
+
+/** A display equation's block: its source lines verbatim, fences included. */
+function mkMathDisplay(source: string[]): Y.XmlElement {
+  const cb = new Y.XmlElement('codeBlock');
+  cb.setAttribute('language', MATH_DISPLAY_LANGUAGE);
+  const t = new Y.XmlText();
+  t.insert(0, source.join('\n'));
+  cb.insert(0, [t]);
+  return cb;
 }
 
 export function splitTableRow(line: string): string[] {
@@ -963,8 +1043,8 @@ function serializeBlock(node: Y.XmlElement | Y.XmlText): string | null {
       if (lang === 'yaml-frontmatter') {
         return `---\n${textContent(node)}\n---`;
       }
-      // An MDX construct is its own source, fence-free.
-      if (lang === MDX_FLOW_LANGUAGE) return textContent(node);
+      // An MDX construct and a display equation are their own source.
+      if (lang === MDX_FLOW_LANGUAGE || lang === MATH_DISPLAY_LANGUAGE) return textContent(node);
       return `\`\`\`${lang}\n${textContent(node)}\n\`\`\``;
     }
     case 'horizontalRule':
@@ -1168,7 +1248,7 @@ function expelEmphasisWhitespace(
     const op = ops[i]!;
     const marks = inlineMarksOf(op.attributes);
     const hasEmphasis = marks.some((m) => EMPHASIS_KEYS.has(m.key));
-    const isCode = marks.some((m) => m.key === 'code');
+    const isCode = marks.some((m) => m.key === 'code' || m.key === 'math');
     if (!hasEmphasis || isCode) {
       out.push({ text: op.insert, marks });
       continue;
@@ -1207,6 +1287,10 @@ function inlineMarksOf(attrs: Record<string, unknown> | undefined): InlineMark[]
   if (attrs.bold) out.push({ key: 'bold', open: '**', close: '**' });
   if (attrs.italic) out.push({ key: 'italic', open: '*', close: '*' });
   if (attrs.code) out.push({ key: 'code', open: '`', close: '`' });
+  if (attrs.math) {
+    const fence = '$'.repeat(mathDollars(attrs.math));
+    out.push({ key: `math:${fence.length}`, open: fence, close: fence });
+  }
   return out;
 }
 

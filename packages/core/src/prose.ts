@@ -22,6 +22,8 @@
  *                        ends, so the parser holds each as one block.
  *   `prose-mdx-retype.ts` re-types an `.mdx` doc's paragraphs that the MDX
  *                        grammar reads as blocks, keeping their bytes.
+ *   `prose-math.ts`      where a remark-math `$…$` or `$$` … `$$` equation
+ *                        starts and ends, so its TeX is held as one run.
  *
  * This file exports exactly what it exported when it was one 2,847-line
  * module, which is why the re-exports below are written out by name rather
@@ -66,6 +68,15 @@ export type { SourceLayout } from './prose-keep-source.ts';
 export { isMdxPath, MDX_FLOW_LANGUAGE, mdxFlowEnd } from './prose-mdx.ts';
 export type { MarkdownParseOptions } from './prose-mdx.ts';
 export { retypeMdxParagraphs } from './prose-mdx-retype.ts';
+export {
+  MATH_DISPLAY_LANGUAGE,
+  mathDisplayTex,
+  mathDollars,
+  mathFenceCloses,
+  mathFenceOpen,
+  mathTextAt,
+} from './prose-math.ts';
+export type { MathTextRun } from './prose-math.ts';
 export { nestBlocksOutcome, nestBlocksUnderLead } from './prose-nest.ts';
 export type { NestBlocksError, NestBlocksOptions, NestBlocksResult } from './prose-nest.ts';
 export {
