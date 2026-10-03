@@ -82,6 +82,24 @@ describe('post', () => {
     expect(s.get(id)?.state).toBe('dismissed');
   });
 
+  it('a removed thread stays out across passes until a new message reopens it', () => {
+    const s = store();
+    const r = input();
+    s.post([r], 'p1');
+    const id = s.list()[0]?.id ?? '';
+    expect(s.act(id, { kind: 'remove' })).toMatchObject({ ok: true });
+    expect(s.get(id)).toMatchObject({ state: 'dismissed', dismissReason: undefined });
+    expect(s.get(id)?.history.at(-1)).toMatchObject({ at: NOW, by: 'owner', to: 'dismissed' });
+    s.post([r], 'p2');
+    s.post([{ ...r, purpose: 'Still wants a yes' }], 'p3');
+    expect(s.get(id)?.state).toBe('dismissed');
+    s.post([{ ...r, messageCount: 2 }], 'p4');
+    expect(s.get(id)?.state).toBe('open');
+    expect(s.get(id)?.history.at(-1)).toMatchObject({ by: 'reader', why: 'new-message' });
+    // Kept, every move of it, in the file.
+    expect(s.get(id)?.history.map((h) => h.to)).toEqual(['dismissed', 'open']);
+  });
+
   it('refuses a whole pass that would leave more than the cap open, storing nothing', () => {
     const s = store();
     const many = Array.from({ length: MAX_OPEN_ROWS }, () => input());

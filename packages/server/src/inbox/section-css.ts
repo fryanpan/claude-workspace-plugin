@@ -56,14 +56,10 @@ export const INBOX_SECTION_CSS = `
 .inbox-cleared .board-review-row:hover{background:none}
 .inbox-cleared .board-review-row-title{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--fg-muted) 55%,transparent);color:var(--fg-muted)}
 .inbox-hint{font-size:12.5px;color:var(--fg-muted)}
-.inbox-more,.inbox-snoozed-line{display:block;width:100%;min-height:40px;padding:10px 8px;border:none;border-top:1px solid var(--border);background:none;text-align:left;font:inherit;font-size:13px;color:var(--fg-muted);cursor:pointer}
+.inbox-more,.inbox-fold-line{display:block;width:100%;min-height:40px;padding:10px 8px;border:none;border-top:1px solid var(--border);background:none;text-align:left;font:inherit;font-size:13px;color:var(--fg-muted);cursor:pointer}
 .inbox-more{color:var(--accent)}
 .inbox-undo{align-self:flex-start;min-height:32px;padding:0;border:none;background:none;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer}
-.inbox-keys{margin:0 0 8px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-subtle);font-size:13px}
-.inbox-keys[hidden],.inbox-snoozed[hidden]{display:none}
-.inbox-keys dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0 0 4px}
-.inbox-keys dt{font-family:ui-monospace,monospace}
-.inbox-keys dd,.inbox-keys p{margin:0}
+.inbox-fold[hidden]{display:none}
 .inbox-foot{display:flex;align-items:center;gap:12px;padding-top:8px;border-top:1px solid var(--border)}
 .inbox-count{margin-right:auto}
 /* Gmail's snooze picker: a modal over the page, whichever way it was asked for. */
@@ -78,6 +74,13 @@ export const INBOX_SECTION_CSS = `
 .inbox-modal-pick{display:flex;gap:8px;padding:6px 20px 10px}
 .inbox-modal-pick input{flex:1 1 auto;min-width:0;font:inherit}
 .inbox-modal-pick .board-btn{min-width:0}
+/* The key list: the same modal, opened by the ? key alone. */
+.inbox-keys{width:min(360px,100%);padding:8px 20px 14px;font-size:13.5px}
+.inbox-keys .inbox-modal-title{padding:10px 0 8px}
+.inbox-keys dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0 0 8px}
+.inbox-keys dt{font-family:ui-monospace,monospace}
+.inbox-keys dd,.inbox-keys p{margin:0}
+#inbox:focus{outline:none}
 .inbox-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;max-width:calc(100vw - 32px);padding:10px 16px;border-radius:8px;background:#1b1f23;color:#fff;font-size:13px;z-index:60}
 .inbox-toast[hidden]{display:none}
 .inbox-toast button{min-height:32px;padding:0;border:none;background:none;color:#9cc7f5;font:inherit;font-weight:600;cursor:pointer}

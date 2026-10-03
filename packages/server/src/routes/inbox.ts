@@ -9,8 +9,8 @@ import { isValidAgentId } from '../agent-watches.ts';
  *                                  (inbox/run-close.ts).
  *   GET  /inbox/rows/:id/body      the message text, for an opened line,
  *                                  and which reply it offers
- *   POST /inbox/rows/:id/state     Bryan's tap: snooze, dismiss, mark
- *                                  answered, reopen, undo
+ *   POST /inbox/rows/:id/state     Bryan's tap: snooze, dismiss, remove,
+ *                                  mark answered, reopen, undo
  *   POST /inbox/rows/:id/reply     Bryan's Send: `{ text, nonce }`, sent on
  *                                  the row's own thread (inbox/reply.ts)
  *
@@ -209,6 +209,8 @@ function parseAction(body: Record<string, unknown> | null): OwnerAction | null {
         ? { kind: 'dismiss', reason: reason as DismissReason }
         : null;
     }
+    case 'remove':
+      return { kind: 'remove' };
     case 'answer':
       return { kind: 'answer' };
     case 'reopen':
@@ -256,7 +258,8 @@ export async function handleInboxRoutes(
     return j(res.status, res.body);
   }
   const action = parseAction(await ctx.safeJson(req));
-  if (!action) return j(400, { error: 'action must be snooze, dismiss, answer, reopen or undo' });
+  if (!action)
+    return j(400, { error: 'action must be snooze, dismiss, remove, answer, reopen or undo' });
   const res = ctx.store.act(id, action);
   if (!res.ok) return j(res.status, { error: res.error });
   const r = res.row;

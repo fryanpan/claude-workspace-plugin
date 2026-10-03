@@ -15,6 +15,9 @@
  *    in view at 1180x820.
  *  - **A line Bryan answered with Send stays where it was**, struck through
  *    and marked "clears at the next check", until the next pass.
+ *  - **Remove (`e`) folds a line into "Removed"**, beside the snoozed fold,
+ *    with "Bring back". The key list is a modal behind `?` and takes no
+ *    space here.
  *
  * Only Bryan's own signed-in session gets this HTML (the caller decides);
  * every reader-written string goes through `escapeHtml`, and the message
@@ -119,22 +122,28 @@ function sentLine(row: InboxRow, at: number, n: number, input: InboxSectionInput
 
 function snoozedLine(row: InboxRow): string {
   const until = row.snoozedUntil ?? 0;
-  return `<div class="inbox-row inbox-row-snoozed" data-row="${escapeHtml(row.id)}"><div class="board-review-row"><span class="board-review-row-title">${escapeHtml(
+  return `<div class="inbox-row inbox-row-folded" data-row="${escapeHtml(row.id)}"><div class="board-review-row"><span class="board-review-row-title">${escapeHtml(
     row.purpose,
   )}</span><span class="board-review-row-sub">${escapeHtml(row.senderLabel)} · snoozed until <time data-at="${until}">${escapeHtml(
     whenText(until),
   )}</time></span><button type="button" class="inbox-undo" data-act="reopen">Bring back now</button></div></div>`;
 }
 
-const KEYS: ReadonlyArray<readonly [string, string]> = [
-  ['j / k', 'Next / previous message'],
-  ['o or Enter', 'Open'],
-  ['swipe right', 'Snooze (touch)'],
-  ['u or Esc', 'Back to the list'],
-  ['r', 'Reply'],
-  ['b', 'Snooze'],
-  ['?', 'Show these keys'],
-];
+/** A line Bryan removed, in the Removed fold: back with one tap. */
+function removedLine(row: InboxRow): string {
+  const at = row.history.at(-1)?.at ?? row.lastSeenAt;
+  return `<div class="inbox-row inbox-row-folded" data-row="${escapeHtml(row.id)}"><div class="board-review-row"><span class="board-review-row-title">${escapeHtml(
+    row.purpose,
+  )}</span><span class="board-review-row-sub">${escapeHtml(row.senderLabel)} · removed <time data-at="${at}">${escapeHtml(
+    whenText(at),
+  )}</time></span><button type="button" class="inbox-undo" data-act="reopen">Bring back</button></div></div>`;
+}
+
+/** A folded list under a one-line toggle: the snoozed lines, the removed ones. */
+function fold(kind: 'snoozed' | 'removed', lines: string[]): string {
+  if (lines.length === 0) return '';
+  return `<button type="button" class="inbox-fold-line" data-fold="${kind}" aria-expanded="false">Show ${lines.length} ${kind}</button><div class="inbox-fold" data-fold-body="${kind}" hidden>${lines.join('')}</div>`;
+}
 
 /** The section, or nothing when the inbox has never been set up. */
 export function renderInboxSection(input: InboxSectionInput): string {
@@ -172,12 +181,11 @@ export function renderInboxSection(input: InboxSectionInput): string {
     shown.length > INBOX_VISIBLE_LINES
       ? `<button type="button" class="inbox-more" data-more>${shown.length - INBOX_VISIBLE_LINES} more</button>`
       : '';
-  const snoozedFold =
-    snoozed.length === 0
-      ? ''
-      : `<button type="button" class="inbox-snoozed-line" data-snoozed-toggle aria-expanded="false">Show ${snoozed.length} snoozed</button><div class="inbox-snoozed" hidden>${snoozed
-          .map(snoozedLine)
-          .join('')}</div>`;
-  const keys = KEYS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
-  return `<section id="inbox" class="inbox-front" data-module="inbox" aria-labelledby="inbox-h"><div class="inbox-head"><h2 id="inbox-h" class="board-home-heading">Incoming Messages</h2><span class="inbox-pass">${pass}</span></div><div class="inbox-keys" hidden><dl>${keys}</dl><p class="inbox-hint">Space stays the mic.</p></div><div class="inbox-rows">${lines}${more}</div>${snoozedFold}<div class="inbox-foot"><span class="inbox-pass inbox-count">${open.length} open</span><button type="button" class="board-linklike inbox-keys-btn" aria-expanded="false">Keys (?)</button></div></section>`;
+  // Removed by Bryan's tap only: one a pass retired is not his to bring back.
+  const removed = rows
+    .filter((r) => r.state === 'dismissed' && r.dismissReason === undefined)
+    .sort((a, b) => (b.history.at(-1)?.at ?? 0) - (a.history.at(-1)?.at ?? 0));
+  const folds =
+    fold('snoozed', snoozed.map(snoozedLine)) + fold('removed', removed.map(removedLine));
+  return `<section id="inbox" class="inbox-front" data-module="inbox" aria-labelledby="inbox-h" tabindex="-1"><div class="inbox-head"><h2 id="inbox-h" class="board-home-heading">Incoming Messages</h2><span class="inbox-pass">${pass}</span></div><div class="inbox-rows">${lines}${more}</div>${folds}<div class="inbox-foot"><span class="inbox-pass inbox-count">${open.length} open</span></div></section>`;
 }

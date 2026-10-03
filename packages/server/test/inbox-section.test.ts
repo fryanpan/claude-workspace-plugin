@@ -112,6 +112,35 @@ describe('renderInboxSection', () => {
     expect(html).toContain(`${INBOX_VISIBLE_LINES + 2} open`);
   });
 
+  it('folds the lines Bryan removed under "Removed", newest first, each with Bring back', () => {
+    const dismissed = (purpose: string, at: number, reason?: 'spam') =>
+      stored({
+        purpose,
+        state: 'dismissed',
+        ...(reason ? { dismissReason: reason } : {}),
+        history: [{ at, from: 'open', to: 'dismissed', by: 'owner' }],
+      });
+    const html = render([
+      stored({ purpose: 'Still open' }),
+      dismissed('Removed first', NOW - 7_200_000),
+      dismissed('Removed last', NOW - 60_000),
+      dismissed('Marked spam', NOW, 'spam'),
+    ]);
+    expect(html).toContain('Show 2 removed');
+    const body = html.slice(html.indexOf('data-fold-body="removed"'));
+    expect(body.indexOf('Removed last')).toBeLessThan(body.indexOf('Removed first'));
+    expect(body.match(/data-act="reopen">Bring back</g)).toHaveLength(2);
+    expect(html).not.toContain('Marked spam');
+    expect(html).toContain('1 open');
+  });
+
+  it('takes no space for the key list: no Keys control and no list in the section', () => {
+    const html = render([stored()]);
+    expect(html).not.toContain('Keys (?)');
+    expect(html).not.toContain('inbox-keys');
+    expect(html).toContain('tabindex="-1"');
+  });
+
   it('has no buttons on a line but the hover clock, and no reply-by label', () => {
     const html = render([stored({ replyBy: 'today' })]);
     const line = html.slice(

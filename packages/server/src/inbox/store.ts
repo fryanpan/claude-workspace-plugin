@@ -10,7 +10,7 @@
  * Two writers, and they never share a verb:
  *  - the reader, through `post` — content, and the two state moves a pass
  *    can see (Bryan replied in the app; a new message arrived);
- *  - Bryan, through `act` — snooze, dismiss, mark answered, reopen, undo —
+ *  - Bryan, through `act` — snooze, dismiss, remove, mark answered, reopen, undo —
  *    and through `markSent`, once his Send from the page has gone out.
  */
 import { randomBytes } from 'node:crypto';
@@ -39,6 +39,8 @@ interface RowsFile {
 export type OwnerAction =
   | { kind: 'snooze'; until: number }
   | { kind: 'dismiss'; reason: DismissReason }
+  /** Bryan's Remove: dismissed with no reason, so a new message brings it back. */
+  | { kind: 'remove' }
   | { kind: 'answer' }
   | { kind: 'reopen' }
   | { kind: 'undo' };
@@ -58,6 +60,11 @@ const newRowId = (): string =>
   `ib-${randomBytes(9).toString('base64url').replace(/[-_]/g, 'x').slice(0, 12)}`;
 
 const isRetired = (s: InboxState): boolean => s === 'answered' || s === 'dismissed';
+
+/** A new message brings back a row Bryan answered or removed. One he
+ *  dismissed with a reason (spam, handled elsewhere) stays dismissed. */
+const reopensOnNewMessage = (row: InboxRow): boolean =>
+  row.state === 'answered' || (row.state === 'dismissed' && row.dismissReason === undefined);
 
 export class InboxStore {
   private readonly path: string;
@@ -194,7 +201,7 @@ export class InboxStore {
       if (input.stated === undefined) existing.stated = undefined;
       if (input.lastFromOwner && (existing.state === 'open' || existing.state === 'snoozed')) {
         this.move(existing, 'answered', 'reader', at, { why: 'replied-in-app' });
-      } else if (!input.lastFromOwner && rose && existing.state === 'answered') {
+      } else if (!input.lastFromOwner && rose && reopensOnNewMessage(existing)) {
         this.move(existing, 'open', 'reader', at, { why: 'new-message' });
       }
       ids.push(existing.id);
@@ -240,11 +247,13 @@ export class InboxStore {
         break;
       }
       case 'dismiss':
+      case 'remove':
       case 'answer': {
         if (isRetired(row.state)) return { ok: false, status: 409, error: 'already-retired' };
         if (action.kind === 'dismiss') {
           this.move(row, 'dismissed', 'owner', at, { dismissReason: action.reason });
-        } else this.move(row, 'answered', 'owner', at);
+        } else if (action.kind === 'remove') this.move(row, 'dismissed', 'owner', at);
+        else this.move(row, 'answered', 'owner', at);
         break;
       }
       case 'reopen': {

@@ -347,4 +347,81 @@ describe('the section and the taps — Bryan alone', () => {
   });
 });
 
+describe('Remove — Bryan alone, and reversible', () => {
+  let id = '';
+  const removeBody = JSON.stringify({ action: 'remove' });
+  const tap = async (body: string, headers: Record<string, string>, host = OWNER_HOST) =>
+    req(`/inbox/rows/${id}/state`, host, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body,
+    });
+
+  beforeAll(async () => {
+    const res = await postRows(
+      {
+        agentId: READER,
+        pass: 'pass-remove',
+        rows: [live({ purpose: 'Sends the Harborlight survey for a look', body: 'Survey' })],
+      },
+      { authorization: `Bearer ${await tokenFor(READER)}` },
+    );
+    expect(res.status).toBe(200);
+    const m = (await landingAsOwner()).match(
+      /data-row="(ib-[A-Za-z0-9]{12})"[^>]*>(?:(?!data-row).)*Harborlight survey/s,
+    );
+    id = m?.[1] ?? '';
+    expect(id).not.toBe('');
+  });
+
+  it('refuses an agent on this machine, the reader included', async () => {
+    expect((await tap(removeBody, {}, local())).status).toBe(403);
+    const reader = await tap(
+      removeBody,
+      { authorization: `Bearer ${await tokenFor(READER)}` },
+      local(),
+    );
+    expect(reader.status).toBe(403);
+  });
+
+  it('refuses a share visitor', async () => {
+    const res = await tap(
+      removeBody,
+      {
+        ...CF_RAY,
+        'cf-access-jwt-assertion': await signJwt(SHARE_AUD, MEMBER),
+        origin: `https://${SHARE_HOST}`,
+        'sec-fetch-site': 'same-origin',
+      },
+      SHARE_HOST,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses the owner from another origin', async () => {
+    const res = await tap(
+      removeBody,
+      await ownerHeaders({ origin: 'https://riverbend.example', 'sec-fetch-site': 'cross-site' }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses a state it does not know', async () => {
+    const res = await tap(JSON.stringify({ action: 'delete' }), await ownerHeaders());
+    expect(res.status).toBe(400);
+  });
+
+  it('moves the line into the Removed fold, and undo puts it back', async () => {
+    const res = await tap(removeBody, await ownerHeaders());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id, state: 'dismissed' });
+    const page = await landingAsOwner();
+    expect(page).toContain('Show 1 removed');
+    expect(page).toMatch(/data-fold-body="removed"[^>]*>(?:(?!<\/section>).)*Harborlight survey/s);
+    const undo = await tap(JSON.stringify({ action: 'undo' }), await ownerHeaders());
+    expect(await undo.json()).toEqual({ id, state: 'open' });
+    expect(await landingAsOwner()).not.toContain('Show 1 removed');
+  });
+});
+
 void NOW;
