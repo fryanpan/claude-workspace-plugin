@@ -1,38 +1,41 @@
 /**
- * The coach's loop: signals in, a moment out, rarely.
+ * The coach's loop: everything he does goes to the coach session, and a
+ * moment comes back when the session sees one.
  *
- * Each signal goes to the stream (`coach/stream.ts`), whose free trigger
- * says when something changed enough to look. A candidate is judged only
- * when every gate that can decline has passed, so a model call is spent only
- * when there is a goal to act on, no moment is waiting, his spacing allows
- * one, the last judgement is at least `MIN_JUDGE_GAP_MS` old and no other
- * judgement is in flight. Each judgement leaves one record
- * (`CoachJudgement`), which is what the wrong-call figures are counted from.
+ * Signals from his pages and his activity rows become events
+ * (`coach/stream.ts`), and each event goes to the session as it happens
+ * (`coach/session-feed.ts`). His answers to a moment and his how-readily
+ * setting go too, so the session learns from them; nothing here holds a
+ * timer, a cap or a spacing rule.
  *
- * The judge is reached through one seam, `generate`. In the real server it
- * is the coach's Claude Code session (`coach/session-judge.ts`); a test
- * hands in a stand-in, so no test reaches a model.
+ * A moment the session raises (`raise`) reaches his pages only when there is
+ * a goal to act on, no other moment is open, and its quote checks out
+ * (`coach/judge.ts`). It stays on the page until he answers it or moves to
+ * another doc or board, which closes it as `moved-on`.
  */
 import type { Event } from '../activity.ts';
-import { spacingAllows } from './clock.ts';
-import type { DocLabel } from './digest.ts';
 import { type GoalsDocReading, actionableGoals, goalTitle } from './goals-doc.ts';
-import { coachPrompt, coachSystem, parseCoachReply } from './judge.ts';
+import { checkMoment } from './judge.ts';
+import type { SessionNews } from './session-feed.ts';
 import type { CoachStore } from './store.ts';
-import type { CoachStream, HereSignal } from './stream.ts';
-import type { CoachJudgement, CoachMoment, JudgementOutcome, MomentAnswer } from './types.ts';
+import type { CoachEvent, CoachStream, HereSignal, StreamStep } from './stream.ts';
+import type { CoachMoment, CoachReadiness, MomentAnswer } from './types.ts';
 
-/** At most one judgement in this window: a session turn each, so a day of
- *  ten active hours asks at most 60. */
-export const MIN_JUDGE_GAP_MS = 10 * 60_000;
 export const DEFAULT_COACH_NAME = 'Your coach';
 
-export type CoachGenerator = (prompt: { system: string; user: string }) => Promise<string | null>;
+export interface DocLabel {
+  title?: string;
+  board?: string;
+}
 
 /** What a page is told. */
 export type CoachFrame =
   | { type: 'moment'; moment: { id: string; at: number; name: string; line: string; goal: string } }
   | { type: 'clear'; id: string };
+
+export type RaiseResult =
+  | { ok: true; id: string }
+  | { ok: false; error: 'no-goals' | 'moment-open' | 'bad-moment'; message: string };
 
 export interface CoachDeps {
   store: CoachStore;
@@ -42,32 +45,25 @@ export interface CoachDeps {
   label: (docId: string) => DocLabel;
   boardName: (workspaceId: string) => string | undefined;
   workspaceOf: (docId: string) => string | undefined;
-  /** Null when there is no judge at all. */
-  generate: CoachGenerator | null;
-  /** False when the judge cannot be asked now (no session attached). */
-  reachable?: () => boolean;
+  /** To the coach session; true when it took the frame. */
+  tell: (news: SessionNews, at: number) => boolean;
   publish: (frame: CoachFrame) => void;
   now?: () => number;
-  log?: (line: string) => void;
 }
 
 export interface Coach {
   here(signal: Omit<HereSignal, 'at'>): void;
   activity(row: Event): void;
-  /** Judge now, whatever the trigger says; every other gate still holds. */
-  judgeNow(): Promise<CoachJudgement | { skipped: string }>;
+  /** The session raises a moment. */
+  raise(body: Record<string, unknown> | null): RaiseResult;
   answer(id: string, answer: MomentAnswer): boolean;
+  setReadiness(readiness: CoachReadiness): void;
   /** The open moment as a page shows it, if any. */
   openFrame(): CoachFrame | null;
-  /** Resolves when the judgement in flight, if any, has landed. */
-  settled(): Promise<void>;
 }
 
 export function createCoach(deps: CoachDeps): Coach {
   const now = deps.now ?? Date.now;
-  const log = deps.log ?? ((l: string) => console.log(l));
-  let inflight: Promise<CoachJudgement | { skipped: string }> | null = null;
-
   const name = (reading: GoalsDocReading | null) => reading?.name ?? DEFAULT_COACH_NAME;
 
   const frameOf = (m: CoachMoment, reading: GoalsDocReading | null): CoachFrame => ({
@@ -75,103 +71,101 @@ export function createCoach(deps: CoachDeps): Coach {
     moment: { id: m.id, at: m.at, name: name(reading), line: m.line, goal: m.goal },
   });
 
-  const lastJudgedAt = () => deps.store.judgements().at(-1)?.at;
+  const close = (m: CoachMoment, answer: MomentAnswer | 'moved-on', t: number): boolean => {
+    if (!deps.store.answer(m.id, answer, t)) return false;
+    deps.publish({ type: 'clear', id: m.id });
+    deps.tell({ event: 'coach.answer', momentId: m.id, answer, goal: m.goal, line: m.line }, t);
+    return true;
+  };
 
-  /** Every gate, in order; the first that declines names itself. */
-  const blocked = (t: number, reading: GoalsDocReading | null): string | null => {
-    if (!reading || actionableGoals(reading).length === 0) return 'no-goals';
-    if (deps.store.openMoment(t)) return 'moment-open';
-    if (!spacingAllows(t, deps.store.moments(), deps.store.spacing, deps.store.timeZone)) {
-      return 'spacing';
+  const forward = (e: CoachEvent) => {
+    const label = e.docId ? deps.label(e.docId) : {};
+    const board = deps.boardName(e.workspaceId);
+    const sent = deps.tell(
+      {
+        event: 'coach.event',
+        kind: e.kind,
+        boardId: e.workspaceId,
+        ...(board ? { board } : {}),
+        ...(e.docId ? { docId: e.docId } : {}),
+        ...(label.title ? { doc: label.title } : {}),
+        ...(e.heading ? { heading: e.heading } : {}),
+        ...(e.text ? { text: e.text } : {}),
+      },
+      e.at,
+    );
+    if (sent) deps.store.countEvent(e.at);
+  };
+
+  /** He moved: a moment raised somewhere else closes, then the events go. */
+  const take = (step: StreamStep, t: number) => {
+    const open = deps.store.openMoment();
+    const place = deps.stream.current;
+    if (step.moved && open?.workspaceId && place) {
+      const there = open.docId
+        ? open.docId === place.docId
+        : !place.docId && open.workspaceId === place.workspaceId;
+      if (!there) close(open, 'moved-on', t);
     }
-    const last = lastJudgedAt();
-    if (last !== undefined && t - last < MIN_JUDGE_GAP_MS) return 'judged-recently';
-    return null;
-  };
-
-  const run = async (
-    cause: CoachJudgement['cause'],
-  ): Promise<CoachJudgement | { skipped: string }> => {
-    const t = now();
-    const reading = deps.readGoals();
-    const why = blocked(t, reading);
-    if (why) return { skipped: why };
-    const goals = actionableGoals(reading as GoalsDocReading);
-    const record = (outcome: JudgementOutcome): CoachJudgement => {
-      const rec = { at: t, outcome, cause };
-      deps.store.recordJudgement(rec);
-      log(`[coach] judged (${cause}): ${outcome}`);
-      return rec;
-    };
-    if (!deps.generate || deps.reachable?.() === false) return record('no-session');
-    const tz = deps.store.timeZone;
-    const seen = deps.stream.lines(t, tz, deps.label, deps.boardName);
-    const reply = await deps
-      .generate({
-        system: coachSystem(name(reading)),
-        user: coachPrompt({
-          goals,
-          today: deps.store.momentsToday(t),
-          ...seen,
-          at: t,
-          timeZone: tz,
-        }),
-      })
-      .catch(() => null);
-    if (reply === null) return record('no-answer');
-    const verdict = parseCoachReply(reply, goals);
-    if (!verdict) return record('unusable-reply');
-    if (verdict.verdict === 'quiet') return record('quiet');
-    const goal = goals[verdict.goalIndex];
-    const m = deps.store.addMoment({
-      at: t,
-      goalIndex: verdict.goalIndex,
-      goal: goal ? goalTitle(goal) : '',
-      matched: verdict.matched,
-      observed: verdict.observed,
-      line: verdict.line,
-    });
-    deps.publish(frameOf(m, reading));
-    return record('moment');
-  };
-
-  const judge = (cause: CoachJudgement['cause']) => {
-    if (inflight) return inflight;
-    inflight = run(cause).finally(() => {
-      inflight = null;
-    });
-    return inflight;
-  };
-
-  const onTrigger = (cause: string | null) => {
-    if (!cause) return;
-    void judge('trigger').catch((err) => log(`[coach] judgement failed: ${String(err)}`));
+    for (const e of step.events) forward(e);
   };
 
   return {
     here(signal) {
-      onTrigger(deps.stream.here({ ...signal, at: now() }));
+      const t = now();
+      take(deps.stream.here({ ...signal, at: t }), t);
     },
     activity(row) {
       if (!row.isOwner) return;
+      const t = now();
       const goalsDoc = deps.store.goalsDoc;
       if (goalsDoc && row.type === 'edit_session' && row.doc?.docId === goalsDoc.docId) {
-        deps.store.noteGoalsChanged(now());
+        deps.store.noteGoalsChanged(t);
       }
-      onTrigger(deps.stream.activity(row, now(), deps.workspaceOf));
+      take(deps.stream.activity(row, t, deps.workspaceOf), t);
     },
-    judgeNow: () => judge('asked'),
+    raise(body) {
+      const t = now();
+      const reading = deps.readGoals();
+      const goals = reading ? actionableGoals(reading) : [];
+      if (goals.length === 0) {
+        return {
+          ok: false,
+          error: 'no-goals',
+          message: 'He has no goal with "Act differently when" filled in.',
+        };
+      }
+      if (deps.store.openMoment()) {
+        return { ok: false, error: 'moment-open', message: 'A moment is already on his page.' };
+      }
+      const checked = checkMoment(body, goals);
+      if (typeof checked === 'string') return { ok: false, error: 'bad-moment', message: checked };
+      const goal = goals[checked.goalIndex];
+      const place = deps.stream.current;
+      const m = deps.store.addMoment({
+        at: t,
+        goalIndex: checked.goalIndex,
+        goal: goal ? goalTitle(goal) : '',
+        matched: checked.matched,
+        observed: checked.observed,
+        line: checked.line,
+        ...(place ? { workspaceId: place.workspaceId } : {}),
+        ...(place?.docId ? { docId: place.docId } : {}),
+      });
+      deps.publish(frameOf(m, reading));
+      return { ok: true, id: m.id };
+    },
     answer(id, answer) {
-      if (!deps.store.answer(id, answer, now())) return false;
-      deps.publish({ type: 'clear', id });
-      return true;
+      const m = deps.store.openMoment();
+      return m?.id === id ? close(m, answer, now()) : false;
+    },
+    setReadiness(readiness) {
+      deps.store.setReadiness(readiness);
+      deps.tell({ event: 'coach.preference', readiness }, now());
     },
     openFrame() {
-      const m = deps.store.openMoment(now());
+      const m = deps.store.openMoment();
       return m ? frameOf(m, deps.readGoals()) : null;
-    },
-    async settled() {
-      await inflight?.catch(() => undefined);
     },
   };
 }

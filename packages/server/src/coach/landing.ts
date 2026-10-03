@@ -26,7 +26,7 @@ export function coachSectionFor(
     goals: goals.map(goalTitle),
     unready: reading ? goals.length - actionableGoals(reading).length : 0,
     reviewDue: store.reviewDue(now),
-    spacing: store.spacing,
+    readiness: store.readiness,
     week: store.week(now),
   });
   return `<style>${COACH_SECTION_CSS}</style>\n${html}`;

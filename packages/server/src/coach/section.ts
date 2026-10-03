@@ -1,18 +1,18 @@
 /**
  * "Your coach" on the front page: where Workflow A starts and is reviewed,
- * and where he sets how often the coach speaks up.
+ * and where he sets how readily the coach speaks up.
  *
  * Calm by default (the owner, 2026-09-13): a heading, his goals as a plain
  * list, and at most one offer. No badge, no count asking for attention. The
- * how-often control is three buttons of one width, so pressing one moves
- * nothing beside it.
+ * how-readily control is three buttons of one width, and its hint is sized
+ * for the longest, so pressing one moves nothing beside it.
  *
  * Only Bryan's own signed-in session gets this HTML (the caller decides).
  * Every string here is his or the coach's, and all of it is escaped.
  */
 import { escapeHtml } from '@claude-workspaces/core';
 import type { CoachWeek } from './store.ts';
-import { COACH_SPACINGS, type CoachSpacing } from './types.ts';
+import { COACH_READINESS, type CoachReadiness } from './types.ts';
 
 export interface CoachSectionInput {
   /** The goals doc's page, once it exists. */
@@ -25,19 +25,20 @@ export interface CoachSectionInput {
   /** Goals with no "Act differently when" yet: the coach cannot use them. */
   unready: number;
   reviewDue: boolean;
-  spacing: CoachSpacing;
+  readiness: CoachReadiness;
   week: CoachWeek;
 }
 
-const SPACING_LABEL: Record<CoachSpacing, string> = {
+const READINESS_LABEL: Record<CoachReadiness, string> = {
   less: 'Less',
   normal: 'Normal',
   more: 'More',
 };
-const SPACING_HINT: Record<CoachSpacing, string> = {
-  less: 'at most every 3 hours',
-  normal: 'at most once an hour',
-  more: 'at most every 30 minutes',
+/** Told to the coach session, which weighs it; no timer reads it. */
+const READINESS_HINT: Record<CoachReadiness, string> = {
+  less: 'only when it is plain',
+  normal: 'when it sees a clear match',
+  more: 'also when it is less sure',
 };
 
 function setupBlock(): string {
@@ -56,21 +57,25 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
   const review = input.reviewDue
     ? `<div class="coach-review"><p class="coach-q">Your goals haven’t changed in a week. Are they still right?</p><div class="coach-acts"><a class="board-btn" href="${escapeHtml(docUrl)}">Review my goals</a><button type="button" class="board-btn" data-review="no-update">No update needed</button></div></div>`
     : '';
-  const often = `<div class="coach-often"><span class="coach-often-label" id="coach-often-l">How often</span><div class="coach-seg" role="group" aria-labelledby="coach-often-l">${COACH_SPACINGS.map(
-    (s) =>
-      `<button type="button" class="coach-seg-btn" data-spacing="${s}" aria-pressed="${s === input.spacing}" title="${SPACING_HINT[s]}">${SPACING_LABEL[s]}</button>`,
+  const often = `<div class="coach-often"><span class="coach-often-label" id="coach-often-l">How readily</span><div class="coach-seg" role="group" aria-labelledby="coach-often-l">${COACH_READINESS.map(
+    (r) =>
+      `<button type="button" class="coach-seg-btn" data-readiness="${r}" aria-pressed="${r === input.readiness}" title="${READINESS_HINT[r]}">${READINESS_LABEL[r]}</button>`,
   ).join(
     '',
-  )}</div><span class="coach-sub coach-often-hint">${SPACING_HINT[input.spacing]}</span></div>`;
+  )}</div><span class="coach-sub coach-often-hint">${READINESS_HINT[input.readiness]}</span></div>`;
   const w = input.week;
   const week =
     w.moments > 0
-      ? `<p class="coach-sub">This week: ${w.moments} ${w.moments === 1 ? 'moment' : 'moments'} · Thanks ${w.thanks} · Not now ${w.notNow} · Not this ${w.notThis}</p>`
+      ? `<p class="coach-sub">This week: ${w.moments} ${w.moments === 1 ? 'moment' : 'moments'} · Thanks ${w.thanks} · Not now ${w.notNow} · Not this ${w.notThis} · Left ${w.unanswered}</p>`
+      : '';
+  const events =
+    w.eventsToday > 0
+      ? `<p class="coach-sub">Today it read ${w.eventsToday} ${w.eventsToday === 1 ? 'event' : 'events'}.</p>`
       : '';
   const offline = input.online
     ? ''
     : '<p class="coach-sub">Offline. No coach session is running, so it will not speak up.</p>';
-  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}`;
+  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}${events}`;
 }
 
 export function renderCoachSection(input: CoachSectionInput): string {
@@ -105,5 +110,5 @@ export const COACH_SECTION_CSS = `
 .coach-seg-btn{min-width:76px;min-height:34px;padding:0 10px;border:none;border-left:1px solid var(--border);background:var(--bg-panel);color:var(--fg);font:inherit;font-size:13.5px;cursor:pointer}
 .coach-seg-btn:first-child{border-left:none}
 .coach-seg-btn[aria-pressed="true"]{background:var(--fg);color:var(--bg-panel)}
-.coach-often-hint{margin:0}
+.coach-often-hint{margin:0;min-width:13em}
 `;

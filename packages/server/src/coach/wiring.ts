@@ -3,20 +3,20 @@
  * `server.ts`, so the router carries a handle and nothing else.
  *
  * What it reaches, and why each is enough:
- *  - the doc store, to make, read and append to the learning-goals doc;
+ *  - the doc store, to make, read and append to the learning-goals doc and
+ *    to make the memory doc;
  *  - the task store, to make the coach's board and to name a doc's board;
  *  - the activity record's live feed (`onActivity`), for this data dir only;
  *  - the Coach board's lead, and an addressed frame to it: the coach's
- *    Claude Code session, which judges each candidate (`session-judge.ts`).
+ *    Claude Code session, which hears every event (`session-feed.ts`).
  */
 import { type Event, onActivity } from '../activity.ts';
-import type { DocLabel } from './digest.ts';
 import { type GoalsDocReading, readGoalsDoc } from './goals-doc.ts';
 import { CoachHub } from './hub.ts';
 import { coachSectionFor } from './landing.ts';
-import { type Coach, createCoach } from './moment.ts';
-import { type CandidateFrame, SessionJudge } from './session-judge.ts';
-import type { CoachSetupDeps } from './setup.ts';
+import { type Coach, type DocLabel, createCoach } from './moment.ts';
+import { SessionFeed, type SessionFrame } from './session-feed.ts';
+import { type CoachSetupDeps, ensureMemoryDoc } from './setup.ts';
 import { CoachStore } from './store.ts';
 import { CoachStream } from './stream.ts';
 
@@ -47,7 +47,7 @@ export interface CoachWiringDeps {
   workspaceOf: (docId: string) => string | undefined;
   /** The board's lead agent, if one is seated. */
   leadOf: (workspaceId: string) => string | undefined;
-  sendToAgent: (workspaceId: string, agentId: string, frame: CandidateFrame) => number;
+  sendToAgent: (workspaceId: string, agentId: string, frame: SessionFrame) => number;
   /** Whether that agent holds a stream on the board right now. */
   agentConnected: (workspaceId: string, agentId: string) => boolean;
   now?: () => number;
@@ -57,7 +57,7 @@ export interface CoachWiring {
   store: CoachStore;
   coach: Coach;
   hub: CoachHub;
-  judge: SessionJudge;
+  feed: SessionFeed;
   setup: CoachSetupDeps;
   /** The front page's section, for the owner. */
   landing: () => string;
@@ -72,7 +72,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     const md = doc ? deps.docStore.readMarkdownBody(doc.docId) : null;
     return md === null ? null : readGoalsDoc(md);
   };
-  const judge = new SessionJudge({
+  const feed = new SessionFeed({
     lead: () => {
       const ws = store.goalsDoc?.workspaceId;
       const agentId = ws ? deps.leadOf(ws) : undefined;
@@ -80,7 +80,6 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     },
     send: deps.sendToAgent,
     connected: deps.agentConnected,
-    ...(deps.now ? { now: deps.now } : {}),
   });
   const coach = createCoach({
     store,
@@ -89,8 +88,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     label: deps.label,
     boardName: deps.boardName,
     workspaceOf: deps.workspaceOf,
-    generate: judge.generate,
-    reachable: () => judge.reachable(),
+    tell: (news, at) => feed.send(news, at),
     publish: (frame) => hub.publish(frame),
     ...(deps.now ? { now: deps.now } : {}),
   });
@@ -119,16 +117,20 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     appendMarkdown: (docId, markdown) =>
       deps.docStore.applyBlockEdits(docId, [{ op: 'insert_at_end', markdown }], COACH_AUTHOR).ok,
   };
+  // A board set up before the memory doc existed gets one now.
+  void ensureMemoryDoc(store, setup, (deps.now ?? Date.now)()).catch((err) =>
+    console.warn(`[coach] memory doc not made: ${String(err)}`),
+  );
   return {
     store,
     coach,
     hub,
-    judge,
+    feed,
     setup,
-    landing: () => coachSectionFor(store, readGoals, judge.reachable(), (deps.now ?? Date.now)()),
+    landing: () => coachSectionFor(store, readGoals, feed.reachable(), (deps.now ?? Date.now)()),
     stop: () => {
       unsubscribe();
-      judge.close();
+      store.flush();
       hub.close();
     },
   };

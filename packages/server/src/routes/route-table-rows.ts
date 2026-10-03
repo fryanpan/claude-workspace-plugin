@@ -158,12 +158,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/review', 'GET'],
   ]),
 
-  // The post is the reader's alone and checks its peer address and token
-  // (`authorizeAgentCaller`); the read and the taps are trusted-local and
-  // then refuse every caller but the owner's own signed-in front page.
+  // The coach session's moment checks its peer address and token
+  // (`authorizeAgentCaller`); the page routes are trusted-local and then
+  // refuse every caller but the owner's own signed-in pages.
   ...family('routes/coach.ts', [
-    ['loopback-only', '/coach/check', 'POST'],
-    ['loopback-only', '/coach/candidates/:id/reply', 'POST'],
+    ['loopback-only', '/coach/moments', 'POST'],
     ['trusted-local', '/coach/setup', 'POST'],
     ['trusted-local', '/coach/goals/add', 'POST'],
     ['trusted-local', '/coach/review', 'POST'],
@@ -172,6 +171,9 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/coach/stream', 'GET'],
     ['trusted-local', '/coach/moments/:id/answer', 'POST'],
   ]),
+  // The post is the reader's alone and checks its peer address and token
+  // (`authorizeAgentCaller`); the read and the taps are trusted-local and
+  // then refuse every caller but the owner's own signed-in front page.
   ...family('routes/inbox.ts', [
     ['loopback-only', '/inbox/rows', 'POST'],
     ['trusted-local', '/inbox/rows/:id/body', 'GET'],

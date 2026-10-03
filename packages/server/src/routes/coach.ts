@@ -4,14 +4,15 @@
  *   POST /coach/setup                make the learning-goals doc, once → `{ url }`
  *   POST /coach/goals/add            add a goal's four empty parts to it
  *   POST /coach/review               `{ answer: 'no-update' }` to the weekly offer
- *   POST /coach/prefs                `{ spacing: 'less' | 'normal' | 'more' }`
- *   POST /coach/here                 where he is: `{ workspaceId, docId?, visible,
- *                                    scrollPct?, heading?, timeZone? }`
+ *   POST /coach/prefs                `{ readiness: 'less' | 'normal' | 'more' }`
+ *   POST /coach/here                 where he is or what he wrote: `{ kind?:
+ *                                    'view' | 'wrote', workspaceId, docId?,
+ *                                    visible, heading?, text?, timeZone? }`
  *   GET  /coach/stream               the moments, as server-sent events
  *   POST /coach/moments/:id/answer   `{ answer: 'thanks' | 'not-now' | 'not-this' }`
- *   POST /coach/check                judge now, from this machine only
- *   POST /coach/candidates/:id/reply the coach session's verdict on a candidate,
- *                                    from this machine only
+ *   POST /coach/moments              the coach session raises a moment, from
+ *                                    this machine only: `{ goal, matched,
+ *                                    observed, line }`
  *
  * Owner-level, not under a board: everything here is Bryan's, so nothing is
  * on a share or member allowlist and a visitor is refused before anything
@@ -25,17 +26,20 @@
  *    family reaches into the other.
  *  - `/coach/here` answers anyone but the owner with an empty 204, which
  *    the page reads as "stop": every board and doc page sends it.
- *  - The check is for a process on this machine (`refuseNonLocal`). It
- *    passes every gate a trigger does, including at most one judgement in
- *    twenty minutes, so a loop here cannot run up the bill.
+ *  - Raising a moment is for the coach session, a process on this machine
+ *    (`refuseNonLocal`). What it sends is checked before it reaches a page:
+ *    a goal to act on, no other moment open, and a quote of that goal's
+ *    "Act differently when" (`coach/judge.ts`).
  *
- * Nothing here reaches an agent's stream.
+ * What he does reaches one agent stream, the coach session's
+ * (`coach/session-feed.ts`).
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import { addGoal, ensureGoalsDoc } from '../coach/setup.ts';
+import type { HereSignal } from '../coach/stream.ts';
 import {
-  COACH_SPACINGS,
-  type CoachSpacing,
+  COACH_READINESS,
+  type CoachReadiness,
   MOMENT_ANSWERS,
   type MomentAnswer,
 } from '../coach/types.ts';
@@ -59,11 +63,10 @@ export interface CoachRouteRequest {
   requestOrigin: () => string | undefined;
 }
 
-const MAX_BODY_BYTES = 4_000;
+/** A paragraph he wrote is up to 1,500 characters, sent as JSON. */
+const MAX_BODY_BYTES = 8_000;
 const ANSWER_PATH = /^\/coach\/moments\/(cm-[A-Za-z0-9_-]{12})\/answer$/;
-const REPLY_PATH = /^\/coach\/candidates\/([^/]+)\/reply$/;
 const ID = /^[A-Za-z0-9_:.-]{1,128}$/;
-const HEADING_CHARS = 120;
 
 /** Bryan's own pages, and nobody else's. */
 function refuseNonOwner(ctx: CoachRoutesContext, rq: CoachRouteRequest): Response | null {
@@ -92,37 +95,32 @@ const tooLarge = (req: Request): boolean => {
   return !Number.isFinite(length) || length > MAX_BODY_BYTES;
 };
 
-/** The where-I-am body, or the reason it is refused. */
+/** The where-I-am body, or the reason it is refused. Text is trimmed to
+ *  size by the stream, so only its type is checked here. */
 function parseHere(
   ctx: CoachRoutesContext,
   body: Record<string, unknown> | null,
-):
-  | { workspaceId: string; docId?: string; visible: boolean; scrollPct?: number; heading?: string }
-  | string {
+): Omit<HereSignal, 'at'> | string {
+  const kind = body?.kind ?? 'view';
+  if (kind !== 'view' && kind !== 'wrote') return 'kind is view or wrote';
   const ws = body?.workspaceId;
   if (typeof ws !== 'string' || !ID.test(ws) || !ctx.boardExists(ws)) return 'unknown board';
   const doc = body?.docId;
   if (doc !== undefined && (typeof doc !== 'string' || !ID.test(doc) || !ctx.docOnBoard(ws, doc))) {
     return 'unknown doc';
   }
+  if (kind === 'wrote' && doc === undefined) return 'wrote needs a doc';
   if (typeof body?.visible !== 'boolean') return 'visible must be true or false';
-  const pct = body?.scrollPct;
-  if (
-    pct !== undefined &&
-    (typeof pct !== 'number' || !Number.isInteger(pct) || pct < 0 || pct > 100)
-  ) {
-    return 'scrollPct is a whole number from 0 to 100';
-  }
-  const heading = body?.heading;
+  const { heading, text } = body;
   if (heading !== undefined && typeof heading !== 'string') return 'heading must be text';
+  if (text !== undefined && typeof text !== 'string') return 'text must be text';
   return {
+    kind,
     workspaceId: ws,
     ...(typeof doc === 'string' ? { docId: doc } : {}),
     visible: body.visible,
-    ...(typeof pct === 'number' ? { scrollPct: pct } : {}),
-    ...(typeof heading === 'string' && heading.trim()
-      ? { heading: heading.replace(/\s+/g, ' ').trim().slice(0, HEADING_CHARS) }
-      : {}),
+    ...(typeof heading === 'string' ? { heading } : {}),
+    ...(typeof text === 'string' ? { text } : {}),
   };
 }
 
@@ -144,31 +142,18 @@ export async function handleCoachRoutes(
   }
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
 
-  const reply = pathname.match(REPLY_PATH);
-  if (reply) {
-    // The session's verdict. It is checked like a model's reply would be:
-    // the quote, the spacing and the cap all run in the coach.
+  if (pathname === '/coach/moments') {
+    // The coach session's moment, checked before it reaches a page.
     if (rq.visitor) return j(403, { error: 'not available to share visitors' });
     const notLocal = ctx.refuseNonLocal(req);
     if (notLocal) return j(notLocal.status, notLocal.body);
     if (tooLarge(req)) return j(413, { error: 'too-large' });
-    const verdict = await ctx.safeJson(req);
-    if (!verdict)
-      return j(400, { error: 'bad-reply', message: 'send the verdict as a JSON object' });
-    if (!ctx.wiring.judge.reply(reply[1] ?? '', JSON.stringify(verdict))) {
-      return j(404, {
-        error: 'no-such-candidate',
-        message: 'unknown, already answered, or lapsed',
-      });
+    const raised = coach.raise(await ctx.safeJson(req));
+    if (!raised.ok) {
+      const status = raised.error === 'bad-moment' ? 422 : 409;
+      return j(status, { error: raised.error, message: raised.message });
     }
-    return j(200, { ok: true });
-  }
-
-  if (pathname === '/coach/check') {
-    if (rq.visitor) return j(403, { error: 'not available to share visitors' });
-    const notLocal = ctx.refuseNonLocal(req);
-    if (notLocal) return j(notLocal.status, notLocal.body);
-    return j(200, await coach.judgeNow());
+    return j(200, { id: raised.id });
   }
 
   // Every board and doc page sends where he is, whoever is reading it, and
@@ -201,14 +186,14 @@ export async function handleCoachRoutes(
     return j(200, { ok: true });
   }
   if (pathname === '/coach/prefs') {
-    const spacing = body?.spacing;
-    if (!COACH_SPACINGS.includes(spacing as CoachSpacing)) {
+    const readiness = body?.readiness;
+    if (!COACH_READINESS.includes(readiness as CoachReadiness)) {
       return j(400, {
-        error: 'bad-spacing',
-        message: `spacing is one of ${COACH_SPACINGS.join(', ')}`,
+        error: 'bad-readiness',
+        message: `readiness is one of ${COACH_READINESS.join(', ')}`,
       });
     }
-    store.setSpacing(spacing as CoachSpacing);
+    coach.setReadiness(readiness as CoachReadiness);
     return j(200, { ok: true });
   }
   if (pathname === '/coach/here') {

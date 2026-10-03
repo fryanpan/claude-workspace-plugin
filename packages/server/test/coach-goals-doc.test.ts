@@ -61,7 +61,7 @@ describe('a filled doc', () => {
   it('names the coach and lists each goal with its four parts', () => {
     const r = readGoalsDoc(GOALS_DOC);
     expect(r.name).toBe('Saltmarsh');
-    expect(r.goals).toHaveLength(2);
+    expect(r.goals).toHaveLength(3);
     expect(goalTitle(r.goals[0] as never)).toBe(
       'Do the hard, important work before the easy polish.',
     );
@@ -71,11 +71,11 @@ describe('a filled doc', () => {
   });
 
   it('uses only a goal that says what and when', () => {
-    const half = `${GOALS_DOC}\n## Goal 3\n\n### What I want to do better\n\n- Ship smaller pull requests\n`;
+    const half = `${GOALS_DOC}\n## Goal 4\n\n### What I want to do better\n\n- Ship smaller pull requests\n`;
     const r = readGoalsDoc(half);
-    expect(r.goals).toHaveLength(3);
-    expect(r.goals[2]?.what).toBe('Ship smaller pull requests');
-    expect(actionableGoals(r)).toHaveLength(2);
+    expect(r.goals).toHaveLength(4);
+    expect(r.goals[3]?.what).toBe('Ship smaller pull requests');
+    expect(actionableGoals(r)).toHaveLength(3);
   });
 
   it('takes the name out of what he said', () => {

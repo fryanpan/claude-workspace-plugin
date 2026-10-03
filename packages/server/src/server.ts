@@ -1427,8 +1427,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     transport: opts.inboxTransport ?? systemTransport(),
   });
   /** The coach: Bryan's learning goals, what he is doing, and the moments
-   *  it raises (coach/wiring.ts). The Coach board's lead session judges each
-   *  candidate; with no session listening, the coach stays quiet. */
+   *  it raises (coach/wiring.ts). The Coach board's lead session hears every
+   *  event; with no session listening, the coach stays quiet. */
   const coachWiring = wireCoach({
     dataDir,
     docStore,
@@ -2310,7 +2310,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     safeJson,
   };
 
-  /** The coach's pages, stream and on-demand check (routes/coach.ts). */
+  /** The coach's pages, stream and the session's moments (routes/coach.ts). */
   const coachRoutesCtx: CoachRoutesContext = {
     wiring: coachWiring,
     boardExists: (workspaceId) => taskStore.getWorkspace(workspaceId) !== undefined,

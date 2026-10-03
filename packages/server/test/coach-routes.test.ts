@@ -5,8 +5,9 @@
  * from this server's own pages, proven the way `inbox-routes.test.ts` proves
  * it. Setup makes a real bound doc on a real board; the where-I-am signal is
  * checked against that board; the stream is an event stream for him and a
- * refusal for anyone else. The on-demand check is for a process on this
- * machine. No summarizer is passed, so nothing here can reach a model.
+ * refusal for anyone else. A moment is raised by a process on this machine,
+ * the coach session, and checked against the goals before a page sees it.
+ * No session is attached, so nothing here reaches a model.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -16,6 +17,7 @@ import { type JSONWebKeySet, type JWK, SignJWT, exportJWK, generateKeyPair } fro
 import { resetOwnerIdentities } from '../src/actor-identity.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { ACCESS_SHARE_CONFIG, mockCfApi } from './access-share.ts';
+import { GOALS_DOC } from './coach-fixtures.ts';
 
 const TEAM_DOMAIN = 'test.cloudflareaccess.com';
 const KID = 'coach-routes-kid';
@@ -110,7 +112,7 @@ describe('Your coach on the front page, and setup', () => {
     expect(await (await req('/', local())).text()).not.toContain('id="coach"');
   });
 
-  it('makes the learning-goals doc once, bound and on its own board', async () => {
+  it('makes the learning-goals and memory docs once, bound and on their own board', async () => {
     const first = await postJson('/coach/setup', {}, await ownerHeaders(), OWNER_HOST);
     expect(first.status).toBe(200);
     goalsUrl = ((await first.json()) as { url: string }).url;
@@ -122,7 +124,7 @@ describe('Your coach on the front page, and setup', () => {
     };
     expect(list.boardWorkspaces.find((w) => w.id === workspaceId)).toMatchObject({
       name: 'Coach',
-      docCount: 1,
+      docCount: 2,
     });
     const doc = (await (
       await req(`/workspaces/${workspaceId}/docs/${docId}?format=json`, local())
@@ -143,16 +145,20 @@ describe('Your coach on the front page, and setup', () => {
       'sec-fetch-site': 'cross-site',
     });
     expect((await postJson('/coach/setup', {}, other, OWNER_HOST)).status).toBe(403);
-    expect((await postJson('/coach/prefs', { spacing: 'more' }, {}, SHARE_HOST)).status).toBe(403);
+    expect((await postJson('/coach/prefs', { readiness: 'more' }, {}, SHARE_HOST)).status).toBe(
+      403,
+    );
   });
 });
 
 describe('the owner’s settings and answers', () => {
-  it('takes a how-often setting and refuses one that is not offered', async () => {
+  it('takes a how-readily setting and refuses one that is not offered', async () => {
     const h = await ownerHeaders();
-    expect((await postJson('/coach/prefs', { spacing: 'often' }, h, OWNER_HOST)).status).toBe(400);
-    expect((await postJson('/coach/prefs', { spacing: 'more' }, h, OWNER_HOST)).status).toBe(200);
-    expect(await landingAsOwner()).toContain('data-spacing="more" aria-pressed="true"');
+    expect((await postJson('/coach/prefs', { readiness: 'often' }, h, OWNER_HOST)).status).toBe(
+      400,
+    );
+    expect((await postJson('/coach/prefs', { readiness: 'more' }, h, OWNER_HOST)).status).toBe(200);
+    expect(await landingAsOwner()).toContain('data-readiness="more" aria-pressed="true"');
   });
 
   it('adds a goal, takes “no update needed”, and has no moment to answer', async () => {
@@ -180,23 +186,32 @@ describe('the owner’s settings and answers', () => {
 });
 
 describe('POST /coach/here', () => {
-  it('takes where he is on a board and doc that exist, refuses the rest, and tells anyone else to stop', async () => {
+  it('takes a view and a paragraph on a board and doc that exist, refuses the rest, and tells anyone else to stop', async () => {
     const { workspaceId, docId } = ids();
     const h = await ownerHeaders();
     const ok = await postJson(
       '/coach/here',
-      { workspaceId, docId, visible: true, scrollPct: 40, heading: 'How' },
+      { workspaceId, docId, visible: true, heading: 'How', text: 'The passage in view.' },
       h,
       OWNER_HOST,
     );
     expect(ok.status).toBe(200);
+    const wrote = await postJson(
+      '/coach/here',
+      { kind: 'wrote', workspaceId, docId, visible: true, text: 'A paragraph he wrote.' },
+      h,
+      OWNER_HOST,
+    );
+    expect(wrote.status).toBe(200);
     const board = await postJson('/coach/here', { workspaceId, visible: false }, h, OWNER_HOST);
     expect(board.status).toBe(200);
     const cases: unknown[] = [
       { workspaceId: 'w-nowhere', visible: true },
       { workspaceId, docId: 'd-not-on-it', visible: true },
       { workspaceId, docId, visible: 'yes' },
-      { workspaceId, docId, visible: true, scrollPct: 140 },
+      { workspaceId, docId, visible: true, text: 7 },
+      { kind: 'shout', workspaceId, docId, visible: true },
+      { kind: 'wrote', workspaceId, visible: true, text: 'no doc' },
       { workspaceId: '../etc', visible: true },
     ];
     for (const body of cases)
@@ -232,29 +247,52 @@ describe('GET /coach/stream', () => {
   });
 });
 
-describe('POST /coach/check — this machine only', () => {
-  it('refuses the edge, and here passes the gates: no goal says when yet', async () => {
-    expect((await postJson('/coach/check', {}, await ownerHeaders(), OWNER_HOST)).status).toBe(403);
-    const res = await postJson('/coach/check', {}, {}, local());
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ skipped: 'no-goals' });
-  });
-});
+describe('POST /coach/moments — the coach session, this machine only', () => {
+  const MOMENT = {
+    goal: 3,
+    matched: 'I start on a solution before',
+    observed: 'Designing the importer in a spec that never says why',
+    line: 'Hi, I’m noticing the importer design came before any why. Who has the problem?',
+  };
 
-describe('POST /coach/candidates/:id/reply — the coach session, this machine only', () => {
-  it('refuses the edge whatever the id, and names a candidate nobody is waiting on, malformed or not', async () => {
-    const path = '/coach/candidates/cc-aaaaaaaaaaaa/reply';
+  it('refuses the edge, and here refuses a moment with no goal to act on', async () => {
     expect(
-      (await postJson(path, { verdict: 'quiet' }, await ownerHeaders(), OWNER_HOST)).status,
+      (await postJson('/coach/moments', MOMENT, await ownerHeaders(), OWNER_HOST)).status,
     ).toBe(403);
-    expect(
-      (await postJson('/coach/candidates/cc-x/reply', { verdict: 'quiet' }, {}, local())).status,
-    ).toBe(404);
-    expect(
-      (await postJson('/coach/candidates/cc-x/reply', { verdict: 'quiet' }, {}, OWNER_HOST)).status,
-    ).toBe(403);
-    const res = await postJson(path, { verdict: 'quiet' }, {}, local());
-    expect(res.status).toBe(404);
-    expect(await res.json()).toMatchObject({ error: 'no-such-candidate' });
+    expect((await postJson('/coach/moments', MOMENT, {}, OWNER_HOST)).status).toBe(403);
+    const res = await postJson('/coach/moments', MOMENT, {}, local());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'no-goals' });
+  });
+
+  it('with goals, refuses a bad quote, raises a good one to his page, and refuses a second', async () => {
+    const { workspaceId, docId } = ids();
+    const set = await postJson(
+      `/workspaces/${workspaceId}/docs/${docId}/content`,
+      { markdown: GOALS_DOC },
+      {},
+      local(),
+    );
+    expect(set.status).toBe(200);
+    const bad = await postJson(
+      '/coach/moments',
+      { ...MOMENT, matched: 'solution first' },
+      {},
+      local(),
+    );
+    expect(bad.status).toBe(422);
+    const raised = await postJson('/coach/moments', MOMENT, {}, local());
+    expect(raised.status).toBe(200);
+    const { id } = (await raised.json()) as { id: string };
+    expect(id).toMatch(/^cm-/);
+    expect((await postJson('/coach/moments', MOMENT, {}, local())).status).toBe(409);
+    const answer = await postJson(
+      `/coach/moments/${id}/answer`,
+      { answer: 'thanks' },
+      await ownerHeaders(),
+      OWNER_HOST,
+    );
+    expect(answer.status).toBe(200);
+    expect(await landingAsOwner()).toContain('This week: 1 moment · Thanks 1');
   });
 });

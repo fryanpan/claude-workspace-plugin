@@ -1,88 +1,96 @@
 /**
- * Workflow B's stream: active time counted from the pages' pings, a hidden
- * tab or a long silence counting nothing, and the free trigger firing on a
- * switch after a long stretch or a long stay on one thing.
+ * Workflow B's stream: each thing he does becomes one event, a repeat
+ * becomes none, and arriving somewhere new says he moved.
  */
 import { describe, expect, it } from 'bun:test';
 import type { Event } from '../src/activity.ts';
-import { CoachStream, STAY_MS, SWITCH_AFTER_MS } from '../src/coach/stream.ts';
-import { DRIFTING_DAY, WS, ZONE, at, label } from './coach-fixtures.ts';
+import { CoachStream, PASSAGE_CHARS, TEXT_CHARS } from '../src/coach/stream.ts';
+import { WS, at } from './coach-fixtures.ts';
 
-const ping = (s: CoachStream, when: number, docId: string, visible = true) =>
-  s.here({ at: when, workspaceId: WS, docId, visible });
+const view = (s: CoachStream, when: number, docId: string | undefined, extra = {}) =>
+  s.here({
+    at: when,
+    kind: 'view',
+    workspaceId: WS,
+    ...(docId ? { docId } : {}),
+    visible: true,
+    ...extra,
+  });
 
-describe('active time', () => {
-  it('counts pings under three minutes apart, and not a gap or a hidden tab', () => {
+const row = (type: string, docId: string, payload = {}, isOwner = true) =>
+  ({
+    type,
+    isOwner,
+    ts: new Date(at(9)).toISOString(),
+    doc: { docId },
+    payload,
+  }) as unknown as Event;
+
+describe('views', () => {
+  it('sends a place, heading or passage change, and drops a repeat', () => {
     const s = new CoachStream();
-    ping(s, at(9), 'd-post');
-    ping(s, at(9, 2), 'd-post');
-    ping(s, at(9, 4), 'd-post');
-    ping(s, at(9, 14), 'd-post'); // ten idle minutes
-    ping(s, at(9, 16), 'd-post');
-    ping(s, at(9, 17), 'd-post', false);
-    ping(s, at(9, 18), 'd-post');
-    expect(s.current?.activeMs).toBe(7 * 60_000);
+    expect(view(s, at(9), 'd-post', { heading: 'Why', text: 'a' })).toEqual({
+      events: [
+        { kind: 'view', at: at(9), workspaceId: WS, docId: 'd-post', heading: 'Why', text: 'a' },
+      ],
+      moved: true,
+    });
+    expect(view(s, at(9, 1), 'd-post', { heading: 'Why', text: 'a' }).events).toEqual([]);
+    expect(view(s, at(9, 2), 'd-post', { heading: 'How', text: 'a' }).events).toHaveLength(1);
+    expect(view(s, at(9, 3), undefined)).toMatchObject({ moved: true, events: [{ kind: 'view' }] });
+  });
+
+  it('a hidden tab is one left, and showing it again is a view', () => {
+    const s = new CoachStream();
+    view(s, at(9), 'd-post', { text: 'a' });
+    const hide = () =>
+      s.here({ at: at(9, 5), kind: 'view', workspaceId: WS, docId: 'd-post', visible: false });
+    expect(hide().events.map((e) => e.kind)).toEqual(['left']);
+    expect(hide().events).toEqual([]);
+    expect(view(s, at(9, 6), 'd-post', { text: 'a' })).toMatchObject({
+      moved: false,
+      events: [{ kind: 'view' }],
+    });
+  });
+
+  it('caps the passage and squashes its spacing', () => {
+    const s = new CoachStream();
+    const step = view(s, at(9), 'd-post', { text: `  a\n\n${'b'.repeat(PASSAGE_CHARS * 2)}` });
+    expect(step.events[0]?.text?.length).toBe(PASSAGE_CHARS);
+    expect(step.events[0]?.text?.startsWith('a b')).toBe(true);
   });
 });
 
-describe('the trigger', () => {
-  it('fires on a long stay, and again a stay later', () => {
+describe('what he wrote', () => {
+  it('sends each new paragraph once, capped', () => {
     const s = new CoachStream();
-    const fired: number[] = [];
-    for (let m = 0; m <= 45; m += 1) {
-      if (ping(s, at(9, m), 'd-hover') === 'stayed') fired.push(m);
-    }
-    expect(fired).toEqual([STAY_MS / 60_000, (2 * STAY_MS) / 60_000]);
-  });
-
-  it('fires on a switch after a long stretch, not after a glance', () => {
-    const s = new CoachStream();
-    for (let m = 0; m <= SWITCH_AFTER_MS / 60_000; m += 2) ping(s, at(9, m), 'd-post');
-    expect(ping(s, at(9, 12), 'd-hover')).toBe('switched');
-    ping(s, at(9, 13), 'd-hover');
-    expect(ping(s, at(9, 14), 'd-tokens')).toBeNull();
-  });
-
-  it('takes owner rows as signals and leaves agents’ and reading sessions out', () => {
-    const s = new CoachStream();
-    const row = (type: string, isOwner: boolean) =>
-      ({
-        ts: new Date(at(9)).toISOString(),
-        type,
-        isOwner,
-        doc: { docId: 'd-post' },
-        payload: {},
-      }) as unknown as Event;
-    s.activity(row('edit_session', false), at(9), () => WS);
-    expect(s.current).toBeUndefined();
-    s.activity(row('read_session', true), at(9), () => WS);
-    expect(s.current).toBeUndefined();
-    s.activity(row('edit_session', true), at(9), () => WS);
-    expect(s.current?.docId).toBe('d-post');
+    const wrote = (text: string) =>
+      s.here({ at: at(9), kind: 'wrote', workspaceId: WS, docId: 'd-post', visible: true, text });
+    expect(wrote('one').events.map((e) => e.text)).toEqual(['one']);
+    expect(wrote('one').events).toEqual([]);
+    expect(wrote('one two').events.map((e) => e.text)).toEqual(['one two']);
+    expect(wrote('x'.repeat(TEXT_CHARS + 9)).events[0]?.text?.length).toBe(TEXT_CHARS);
   });
 });
 
-describe('the last hour, as the prompt reads it', () => {
-  it('names where he is, where he was, whether he wrote there, and what he did, with no agent rows', () => {
+describe('activity rows', () => {
+  it('comments and replies carry their text; an open is a move; edits, reads and agents are nothing', () => {
     const s = new CoachStream();
-    for (const sig of DRIFTING_DAY) {
-      if (sig.at > at(10, 50)) break;
-      if ('here' in sig) s.here({ ...sig.here, at: sig.at });
-      else s.activity(sig.row, sig.at, () => WS);
-    }
-    const seen = s.lines(at(10, 50), ZONE, label, () => 'Harborlight');
-    expect(seen.now).toBe(
-      'Since 10:44 on "Board colour tokens" on board "Harborlight": 6 min active, reading the part headed "Greys", 43% of the way down; he wrote nothing there.',
+    const ws = () => WS;
+    expect(s.activity(row('comment', 'd-hover', { text: 'Softer?' }), at(9), ws).events).toEqual([
+      { kind: 'comment', at: at(9), workspaceId: WS, docId: 'd-hover', text: 'Softer?' },
+    ]);
+    expect(s.activity(row('doc_open', 'd-mock'), at(9), ws)).toMatchObject({
+      moved: true,
+      events: [{ kind: 'open', docId: 'd-mock' }],
+    });
+    expect(s.activity(row('doc_open', 'd-mock'), at(9), ws).events).toEqual([]);
+    expect(s.activity(row('edit_session', 'd-mock', { editCount: 3 }), at(9), ws).events).toEqual(
+      [],
     );
-    expect(seen.where).toContain(
-      '09:41–10:31 "Button hover states mock" on board "Harborlight": 50 min active; he commented there at 10:12',
+    expect(s.activity(row('read_session', 'd-mock'), at(9), ws).events).toEqual([]);
+    expect(s.activity(row('comment', 'd-mock', { text: 'x' }, false), at(9), ws).events).toEqual(
+      [],
     );
-    expect(seen.where.at(-1)).toBe(
-      '10:31–10:44 "Message from a Riverbend partner, waiting on your answer" on board "Riverbend": 13 min active; he wrote nothing there',
-    );
-    expect(seen.did.join('\n')).toContain(
-      'commented: "Try a softer shadow on hover, and a 2px lift."',
-    );
-    expect(seen.did.join('\n')).not.toContain('booking');
   });
 });

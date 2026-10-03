@@ -1,8 +1,8 @@
 /**
- * The coach's one file, `<dataDir>/coach/state.json`: where the goals doc
- * is, his how-often setting, the moments and the record of each judgement.
- * Owner-only on disk (mode 600), and written whole through a temp file, like
- * the inbox's files.
+ * The coach's one file, `<dataDir>/coach/state.json`: where its docs are,
+ * his how-readily setting, the moments, and how many events went to the
+ * coach session each day. Owner-only on disk (mode 600), and written whole
+ * through a temp file, like the inbox's files.
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -10,14 +10,12 @@ import { isKnownTimezone } from '@claude-workspaces/core/schedule-timezone';
 import { readJsonFile, writeJsonFile } from '../inbox/json-file.ts';
 import { localDay } from './clock.ts';
 import {
-  COACH_SPACINGS,
-  type CoachGoalsDoc,
-  type CoachJudgement,
+  COACH_READINESS,
+  type CoachDocRef,
   type CoachMoment,
-  type CoachSpacing,
+  type CoachReadiness,
   type CoachState,
-  MAX_JUDGEMENTS,
-  MOMENT_TTL_MS,
+  KEEP_EVENT_DAYS,
   type MomentAnswer,
   REVIEW_AFTER_MS,
 } from './types.ts';
@@ -25,12 +23,14 @@ import {
 export const COACH_DIRNAME = 'coach';
 /** Until a browser says otherwise, the zone this machine is in. */
 const DEFAULT_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+/** The event count is written at most this often; a crash loses at most it. */
+const COUNT_WRITE_MS = 60_000;
 
 const empty = (): CoachState => ({
   timeZone: DEFAULT_ZONE,
-  spacing: 'normal',
+  readiness: 'normal',
   moments: [],
-  judgements: [],
+  eventsByDay: {},
 });
 
 /** One week's answers, for the front page's line and the wrong-call rate. */
@@ -40,13 +40,14 @@ export interface CoachWeek {
   notNow: number;
   notThis: number;
   unanswered: number;
-  judgements: number;
-  quiet: number;
+  /** Events the coach session read today. */
+  eventsToday: number;
 }
 
 export class CoachStore {
   private readonly path: string;
   private state: CoachState;
+  private countWrittenAt = 0;
 
   constructor(dataDir: string, now: number = Date.now()) {
     this.path = join(dataDir, COACH_DIRNAME, 'state.json');
@@ -54,19 +55,26 @@ export class CoachStore {
     if (error) console.warn(`[coach] state unreadable: ${error}; starting empty`);
     this.state = { ...empty(), ...value };
     if (!isKnownTimezone(this.state.timeZone)) this.state.timeZone = DEFAULT_ZONE;
-    if (!COACH_SPACINGS.includes(this.state.spacing)) this.state.spacing = 'normal';
+    if (!COACH_READINESS.includes(this.state.readiness)) this.state.readiness = 'normal';
+    if (typeof this.state.eventsByDay !== 'object' || this.state.eventsByDay === null) {
+      this.state.eventsByDay = {};
+    }
   }
 
   get timeZone(): string {
     return this.state.timeZone;
   }
 
-  get spacing(): CoachSpacing {
-    return this.state.spacing;
+  get readiness(): CoachReadiness {
+    return this.state.readiness;
   }
 
-  get goalsDoc(): CoachGoalsDoc | undefined {
+  get goalsDoc(): CoachDocRef | undefined {
     return this.state.goalsDoc;
+  }
+
+  get memoryDoc(): CoachDocRef | undefined {
+    return this.state.memoryDoc;
   }
 
   noteTimeZone(timeZone: unknown): void {
@@ -76,14 +84,19 @@ export class CoachStore {
     this.write();
   }
 
-  setGoalsDoc(doc: CoachGoalsDoc): void {
+  setGoalsDoc(doc: CoachDocRef): void {
     this.state.goalsDoc = doc;
     this.state.goalsChangedAt = doc.createdAt;
     this.write();
   }
 
-  setSpacing(spacing: CoachSpacing): void {
-    this.state.spacing = spacing;
+  setMemoryDoc(doc: CoachDocRef): void {
+    this.state.memoryDoc = doc;
+    this.write();
+  }
+
+  setReadiness(readiness: CoachReadiness): void {
+    this.state.readiness = readiness;
     this.write();
   }
 
@@ -112,23 +125,9 @@ export class CoachStore {
     return this.state.moments;
   }
 
-  /** The moment on the page, after closing any he left past its time. */
-  openMoment(now: number): CoachMoment | null {
-    let changed = false;
-    for (const m of this.state.moments) {
-      if (m.state === 'open' && now - m.at >= MOMENT_TTL_MS) {
-        m.state = 'expired';
-        changed = true;
-      }
-    }
-    if (changed) this.write();
+  /** The moment on the page, if any. It stays until he answers or moves on. */
+  openMoment(): CoachMoment | null {
     return this.state.moments.find((m) => m.state === 'open') ?? null;
-  }
-
-  /** Moments raised on the local day `now` falls on, any state. */
-  momentsToday(now: number): CoachMoment[] {
-    const day = localDay(now, this.state.timeZone);
-    return this.state.moments.filter((m) => m.day === day);
   }
 
   addMoment(m: Omit<CoachMoment, 'id' | 'day' | 'state'>): CoachMoment {
@@ -143,8 +142,8 @@ export class CoachStore {
     return moment;
   }
 
-  /** His answer. False when there is no such open moment. */
-  answer(id: string, answer: MomentAnswer, now: number): boolean {
+  /** His answer, or `moved-on` when he left it. False when it is not open. */
+  answer(id: string, answer: MomentAnswer | 'moved-on', now: number): boolean {
     const m = this.state.moments.find((x) => x.id === id);
     if (!m || m.state !== 'open') return false;
     m.state = answer;
@@ -153,15 +152,15 @@ export class CoachStore {
     return true;
   }
 
-  judgements(): readonly CoachJudgement[] {
-    return this.state.judgements;
-  }
-
-  recordJudgement(rec: CoachJudgement): void {
-    this.state.judgements.push(rec);
-    if (this.state.judgements.length > MAX_JUDGEMENTS) {
-      this.state.judgements.splice(0, this.state.judgements.length - MAX_JUDGEMENTS);
-    }
+  /** One event went to the coach session. */
+  countEvent(now: number): void {
+    const day = localDay(now, this.state.timeZone);
+    const counts = this.state.eventsByDay;
+    counts[day] = (counts[day] ?? 0) + 1;
+    const days = Object.keys(counts).sort();
+    for (const d of days.slice(0, Math.max(0, days.length - KEEP_EVENT_DAYS))) delete counts[d];
+    if (now - this.countWrittenAt < COUNT_WRITE_MS) return;
+    this.countWrittenAt = now;
     this.write();
   }
 
@@ -169,17 +168,20 @@ export class CoachStore {
   week(now: number): CoachWeek {
     const since = now - 7 * 24 * 60 * 60_000;
     const moments = this.state.moments.filter((m) => m.at >= since);
-    const judged = this.state.judgements.filter((j) => j.at >= since);
     const count = (s: CoachMoment['state']) => moments.filter((m) => m.state === s).length;
     return {
       moments: moments.length,
       thanks: count('thanks'),
       notNow: count('not-now'),
       notThis: count('not-this'),
-      unanswered: count('expired'),
-      judgements: judged.length,
-      quiet: judged.filter((j) => j.outcome === 'quiet').length,
+      unanswered: count('moved-on'),
+      eventsToday: this.state.eventsByDay[localDay(now, this.state.timeZone)] ?? 0,
     };
+  }
+
+  /** Write anything held back, such as the day's event count. */
+  flush(): void {
+    this.write();
   }
 
   private write(): void {

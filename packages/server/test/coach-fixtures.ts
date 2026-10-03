@@ -1,16 +1,17 @@
 /**
  * An invented learning-goals doc and two invented working days for the
- * coach, as the signals its stream hears: where-I-am pings from the pages
- * every two minutes while he is active, and activity rows.
+ * coach, as the signals its stream hears: views from the pages (with the
+ * heading and passage in view), paragraphs he wrote, and activity rows.
  *
- * DRIFTING_DAY wanders twice in ways his goals name: half an hour on a
- * button-hover mock while the launch post is unfinished (goal 1), and a
- * partner's message read and left without a reply (goal 2). ON_TRACK_DAY is
- * the same hours spent on the launch post and the booking spec.
+ * DRIFTING_DAY wanders three times in ways his goals name: half an hour on
+ * a button-hover mock while the launch post is unfinished (goal 1), a
+ * partner's message read and left without a reply (goal 2), and an importer
+ * designed in a spec that never says why it is needed (goal 3). ON_TRACK_DAY
+ * spends the same hours on the launch post, and writes the spec's why first.
  *
- * LABELLED_POINTS are instants in the drifting day with what a good coach
- * does there, "speak" or "stay quiet". `scripts/coach-eval.ts` asks the
- * real model at each one and counts how many of each it gets right.
+ * LABELLED_POINTS name signals in the drifting day by index, with what a
+ * good coach does after it, "speak" or "stay quiet". `scripts/coach-eval.ts`
+ * plays the day to a real coach session and counts how many it gets right.
  *
  * House names only (Harborlight, Riverbend, Saltmarsh). Agent rows are mixed
  * in so a reader that forgot `isOwner` would see a different day.
@@ -25,8 +26,6 @@ export const WS = 'w-harbor';
 /** Wednesday 7 October 2026, at `hour:minute` his time. */
 export const at = (hour: number, minute = 0): number =>
   instantForLocal(ZONE, 2026, 10, 7, hour, minute);
-export const DAY_START = at(8);
-export const DAY_END = at(18);
 
 export const GOALS_DOC = `# Learning goals
 
@@ -69,6 +68,24 @@ I read a message from someone waiting on me and move on without replying.
 ### How
 
 Reply in two lines before leaving the page.
+
+## Goal 3
+
+### What I want to do better
+
+Say why a thing matters before deciding how to build it.
+
+### What’s behind it
+
+Riverbend specs grow a design nobody asked for.
+
+### Act differently when
+
+I start on a solution before I have written down why it matters.
+
+### How
+
+Write two lines on the problem and who has it, then the design.
 `;
 
 export const DOCS: Record<string, { title: string; board: string; kind: string }> = {
@@ -125,68 +142,97 @@ function row(
   };
 }
 
-/** Pings every two minutes on `docId` from `start` for `minutes`, heading
- *  in view and scroll depth moving down the page. */
-function stay(docId: string, start: number, minutes: number, heading: string): Signal[] {
-  const out: Signal[] = [];
-  for (let m = 0; m <= minutes; m += 2) {
-    out.push({
-      at: start + m * 60_000,
-      here: {
-        workspaceId: WS,
-        docId,
-        visible: true,
-        scrollPct: Math.min(100, Math.round((m / minutes) * 100)),
-        heading,
-      },
-    });
-  }
-  return out;
-}
-
-const away = (when: number): Signal => ({
+const view = (when: number, docId: string, heading: string, text: string): Signal => ({
   at: when,
-  here: { workspaceId: WS, docId: 'd-post', visible: false },
+  here: { kind: 'view', workspaceId: WS, docId, visible: true, heading, text },
 });
 
-const byTime = (xs: Signal[]) => xs.sort((a, b) => a.at - b.at);
+const wrote = (when: number, docId: string, heading: string, text: string): Signal => ({
+  at: when,
+  here: { kind: 'wrote', workspaceId: WS, docId, visible: true, heading, text },
+});
 
-export const DRIFTING_DAY: Signal[] = byTime([
-  ...stay('d-post', at(9), 40, 'Why we built it'),
-  row('edit_session', 'd-post', at(9, 30), { editCount: 14 }),
-  ...stay('d-hover', at(9, 41), 49, 'Hover, pressed, focus'),
+const away = (when: number, docId: string): Signal => ({
+  at: when,
+  here: { kind: 'view', workspaceId: WS, docId, visible: false },
+});
+
+const POST_WHY =
+  'Harborlight is a booking tool for small marinas. We built it because harbour masters still take bookings on paper.';
+const POST_COST =
+  'It costs nothing for the first berth. Each berth after that is four dollars a month.';
+const HOVER =
+  'Hover: shadow 0 2px 6px, lift 1px. Pressed: shadow none, lift 0. Focus: 2px ring in the accent colour.';
+const PARTNER =
+  'Can we move the launch to the 20th? We need to tell the venue by Friday, so a yes or no today would help.';
+const TOKENS = 'grey-50 #f8f9fb, grey-100 #eef1f4, grey-200 #e6e9ed. The warm grey reads as beige.';
+const BOOKING = 'Payment step: the guest pays a deposit, and the rest on arrival.';
+const SALTMARSH = 'Does the Saltmarsh price hold until December? We sign the contract next week.';
+
+export const DRIFTING_DAY: Signal[] = [
+  view(at(9), 'd-post', 'Why we built it', POST_WHY),
+  wrote(
+    at(9, 12),
+    'd-post',
+    'Why we built it',
+    'The paper books get wet, and a berth is sold twice.',
+  ),
+  view(at(9, 41), 'd-hover', 'Hover, pressed, focus', HOVER),
+  wrote(at(9, 50), 'd-hover', 'Hover, pressed, focus', 'Hover: shadow 0 3px 8px, lift 2px.'),
   row('comment', 'd-hover', at(10, 12), { text: 'Try a softer shadow on hover, and a 2px lift.' }),
-  ...stay('d-partner', at(10, 31), 12, 'Can we move the launch?'),
-  ...stay('d-tokens', at(10, 44), 14, 'Greys'),
-  row('edit_session', 'd-booking', at(10, 20), { editCount: 40 }, false),
-  away(at(10, 59)),
-  ...stay('d-booking', at(11), 40, 'Payment step'),
-  row('edit_session', 'd-booking', at(11, 25), { editCount: 9 }),
-  away(at(11, 41)),
-  ...stay('d-post', at(13), 30, 'What it costs'),
-  row('edit_session', 'd-post', at(13, 20), { editCount: 22 }),
-  ...stay('d-saltmarsh', at(13, 31), 18, 'Pricing question'),
+  view(at(10, 31), 'd-partner', 'Can we move the launch?', PARTNER),
+  view(at(10, 44), 'd-tokens', 'Greys', TOKENS),
+  row('edit_session', 'd-booking', at(10, 50), { editCount: 40 }, false),
+  away(at(10, 59), 'd-tokens'),
+  view(at(11), 'd-booking', 'Payment step', BOOKING),
+  wrote(
+    at(11, 10),
+    'd-booking',
+    'Importer',
+    'The importer reads the partner CSV, maps each column to a booking field, and queues a retry for any row that fails.',
+  ),
+  away(at(11, 41), 'd-booking'),
+  view(at(13), 'd-post', 'What it costs', POST_COST),
+  wrote(at(13, 20), 'd-post', 'What it costs', 'Berths for boats under six metres are free.'),
+  view(at(13, 31), 'd-saltmarsh', 'Pricing question', SALTMARSH),
   row('reply', 'd-saltmarsh', at(13, 48), {
     text: 'Yes, the Saltmarsh price holds until December.',
   }),
-  away(at(13, 50)),
-]);
+  away(at(13, 50), 'd-saltmarsh'),
+];
 
-export const ON_TRACK_DAY: Signal[] = byTime([
-  ...stay('d-post', at(9), 90, 'Why we built it'),
-  row('edit_session', 'd-post', at(9, 30), { editCount: 14 }),
-  row('edit_session', 'd-post', at(10, 15), { editCount: 30 }),
-  away(at(10, 31)),
-  ...stay('d-booking', at(11), 40, 'Payment step'),
-  row('edit_session', 'd-booking', at(11, 25), { editCount: 9 }),
-  away(at(11, 41)),
-  ...stay('d-post', at(13), 50, 'What it costs'),
-  row('edit_session', 'd-post', at(13, 20), { editCount: 22 }),
-  away(at(13, 51)),
-]);
+export const ON_TRACK_DAY: Signal[] = [
+  view(at(9), 'd-post', 'Why we built it', POST_WHY),
+  wrote(
+    at(9, 12),
+    'd-post',
+    'Why we built it',
+    'The paper books get wet, and a berth is sold twice.',
+  ),
+  wrote(at(10, 15), 'd-post', 'Who it is for', 'Harbour masters with fewer than forty berths.'),
+  away(at(10, 31), 'd-post'),
+  view(at(11), 'd-booking', 'Payment step', BOOKING),
+  wrote(
+    at(11, 10),
+    'd-booking',
+    'Why an importer',
+    'Riverbend partners re-type every booking from their own sheet, and one in twenty has a typo.',
+  ),
+  wrote(
+    at(11, 25),
+    'd-booking',
+    'Importer',
+    'The importer reads the partner CSV and maps each column to a booking field.',
+  ),
+  away(at(11, 41), 'd-booking'),
+  view(at(13), 'd-post', 'What it costs', POST_COST),
+  wrote(at(13, 20), 'd-post', 'What it costs', 'Berths for boats under six metres are free.'),
+  away(at(13, 51), 'd-post'),
+];
 
 export interface LabelledPoint {
-  at: number;
+  /** The index in DRIFTING_DAY after which the coach decides. */
+  after: number;
   expect: 'speak' | 'quiet';
   /** 0-based, for a "speak" point. */
   goalIndex?: number;
@@ -194,29 +240,26 @@ export interface LabelledPoint {
 }
 
 export const LABELLED_POINTS: LabelledPoint[] = [
-  { at: at(9, 30), expect: 'quiet', why: 'half an hour into the launch post itself' },
+  { after: 1, expect: 'quiet', why: 'writing the launch post itself' },
+  { after: 3, expect: 'quiet', why: 'nine minutes on the hover mock: under the twenty he named' },
   {
-    at: at(9, 50),
-    expect: 'quiet',
-    why: 'nine minutes on the hover mock: under the twenty he named',
-  },
-  {
-    at: at(10, 10),
+    after: 4,
     expect: 'speak',
     goalIndex: 0,
     why: 'half an hour on hover states, post unfinished',
   },
   {
-    at: at(10, 50),
+    after: 6,
     expect: 'speak',
     goalIndex: 1,
     why: 'read the partner’s message and moved on without replying',
   },
   {
-    at: at(11, 30),
-    expect: 'quiet',
-    why: 'half an hour on the booking spec, which no trigger names',
+    after: 10,
+    expect: 'speak',
+    goalIndex: 2,
+    why: 'designed the importer in a spec that never says why it is needed',
   },
-  { at: at(13, 25), expect: 'quiet', why: 'back on the launch post' },
-  { at: at(13, 49), expect: 'quiet', why: 'read the Saltmarsh question and replied' },
+  { after: 13, expect: 'quiet', why: 'back on the launch post' },
+  { after: 15, expect: 'quiet', why: 'read the Saltmarsh question and replied' },
 ];
