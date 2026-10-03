@@ -1,4 +1,4 @@
-import type { ElementAnchor, ElementFingerprint } from '../types.ts';
+import type { AnchorContext, ElementAnchor, ElementFingerprint } from '../types.ts';
 import type { ElementResolution, ElementResolveEnv } from './index.ts';
 
 /**
@@ -39,8 +39,47 @@ export function createAnchor(el: HTMLElement): ElementAnchor {
   };
 }
 
+/**
+ * The tag of a fingerprint made from words alone (`createWordsAnchor`). Not
+ * a tag any element has, so `scoreMatch` gives every element 0 for it and
+ * only the words search below can resolve one.
+ */
+export const WORDS_TAG = '*';
+
+/**
+ * An anchor on the element that says `words`, for an author who cannot see
+ * the page: an agent opening a thread on an app or a mock. The shape is a
+ * person's element anchor, so every surface that renders one renders this;
+ * only its fingerprint is the words and nothing else.
+ */
+export function createWordsAnchor(words: string, context?: AnchorContext): ElementAnchor {
+  const text = words.replace(/\s+/g, ' ').trim();
+  return {
+    kind: 'element',
+    fingerprint: { tag: WORDS_TAG, stableAttrs: {}, classes: [], text, path: '', dataAttrs: {} },
+    snippet: { text },
+    ...(context ? { context } : {}),
+  };
+}
+
+/**
+ * The first element, in page order, whose words hold `fp.text` while none of
+ * its children's do: the smallest element that says it. Words that run
+ * across inline markup (`Riverbend <b>opens</b>`) are found in the element
+ * holding both. Written small: it rides in the budgeted widget bundle.
+ */
+function resolveWords(words: string, root: ParentNode): ElementResolution {
+  const has = (e: Element) => (e.textContent ?? '').replace(/\s+/g, ' ').includes(words);
+  const element = [...root.querySelectorAll<HTMLElement>('body *')].find(
+    (e) =>
+      has(e) && ![...e.children].some(has) && !e.closest('[data-feedback-widget],script,style'),
+  );
+  return element ? { ok: true, element, score: 100 } : { ok: false, reason: 'not-found', score: 0 };
+}
+
 export function resolve(anchor: ElementAnchor, env: ElementResolveEnv): ElementResolution {
   const fp = anchor.fingerprint;
+  if (fp.tag === WORDS_TAG) return resolveWords(fp.text, env.root);
   const root = env.root as ParentNode & Pick<Document, 'getElementById'>;
 
   // fast path: id match
