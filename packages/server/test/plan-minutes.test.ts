@@ -17,7 +17,7 @@ const OWNER = 'riverbend@example.test';
 
 function entry(id: string, text: string, level?: number): prose.OutlineEntry {
   return level === undefined
-    ? { id, kind: 'paragraph', nodeName: 'paragraph', text }
+    ? { id, kind: 'block', nodeName: 'paragraph', text }
     : { id, kind: 'heading', nodeName: 'heading', text, level };
 }
 
