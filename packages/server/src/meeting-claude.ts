@@ -23,14 +23,24 @@
  * say. Only its first sentence is said, in at most `MEETING_SPOKEN_MAX_WORDS`
  * words. A minute is written before the voice is tried, so a voice that
  * fails still leaves it.
+ *
+ * Asked as a page's microphone meeting asks (`spoken-reply/meeting-ask.ts`):
+ * with the meeting doc's notes and what the call said in the two minutes
+ * before the request (`voice-meeting-context.ts`), fenced as untrusted. What
+ * the router hands to the lead is acknowledged ("On it.") and the lead's
+ * answer is said into the call when it arrives, once the bot is not already
+ * speaking, with its minute written by the same `minuteFor` rule
+ * (`spoken-reply/meeting-errands.ts`).
  */
 import type { RecallClient } from './recall.ts';
 import { type SpokenAnswer, SpokenAnswerer, type SpokenBoard } from './spoken-reply/answer.ts';
 import { INTERVIEW_ROUTE } from './spoken-reply/interview.ts';
-import { LEAD_MINUTE_MAX } from './spoken-reply/lead-answer.ts';
+import { LEAD_MINUTE_MAX, type LeadAnswers } from './spoken-reply/lead-answer.ts';
+import { MeetingErrands } from './spoken-reply/meeting-errands.ts';
 import { sentences } from './spoken-reply/reply-shape.ts';
 import type { SpokenVoice } from './spoken-reply/tts.ts';
 import type { VoiceActor } from './voice-action.ts';
+import { MEETING_HEARD_MS, meetingContext } from './voice-meeting-context.ts';
 
 /** A meeting participant, as far as this decision needs one. */
 export interface MeetingSpeaker {
@@ -66,7 +76,25 @@ export interface MeetingClaudeDeps {
   voice: SpokenVoice | null;
   /** Plays MP3 into the call (`RecallClient.outputAudio`). */
   play(botId: string, mp3: Uint8Array): Promise<void>;
+  /** The meeting doc's text as it stands, which a request is asked with. */
+  notesOf?(docId: string): string | null;
+  /** Where the lead's answers to requests it took are waited for; absent,
+   *  only the ack is said. */
+  lead?: { answers: LeadAnswers; boardOf(docId: string): string | undefined };
+  now?: () => number;
   log?: (line: string) => void;
+}
+
+/** One bot's call, as far as answering in it goes. */
+interface BotCall {
+  /** Made on the first request, so "which goal?" is answered in the same call. */
+  answerer?: SpokenAnswerer | null;
+  /** Final turns, oldest first, kept for `MEETING_HEARD_MS`. */
+  said: Array<{ at: number; line: string }>;
+  /** Requests out with the lead, and their answers waiting to be said. */
+  errands: MeetingErrands;
+  /** The latest utterance's way into the notes, for a lead's minute. */
+  note(markdown: string): void;
 }
 
 /** The pause mark the transcriber writes after a name being called. */
@@ -136,8 +164,7 @@ export function minuteFor(a: SpokenAnswer): string | null {
 export class MeetingClaude {
   /** Bots saying an answer now. A second request waits for none. */
   private readonly speaking = new Set<string>();
-  /** One answerer per bot, so "which goal?" is answered in the same call. */
-  private readonly answerers = new Map<string, SpokenAnswerer>();
+  private readonly calls = new Map<string, BotCall>();
 
   constructor(private readonly deps: MeetingClaudeDeps) {}
 
@@ -148,40 +175,74 @@ export class MeetingClaude {
 
   /** A settled utterance. Resolves once the answer is noted and said. */
   async heard(u: MeetingUtterance): Promise<MeetingClaudeVerdict> {
+    const call = this.call(u);
+    const before = this.recent(call);
+    this.remember(call, u);
     const request = wakeRequest(u.text);
     if (request === null) return 'not-addressed';
     if (!isOwner(u.speaker, this.deps.ownerEmail)) return 'not-owner';
     if (this.speaking.has(u.botId)) return 'busy';
     this.speaking.add(u.botId);
+    call.note = u.note;
     try {
-      await this.answer(u, request);
+      await this.answer(u, call, request, before);
     } catch (err) {
-      this.deps.log?.(
-        `[meeting-claude] ${u.docId}: ${err instanceof Error ? err.message : 'answer failed'}`,
-      );
+      this.fail(u.docId, err);
     } finally {
       this.speaking.delete(u.botId);
     }
+    await this.sayHeld(u.botId, call, u.docId);
     return 'answered';
   }
 
-  /** The bot left: its pending question goes with it. */
+  /** The bot left: its pending question and its waits for the lead go with it. */
   forget(botId: string): void {
-    this.answerers.delete(botId);
+    const call = this.calls.get(botId);
+    if (call) this.deps.lead?.answers.drop(call);
+    this.calls.delete(botId);
     this.speaking.delete(botId);
   }
 
-  private async answer(u: MeetingUtterance, request: string): Promise<void> {
-    let answerer = this.answerers.get(u.botId);
-    if (!answerer) {
-      const made = this.deps.answererFor(u.docId);
-      if (made) {
-        answerer = made;
-        this.answerers.set(u.botId, made);
-      }
+  private call(u: MeetingUtterance): BotCall {
+    let call = this.calls.get(u.botId);
+    if (!call) {
+      call = { said: [], errands: new MeetingErrands(), note: u.note };
+      this.calls.set(u.botId, call);
     }
+    return call;
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+
+  private remember(call: BotCall, u: MeetingUtterance): void {
+    const text = u.text.trim();
+    const at = this.now();
+    call.said = call.said.filter((s) => at - s.at <= MEETING_HEARD_MS);
+    if (text) call.said.push({ at, line: u.speaker.name ? `${u.speaker.name}: ${text}` : text });
+  }
+
+  /** What the call said in the `MEETING_HEARD_MS` before now. */
+  private recent(call: BotCall): string {
+    const at = this.now();
+    return call.said
+      .filter((s) => at - s.at <= MEETING_HEARD_MS)
+      .map((s) => s.line)
+      .join('\n');
+  }
+
+  private async answer(
+    u: MeetingUtterance,
+    call: BotCall,
+    request: string,
+    before: string,
+  ): Promise<void> {
+    if (call.answerer === undefined) call.answerer = this.deps.answererFor(u.docId);
+    const answerer = call.answerer;
+    const context = meetingContext(this.deps.notesOf?.(u.docId), before);
     const a: SpokenAnswer = answerer
-      ? await answerer.answer(request, this.deps.actor(u.speaker), undefined)
+      ? await answerer.ask(request, this.deps.actor(u.speaker), undefined, context)
       : {
           spoken: 'This meeting is not on a board, so I have nothing to look up.',
           points: [{ say: 'This meeting is not on a board, so I have nothing to look up.' }],
@@ -190,15 +251,58 @@ export class MeetingClaude {
           route: 'none',
         };
     if (!a.spoken) return;
-    const minute = minuteFor(a);
-    if (minute) u.note(minute);
+    if (a.awaiting) {
+      // "On it." is no answer: the lead's minute, if it gives one, is
+      // written when its answer comes.
+      this.awaitLead(u, call, a.awaiting, request);
+    } else {
+      const minute = minuteFor(a);
+      if (minute) u.note(minute);
+    }
+    await this.say(u.botId, spokenLine(a));
+  }
+
+  private awaitLead(u: MeetingUtterance, call: BotCall, queueId: string, request: string): void {
+    const lead = this.deps.lead;
+    const workspaceId = lead?.boardOf(u.docId);
+    if (!lead || !workspaceId) return;
+    call.errands.started(queueId, request);
+    lead.answers.wait(workspaceId, queueId, call, (a) => {
+      const done = this.calls.get(u.botId) === call ? call.errands.answered(queueId, a) : null;
+      if (!done) return;
+      if (done.note) call.note(done.note);
+      void this.sayHeld(u.botId, call, u.docId);
+    });
+  }
+
+  /** The lead's answers that came in, said while nothing else is. */
+  private async sayHeld(botId: string, call: BotCall, docId: string): Promise<void> {
+    while (call.errands.waiting && !this.speaking.has(botId) && this.calls.get(botId) === call) {
+      this.speaking.add(botId);
+      try {
+        for (const h of call.errands.take()) await this.say(botId, h.spoken);
+      } catch (err) {
+        this.fail(docId, err);
+      } finally {
+        this.speaking.delete(botId);
+      }
+    }
+  }
+
+  private async say(botId: string, line: string): Promise<void> {
     const voice = this.deps.voice;
-    if (!voice) return;
+    if (!voice || !line) return;
     const chunks: Uint8Array[] = [];
-    await voice.speak(spokenLine(a), (b) => chunks.push(b), new AbortController().signal);
+    await voice.speak(line, (b) => chunks.push(b), new AbortController().signal);
     const mp3 = Buffer.concat(chunks);
     if (mp3.length === 0) return;
-    await this.deps.play(u.botId, new Uint8Array(mp3));
+    await this.deps.play(botId, new Uint8Array(mp3));
+  }
+
+  private fail(docId: string, err: unknown): void {
+    this.deps.log?.(
+      `[meeting-claude] ${docId}: ${err instanceof Error ? err.message : 'answer failed'}`,
+    );
   }
 }
 
@@ -217,6 +321,10 @@ export function createMeetingClaude(o: {
   board: () => SpokenBoard;
   boardOf: (docId: string) => string | undefined;
   ownerId: () => string;
+  /** The meeting doc's text, asked with each request. */
+  notesOf?: (docId: string) => string | null;
+  /** The waits the spoken-reply sockets share, so a lead answers one route. */
+  leads?: LeadAnswers;
   log?: (line: string) => void;
 }): MeetingClaude | null {
   const ownerEmail = o.ownerEmail?.trim() ?? '';
@@ -240,6 +348,8 @@ export function createMeetingClaude(o: {
     actor: (speaker) => ({ id: o.ownerId(), name: speaker.name ?? 'Owner', kind: 'known' }),
     voice: o.voice,
     play: (botId, mp3) => client.outputAudio(botId, mp3),
+    ...(o.notesOf ? { notesOf: o.notesOf } : {}),
+    ...(o.leads ? { lead: { answers: o.leads, boardOf: o.boardOf } } : {}),
     log: (line) => console.error(line),
   });
 }

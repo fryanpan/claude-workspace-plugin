@@ -198,6 +198,7 @@ import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import type { SpokenBoard } from './spoken-reply/answer.ts';
 import { interviewDocs } from './spoken-reply/interview-docs.ts';
 import { INTERVIEW_TIMINGS_FILE, InterviewLog } from './spoken-reply/interview-log.ts';
+import { LeadAnswers } from './spoken-reply/lead-answer.ts';
 import { MeetingEars } from './spoken-reply/meeting-ears.ts';
 import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
@@ -692,6 +693,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     accessGatedHosts: [...proxiedTrustedHosts, ...(opts.accessTunnelHosts ?? [])],
   });
   if (recallUnreachable) console.error(`[meetings] bots are OFF: ${recallUnreachable}`);
+  // Who waits for which lead answer: a spoken-reply socket or a bot meeting.
+  const leadAnswers = new LeadAnswers();
   const recallRelay = new RecallMeetingRelay({
     store: meetingStore,
     notes: meetingRelay.notesDeps,
@@ -712,6 +715,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       board: () => spokenBoard,
       boardOf: (docId) => backTargetFor(docId)?.id,
       ownerId: () => ownerIdentityIds()[0] ?? 'owner',
+      notesOf: (docId) => docStore.readMarkdownBody(docId),
+      leads: leadAnswers,
     }),
   });
   /**
@@ -1612,6 +1617,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     ...(opts.voiceComplete ? { explain: opts.voiceComplete } : {}),
   };
   const spokenRelay = new SpokenReplyRelay({
+    leads: leadAnswers,
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
     board: spokenBoard,
     timings: spokenTimings,
