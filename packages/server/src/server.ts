@@ -221,6 +221,7 @@ import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
 import { routerClassifier } from './voice-choice.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
+import { meetingContext } from './voice-meeting-context.ts';
 import { VoiceRouter, parseVoiceContext } from './voice.ts';
 import { type WebhookLogEntry, createWebhookDispatcher } from './webhooks.ts';
 import { isRetired } from './workspace-store.ts';
@@ -1631,6 +1632,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
             engine: meetingEars.engine(docId),
             plan: docStore.peekMeta(docId)?.huddleKind === 'plan',
             note: (markdown) => meetingEars.note(docId, markdown),
+            recent: () =>
+              meetingContext(docStore.readMarkdownBody(docId), meetingEars.recentSpeech(docId)),
           }
         : null,
   });

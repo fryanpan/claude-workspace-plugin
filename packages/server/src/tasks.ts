@@ -78,6 +78,7 @@ import {
   reviewItemPersistenceFor,
   workspacePersistenceFor,
 } from './task-persistence.ts';
+import type { MeetingContext } from './voice-meeting-context.ts';
 
 /**
  * The board task store: server-owned state for Workspace Board workspaces and
@@ -1457,6 +1458,9 @@ export interface VoiceRequestEvent {
   ack: string;
   /** The per-surface anchor the utterance carried (§3.8). */
   context?: unknown;
+  /** Asked in a meeting: its notes and the speech before the request.
+   *  Untrusted, and dropped from a share visitor's copy. */
+  meeting?: MeetingContext;
   /**
    * The queue row this utterance was written to, present on every row routed
    * to an agent.
@@ -3455,6 +3459,8 @@ export class TaskStore {
        *  acknowledges it, which is what takes the row off the queue. */
       queueId?: string;
       actor: { id: string; name: string; kind?: string };
+      /** A meeting's notes and recent speech (`voice-meeting-context.ts`). */
+      meeting?: MeetingContext;
     },
   ): boolean {
     return this.agents.recordVoiceRequest(workspaceId, req);
@@ -3467,6 +3473,7 @@ export class TaskStore {
       context?: unknown;
       actor: { id: string; name: string; kind?: string };
       applied?: string;
+      meeting?: MeetingContext;
     },
   ): string | false {
     return this.agents.queueVoiceRequest(workspaceId, item);

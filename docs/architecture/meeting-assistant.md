@@ -2913,6 +2913,17 @@ notes unless the answer holds a minute (below).
   create tasks…" and "can you review all of the questions in this doc", so
   both were answered with the board brief. A status pick now holds only when
   the words ask how things stand; otherwise it is a change for the lead.
+- **Asked with the meeting** (`voice-meeting-context.ts`, Bryan, 3 Oct: does
+  it have "the full meeting notes including whatever speech led up to the
+  request"?). Before this, the router and the lead got the words after
+  "Claude," and the doc's title. Now both also get the doc's text, its last
+  8,000 characters, and what the room settled in the two minutes before
+  (`MeetingEars.recentSpeech`, at most 4,000 characters). Both are fenced as
+  meeting content, never instructions, because anyone in the room can speak
+  and anyone who can edit the doc can write in it; the fence's markers are
+  defused inside it. The lead reads them in `voice.request`'s `meeting`,
+  which a share visitor's copy drops. Not covered: a Recall bot's
+  "Claude, …" (`meeting-claude.ts`), which asks without them.
 - **Limits.** Anybody speaking into the owner's microphone in the room is
   heard as the owner, because one microphone cannot tell voices apart.
   A minute waits, as the bot path's does, until the meeting's first note

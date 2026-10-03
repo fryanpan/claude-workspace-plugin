@@ -24,12 +24,15 @@
  * delivers anything still held before the notes flush.
  *
  * The same ears serve "Claude, …" in any meeting the page records
- * (`meeting-ask.ts`), whose detail `note` writes into the meeting's notes.
+ * (`meeting-ask.ts`): `note` writes its minute into the meeting's notes, and
+ * `recentSpeech` is the room's last two minutes, which the request is asked
+ * with (`voice-meeting-context.ts`).
  *
  * Nothing here is a vendor, a timer or a file: a map of listeners and a map
  * of held deliveries, keyed by doc id.
  */
 import type { EngineTurn, TranscriptionEngine } from '../transcribe.ts';
+import { MEETING_HEARD_MS } from '../voice-meeting-context.ts';
 
 /** Frames held for one answer before they are let go anyway: about ten
  *  minutes of a busy room, so a question nobody answers cannot starve the
@@ -53,6 +56,8 @@ interface Room {
   held: Held[] | null;
   /** Writes lines into the meeting's own notes section. */
   note: (markdown: string) => void;
+  /** Settled turns, oldest first, with when each settled. */
+  said: Array<{ turn: number; at: number; text: string }>;
 }
 
 function flat(s: string): string {
@@ -66,9 +71,11 @@ export class MeetingEars {
   private readonly listeners = new Map<string, Set<(turn: EngineTurn) => void>>();
   private readonly rooms = new Map<string, Room>();
 
+  constructor(private readonly now: () => number = () => Date.now()) {}
+
   /** A meeting on `docId` went live; `note` writes into its notes. */
   started(docId: string, note: (markdown: string) => void = () => {}): void {
-    if (!this.rooms.has(docId)) this.rooms.set(docId, { held: null, note });
+    if (!this.rooms.has(docId)) this.rooms.set(docId, { held: null, note, said: [] });
   }
 
   /** Lines for the notes of the meeting on `docId` ("Claude, …"'s detail). */
@@ -88,7 +95,24 @@ export class MeetingEars {
 
   /** A frame the meeting on `docId` heard. */
   heard(docId: string, turn: EngineTurn): void {
+    const room = this.rooms.get(docId);
+    const text = turn.text.trim();
+    if (room && turn.final && text) {
+      const at = this.now();
+      // A turn settles once; a second final for it replaces the first.
+      room.said = room.said.filter((s) => s.turn !== turn.turn && at - s.at <= MEETING_HEARD_MS);
+      room.said.push({ turn: turn.turn, at, text });
+    }
     for (const fn of this.listeners.get(docId) ?? []) fn(turn);
+  }
+
+  /** What the meeting on `docId` settled in the last `MEETING_HEARD_MS`. */
+  recentSpeech(docId: string): string {
+    const at = this.now();
+    return (this.rooms.get(docId)?.said ?? [])
+      .filter((s) => at - s.at <= MEETING_HEARD_MS)
+      .map((s) => s.text)
+      .join('\n');
   }
 
   /** Hand the notes composer a frame, now or once the answer is settled. */

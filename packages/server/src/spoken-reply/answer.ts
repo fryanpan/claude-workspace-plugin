@@ -5,6 +5,7 @@ import type {
 } from '@claude-workspaces/core/spoken-reply';
 import type { ReviewItemRow } from '../review-queue.ts';
 import type { VoiceActor } from '../voice-action.ts';
+import type { MeetingContext } from '../voice-meeting-context.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
 import { capWords } from '../voice-status.ts';
 /**
@@ -34,7 +35,12 @@ import { ReviewWalk, type WalkReply } from './review-walk.ts';
 export interface SpokenBoard {
   handle(
     workspaceId: string,
-    req: { transcript: string; context?: VoiceContext; actor: VoiceActor },
+    req: {
+      transcript: string;
+      context?: VoiceContext;
+      actor: VoiceActor;
+      meeting?: MeetingContext;
+    },
   ): Promise<VoiceHandleResult>;
   goalStatus(workspaceId: string, goalId: string): VoiceResult | undefined;
   /** In priority order. */
@@ -225,14 +231,20 @@ export class SpokenAnswerer {
 
   /** "Claude, …" in a meeting (`meeting-ask.ts`): routed as the board mic
    *  routes it, past the planning voice, which would take it as an answer. */
-  ask(heard: string, actor: VoiceActor, context: VoiceContext | undefined): Promise<SpokenAnswer> {
-    return this.route(stripWake(heard), actor, context);
+  ask(
+    heard: string,
+    actor: VoiceActor,
+    context: VoiceContext | undefined,
+    meeting?: MeetingContext,
+  ): Promise<SpokenAnswer> {
+    return this.route(stripWake(heard), actor, context, meeting);
   }
 
   private async route(
     transcript: string,
     actor: VoiceActor,
     context: VoiceContext | undefined,
+    meeting?: MeetingContext,
   ): Promise<SpokenAnswer> {
     const walked = this.walk ? await this.walk.hear(transcript) : null;
     if (walked) {
@@ -263,7 +275,12 @@ export class SpokenAnswerer {
       return this.askWhichGoal(goals);
     }
 
-    const r = await this.board.handle(this.workspaceId, { transcript, context, actor });
+    const r = await this.board.handle(this.workspaceId, {
+      transcript,
+      context,
+      actor,
+      ...(meeting ? { meeting } : {}),
+    });
     if (!r.ok) return plain('I can’t find this board.');
     if (r.queueId) this.onAwaiting?.(r.queueId);
     return {

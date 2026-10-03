@@ -91,4 +91,20 @@ describe('MeetingEars', () => {
     ears.toNotes('d-a', () => got++);
     expect(got).toBe(MAX_HELD_FRAMES + 2);
   });
+
+  it('keeps the settled words of the room for two minutes, one entry a turn', () => {
+    let now = 0;
+    const ears = new MeetingEars(() => now);
+    ears.started('d-a');
+    ears.heard('d-a', { turn: 1, text: 'Dredge the', final: false });
+    ears.heard('d-a', { turn: 1, text: 'Dredge the channel.', final: true });
+    ears.heard('d-a', { turn: 1, text: 'Dredge the Saltmarsh channel.', final: true });
+    now = 60_000;
+    ears.heard('d-a', { turn: 2, text: 'Before March.', final: true });
+    ears.heard('d-b', { turn: 3, text: 'Another room.', final: true });
+    expect(ears.recentSpeech('d-a')).toBe('Dredge the Saltmarsh channel.\nBefore March.');
+    now = 120_001;
+    expect(ears.recentSpeech('d-a')).toBe('Before March.');
+    expect(ears.recentSpeech('d-b')).toBe('');
+  });
 });
