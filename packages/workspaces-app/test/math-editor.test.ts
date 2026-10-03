@@ -138,6 +138,24 @@ describe('an equation in the editor', () => {
     );
   });
 
+  it('opens a display equation when `$$` and a space are typed on an empty line', () => {
+    setKatexForTest(FAKE);
+    const { editor, ydoc } = mount('Before\n\nAfter\n');
+    const view = editor.editor.view;
+    editor.editor.commands.setTextSelection(posOf(editor, 'Before') + 6);
+    editor.editor.commands.splitBlock();
+    editor.editor.commands.insertContent('$$');
+    const from = view.state.selection.from;
+    const handled = view.someProp('handleTextInput', (f) =>
+      f(view, from, from, ' ', () => view.state.tr),
+    );
+    expect(handled).toBe(true);
+    editor.editor.commands.insertContent('x^2');
+    expect(prose.serializeFragmentToMarkdown(prose.getProseFragment(ydoc))).toBe(
+      'Before\n\n$$\nx^2\n$$\n\nAfter\n',
+    );
+  });
+
   it('leaves a price typed in the editor as text', () => {
     setKatexForTest(FAKE);
     const { editor } = mount('Cost\n');
