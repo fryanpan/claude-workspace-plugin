@@ -111,7 +111,8 @@ export interface NotesTargets {
    * notes land in the editor the person is watching. `undefined` means record
    * here, as before. No meeting exists yet, so nothing is recorded per
    * meeting: the meeting that follows runs on the notes doc, a huddle, which
-   * writes in place.
+   * writes in place. A second press on the same doc inside `HANDOFF_REUSE_MS`
+   * is answered with the same notes doc.
    */
   handOff(docId: string): NotesDocHandoff | undefined;
 }
@@ -149,9 +150,11 @@ export function readNotesDocRecord(
   }
 }
 
-/** `base`, with `from` read and written as `to` and every other doc as itself. */
-export function redirectNotesStore(base: NotesDocStore, from: string, to: string): NotesDocStore {
-  const at = (docId: string): string => (docId === from ? to : docId);
+/** `base`, with every doc id read and written as the doc `at` maps it to. */
+export function redirectNotesStore(
+  base: NotesDocStore,
+  at: (docId: string) => string,
+): NotesDocStore {
   return {
     get: (docId) => base.get(at(docId)),
     readOutline: (docId, opts) => base.readOutline(at(docId), opts),
@@ -160,12 +163,23 @@ export function redirectNotesStore(base: NotesDocStore, from: string, to: string
   };
 }
 
+/** How long a hand-off on a doc is reused rather than minting another. */
+export const HANDOFF_REUSE_MS = 10 * 60_000;
+
 export function createNotesTargets(deps: {
   docStore: () => NotesDocStore;
   written: NotesWrittenBlocks;
   mint?: NotesDocMint;
   dataDir?: string;
+  now?: () => number;
 }): NotesTargets {
+  const now = deps.now ?? Date.now;
+  // The last hand-off per doc. A second Record press on the same doc inside
+  // the window — another tab, a retry after a drop, Back and Record again —
+  // goes to the notes doc the first one made, where the doc's one-recorder
+  // claim refuses a second recording, instead of minting another notes doc
+  // and adding another link line.
+  const handedOff = new Map<string, { to: NotesDocHandoff; at: number }>();
   // Per meeting: what the first leg decided. Per doc: what the meeting
   // recording on it now writes into. The store wrapper is keyed by doc only,
   // because every `NotesDocStore` call is.
@@ -248,22 +262,19 @@ export function createNotesTargets(deps: {
     },
     targetOf,
     handOff(docId) {
+      const last = handedOff.get(docId);
+      if (last && now() - last.at < HANDOFF_REUSE_MS) return last.to;
       try {
-        return mintFor(docId) ?? undefined;
+        const to = mintFor(docId) ?? undefined;
+        if (to) handedOff.set(docId, { to, at: now() });
+        return to;
       } catch (err) {
         console.error(`[meeting-notes] notes-doc hand-off failed for ${docId}:`, err);
         return undefined;
       }
     },
     store(base) {
-      return {
-        get: (docId) => base.get(targetOf(docId)),
-        readOutline: (docId, opts) => base.readOutline(targetOf(docId), opts),
-        applyBlockEdits: (docId, edits, who) => base.applyBlockEdits(targetOf(docId), edits, who),
-        ...(base.boundPathOf
-          ? { boundPathOf: (docId: string) => base.boundPathOf?.(targetOf(docId)) }
-          : {}),
-      };
+      return redirectNotesStore(base, targetOf);
     },
     titles(base) {
       return {

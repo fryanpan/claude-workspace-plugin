@@ -24,7 +24,9 @@ import {
   withServerNotesSinks,
 } from '../src/meeting-notes-doc.ts';
 import {
+  HANDOFF_REUSE_MS,
   type NotesDocMint,
+  createNotesTargets,
   createServerNotesDocMint,
   holdsOwnWriting,
 } from '../src/meeting-notes-target.ts';
@@ -32,6 +34,7 @@ import { type NotesComposeInput, beginNotesSession } from '../src/meeting-notes.
 import { meetingDirPath, meetingTranscriptPath } from '../src/meetings.ts';
 import { NOTES_AUTHOR_ID } from '../src/notes-doc-access.ts';
 import { readNotesQuality } from '../src/notes-quality-store.ts';
+import { createNotesWrittenBlocks } from '../src/notes-written-blocks.ts';
 import { type TestDoc, markdownOfDoc, notesDocStore } from './notes-doc-helpers.ts';
 import { ManualScheduler, addNotes } from './notes-tick-harness.ts';
 import { waitFor } from './wait-for.ts';
@@ -241,6 +244,29 @@ describe('a meeting on a doc with nothing of a person’s in it', () => {
     });
     expect(w.minted).toEqual([]);
     for (const s of SAID) expect(markdownOfDoc(source.ydoc)).toContain(s);
+  });
+});
+
+describe('a second Record press on the same doc', () => {
+  it('goes to the notes doc the first press made, until the window passes', () => {
+    const source = docFrom(OWN_DOC);
+    const w = world(source);
+    let clock = 1_000;
+    const targets = createNotesTargets({
+      docStore: () => w.store,
+      written: createNotesWrittenBlocks(),
+      mint: w.mint,
+      now: () => clock,
+    });
+    const first = targets.handOff(SOURCE);
+    clock += 60_000;
+    // Another tab, a retry after a drop, Back and Record again.
+    expect(targets.handOff(SOURCE)).toEqual(first);
+    expect(w.minted).toEqual(['d-notes-1']);
+    expect(markdownOfDoc(source.ydoc).match(/Meeting notes: \[/g) ?? []).toHaveLength(1);
+
+    clock += HANDOFF_REUSE_MS;
+    expect(targets.handOff(SOURCE)?.docId).toBe('d-notes-2');
   });
 });
 

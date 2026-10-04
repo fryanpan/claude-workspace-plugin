@@ -362,17 +362,25 @@ export async function handleMeetingCalendarRoutes(
     // section record and the recording check stay keyed by the doc the
     // meeting was started on, which is where they live.
     const notesDocId = readNotesDocRecord(dataDir, { docId, meetingId });
+    const notesDoc = typeof notesDocId === 'string' ? notesDocId : undefined;
+    // The notes doc is a huddle anybody on the board can record on, and a
+    // recording there writes the very section this pass would rewrite.
+    if (notesDoc !== undefined && meetingStore.active(notesDoc) !== undefined) {
+      return j(409, { error: 'meeting is still recording — stop it first' });
+    }
     const result = await runNotesCleanupPass(
       {
         docStore: () =>
-          typeof notesDocId === 'string'
-            ? redirectNotesStore(docStore, docId, notesDocId)
+          notesDoc !== undefined
+            ? redirectNotesStore(docStore, (d) => (d === docId ? notesDoc : d))
             : docStore,
         composer: meetingRelay.notesDeps?.composer ?? null,
         dataDir,
         headingIdOf: (doc, meeting) =>
           createNotesHeadingFileStore(dataDir).read({ docId: doc, meetingId: meeting }),
-        recordingNow: (doc) => meetingStore.active(doc) !== undefined,
+        recordingNow: (doc) =>
+          meetingStore.active(doc) !== undefined ||
+          (notesDoc !== undefined && meetingStore.active(notesDoc) !== undefined),
       },
       { docId, meetingId },
     );

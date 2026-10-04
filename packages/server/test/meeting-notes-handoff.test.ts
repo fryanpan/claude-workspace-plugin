@@ -270,6 +270,19 @@ describe('the tidy-up of a meeting whose notes went to a notes doc', () => {
       `${JSON.stringify({ docId: source, meetingId: MEETING, notesDocId: notes, at: 1 })}\n`,
     );
     const before = blocksOf(source);
+    const tidy = (): Promise<Response> =>
+      fetch(`${base}/workspaces/${WS}/docs/${source}/meetings/${MEETING}/notes-cleanup`, {
+        method: 'POST',
+      });
+
+    // Somebody recording on the notes doc is writing the section this pass
+    // would rewrite, so it waits, as it does for a recording on the original.
+    const live = await startOn(notes, false);
+    expect(live.frames.some((f) => f.type === 'ready')).toBe(true);
+    expect((await tidy()).status).toBe(409);
+    live.ws.send(JSON.stringify({ type: 'stop' }));
+    await waitFor(() => live.frames.some((f) => f.type === 'stopped'), 'stopped');
+    live.ws.close();
 
     const res = await fetch(
       `${base}/workspaces/${WS}/docs/${source}/meetings/${MEETING}/notes-cleanup`,

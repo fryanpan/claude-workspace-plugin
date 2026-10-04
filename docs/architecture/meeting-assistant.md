@@ -1617,13 +1617,19 @@ to the notes doc with `?huddle=1&mode=<the chosen mode>&continue=1`. That page
 starts the recording at once, in that mode, without asking again. The notes
 doc is a huddle, so that meeting writes in place, and its transcript, tidy-up
 and live zone are an ordinary huddle's. Nothing is recorded on the original,
-which gains only the link.
+which gains only the link. A second press on the same doc within
+`HANDOFF_REUSE_MS` (ten minutes) gets the same notes doc, whether it comes from
+another tab, a retry after a drop, or Back and Record again. The notes doc's
+one-recorder claim then refuses a second recording, and no second link line
+is added.
 
 The server-side redirect above is still how the other starters work: a client
 that does not send `handoff`, a mic-plus-Mac-audio capture (the share picker
 needs a press the next page cannot replay), and the Recall bot. The tidy-up of
 such a meeting reads `<meetingId>-notes-doc.json` from disk and reads and
-writes the notes doc (`redirectNotesStore`). Still not covered: the
+writes the notes doc (`redirectNotesStore`). It also waits while anyone is
+recording on the notes doc, as it does for a recording on the original. Still
+not covered: the
 doc-to-notes-doc map the live sinks use is held in the process, so a speaker
 rename sent over REST after a server restart, with no recording running,
 reaches the original doc rather than the notes.
