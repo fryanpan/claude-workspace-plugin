@@ -1599,7 +1599,10 @@ sinks make onto the new doc. The original's existing blocks are not touched.
 not carry the note-taker's mark, and is not a block any meeting on that doc
 recorded writing. Headings alone do not count, so a new doc holding only its
 title, a huddle seeded with its topic, and a calendar meeting's doc keep
-writing in place, and a huddle never redirects whatever it holds. The choice
+writing in place. A huddle or a calendar meeting's doc (alias `meeting-*`, the
+same test the meeting namer uses) never redirects whatever it holds: notes
+written there before this change, or after a stop, carry no record of the
+meeting that wrote them and would otherwise read as the person's. The choice
 is made once per meeting and kept in `<meetingId>-notes-doc.json`, so a
 resumed leg writes where the first leg did. The transcript, the timing log,
 the heading record and the quality item stay keyed by the doc the meeting was
@@ -1618,21 +1621,35 @@ starts the recording at once, in that mode, without asking again. The notes
 doc is a huddle, so that meeting writes in place, and its transcript, tidy-up
 and live zone are an ordinary huddle's. Nothing is recorded on the original,
 which gains only the link. A second press on the same doc within
-`HANDOFF_REUSE_MS` (ten minutes) gets the same notes doc, whether it comes from
-another tab, a retry after a drop, or Back and Record again. The notes doc's
-one-recorder claim then refuses a second recording, and no second link line
-is added.
+`HANDOFF_REUSE_MS` (ten minutes), or at any time while a meeting is recording
+on that notes doc, gets the same notes doc, whether it comes from another tab,
+a retry after a drop, or Back and Record again. The notes doc's one-recorder
+claim then refuses a second recording, and no second link line is added.
 
 The server-side redirect above is still how the other starters work: a client
 that does not send `handoff`, a mic-plus-Mac-audio capture (the share picker
 needs a press the next page cannot replay), and the Recall bot. The tidy-up of
 such a meeting reads `<meetingId>-notes-doc.json` from disk and reads and
 writes the notes doc (`redirectNotesStore`). It also waits while anyone is
-recording on the notes doc, as it does for a recording on the original. Still
-not covered: the
-doc-to-notes-doc map the live sinks use is held in the process, so a speaker
-rename sent over REST after a server restart, with no recording running,
-reaches the original doc rather than the notes.
+recording on the notes doc, as it does for a recording on the original.
+
+Known gaps in the notes-doc redirect:
+
+- **The live map is per process and per doc.** The sinks' doc-to-notes-doc map
+  is held in memory, keyed by the doc alone. After a server restart, a writer
+  that runs once the recording has stopped (a speaker rename over REST, a late
+  tick) reaches the original doc rather than the notes. And because the map
+  holds only the latest meeting on a doc, a rename for an older meeting can
+  land in the newer meeting's notes doc.
+- **The hand-off's link record looks like a meeting's file.** A hand-off has
+  no meeting yet, so the link line's written-blocks record is stored as
+  `handoff-<notesDocId>-written.json` in the source doc's per-meeting
+  directory, under an id that is no meeting's. The only reader today is the
+  written-blocks scan, which wants it; a future reader that took every
+  `*-written.json` there for a meeting would find one with no transcript.
+- **Fixed in the same change:** the tidy-up's recording check used to read
+  only the original doc, so it could run while the notes doc was still
+  recording. It now refuses with 409 while either is recording.
 
 **What stops the re-filing is comparing the VERDICT, not the words** —
 `notes-quality-verdict.ts`. The filer holds what its standing item says and

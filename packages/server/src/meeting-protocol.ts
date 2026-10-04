@@ -985,9 +985,13 @@ export class MeetingRelay {
     // is watching. A client that cannot follow (no `handoff`) records here,
     // and the notes sink sends its notes to the same kind of doc itself.
     // A doc somebody is already recording is refused below as before, rather
-    // than handed a second notes doc.
+    // than handed a second notes doc, and a press while the notes doc itself
+    // is recording is sent to that same notes doc.
     if (handoff && resume === undefined && this.deps.store.active(docId) === undefined) {
-      const moved = this.deps.notes?.handOffNotesDoc?.(docId);
+      const moved = this.deps.notes?.handOffNotesDoc?.(
+        docId,
+        (d) => this.deps.store.active(d) !== undefined,
+      );
       if (moved) {
         this.send(ws, { type: 'notes_doc', ...moved });
         return;

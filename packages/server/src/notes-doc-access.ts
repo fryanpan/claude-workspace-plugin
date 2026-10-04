@@ -49,6 +49,9 @@ export interface NotesDocMeta {
   /** A huddle exists to be a meeting's notes, so it never redirects them
    *  elsewhere (`meeting-notes-target.ts`). */
   huddle?: boolean;
+  /** `meeting-<time>` on a calendar meeting's doc, which is a meeting's notes
+   *  by construction and never redirects them either. */
+  alias?: string;
 }
 
 /**

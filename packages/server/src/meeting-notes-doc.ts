@@ -1490,7 +1490,7 @@ export function withServerNotesSinks(
   return {
     ...options,
     ...(captureIntents ? { captureIntents } : {}),
-    handOffNotesDoc: (docId) => targets.handOff(docId),
+    handOffNotesDoc: (docId, recording) => targets.handOff(docId, recording),
     // NOTHING SUPPLIED THIS BEFORE, so every compose failure the pipeline
     // reported went nowhere — including the one that matters most, a reply
     // refused for running past the composer's output ceiling. Those ticks are

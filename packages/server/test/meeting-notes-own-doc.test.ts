@@ -245,6 +245,33 @@ describe('a meeting on a doc with nothing of a person’s in it', () => {
     expect(w.minted).toEqual([]);
     for (const s of SAID) expect(markdownOfDoc(source.ydoc)).toContain(s);
   });
+
+  it('writes in place on a calendar meeting doc, whatever it holds', async () => {
+    // Notes written before this release, or after a stop, carry no record and
+    // read as a person's writing; a calendar meeting doc keeps them anyway.
+    const meta = { type: 'markdown', alias: 'meeting-1760000000000' } as const;
+    const source = docFrom(OWN_DOC, meta);
+    const w = world(source);
+    await leg({
+      w,
+      heading: createNotesHeadingMemory(),
+      dataDir: freshDataDir(),
+      say: SAID,
+      compose: NOTES,
+    });
+    expect(w.minted).toEqual([]);
+    for (const s of SAID) expect(markdownOfDoc(source.ydoc)).toContain(s);
+
+    const targets = createNotesTargets({
+      docStore: () => w.store,
+      written: createNotesWrittenBlocks(),
+      mint: w.mint,
+    });
+    expect(targets.handOff(SOURCE)).toBeUndefined();
+    // Positive control: the same doc without the alias is handed off.
+    source.meta = { type: 'markdown' };
+    expect(targets.handOff(SOURCE)?.docId).toBe('d-notes-1');
+  });
 });
 
 describe('a second Record press on the same doc', () => {
@@ -267,6 +294,30 @@ describe('a second Record press on the same doc', () => {
 
     clock += HANDOFF_REUSE_MS;
     expect(targets.handOff(SOURCE)?.docId).toBe('d-notes-2');
+  });
+
+  it('goes to the same notes doc while a meeting is live there, past the window', () => {
+    const source = docFrom(OWN_DOC);
+    const w = world(source);
+    let clock = 1_000;
+    const targets = createNotesTargets({
+      docStore: () => w.store,
+      written: createNotesWrittenBlocks(),
+      mint: w.mint,
+      now: () => clock,
+    });
+    const live = new Set<string>();
+    const recording = (docId: string) => live.has(docId);
+    const first = targets.handOff(SOURCE, recording);
+    live.add('d-notes-1');
+    clock += 3 * HANDOFF_REUSE_MS;
+    expect(targets.handOff(SOURCE, recording)).toEqual(first);
+    expect(w.minted).toEqual(['d-notes-1']);
+    expect(markdownOfDoc(source.ydoc).match(/Meeting notes: \[/g) ?? []).toHaveLength(1);
+
+    // The meeting stops: the next press past the window makes a new one.
+    live.clear();
+    expect(targets.handOff(SOURCE, recording)?.docId).toBe('d-notes-2');
   });
 });
 

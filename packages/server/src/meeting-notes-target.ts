@@ -15,8 +15,10 @@
  * block any meeting on this doc recorded writing (`notes-written-blocks.ts`).
  * Headings alone do not count, so a new doc holding only its title, a huddle
  * seeded with its topic, and a calendar meeting doc seeded with the event
- * title all keep today's behaviour. A huddle doc never redirects whatever it
- * holds: it exists to be a meeting's notes.
+ * title all keep today's behaviour. A huddle or a calendar meeting's doc
+ * (alias `meeting-*`) never redirects whatever it holds: it exists to be a
+ * meeting's notes, and notes written there before this release, or after a
+ * stop, carry no record and would otherwise read as a person's writing.
  *
  * THE PLANNING INTERVIEW IS NOT A NOTES MEETING. `spoken-reply/interview.ts`
  * writes answers into a doc's own sections on purpose and never comes through
@@ -48,6 +50,7 @@ import type { MeetingTitleStore } from './meeting-titler.ts';
 import { meetingNotesDocPath } from './meetings.ts';
 import {
   NOTES_AUTHOR_ID,
+  type NotesDocMeta,
   type NotesDocStore,
   applyNotesBlockEdits,
   readNotesOutline,
@@ -111,10 +114,11 @@ export interface NotesTargets {
    * notes land in the editor the person is watching. `undefined` means record
    * here, as before. No meeting exists yet, so nothing is recorded per
    * meeting: the meeting that follows runs on the notes doc, a huddle, which
-   * writes in place. A second press on the same doc inside `HANDOFF_REUSE_MS`
-   * is answered with the same notes doc.
+   * writes in place. A second press on the same doc inside `HANDOFF_REUSE_MS`,
+   * or while `recording` says the notes doc is live, is answered with the
+   * same notes doc.
    */
-  handOff(docId: string): NotesDocHandoff | undefined;
+  handOff(docId: string, recording?: (docId: string) => boolean): NotesDocHandoff | undefined;
 }
 
 /** Where a page should record instead: the notes doc it just got. */
@@ -166,6 +170,12 @@ export function redirectNotesStore(
 /** How long a hand-off on a doc is reused rather than minting another. */
 export const HANDOFF_REUSE_MS = 10 * 60_000;
 
+/** A huddle or a calendar meeting's doc: its writing IS a meeting's notes, so
+ *  it keeps them. The same test as `meeting-titler.ts`'s. */
+function isMeetingDoc(meta: NotesDocMeta): boolean {
+  return meta.huddle === true || (meta.alias?.startsWith('meeting-') ?? false);
+}
+
 export function createNotesTargets(deps: {
   docStore: () => NotesDocStore;
   written: NotesWrittenBlocks;
@@ -216,7 +226,7 @@ export function createNotesTargets(deps: {
     if (!deps.mint) return null;
     const base = deps.docStore();
     const doc = base.get(docId);
-    if (!doc || doc.meta.huddle === true || contentKind(doc.meta.type) !== 'prose') return null;
+    if (!doc || isMeetingDoc(doc.meta) || contentKind(doc.meta.type) !== 'prose') return null;
     const before = readNotesOutline(base, docId);
     if (!holdsOwnWriting(before, deps.written.writtenInDoc(docId))) return null;
     const minted = deps.mint({
@@ -261,9 +271,11 @@ export function createNotesTargets(deps: {
       else current.set(ids.docId, notesDocId);
     },
     targetOf,
-    handOff(docId) {
+    handOff(docId, recording) {
       const last = handedOff.get(docId);
-      if (last && now() - last.at < HANDOFF_REUSE_MS) return last.to;
+      if (last && (now() - last.at < HANDOFF_REUSE_MS || recording?.(last.to.docId) === true)) {
+        return last.to;
+      }
       try {
         const to = mintFor(docId) ?? undefined;
         if (to) handedOff.set(docId, { to, at: now() });
