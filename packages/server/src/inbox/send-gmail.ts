@@ -20,7 +20,7 @@
  * Errors name the step and the HTTP status, never a response body: a body
  * from Google can echo the request.
  */
-import { GMAIL_ACCOUNTS, GMAIL_SEND_SERVICE, type SendKeychain } from './send-keychain.ts';
+import { type SendKeychain, gmailCredentials, gmailReady } from './send-keychain.ts';
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export type SendOutcome = { ok: true; upstreamId: string } | { ok: false; error: string };
@@ -116,17 +116,15 @@ export function gmailSender(deps: {
 
   async function accessToken(): Promise<string | null> {
     if (token && token.until > now()) return token.value;
-    const [clientId, clientSecret, refreshToken] = GMAIL_ACCOUNTS.map((a) =>
-      deps.keychain.read(GMAIL_SEND_SERVICE, a),
-    );
-    if (!clientId || !clientSecret || !refreshToken) return null;
+    const creds = gmailCredentials(deps.keychain);
+    if (!creds) return null;
     const res = await deps.fetch(TOKEN_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
+        refresh_token: creds.refreshToken,
         grant_type: 'refresh_token',
       }).toString(),
     });
@@ -140,7 +138,7 @@ export function gmailSender(deps: {
   }
 
   return {
-    ready: () => GMAIL_ACCOUNTS.every((a) => deps.keychain.has(GMAIL_SEND_SERVICE, a)),
+    ready: () => gmailReady(deps.keychain),
     async send(threadId, text) {
       if (!THREAD_ID.test(threadId)) return { ok: false, error: 'gmail: thread id' };
       const access = await accessToken();
