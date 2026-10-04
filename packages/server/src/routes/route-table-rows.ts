@@ -158,6 +158,21 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/review', 'GET'],
   ]),
 
+  // The coach session's moment is refused through the edge, from off this
+  // machine and from a page (`refuseNonLocalAgentCaller`); it carries no
+  // token. The page routes are trusted-local and then refuse every caller but
+  // the owner's own signed-in pages.
+  ...family('routes/coach.ts', [
+    ['loopback-only', '/coach/moments', 'POST'],
+    ['trusted-local', '/coach/setup', 'POST'],
+    ['trusted-local', '/coach/goals/add', 'POST'],
+    ['trusted-local', '/coach/review', 'POST'],
+    ['trusted-local', '/coach/prefs', 'POST'],
+    ['trusted-local', '/coach/boards', 'POST'],
+    ['trusted-local', '/coach/here', 'POST'],
+    ['trusted-local', '/coach/stream', 'GET'],
+    ['trusted-local', '/coach/moments/:id/answer', 'POST'],
+  ]),
   // The post is the reader's alone and checks its peer address and token
   // (`authorizeAgentCaller`); the read and the taps are trusted-local and
   // then refuse every caller but the owner's own signed-in front page.
