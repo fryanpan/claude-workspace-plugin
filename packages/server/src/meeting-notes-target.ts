@@ -16,7 +16,7 @@
  * Headings alone do not count, so a new doc holding only its title, a huddle
  * seeded with its topic, and a calendar meeting doc seeded with the event
  * title all keep today's behaviour. A huddle or a calendar meeting's doc
- * (alias `meeting-*`) never redirects whatever it holds: it exists to be a
+ * (an alias `meetingDocAlias` minted) never redirects whatever it holds: it exists to be a
  * meeting's notes, and notes written there before this release, or after a
  * stop, carry no record and would otherwise read as a person's writing.
  *
@@ -44,7 +44,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { contentKind, type prose } from '@claude-workspaces/core';
-import { meetingDocAlias, meetingDocFilePath } from './huddle.ts';
+import { isMeetingDocAlias, meetingDocAlias, meetingDocFilePath } from './huddle.ts';
 import { docLookupUrl } from './meeting-lookup.ts';
 import type { MeetingTitleStore } from './meeting-titler.ts';
 import { meetingNotesDocPath } from './meetings.ts';
@@ -171,9 +171,10 @@ export function redirectNotesStore(
 export const HANDOFF_REUSE_MS = 10 * 60_000;
 
 /** A huddle or a calendar meeting's doc: its writing IS a meeting's notes, so
- *  it keeps them. The same test as `meeting-titler.ts`'s. */
+ *  it keeps them. The alias must be one `meetingDocAlias` minted, not merely
+ *  start `meeting-`: a person's own doc can be named that. */
 function isMeetingDoc(meta: NotesDocMeta): boolean {
-  return meta.huddle === true || (meta.alias?.startsWith('meeting-') ?? false);
+  return meta.huddle === true || (meta.alias !== undefined && isMeetingDocAlias(meta.alias));
 }
 
 export function createNotesTargets(deps: {
@@ -274,6 +275,9 @@ export function createNotesTargets(deps: {
     handOff(docId, recording) {
       const last = handedOff.get(docId);
       if (last && (now() - last.at < HANDOFF_REUSE_MS || recording?.(last.to.docId) === true)) {
+        // The window runs from the last press, so Record again a minute
+        // after a long meeting stops still finds its notes doc.
+        last.at = now();
         return last.to;
       }
       try {

@@ -249,7 +249,7 @@ describe('a meeting on a doc with nothing of a person’s in it', () => {
   it('writes in place on a calendar meeting doc, whatever it holds', async () => {
     // Notes written before this release, or after a stop, carry no record and
     // read as a person's writing; a calendar meeting doc keeps them anyway.
-    const meta = { type: 'markdown', alias: 'meeting-1760000000000' } as const;
+    const meta = { type: 'markdown', alias: 'meeting-20261004-0930-x7q2' } as const;
     const source = docFrom(OWN_DOC, meta);
     const w = world(source);
     await leg({
@@ -270,6 +270,17 @@ describe('a meeting on a doc with nothing of a person’s in it', () => {
     expect(targets.handOff(SOURCE)).toBeUndefined();
     // Positive control: the same doc without the alias is handed off.
     source.meta = { type: 'markdown' };
+    expect(targets.handOff(SOURCE)?.docId).toBe('d-notes-1');
+  });
+
+  it('still hands off a person’s own doc that merely starts meeting-', () => {
+    const source = docFrom(OWN_DOC, { type: 'markdown', alias: 'meeting-prep' });
+    const w = world(source);
+    const targets = createNotesTargets({
+      docStore: () => w.store,
+      written: createNotesWrittenBlocks(),
+      mint: w.mint,
+    });
     expect(targets.handOff(SOURCE)?.docId).toBe('d-notes-1');
   });
 });
@@ -315,8 +326,12 @@ describe('a second Record press on the same doc', () => {
     expect(w.minted).toEqual(['d-notes-1']);
     expect(markdownOfDoc(source.ydoc).match(/Meeting notes: \[/g) ?? []).toHaveLength(1);
 
-    // The meeting stops: the next press past the window makes a new one.
+    // The meeting stops. A press soon after still finds it, because the
+    // window runs from the last press; one a window later makes a new one.
     live.clear();
+    clock += 60_000;
+    expect(targets.handOff(SOURCE, recording)).toEqual(first);
+    clock += HANDOFF_REUSE_MS;
     expect(targets.handOff(SOURCE, recording)?.docId).toBe('d-notes-2');
   });
 });
