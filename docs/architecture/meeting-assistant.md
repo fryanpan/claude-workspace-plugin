@@ -1568,6 +1568,52 @@ any reading. The record on disk carries `coverageSource` so it cannot be read
 back as a real zero, and the week's rollup leaves it out of every
 notes-derived total, counting it under `coverageUnknown` instead.
 
+**The marks do not last a meeting, so the meeting keeps its own list**
+(`notes-written-blocks.ts`, 2026-10-04). Every recording LEG releases every
+mark when it starts, and a reconnect starts a leg. So after a dropped socket
+the first leg's notes read as nobody's, and the stop read only what the last
+leg wrote. On a person's own doc, where the notes sat under the doc's
+headings and the meeting had opened one heading of its own, that reading held
+one heading and one bullet: the stop filed "79 of 79 things said reached no
+note (100%)" beside "0 of 74 notes landed over a minute late". The two
+numbers read different records. Lateness reads `<meetingId>-timing.jsonl`,
+which every leg appends to; coverage read the doc's marks, which only the
+last leg still held. Now, after every tick that writes and again at each
+leg's stop, the ids of the blocks still carrying the mark are added to
+`<meetingId>-written.json` beside the transcript, and `readMeetingNotes`
+reads those ids as the meeting's too. The record holds block ids only, never
+words. It only grows: a block a person deletes is not found in the doc, and a
+block a person edits is still a note the meeting wrote.
+`notes-quality-legs-coverage.test.ts` reproduces the 100% from that cause
+with a two-leg fixture meeting.
+
+**A meeting on a person's own doc writes its notes to a doc of its own**
+(`meeting-notes-target.ts`; the owner, 2026-10-04: "Put them in a separate
+doc and don't mess up my original doc"). When a recording's first leg starts
+on a doc that holds the person's own writing, the server mints a notes doc (a
+huddle titled `<doc title> — meeting notes`, bound under the data dir and
+filed on the source doc's board), appends one line to the original —
+`Meeting notes: [<title>](<link>)` — and maps every read and write the notes
+sinks make onto the new doc. The original's existing blocks are not touched.
+*The person's own writing* is any block with text that is not a heading, does
+not carry the note-taker's mark, and is not a block any meeting on that doc
+recorded writing. Headings alone do not count, so a new doc holding only its
+title, a huddle seeded with its topic, and a calendar meeting's doc keep
+writing in place, and a huddle never redirects whatever it holds. The choice
+is made once per meeting and kept in `<meetingId>-notes-doc.json`, so a
+resumed leg writes where the first leg did. The transcript, the timing log,
+the heading record and the quality item stay keyed by the doc the meeting was
+started on. The planning interview (`spoken-reply/interview.ts`) writes
+answers into a doc's own sections on purpose and does not use the notes
+sinks, so it is unchanged.
+
+What the redirect does not yet cover: the map from the original doc to the
+notes doc is held in the process, so a speaker rename sent over REST after a
+server restart (with no recording running) reaches the original doc rather
+than the notes; the end-of-meeting tidy-up button (`notes-cleanup-pass.ts`)
+still reads the doc the meeting was started on; and the live page stays on
+the original doc, so the reader follows the link to watch the notes arrive.
+
 **What stops the re-filing is comparing the VERDICT, not the words** —
 `notes-quality-verdict.ts`. The filer holds what its standing item says and
 revises only when a later leg says something else. Comparing the rendered

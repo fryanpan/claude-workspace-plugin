@@ -73,6 +73,7 @@ import { createMeetingClaude } from './meeting-claude.ts';
 import { meetingFilingFor } from './meeting-home.ts';
 import { type LookupDoc, boardLookupDocs } from './meeting-lookup.ts';
 import { withServerNotesSinks } from './meeting-notes-doc.ts';
+import { createServerNotesDocMint } from './meeting-notes-target.ts';
 import { MeetingRelay } from './meeting-protocol.ts';
 import { MEETING_CAPTURE_ACTOR } from './meeting-task-capture.ts';
 import { retitleClockTitlesAtBoot } from './meeting-titler.ts';
@@ -553,6 +554,18 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           tasks: () => taskStore,
           // The meeting namer's reads and its guarded title write.
           titleStore: () => docStore,
+          // A meeting on a person's own doc writes its notes into a doc of
+          // its own, linked from the original in one line
+          // (`meeting-notes-target.ts`). Thunks for the reason above.
+          mintNotesDoc: createServerNotesDocMint(
+            {
+              createForCaller: (requested, init) => docStore.createForCaller(requested, init),
+              attachFile: (docId, file) => docStore.attachFile(docId, file),
+              fileUnderBoard: (docId, requested) => fileUnderBoardWorkspace(docId, requested),
+              boardOf: (docId) => backTargetFor(docId)?.id,
+            },
+            dataDir,
+          ),
           // One reader: the legacy-transcript removal, which must not take a
           // `Raw transcript` heading out of a doc bound into somebody's
           // working tree, where the old note-taker never wrote one.

@@ -1201,7 +1201,14 @@ whether that markdown is a reading at all, writes nothing, and both the
 quality pass and the rerun harness address the notes through it — whole-doc
 note-taking means a heading id no longer names a meeting's output, and a
 reading that finds nothing in a document holding blocks says so rather than
-answering the empty string a genuinely empty document would. Nothing under `routes/` is added: the
+answering the empty string a genuinely empty document would.
+`notes-written-blocks.ts` sits beside it in the data-dir tier and keeps the
+ids of every block a meeting wrote, across its legs, because each leg
+releases the marks `notes-written.ts` reads. `meeting-notes-target.ts` is the
+one new arrow on the notes sinks: it decides, once per meeting, whether the
+notes go into the doc the meeting was started on or into a notes doc of its
+own (when that doc holds a person's writing), and wraps the sinks'
+`NotesDocStore` so every read and write lands there. Nothing under `routes/` is added: the
 week's rollup rides the existing `GET /api/metrics` reply, for the reason
 `uptimeSec` does.
 

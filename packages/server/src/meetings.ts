@@ -197,6 +197,25 @@ export function meetingSectionPath(dataDir: string, docId: string, meetingId: st
   return join(meetingDirPath(dataDir, docId), `${safeSegment(meetingId)}-section.json`);
 }
 
+/**
+ * Where the ids of every block this meeting wrote are kept — the record the
+ * notes check reads, because the authorship marks are released at the start
+ * of every recording leg (`notes-written-blocks.ts`).
+ */
+export function meetingWrittenPath(dataDir: string, docId: string, meetingId: string): string {
+  return join(meetingDirPath(dataDir, docId), `${safeSegment(meetingId)}-written.json`);
+}
+
+/**
+ * Where a meeting records which doc its notes go to — the doc it was started
+ * on, or a notes doc of its own when that doc held a person's writing
+ * (`meeting-notes-target.ts`). Read back on a resume, so a meeting never
+ * changes doc between legs.
+ */
+export function meetingNotesDocPath(dataDir: string, docId: string, meetingId: string): string {
+  return join(meetingDirPath(dataDir, docId), `${safeSegment(meetingId)}-notes-doc.json`);
+}
+
 /** Where the doc's enumerable list of meetings lives. */
 export function meetingIndexPath(dataDir: string, docId: string): string {
   return join(meetingDirPath(dataDir, docId), 'meetings.jsonl');

@@ -29,8 +29,10 @@
  * a prepared doc writes under the document's own headings and opens no
  * section at all, so a reading keyed on a heading id read four bullets of a
  * real meeting's 186 and reported coverage over the four. The address is now
- * the note-taker's own authorship marks, wherever they sit, UNION its section
- * — `notes-written.ts` holds that walk and the reasons for both halves. The
+ * the note-taker's own authorship marks, wherever they sit, UNION the blocks
+ * the meeting's own record says it wrote in any leg (`notes-written-blocks.ts`;
+ * every leg releases the marks when it starts), UNION its section —
+ * `notes-written.ts` holds that walk and the reasons for each half. The
  * blocks are read as MARKDOWN rather than as outline text, because the
  * outline flattens a block's marks away and the speaker tags are exactly what
  * the invented-voice check reads.
@@ -135,6 +137,12 @@ export interface NotesQualityPassDeps {
    * is read, which is what this pass always did.
    */
   priorBlocks?: (docId: string, meetingId: string) => ReadonlySet<string>;
+  /**
+   * Every block this meeting wrote, in every leg. Absent, the reading has
+   * only the marks the ending leg still holds, which after a reconnect is the
+   * last leg's notes alone.
+   */
+  writtenBlocks?: (docId: string, meetingId: string) => ReadonlySet<string>;
   /** The actor a filed item is attributed to. */
   actor: { id: string; name: string; kind?: string };
   now?: () => number;
@@ -177,6 +185,8 @@ export function runNotesQualityPass(
     docId,
     deps.headingIdOf(docId, meetingId),
     deps.priorBlocks?.(docId, meetingId),
+    undefined,
+    deps.writtenBlocks?.(docId, meetingId),
   );
   let transcript: SpokenTurn[] = [];
   if (deps.dataDir !== undefined) {

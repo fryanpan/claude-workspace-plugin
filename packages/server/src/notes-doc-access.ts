@@ -46,6 +46,9 @@ export interface NotesDocMeta {
   type: DocType;
   title?: string;
   setId?: string;
+  /** A huddle exists to be a meeting's notes, so it never redirects them
+   *  elsewhere (`meeting-notes-target.ts`). */
+  huddle?: boolean;
 }
 
 /**
