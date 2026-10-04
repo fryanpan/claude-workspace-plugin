@@ -97,6 +97,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/workspaces/*` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/app/*` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/apple-touch-icon.png` | GET | `routes/shell-static.ts` | share-scope |  |
+| `/coach/boards` | POST | `routes/coach.ts` | trusted-local |  |
 | `/coach/goals/add` | POST | `routes/coach.ts` | trusted-local |  |
 | `/coach/here` | POST | `routes/coach.ts` | trusted-local |  |
 | `/coach/moments` | POST | `routes/coach.ts` | loopback-only |  |
