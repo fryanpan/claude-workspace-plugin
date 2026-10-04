@@ -28,6 +28,13 @@
  * chose, and a meeting that switched doc between legs would split one
  * conversation across two.
  *
+ * A PAGE THAT CAN FOLLOW IS SENT THERE INSTEAD (`handOff`). The doc page asks
+ * at its Record press; on a doc holding a person's writing the relay answers
+ * with the notes doc and opens no meeting, and the page records on the notes
+ * doc, so the notes land in the editor the person is watching. Everything
+ * above is how every other starter (the Recall bot, an older client, a
+ * mic-plus-Mac-audio capture) gets the same result.
+ *
  * NOTHING HERE THROWS. A notes doc that cannot be minted leaves the meeting
  * writing where it was started, which is what every meeting did before.
  */
@@ -97,11 +104,60 @@ export interface NotesTargets {
   /** The same mapping over the title store, so the meeting namer names the
    *  doc the notes are in and never the person's own. */
   titles(base: MeetingTitleStore): MeetingTitleStore;
+  /**
+   * A page is about to record on `docId` and can open another doc instead.
+   * When the doc holds a person's writing, mint the notes doc, link it from
+   * the original, and answer where it is, so the page records THERE and the
+   * notes land in the editor the person is watching. `undefined` means record
+   * here, as before. No meeting exists yet, so nothing is recorded per
+   * meeting: the meeting that follows runs on the notes doc, a huddle, which
+   * writes in place.
+   */
+  handOff(docId: string): NotesDocHandoff | undefined;
+}
+
+/** Where a page should record instead: the notes doc it just got. */
+export interface NotesDocHandoff {
+  docId: string;
+  title: string;
+  url: string;
 }
 
 /** What one record holds: the notes doc, or `null` for "writes in place". */
 interface NotesDocRecord {
   notesDocId: string | null;
+}
+
+/**
+ * Which doc a meeting's notes went to, as its first leg recorded it: the
+ * notes doc's id, `null` for "in place", `undefined` for no record. Read from
+ * disk, so it answers after a restart — which is why the tidy-up route reads
+ * this and not the in-process map.
+ */
+export function readNotesDocRecord(
+  dataDir: string,
+  ids: NotesTargetIds,
+): string | null | undefined {
+  const path = meetingNotesDocPath(dataDir, ids.docId, ids.meetingId);
+  try {
+    if (!existsSync(path)) return undefined;
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<NotesDocRecord>;
+    return typeof raw.notesDocId === 'string' ? raw.notesDocId : null;
+  } catch (err) {
+    console.error(`[meeting-notes] notes-doc record unreadable at ${path}:`, err);
+    return undefined;
+  }
+}
+
+/** `base`, with `from` read and written as `to` and every other doc as itself. */
+export function redirectNotesStore(base: NotesDocStore, from: string, to: string): NotesDocStore {
+  const at = (docId: string): string => (docId === from ? to : docId);
+  return {
+    get: (docId) => base.get(at(docId)),
+    readOutline: (docId, opts) => base.readOutline(at(docId), opts),
+    applyBlockEdits: (docId, edits, who) => base.applyBlockEdits(at(docId), edits, who),
+    ...(base.boundPathOf ? { boundPathOf: (docId: string) => base.boundPathOf?.(at(docId)) } : {}),
+  };
 }
 
 export function createNotesTargets(deps: {
@@ -121,15 +177,7 @@ export function createNotesTargets(deps: {
     const held = decided.get(keyOf(ids));
     if (held !== undefined) return held;
     if (deps.dataDir === undefined) return undefined;
-    const path = meetingNotesDocPath(deps.dataDir, ids.docId, ids.meetingId);
-    try {
-      if (!existsSync(path)) return undefined;
-      const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<NotesDocRecord>;
-      return typeof raw.notesDocId === 'string' ? raw.notesDocId : null;
-    } catch (err) {
-      console.error(`[meeting-notes] notes-doc record unreadable at ${path}:`, err);
-      return undefined;
-    }
+    return readNotesDocRecord(deps.dataDir, ids);
   };
   const writeRecord = (ids: NotesTargetIds, notesDocId: string | null): void => {
     decided.set(keyOf(ids), notesDocId);
@@ -145,35 +193,42 @@ export function createNotesTargets(deps: {
     }
   };
 
-  /** Mint the notes doc and link it, or `null` to write in place. */
-  const decide = (ids: NotesTargetIds): string | null => {
+  /** Mint the notes doc and link it, or `null` to write in place. `ids`
+   *  names the meeting the link is recorded against, when there is one. */
+  const mintFor = (
+    docId: string,
+    ids?: NotesTargetIds,
+  ): { docId: string; title: string; url: string } | null => {
     if (!deps.mint) return null;
     const base = deps.docStore();
-    const doc = base.get(ids.docId);
+    const doc = base.get(docId);
     if (!doc || doc.meta.huddle === true || contentKind(doc.meta.type) !== 'prose') return null;
-    const before = readNotesOutline(base, ids.docId);
-    if (!holdsOwnWriting(before, deps.written.writtenInDoc(ids.docId))) return null;
+    const before = readNotesOutline(base, docId);
+    if (!holdsOwnWriting(before, deps.written.writtenInDoc(docId))) return null;
     const minted = deps.mint({
-      docId: ids.docId,
+      docId,
       ...(doc.meta.title !== undefined ? { title: doc.meta.title } : {}),
     });
     if (minted === undefined) return null;
-    const linked = applyNotesBlockEdits(base, ids.docId, [
+    const linked = applyNotesBlockEdits(base, docId, [
       { op: 'insert_at_end', markdown: notesLinkMarkdown(minted.title, minted.url) },
     ]);
     if (!linked.ok) {
-      console.error(`[meeting-notes] notes-doc link not written in ${ids.docId}`);
+      console.error(`[meeting-notes] notes-doc link not written in ${docId}`);
     } else {
       // The link is the meeting's own line, so a later meeting on this doc
-      // does not read it as the person's writing.
+      // does not read it as the person's writing. A hand-off has no meeting
+      // yet, so its link is recorded under the notes doc's id, which no
+      // meeting on the original ever uses.
       const known = new Set(before.map((e) => e.id));
-      const added = readNotesOutline(base, ids.docId)
+      const added = readNotesOutline(base, docId)
         .filter((e) => !known.has(e.id))
         .map((e) => e.id);
-      deps.written.add(ids, added);
+      deps.written.add(ids ?? { docId, meetingId: `handoff-${minted.docId}` }, added);
     }
-    return minted.docId;
+    return minted;
   };
+  const decide = (ids: NotesTargetIds): string | null => mintFor(ids.docId, ids)?.docId ?? null;
 
   const targetOf = (docId: string): string => current.get(docId) ?? docId;
   return {
@@ -192,6 +247,14 @@ export function createNotesTargets(deps: {
       else current.set(ids.docId, notesDocId);
     },
     targetOf,
+    handOff(docId) {
+      try {
+        return mintFor(docId) ?? undefined;
+      } catch (err) {
+        console.error(`[meeting-notes] notes-doc hand-off failed for ${docId}:`, err);
+        return undefined;
+      }
+    },
     store(base) {
       return {
         get: (docId) => base.get(targetOf(docId)),
@@ -248,7 +311,9 @@ export function createServerNotesDocMint(
       const docId = created.doc.docId;
       const file = meetingDocFilePath(dataDir, docId);
       mkdirSync(dirname(file), { recursive: true });
-      if (!existsSync(file)) writeFileSync(file, `# ${title}\n`);
+      // Empty, like a huddle with no topic: the title is the doc's own and the
+      // page shows it as the heading, so a `# title` line would show it twice.
+      if (!existsSync(file)) writeFileSync(file, '');
       if (!host.attachFile(docId, file).ok) return undefined;
       const workspaceId = host.fileUnderBoard(docId, host.boardOf(source.docId));
       return { docId, title, url: docLookupUrl(workspaceId, docId) };

@@ -169,6 +169,8 @@ export function parseMeetingClientMessage(raw: unknown): MeetingClientMessage | 
       // erase a real gap from the record — and a value that is not a finite
       // number at all is simply absent, which reads as "nothing carried".
       ...(held !== undefined ? { heldMs: held } : {}),
+      // A first start only: a resume already has its meeting and its doc.
+      ...(m.handoff === true && resume === undefined ? { handoff: true } : {}),
     };
   }
   return null;

@@ -31,6 +31,7 @@ import {
   speakerDisplayName,
 } from '@claude-workspaces/core';
 import { meetingDocAlias, meetingDocFilePath, meetingDocTitle } from '../huddle.ts';
+import { readNotesDocRecord, redirectNotesStore } from '../meeting-notes-target.ts';
 import type { MeetingRelay } from '../meeting-protocol.ts';
 import { type MeetingStore, listMeetings } from '../meetings.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
@@ -356,9 +357,17 @@ export async function handleMeetingCalendarRoutes(
     if (!listMeetings(dataDir, docId).some((m) => m.meetingId === meetingId)) {
       return j(404, { error: 'meeting not found' });
     }
+    // A meeting on a person's own doc wrote its notes to a notes doc of its
+    // own, and its tidy-up reads and writes THAT doc. The transcript, the
+    // section record and the recording check stay keyed by the doc the
+    // meeting was started on, which is where they live.
+    const notesDocId = readNotesDocRecord(dataDir, { docId, meetingId });
     const result = await runNotesCleanupPass(
       {
-        docStore: () => docStore,
+        docStore: () =>
+          typeof notesDocId === 'string'
+            ? redirectNotesStore(docStore, docId, notesDocId)
+            : docStore,
         composer: meetingRelay.notesDeps?.composer ?? null,
         dataDir,
         headingIdOf: (doc, meeting) =>

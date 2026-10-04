@@ -929,6 +929,13 @@ export interface MeetingNotesDeps {
    */
   onSessionStart?: (ids: { docId: string; meetingId: string }) => void;
   /**
+   * A page that can open another doc is about to record on `docId`. Answers
+   * the notes doc it should record on instead, already minted and linked
+   * from the original, or `undefined` to record here. The server sink's
+   * answer is `NotesTargets.handOff`; see `meeting-notes-target.ts`.
+   */
+  handOffNotesDoc?: (docId: string) => { docId: string; title: string; url: string } | undefined;
+  /**
    * Tick progress for the surface showing provisional text. Per SESSION, not
    * per server: the relay spreads the shared deps and adds this per socket,
    * so the frames reach the one client whose meeting it is.

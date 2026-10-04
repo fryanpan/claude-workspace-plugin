@@ -595,6 +595,7 @@ export class MeetingRelay {
           msg.resume !== undefined
             ? { meetingId: msg.resume, ...(msg.heldMs !== undefined ? { heldMs: msg.heldMs } : {}) }
             : undefined,
+          msg.handoff === true,
         ),
       );
       return;
@@ -929,6 +930,7 @@ export class MeetingRelay {
     participant?: string,
     source?: MeetingCaptureSource,
     resume?: { meetingId: string; heldMs?: number },
+    handoff = false,
   ): Promise<void> {
     if (conn.state !== 'idle') return;
     // Before any refusal below can return: a socket may start a SECOND
@@ -976,6 +978,21 @@ export class MeetingRelay {
     // Which captures this meeting is carrying. More than one means every
     // audio frame on this socket wears a stream byte, and it means two billed
     // engine sessions — the mic-plus-Mac-audio meeting's whole cost.
+    // A PERSON'S OWN DOC GETS ITS NOTES IN A DOC OF THEIR OWN, and a page
+    // that can follow is sent there before anything opens: no meeting id, no
+    // engine session, no bill. The page records on the notes doc, which is a
+    // huddle and writes in place, so the notes land in the editor the person
+    // is watching. A client that cannot follow (no `handoff`) records here,
+    // and the notes sink sends its notes to the same kind of doc itself.
+    // A doc somebody is already recording is refused below as before, rather
+    // than handed a second notes doc.
+    if (handoff && resume === undefined && this.deps.store.active(docId) === undefined) {
+      const moved = this.deps.notes?.handOffNotesDoc?.(docId);
+      if (moved) {
+        this.send(ws, { type: 'notes_doc', ...moved });
+        return;
+      }
+    }
     const streams = streamsForSource(source ?? 'mic');
     const opening = {
       docId,

@@ -13,7 +13,7 @@
  * zone the wash extension asks about, and the lead-presence watch the floats
  * quote in their receipts. Both are absent on a doc that holds no meeting.
  */
-import type { User } from '@claude-workspaces/core';
+import type { CaptureMode, User } from '@claude-workspaces/core';
 import type { Awareness } from 'y-protocols/awareness';
 import type { EditorHandle } from '../editor.ts';
 import {
@@ -21,6 +21,8 @@ import {
   huddleEngine,
   huddleRoomAudio,
   huddleRoomSpeakers,
+  notesDocEntry,
+  wantsHuddleContinue,
   withoutHuddleStart,
 } from '../huddle-entry.ts';
 import type { LeadBanner } from '../lead-banner.ts';
@@ -54,6 +56,10 @@ export interface DocMeetingOptions {
   huddleStart: boolean;
   /** True on a huddle doc, which is the only doc that gets a lead banner. */
   huddle: boolean;
+  /** The router's in-place navigation. Present, a Record press on a doc
+   *  holding the person's own writing follows the server to the notes doc
+   *  and records there; see `MeetingStripOpts.onNotesDoc`. */
+  navigate?: (url: string) => void;
 }
 
 export interface DocMeetingMount {
@@ -90,6 +96,10 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
   // made it look like the address had asked for solo, so the chooser never
   // showed the mock's preselection to anyone who opened a doc directly.
   const huddleMode = huddleStart ? huddleCaptureMode(location.search) : undefined;
+  // A recording chosen on the page before this one, which the server sent
+  // here because that doc held the person's own writing: start it, whatever
+  // its mode, rather than asking again.
+  const continued = huddleStart && wantsHuddleContinue(location.search);
   const roomSpeakers = huddleRoomSpeakers(location.search);
   const roomAudio = huddleRoomAudio(location.search);
   // Which engine transcribes here. A preference like `speakers`, not a
@@ -149,6 +159,17 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
   // Built outside the call: a source-shape test reads the mount up to its
   // first `})`, and an inline conditional spread would end it early.
   const participant = user.name ? { participantName: user.name } : {};
+  // A doc holding the person's own writing gets its notes in a doc of their
+  // own, and the page goes there to record, so the notes still land in the
+  // editor the person is watching. The search is read at the moment of the
+  // hand-off, because the room facts on it can change in between.
+  const navigate = opts.navigate;
+  const followNotesDoc = navigate
+    ? {
+        onNotesDoc: (to: { url: string; mode: CaptureMode }) =>
+          navigate(notesDocEntry(to.url, location.search, to.mode)),
+      }
+    : {};
   const strip = mountMeetingStrip({
     docId,
     root: stripEl,
@@ -170,8 +191,9 @@ export function mountDocMeeting(opts: DocMeetingOptions): DocMeetingMount {
     // because a room cannot be recorded until somebody presses the button
     // that tells it so. Nothing new on the address — the mode the Board
     // already sends is the whole difference between the two buttons.
-    autoStart: huddleStart && huddleMode !== 'conversation',
-    autoChoose: huddleStart && huddleMode === 'conversation',
+    autoStart: huddleStart && (huddleMode !== 'conversation' || continued),
+    autoChoose: huddleStart && huddleMode === 'conversation' && !continued,
+    ...followNotesDoc,
     // Alone on the doc, a Record press records at once — solo, default
     // engine, no chooser. Presence is asked at the press, not here: who is
     // on the doc changes, and the answer belongs to the moment of the tap.

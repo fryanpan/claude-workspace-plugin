@@ -1607,12 +1607,26 @@ started on. The planning interview (`spoken-reply/interview.ts`) writes
 answers into a doc's own sections on purpose and does not use the notes
 sinks, so it is unchanged.
 
-What the redirect does not yet cover: the map from the original doc to the
-notes doc is held in the process, so a speaker rename sent over REST after a
-server restart (with no recording running) reaches the original doc rather
-than the notes; the end-of-meeting tidy-up button (`notes-cleanup-pass.ts`)
-still reads the doc the meeting was started on; and the live page stays on
-the original doc, so the reader follows the link to watch the notes arrive.
+**A Record press on the page goes to the notes doc before anything records**,
+so the reader watches the notes land in the editor in front of them. The strip
+sends `handoff` on a first microphone start. On a doc holding the person's own
+writing, the relay then opens no meeting: it asks the notes sink to mint and
+link the notes doc (`NotesTargets.handOff`) and answers `notes_doc` with its
+board path. The strip lets the microphone go, and the doc page swaps in place
+to the notes doc with `?huddle=1&mode=<the chosen mode>&continue=1`. That page
+starts the recording at once, in that mode, without asking again. The notes
+doc is a huddle, so that meeting writes in place, and its transcript, tidy-up
+and live zone are an ordinary huddle's. Nothing is recorded on the original,
+which gains only the link.
+
+The server-side redirect above is still how the other starters work: a client
+that does not send `handoff`, a mic-plus-Mac-audio capture (the share picker
+needs a press the next page cannot replay), and the Recall bot. The tidy-up of
+such a meeting reads `<meetingId>-notes-doc.json` from disk and reads and
+writes the notes doc (`redirectNotesStore`). Still not covered: the
+doc-to-notes-doc map the live sinks use is held in the process, so a speaker
+rename sent over REST after a server restart, with no recording running,
+reaches the original doc rather than the notes.
 
 **What stops the re-filing is comparing the VERDICT, not the words** —
 `notes-quality-verdict.ts`. The filer holds what its standing item says and
