@@ -220,6 +220,12 @@ export function parseMeetingServerMessage(raw: unknown): MeetingServerMessage | 
       };
     case 'error':
       return { type: 'error', message: str(m.message) };
+    case 'notes_doc': {
+      // A board path on this host and nothing else: the page navigates to it.
+      const url = str(m.url);
+      if (!str(m.docId) || !url.startsWith('/') || url.startsWith('//')) return null;
+      return { type: 'notes_doc', docId: str(m.docId), title: str(m.title), url };
+    }
     default:
       return null;
   }

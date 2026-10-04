@@ -292,6 +292,13 @@ export type MeetingClientMessage =
        * outage was lost.
        */
       heldMs?: number;
+      /**
+       * This page can open another doc and record there. Sent on a first
+       * start only. When the doc holds a person's own writing the server then
+       * answers `notes_doc` instead of opening a meeting, so the notes land in
+       * a doc the page shows rather than among the person's paragraphs.
+       */
+      handoff?: boolean;
     }
   | { type: 'stop' }
   /**
@@ -418,6 +425,12 @@ export type MeetingServerMessage =
        *  strip to remember it. Absent where nothing has been named. */
       speakers?: Record<string, string>;
     }
+  /**
+   * The answer to a `start` with `handoff`, on a doc holding a person's own
+   * writing: no meeting was opened. The server made a notes doc, linked it
+   * from this one, and the page records on it instead (`url`, a board path).
+   */
+  | { type: 'notes_doc'; docId: string; title: string; url: string }
   /** No words will follow. The socket stays open so the strip can say why. */
   | { type: 'unavailable'; reason: MeetingUnavailableReason; message: string }
   /**

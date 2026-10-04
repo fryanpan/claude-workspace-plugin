@@ -99,8 +99,12 @@ function sectionScope(
 }
 
 /**
- * The blocks the document records as `author`'s, plus the heading each one
- * sits under.
+ * The blocks the document records as `author`'s, or that the meeting's own
+ * record says it wrote, plus the heading each one sits under.
+ *
+ * `written` is the record `notes-written-blocks.ts` keeps across every leg of
+ * the meeting. The mark alone covers only the leg that is ending, because
+ * each leg releases every mark when it starts.
  *
  * The heading is the NEAREST one above the block, whoever wrote it — see the
  * module note. A block with no heading above it brings nothing.
@@ -109,14 +113,16 @@ function authoredScope(
   all: readonly Y.XmlElement[],
   author: string,
   skip: ReadonlySet<string>,
+  written: ReadonlySet<string>,
 ): Set<Y.XmlElement> {
   const scope = new Set<Y.XmlElement>();
   const headings = new Set<Y.XmlElement>();
   let lastHeading: Y.XmlElement | undefined;
   for (const el of all) {
     if (levelOf(el) !== undefined) lastHeading = el;
-    if (prose.readBlockAuthor(el) !== author) continue;
     const id = prose.readBlockId(el);
+    const ours = prose.readBlockAuthor(el) === author || (id !== undefined && written.has(id));
+    if (!ours) continue;
     if (id !== undefined && skip.has(id)) continue;
     scope.add(el);
     if (lastHeading !== undefined) headings.add(lastHeading);
@@ -246,7 +252,8 @@ const NO_ADDRESS =
 
 /**
  * Everything this meeting wrote in this doc: the blocks it still holds the
- * authorship mark on, wherever they sit, plus its own section.
+ * authorship mark on or that its `written` record names, wherever they sit,
+ * plus its own section.
  *
  * The union is deliberate and each half covers the other's blind spot. The
  * marks find notes filed under somebody else's headings, which is now the
@@ -269,11 +276,12 @@ export function readMeetingNotes(
   headingId: string | undefined,
   skip: ReadonlySet<string> = new Set(),
   author: string = NOTES_AUTHOR_ID,
+  written: ReadonlySet<string> = new Set(),
 ): MeetingNotesReading {
   const all = blocksOf(docStore, docId);
   if (all === null) return { markdown: '', source: 'unreadable', missing: NO_DOCUMENT };
   const scope = sectionScope(all, headingId, skip);
-  for (const el of authoredScope(all, author, skip)) scope.add(el);
+  for (const el of authoredScope(all, author, skip, written)) scope.add(el);
   const markdown = markdownOfScope(all, scope);
   if (markdown.trim() !== '') return { markdown, source: 'notes' };
   // A document with no TEXT in it is the one empty reading that is a fact

@@ -192,7 +192,10 @@ describe('a meeting end to end: pauses become notes, stop/start stays consistent
     WS = await seedBoard(base);
     wsBase = `ws://127.0.0.1:${handle.port}`;
     const path = join(dataDir, 'plan-review.md');
-    writeFileSync(path, '# Plan review\n\nThe agenda paragraph.\n');
+    // Only a title: a doc holding a person's own writing sends its notes to a
+    // doc of their own (`meeting-notes-target.ts`), and this file is about
+    // notes written in place. The late-rename case below covers the other.
+    writeFileSync(path, '# Plan review\n');
     const res = await fetch(`${base}/workspaces/${WS}/docs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -236,7 +239,7 @@ describe('a meeting end to end: pauses become notes, stop/start stays consistent
     // and died on the strip.
     expect(v1).not.toContain('sink');
     // The doc's own content survived the append.
-    expect(v1).toContain('The agenda paragraph.');
+    expect(v1).toContain('# Plan review');
 
     // Turn two settles while the speaker keeps going: no pause, so the doc
     // still reads exactly as the first pause left it.
@@ -428,7 +431,7 @@ describe('a meeting end to end: pauses become notes, stop/start stays consistent
     // — the tagged rewrites would arrive as suggestions instead of the text
     // changes every assertion below reads.
     const path = join(dataDir, 'speaker-carry.md');
-    writeFileSync(path, '# Speaker carry\n\nAgenda.\n');
+    writeFileSync(path, '# Speaker carry\n');
     const created = await fetch(`${base}/workspaces/${WS}/docs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -539,10 +542,19 @@ describe('a meeting end to end: pauses become notes, stop/start stays consistent
     });
     expect(created.status, await created.clone().text()).toBe(200);
     const lateDocId = ((await created.json()) as { docId: string }).docId;
-    const lateMarkdown = (): string => {
-      const doc = handle.docStore.get(lateDocId);
-      if (!doc) throw new Error(`no doc for ${lateDocId}`);
+    // The person's paragraph means the notes go to a doc of their own, linked
+    // from this one: read the two together.
+    const markdownOf = (id: string): string => {
+      const doc = handle.docStore.get(id);
+      if (!doc) throw new Error(`no doc for ${id}`);
       return prose.serializeFragmentToMarkdown(prose.getProseFragment(doc.ydoc));
+    };
+    const sourceMarkdown = (): string => markdownOf(lateDocId);
+    const notesDocId = (): string | undefined =>
+      /Meeting notes: \[[^\]]*\]\(\/workspaces\/[^/]+\/docs\/([^)]+)\)/.exec(sourceMarkdown())?.[1];
+    const lateMarkdown = (): string => {
+      const notes = notesDocId();
+      return notes === undefined ? '' : markdownOf(decodeURIComponent(notes));
     };
 
     // A two-voice conversation, composed into notes, then stopped.
@@ -583,9 +595,10 @@ describe('a meeting end to end: pauses become notes, stop/start stays consistent
       'the rename to rewrite the note already written',
     );
     const rewritten = lateMarkdown();
-    // …and only into the notes section: the person's own paragraph keeps its
-    // words, however it happens to spell a label.
-    expect(rewritten).toContain('Body about Speaker B stays.');
+    // …and only into the notes: the person's own paragraph, in the doc they
+    // wrote, keeps its words however it happens to spell a label.
+    expect(sourceMarkdown()).toContain('Body about Speaker B stays.');
+    expect(sourceMarkdown()).not.toContain('Speaker A: So the sync is the bottleneck.');
     expect(rewritten).toContain('Speaker A: So the sync is the bottleneck.');
     // 3. The transcript still says 'B' — the engine's word is not rewritten.
     expect(readTranscript(dataDir, lateDocId, meetingId).map((t) => t.speaker)).toEqual(['A', 'B']);

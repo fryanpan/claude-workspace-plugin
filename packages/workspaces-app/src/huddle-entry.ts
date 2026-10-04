@@ -64,6 +64,38 @@ export const ROOM_MIC_PARAM = 'mic';
  */
 export const ENGINE_PARAM = 'engine';
 
+/**
+ * `?continue=1` — beside `huddle=1`, the recording was already chosen on the
+ * page before this one: a Record press on a doc holding the person's own
+ * writing, which the server answered with this notes doc. So it starts the
+ * mic in the mode that press chose, a conversation included, rather than
+ * opening the chooser to ask again. One-shot, like the flag it rides with.
+ */
+export const HUDDLE_CONTINUE_PARAM = 'continue';
+
+/** Whether this address carries a recording already chosen elsewhere. */
+export function wantsHuddleContinue(search: string): boolean {
+  return new URLSearchParams(search).get(HUDDLE_CONTINUE_PARAM) === '1';
+}
+
+/**
+ * Where a Record press goes when the server sends it to a notes doc: that
+ * doc, starting at once in `mode`, carrying this address's room facts
+ * (speakers, mic, engine) because they are about the room, not the doc.
+ */
+export function notesDocEntry(url: string, search: string, mode: CaptureMode): string {
+  const from = new URLSearchParams(search);
+  const params = new URLSearchParams();
+  for (const key of [ROOM_SPEAKERS_PARAM, ROOM_MIC_PARAM, ENGINE_PARAM]) {
+    const value = from.get(key);
+    if (value !== null) params.set(key, value);
+  }
+  params.set(HUDDLE_START_PARAM, '1');
+  params.set(HUDDLE_MODE_PARAM, mode);
+  params.set(HUDDLE_CONTINUE_PARAM, '1');
+  return `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
+}
+
 /** The transcription engine this address asks for, if it says. */
 export function huddleEngine(search: string): TranscriptionEngineName | undefined {
   return parseEngineName(new URLSearchParams(search).get(ENGINE_PARAM));
@@ -102,6 +134,7 @@ export function withoutHuddleStart(href: string): string {
   // Both halves of the same one-shot gesture: leaving the mode behind would
   // make a reload of this address a conversation nobody asked for.
   params.delete(HUDDLE_MODE_PARAM);
+  params.delete(HUDDLE_CONTINUE_PARAM);
   const rest = params.toString();
   return `${path}${rest ? `?${rest}` : ''}${hash}`;
 }
