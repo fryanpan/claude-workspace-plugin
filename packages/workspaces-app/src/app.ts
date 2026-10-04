@@ -347,6 +347,7 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
       awareness,
       huddleStart: startedHuddleHere,
       huddle,
+      navigate: navigateTo,
     });
     liveZone = meeting.liveZone;
   }

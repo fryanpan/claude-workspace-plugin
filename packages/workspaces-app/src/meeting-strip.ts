@@ -313,6 +313,14 @@ export interface MeetingStripOpts {
    */
   autoChoose?: boolean;
   /**
+   * The page can open another doc and record there. Present, a first
+   * microphone start asks the server to hand off (`handoff`), and on a doc
+   * holding the person's own writing the server answers with a notes doc
+   * instead of a meeting: this is called with it and with the mode the
+   * person chose, and nothing records here. Absent, every start records here.
+   */
+  onNotesDoc?: (to: { docId: string; title: string; url: string; mode: CaptureMode }) => void;
+  /**
    * Whether the person pressing Record is the only one on this doc, asked at
    * the press. True means the press records at once — solo, no chooser;
    * false (or absent: a mount that cannot say) means the press opens the
@@ -2025,6 +2033,17 @@ export function mountMeetingStrip(opts: MeetingStripOpts): MeetingStripHandle {
         announceEnded();
         setState({ kind: 'error', message: msg.message || 'The meeting ended unexpectedly.' });
         break;
+      case 'notes_doc':
+        // No meeting was opened here: this doc holds the person's writing, so
+        // the server made a notes doc and the recording happens there. The
+        // mic is let go so the next page can open its own.
+        cancelReconnect();
+        releaseAudio();
+        closeSocket();
+        opts.liveZone?.end();
+        setState({ kind: 'idle' });
+        opts.onNotesDoc?.({ docId: msg.docId, title: msg.title, url: msg.url, mode });
+        break;
     }
   }
 
@@ -2254,6 +2273,13 @@ export function mountMeetingStrip(opts: MeetingStripOpts): MeetingStripHandle {
           // Absent when nothing was held, which is what an older server and
           // an ordinary first start both read as zero.
           ...(held.heldMs > 0 ? { heldMs: held.heldMs } : {}),
+          // This page can open the notes doc and record there. A first start
+          // only, and a microphone only: the Mac-audio share picker needs a
+          // press the next page cannot replay, so that meeting records here
+          // and the server sends its notes to the notes doc itself.
+          ...(opts.onNotesDoc && resume === undefined && liveSource === 'mic'
+            ? { handoff: true }
+            : {}),
         }),
       );
       // After the start frame: the server reads the flag off it, and a ping

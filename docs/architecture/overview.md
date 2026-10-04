@@ -526,6 +526,15 @@ chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
 Reject, which only resolves it.
 
+Every link to such a thread is the page plus `?thread=<id>`, built by
+`page-thread-link.ts`, a top-level module of core so the server and the
+board client share it: the agent's `threadUrl`, a review item's push
+(`review-gate.ts`), the Home opener (`board-queue-open.ts`) and the
+cross-board review (`cross-walk-model.ts`), the last two through
+`board/doc-thread-href.ts`. An app's Home-queue row carries `pageUrl`, its
+thread's anchor context, because the client has no anchors to read it from.
+A page outside the doc falls back to the doc itself.
+
 **A review item raised on a mockup is answerable on the mockup.** The ask used
 to live only on the ticket, so a reader opened the mock, looked at it, and
 then left for the Home queue to say what they thought. `widget-dock.ts` — a
@@ -1192,7 +1201,14 @@ whether that markdown is a reading at all, writes nothing, and both the
 quality pass and the rerun harness address the notes through it — whole-doc
 note-taking means a heading id no longer names a meeting's output, and a
 reading that finds nothing in a document holding blocks says so rather than
-answering the empty string a genuinely empty document would. Nothing under `routes/` is added: the
+answering the empty string a genuinely empty document would.
+`notes-written-blocks.ts` sits beside it in the data-dir tier and keeps the
+ids of every block a meeting wrote, across its legs, because each leg
+releases the marks `notes-written.ts` reads. `meeting-notes-target.ts` is the
+one new arrow on the notes sinks: it decides, once per meeting, whether the
+notes go into the doc the meeting was started on or into a notes doc of its
+own (when that doc holds a person's writing), and wraps the sinks'
+`NotesDocStore` so every read and write lands there. Nothing under `routes/` is added: the
 week's rollup rides the existing `GET /api/metrics` reply, for the reason
 `uptimeSec` does.
 

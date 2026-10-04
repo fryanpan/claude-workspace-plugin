@@ -18,6 +18,7 @@ import {
   type ReviewThreadItem,
   reviewQueue,
 } from '../board/board-review-model.ts';
+import { docThreadHref } from '../board/doc-thread-href.ts';
 import type { WalkChrome } from '../board/walkthrough-island.tsx';
 
 /** One row of `/api/review-queue`. */
@@ -195,6 +196,5 @@ export function crossItemHref(entry: CrossEntry): string | null {
     if (!t.taskId) return board;
     return `${board}?goal=${encodeURIComponent(t.taskId)}&thread=${encodeURIComponent(t.threadId)}`;
   }
-  const surface = t.docType === 'mockup' ? 'mockups' : 'docs';
-  return `${board}/${surface}/${encodeURIComponent(t.docId)}?thread=${encodeURIComponent(t.threadId)}`;
+  return docThreadHref(entry.workspaceId, t);
 }

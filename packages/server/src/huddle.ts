@@ -230,6 +230,12 @@ export function meetingDocAlias(at: number): string {
     .replace(/[^A-Za-z0-9]/g, 'x')}`;
 }
 
+/** Was this alias minted by `meetingDocAlias`? Only that exact shape: a
+ *  caller can name any doc `meeting-…`, so a prefix is not a calendar doc. */
+export function isMeetingDocAlias(alias: string): boolean {
+  return /^meeting-\d{8}-\d{4}-[A-Za-z0-9]{4}$/.test(alias);
+}
+
 /** Beside the huddles, for the same reason huddles live under the data dir. */
 export function meetingDocFilePath(dataDir: string, docId: string): string {
   return join(dataDir, 'meetings', `${docId}.md`);

@@ -63,6 +63,7 @@ import type { prose } from '@claude-workspaces/core';
 import { readRenamedEnv } from '@claude-workspaces/core/env-names';
 import { docLookupUrl } from './meeting-lookup.ts';
 import { correctNotesSection } from './meeting-notes-correction.ts';
+import { type NotesDocMint, createNotesTargets } from './meeting-notes-target.ts';
 import {
   type MeetingNotesDeps,
   type MeetingNotesOptions,
@@ -130,6 +131,7 @@ import {
   retagSpeakerInNotes,
 } from './notes-speaker-tags.ts';
 import { type NotesDroppedEdit, createNotesTimingLog } from './notes-timing.ts';
+import { createNotesWrittenBlocks, recordMarkedBlocks } from './notes-written-blocks.ts';
 
 export type { NotesDocStore } from './notes-doc-access.ts';
 export {
@@ -1265,6 +1267,9 @@ export function withServerNotesSinks(
     /** Tests: a heading memory they can share across two harnesses to model a
      *  second meeting on one doc. */
     heading?: NotesHeadingMemory;
+    /** Makes the notes doc a meeting on a person's own doc writes into
+     *  (`meeting-notes-target.ts`). Absent, every meeting writes in place. */
+    mintNotesDoc?: NotesDocMint;
     /**
      * The board a bad meeting's review item is filed on — `TaskStore` in the
      * server. A thunk like `tasks`, for the same reason.
@@ -1293,6 +1298,19 @@ export function withServerNotesSinks(
 ): MeetingNotesDeps {
   const extractor = options.taskExtractor;
   const captureBoard = deps.captureBoard;
+  // Every block each meeting wrote, across its legs: the notes check reads
+  // it because every leg releases the authorship marks when it starts.
+  const written = createNotesWrittenBlocks(deps.dataDir);
+  // Where each meeting's notes go: the doc it started on, or a notes doc of
+  // its own when that doc holds a person's writing. Every doc read and write
+  // below goes through `docStore()`, which maps the one onto the other.
+  const targets = createNotesTargets({
+    docStore: deps.docStore,
+    written,
+    ...(deps.mintNotesDoc ? { mint: deps.mintNotesDoc } : {}),
+    ...(deps.dataDir !== undefined ? { dataDir: deps.dataDir } : {}),
+  });
+  const docStore = (): NotesDocStore => targets.store(deps.docStore());
   // The meeting's title, from its notes: early at about three bullets and
   // again at the stop, only while nobody has named the doc.
   const titleStore = deps.titleStore;
@@ -1300,7 +1318,7 @@ export function withServerNotesSinks(
     options.titleNamer && titleStore
       ? createMeetingTitler({
           namer: options.titleNamer,
-          store: titleStore,
+          store: () => targets.titles(titleStore()),
           onError: (message) => console.error(message),
         })
       : null;
@@ -1331,6 +1349,8 @@ export function withServerNotesSinks(
       ...(deps.qualityGraceMs !== undefined ? { graceMs: deps.qualityGraceMs } : {}),
       ...(deps.qualityGraceSchedule ? { schedule: deps.qualityGraceSchedule } : {}),
     });
+  // The board is the one the meeting was STARTED on, so this reads the
+  // original doc, never the notes doc it may be writing into.
   const boardOf = (docId: string): string | undefined => {
     const doc = deps.docStore().get(docId);
     return doc?.meta.setId ?? deps.boardOf?.(docId);
@@ -1365,17 +1385,19 @@ export function withServerNotesSinks(
     meetingId: string;
   }): NotesQualityPassResult | null => {
     try {
-      const doc = deps.docStore().get(summary.docId);
+      const doc = docStore().get(summary.docId);
+      recordMarkedBlocks(written, docStore(), summary);
       return runNotesQualityPass(
         {
-          docStore: deps.docStore,
+          docStore,
           file: (input) =>
             qualityFiler.file({ docId: summary.docId, meetingId: summary.meetingId }, input),
           boardOf,
           ...(deps.dataDir !== undefined ? { dataDir: deps.dataDir } : {}),
           headingIdOf: (docId, meetingId) =>
-            heading.headingId({ docId, meetingId }, readNotesOutline(deps.docStore(), docId)),
+            heading.headingId({ docId, meetingId }, readNotesOutline(docStore(), docId)),
           priorBlocks: (docId, meetingId) => heading.priorIn({ docId, meetingId }),
+          writtenBlocks: (docId, meetingId) => written.read({ docId, meetingId }),
           actor: deps.qualityActor ?? { id: NOTES_AUTHOR_ID, name: 'Meeting Assistant' },
         },
         {
@@ -1391,9 +1413,9 @@ export function withServerNotesSinks(
   };
   const tidyLastTopic = (summary: { docId: string; meetingId: string }): void => {
     try {
-      const doc = deps.docStore().get(summary.docId);
+      const doc = docStore().get(summary.docId);
       const ids = { docId: summary.docId, meetingId: summary.meetingId };
-      const section = heading.headingId(ids, readNotesOutline(deps.docStore(), summary.docId));
+      const section = heading.headingId(ids, readNotesOutline(docStore(), summary.docId));
       if (!doc || section === undefined) return;
       tidyNotesSection(doc.ydoc, section, () => commentedBlockIds(doc.ydoc), {
         blanks: false,
@@ -1410,7 +1432,7 @@ export function withServerNotesSinks(
       ? async ({ docId, turns, priorTurns, measure }) => {
           // The doc's board is the capture's scope: a meeting on a doc no
           // workspace owns or holds has no board to find or create on.
-          const doc = deps.docStore().get(docId);
+          const doc = docStore().get(docId);
           const workspaceId = boardOf(docId);
           if (!doc || !workspaceId) return { tasks: [], docs: [] };
           return runTaskCapture(
@@ -1421,7 +1443,7 @@ export function withServerNotesSinks(
               ...(deps.onTaskReady ? { onTaskReady: deps.onTaskReady } : {}),
               onResearchFiled: (filed) => {
                 const wrote = appendResearchPlaceholder(
-                  deps.docStore(),
+                  docStore(),
                   filed.docId,
                   filed.title,
                   filed.url,
@@ -1468,6 +1490,7 @@ export function withServerNotesSinks(
   return {
     ...options,
     ...(captureIntents ? { captureIntents } : {}),
+    handOffNotesDoc: (docId, recording) => targets.handOff(docId, recording),
     // NOTHING SUPPLIED THIS BEFORE, so every compose failure the pipeline
     // reported went nowhere — including the one that matters most, a reply
     // refused for running past the composer's output ceiling. Those ticks are
@@ -1600,7 +1623,12 @@ export function withServerNotesSinks(
       // while each loses direct-edit rights on its own bullets when the other
       // starts — the safe direction, and the same one a restarted server
       // lands in.
+      // Where this meeting writes is decided before the release, so the last
+      // meeting's still-marked notes read as minutes rather than as the
+      // person's own writing.
+      targets.begin(ids);
       releaseNotesAuthorship(deps.docStore(), ids.docId);
+      if (targets.targetOf(ids.docId) !== ids.docId) releaseNotesAuthorship(docStore(), ids.docId);
       heading.beginMeeting(ids);
       // A leg of this meeting is running again. Whatever reading the drop
       // left is about half a meeting, and the grace that would have filed it
@@ -1621,7 +1649,7 @@ export function withServerNotesSinks(
     resolveContext: (docId: string): NotesProjectContext | undefined => {
       const gathered: NotesProjectContext = {};
       try {
-        const doc = deps.docStore().get(docId);
+        const doc = docStore().get(docId);
         if (doc?.meta.title) gathered.docTitle = doc.meta.title;
         const workspaceId = boardOf(docId);
         if (workspaceId) {
@@ -1698,7 +1726,7 @@ export function withServerNotesSinks(
     },
     readOutline: (ids: { docId: string; meetingId: string }): readonly prose.OutlineEntry[] => {
       try {
-        return readNotesOutlineForTick(deps.docStore(), ids.docId);
+        return readNotesOutlineForTick(docStore(), ids.docId);
       } catch (err) {
         // An outline we cannot read costs the compose its awareness of the
         // doc, never its notes: it opens a section and appends.
@@ -1707,13 +1735,13 @@ export function withServerNotesSinks(
       }
     },
     notesHeadingId: ({ docId, meetingId, outline }): string | undefined =>
-      notesSectionForMeeting(heading, { docId, meetingId }, outline, deps.docStore()),
+      notesSectionForMeeting(heading, { docId, meetingId }, outline, docStore()),
     onNotes: (update: NotesUpdate): boolean | NotesWriteRefusal | NotesWriteNoWords => {
       let landed: boolean | NotesWriteRefusal | NotesWriteNoWords = true;
       let outcomes: readonly prose.BlockEditOutcome[] | undefined;
       let words = false;
       try {
-        const skip = applyNotesUpdate(deps.docStore(), update, heading, {
+        const skip = applyNotesUpdate(docStore(), update, heading, {
           ...(deps.dataDir ? { dataDir: deps.dataDir } : {}),
           onOutcomes: (o) => {
             outcomes = o;
@@ -1722,6 +1750,7 @@ export function withServerNotesSinks(
             words = true;
           },
         });
+        if (skip === null) recordMarkedBlocks(written, docStore(), update);
         // Landed, and none of it was words: see {@link NotesWriteNoWords}.
         if (skip === null && !words) landed = 'no-words';
         if (skip !== null) {
@@ -1760,7 +1789,7 @@ export function withServerNotesSinks(
     },
     onRelabel: (relabel: NotesRelabel): void => {
       try {
-        applyNotesRelabel(deps.docStore(), relabel);
+        applyNotesRelabel(docStore(), relabel);
       } catch (err) {
         // A rename that cannot reach the doc leaves a stale label, which is
         // a blemish; letting it reach the compose chain as a rejection would
@@ -1771,7 +1800,7 @@ export function withServerNotesSinks(
     },
     onCorrection: (correction: NotesCorrection): NotesCorrectionResult => {
       try {
-        const result = applyNotesCorrection(deps.docStore(), correction);
+        const result = applyNotesCorrection(docStore(), correction);
         options.onCorrection?.(correction);
         return result;
       } catch (err) {
@@ -1796,7 +1825,7 @@ export function withServerNotesSinks(
     },
     onReattribute: (reattribution: NotesReattribution): void => {
       try {
-        applyNotesReattribution(deps.docStore(), reattribution);
+        applyNotesReattribution(docStore(), reattribution);
       } catch (err) {
         // Same containment as the relabel above: an attribution left stale
         // is a blemish, and a rejection reaching the compose chain would

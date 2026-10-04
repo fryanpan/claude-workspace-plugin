@@ -52,10 +52,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import type { WriteVia } from '@claude-workspaces/core';
+import { MOCK_FRAME_PARAM } from '@claude-workspaces/core/page-thread-link';
 import { isWithinRoot } from './safe-path.ts';
 
 /** The query parameter that asks for the mock itself rather than its host. */
-export const MOCK_FRAME_PARAM = 'cw-frame';
+export { MOCK_FRAME_PARAM };
 
 /** The frame, not the host: `?cw-frame=1` and nothing else. */
 export function isMockFrameRequest(url: URL): boolean {
