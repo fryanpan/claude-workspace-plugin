@@ -87,6 +87,6 @@ describe('renderCoachSection', () => {
     expect(html).toContain('href="/workspaces/w-coach/docs/d-goals">Review my goals</a>');
     expect(html).toContain('data-review="no-update"');
     expect(html).toContain('This week: 4 moments · Thanks 1 · Not now 1 · Not this 1 · Left 1');
-    expect(html).toContain('Today it read 212 events.');
+    expect(html).toContain('Today it read 212 events, about $10.60 (estimate).');
   });
 });

@@ -14,6 +14,15 @@ import { escapeHtml } from '@claude-workspaces/core';
 import type { CoachWeek } from './store.ts';
 import { COACH_READINESS, type CoachReadiness } from './types.ts';
 
+/**
+ * What one event costs the coach session, estimated: the eval measured
+ * $0.0018 for the turn itself (`scripts/coach-eval.ts`, a bare session),
+ * and a real session also rereads about 36k tokens of plugin tools plus
+ * Claude Code's own prompt every turn, cached or, after a quiet gap, written
+ * again. The lead reads the real figure off the session's usage.
+ */
+export const COST_PER_EVENT_USD = 0.05;
+
 export interface CoachSectionInput {
   /** The goals doc's page, once it exists. */
   docUrl: string | null;
@@ -70,7 +79,7 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
       : '';
   const events =
     w.eventsToday > 0
-      ? `<p class="coach-sub">Today it read ${w.eventsToday} ${w.eventsToday === 1 ? 'event' : 'events'}.</p>`
+      ? `<p class="coach-sub">Today it read ${w.eventsToday} ${w.eventsToday === 1 ? 'event' : 'events'}, about $${(w.eventsToday * COST_PER_EVENT_USD).toFixed(2)} (estimate).</p>`
       : '';
   const offline = input.online
     ? ''

@@ -27,7 +27,7 @@
  * tools, so it answers with a moment's arguments as JSON, a memory line as
  * text, or `quiet`; its start-up reads are done for it.
  *
- * SPENDS MONEY, on the eval key: the key is resolved the way the server
+ * SPENDS MONEY, on the eval key, and stops past $10: the key is resolved the way the server
  * resolves it outside prod (`claude-key-source.ts`) and handed to the child
  * as its environment, never printed. `--bare` keeps the child off this
  * machine's hooks, plugins, MCP servers and settings. Fixture text only.
@@ -57,6 +57,9 @@ import {
 } from '../packages/server/test/coach-fixtures.ts';
 
 const MODEL = 'claude-opus-5-5';
+/** The run stops once both days together have spent this much. */
+const STOP_AT_USD = 10;
+let spentBefore = 0;
 const SKILL = readFileSync(
   join(import.meta.dir, '../packages/plugin/skills/coaching/SKILL.md'),
   'utf8',
@@ -120,6 +123,7 @@ function session() {
       env: { ...process.env, ANTHROPIC_API_KEY: key ?? '' },
     },
   );
+  console.log(`session pid ${proc.pid}`);
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffered = '';
@@ -151,10 +155,20 @@ function session() {
       const total = typeof r.total_cost_usd === 'number' ? r.total_cost_usd : spent;
       const costUsd = Math.max(0, total - spent);
       spent = Math.max(spent, total);
+      if (spentBefore + spent > STOP_AT_USD) {
+        proc.kill();
+        throw new Error(
+          `stopped: $${(spentBefore + spent).toFixed(2)} spent, over $${STOP_AT_USD}`,
+        );
+      }
       return { reply: String(r.result ?? '').trim(), costUsd };
     },
     async close() {
-      proc.stdin.end();
+      try {
+        proc.stdin.end();
+      } catch {
+        // Already stopped by the spend limit.
+      }
       await proc.exited;
     },
     get spent() {
@@ -247,6 +261,7 @@ async function playDay(name: string, day: readonly Signal[]): Promise<DayResult>
   } finally {
     await s.close();
     result.totalUsd = s.spent;
+    spentBefore += s.spent;
     rmSync(dir, { recursive: true, force: true });
   }
   return result;
