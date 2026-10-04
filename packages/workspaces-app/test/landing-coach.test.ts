@@ -91,4 +91,15 @@ describe('Your coach', () => {
     expect(calls.map((c) => c.url)).toEqual(['/coach/goals/add', '/', '/coach/review', '/']);
     expect(bodyOf('/coach/review')).toEqual({ answer: 'no-update' });
   });
+
+  it('Turn back on posts that board on again and redraws the section without it', async () => {
+    const off =
+      '<section id="coach"><p>Coach off for:</p><ul class="coach-off-list"><li>Harborlight <button type="button" data-coach-on="w-harbor">Turn back on</button></li></ul></section>';
+    start(off, READY('normal'));
+    click('[data-coach-on="w-harbor"]');
+    await until(() => calls.some((c) => c.url === '/'));
+    await until(() => document.querySelector('[data-coach-on]') === null);
+    expect(bodyOf('/coach/boards')).toEqual({ workspaceId: 'w-harbor', off: false });
+    expect(document.querySelector('[data-coach-on]')).toBeNull();
+  });
 });

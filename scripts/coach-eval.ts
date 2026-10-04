@@ -217,6 +217,7 @@ async function playDay(name: string, day: readonly Signal[]): Promise<DayResult>
       label,
       boardName: () => 'Harborlight',
       workspaceOf: () => WS,
+      isOff: () => false,
       tell: (news, t) => {
         queued.push({ news, at: t });
         return true;

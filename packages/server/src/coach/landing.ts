@@ -8,10 +8,18 @@ import { DEFAULT_COACH_NAME } from './moment.ts';
 import { COACH_SECTION_CSS, renderCoachSection } from './section.ts';
 import type { CoachStore } from './store.ts';
 
+export interface CoachSectionState {
+  /** A coach session is listening. */
+  online: boolean;
+  /** The day's event budget is spent. */
+  paused: boolean;
+  boardName: (workspaceId: string) => string | undefined;
+}
+
 export function coachSectionFor(
   store: CoachStore,
   readGoals: () => GoalsDocReading | null,
-  online: boolean,
+  state: CoachSectionState,
   now: number = Date.now(),
 ): string {
   const doc = store.goalsDoc;
@@ -22,12 +30,18 @@ export function coachSectionFor(
       ? `/workspaces/${encodeURIComponent(doc.workspaceId)}/docs/${encodeURIComponent(doc.docId)}`
       : null,
     name: reading?.name ?? DEFAULT_COACH_NAME,
-    online,
+    online: state.online,
     goals: goals.map(goalTitle),
     unready: reading ? goals.length - actionableGoals(reading).length : 0,
     reviewDue: store.reviewDue(now),
     readiness: store.readiness,
     week: store.week(now),
+    paused: state.paused,
+    // A board since deleted has no name and is left out.
+    offBoards: [...store.offBoards].flatMap((id) => {
+      const name = state.boardName(id);
+      return name ? [{ id, name }] : [];
+    }),
   });
   return `<style>${COACH_SECTION_CSS}</style>\n${html}`;
 }

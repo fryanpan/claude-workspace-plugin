@@ -64,7 +64,39 @@ const writeOnce = (dataDir: string, path: string, text: string) => {
   writeFileSync(path, text, { mode: 0o600 });
 };
 
-export async function ensureGoalsDoc(
+/**
+ * One making of each doc at a time, per store: a second "Set up my coach",
+ * or setup racing the boot's memory-doc check, waits for the first and gets
+ * its answer instead of making a second board or doc.
+ */
+const making = new WeakMap<CoachStore, Map<string, Promise<CoachDocRef | null>>>();
+
+function once(
+  store: CoachStore,
+  key: string,
+  make: () => Promise<CoachDocRef | null>,
+): Promise<CoachDocRef | null> {
+  let held = making.get(store);
+  if (!held) {
+    held = new Map();
+    making.set(store, held);
+  }
+  const running = held.get(key);
+  if (running) return running;
+  const started = make().finally(() => held?.delete(key));
+  held.set(key, started);
+  return started;
+}
+
+export function ensureGoalsDoc(
+  store: CoachStore,
+  deps: CoachSetupDeps,
+  now: number,
+): Promise<CoachDocRef | null> {
+  return once(store, 'goals', () => makeGoalsDoc(store, deps, now));
+}
+
+async function makeGoalsDoc(
   store: CoachStore,
   deps: CoachSetupDeps,
   now: number,
@@ -87,7 +119,15 @@ export async function ensureGoalsDoc(
 
 /** The memory doc, on the goals doc's board. Null before setup, or when it
  *  could not be made; the coach still runs without it. */
-export async function ensureMemoryDoc(
+export function ensureMemoryDoc(
+  store: CoachStore,
+  deps: CoachSetupDeps,
+  now: number,
+): Promise<CoachDocRef | null> {
+  return once(store, 'memory', () => makeMemoryDoc(store, deps, now));
+}
+
+async function makeMemoryDoc(
   store: CoachStore,
   deps: CoachSetupDeps,
   now: number,

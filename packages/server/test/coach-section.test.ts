@@ -24,6 +24,8 @@ const base: CoachSectionInput = {
   reviewDue: false,
   readiness: 'normal',
   week: WEEK,
+  paused: false,
+  offBoards: [],
 };
 
 describe('renderCoachSection', () => {
@@ -88,5 +90,21 @@ describe('renderCoachSection', () => {
     expect(html).toContain('data-review="no-update"');
     expect(html).toContain('This week: 4 moments · Thanks 1 · Not now 1 · Not this 1 · Left 1');
     expect(html).toContain('Today it read 212 events, about $10.60 (estimate).');
+    expect(html).not.toContain('Coach paused');
+    expect(html).not.toContain('Coach off for');
+  });
+
+  it('says when the day’s budget is spent, and lists the boards he turned off, escaped', () => {
+    const html = renderCoachSection({
+      ...base,
+      docUrl: '/workspaces/w-coach/docs/d-goals',
+      goals: ['Hard work first'],
+      paused: true,
+      offBoards: [{ id: 'w-records', name: 'Saltmarsh <records>' }],
+    });
+    expect(html).toContain('Coach paused for today.');
+    expect(html).toContain('Coach off for:');
+    expect(html).toContain('Saltmarsh &lt;records&gt;');
+    expect(html).toContain('data-coach-on="w-records"');
   });
 });

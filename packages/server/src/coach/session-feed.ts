@@ -11,12 +11,16 @@
  * (`coach.preference`). The session decides whether to speak, and raises a
  * moment through `POST /coach/moments`; nothing here waits on it.
  *
+ * Each event is a session turn, so a day has a budget (`DAILY_EVENT_LIMIT`):
+ * past it nothing is sent until his next local day, and the front page says
+ * the coach is paused.
+ *
  * With no lead, or a lead holding no stream, nothing is sent: an addressed
  * frame is replayed to a stream that comes back, so a session that is gone
  * would otherwise read a backlog of stale events when it returns.
  */
 import type { CoachEventKind } from './stream.ts';
-import type { CoachReadiness, MomentAnswer } from './types.ts';
+import { type CoachReadiness, DAILY_EVENT_LIMIT, type MomentAnswer } from './types.ts';
 
 interface Addressed {
   /** The Coach board, which the frame is addressed on. */
@@ -61,6 +65,10 @@ export interface SessionFeedDeps {
   send: (workspaceId: string, agentId: string, frame: SessionFrame) => number;
   /** Whether the lead is holding a stream on its board now. */
   connected: (workspaceId: string, agentId: string) => boolean;
+  /** Events already sent on `at`'s local day. */
+  eventsOn: (at: number) => number;
+  /** Events a day; defaults to `DAILY_EVENT_LIMIT`. */
+  dailyLimit?: number;
 }
 
 export class SessionFeed {
@@ -72,8 +80,14 @@ export class SessionFeed {
     return lead !== null && this.deps.connected(lead.workspaceId, lead.agentId);
   }
 
+  /** The day's budget is spent: nothing more goes until tomorrow. */
+  paused(at: number): boolean {
+    return this.deps.eventsOn(at) >= (this.deps.dailyLimit ?? DAILY_EVENT_LIMIT);
+  }
+
   /** Send it now. True when the session's stream took it. */
   send(news: SessionNews, at: number): boolean {
+    if (this.paused(at)) return false;
     const lead = this.deps.lead();
     if (!lead || !this.deps.connected(lead.workspaceId, lead.agentId)) return false;
     const frame = { ...news, workspaceId: lead.workspaceId, at } as SessionFrame;

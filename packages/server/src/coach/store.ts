@@ -31,6 +31,7 @@ const empty = (): CoachState => ({
   readiness: 'normal',
   moments: [],
   eventsByDay: {},
+  offBoards: [],
 });
 
 /** One week's answers, for the front page's line and the wrong-call rate. */
@@ -47,17 +48,24 @@ export interface CoachWeek {
 export class CoachStore {
   private readonly path: string;
   private state: CoachState;
+  /** The file was there and could not be read, so the boards he turned off
+   *  are unknown: until it is fixed, every board counts as off. */
+  readonly readFailed: boolean;
   private countWrittenAt = 0;
 
   constructor(dataDir: string, now: number = Date.now()) {
     this.path = join(dataDir, COACH_DIRNAME, 'state.json');
     const { value, error } = readJsonFile<CoachState>(this.path, empty(), now);
-    if (error) console.warn(`[coach] state unreadable: ${error}; starting empty`);
+    if (error) console.warn(`[coach] state unreadable: ${error}; starting empty, every board off`);
+    this.readFailed = error !== null;
     this.state = { ...empty(), ...value };
     if (!isKnownTimezone(this.state.timeZone)) this.state.timeZone = DEFAULT_ZONE;
     if (!COACH_READINESS.includes(this.state.readiness)) this.state.readiness = 'normal';
     if (typeof this.state.eventsByDay !== 'object' || this.state.eventsByDay === null) {
       this.state.eventsByDay = {};
+    }
+    if (!Array.isArray(this.state.offBoards)) {
+      this.state.offBoards = [];
     }
   }
 
@@ -98,6 +106,23 @@ export class CoachStore {
   setReadiness(readiness: CoachReadiness): void {
     this.state.readiness = readiness;
     this.write();
+  }
+
+  /** The boards he turned the coach off for. */
+  get offBoards(): ReadonlySet<string> {
+    return new Set(this.state.offBoards.filter((id) => typeof id === 'string'));
+  }
+
+  /** "Coach off for this board", or back on. */
+  setBoardOff(workspaceId: string, off: boolean): void {
+    const rest = this.state.offBoards.filter((id) => id !== workspaceId);
+    this.state.offBoards = off ? [...rest, workspaceId] : rest;
+    this.write();
+  }
+
+  /** Events sent to the session on `now`'s local day. */
+  eventsOn(now: number): number {
+    return this.state.eventsByDay[localDay(now, this.state.timeZone)] ?? 0;
   }
 
   /** He edited the goals doc. Written at most once a minute. */
@@ -175,7 +200,7 @@ export class CoachStore {
       notNow: count('not-now'),
       notThis: count('not-this'),
       unanswered: count('moved-on'),
-      eventsToday: this.state.eventsByDay[localDay(now, this.state.timeZone)] ?? 0,
+      eventsToday: this.eventsOn(now),
     };
   }
 

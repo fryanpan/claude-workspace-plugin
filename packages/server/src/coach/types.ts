@@ -76,8 +76,13 @@ export interface CoachState {
    *  last `KEEP_EVENT_DAYS`: each is one session turn, so this is the cost
    *  the server can see. */
   eventsByDay: Record<string, number>;
+  /** Boards he turned the coach off for ("Coach off for this board"). */
+  offBoards: string[];
 }
 
 export const KEEP_EVENT_DAYS = 14;
+/** Events a day the coach session is sent, then nothing until tomorrow: the
+ *  spend limit, about $20 at the estimated $0.05 a turn. */
+export const DAILY_EVENT_LIMIT = 400;
 /** The weekly offer to review the goals. */
 export const REVIEW_AFTER_MS = 7 * 24 * 60 * 60_000;

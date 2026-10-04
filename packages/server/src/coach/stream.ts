@@ -131,6 +131,21 @@ export class CoachStream {
     };
   }
 
+  /**
+   * He is on a page the coach must not hear about. The place he was is
+   * left, and nothing names where he went; coming back counts as arriving.
+   */
+  elsewhere(at: number): StreamStep {
+    const was = this.place;
+    const left = was !== null && !this.hidden;
+    this.place = null;
+    this.hidden = false;
+    this.heading = undefined;
+    this.passage = undefined;
+    this.lastWrote = undefined;
+    return { events: left && was ? [{ kind: 'left', at, ...was }] : [], moved: was !== null };
+  }
+
   /** An owner row from the activity record. */
   activity(row: Event, at: number, workspaceOf: (docId: string) => string | undefined): StreamStep {
     if (!row.isOwner) return NONE;

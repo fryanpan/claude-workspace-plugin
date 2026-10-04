@@ -100,6 +100,19 @@ describe('what he is looking at and writing', () => {
     c.destroy();
   });
 
+  it('a background tab sends no view when it scrolls', async () => {
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const c = mount({ docId: 'd-tokens' });
+    await flush();
+    expect(posted).toHaveLength(1);
+    vis.mockReturnValue('hidden');
+    document.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(SCROLL_SETTLE_MS * 2);
+    expect(posted.filter((p) => p.body.visible === true)).toHaveLength(1);
+    vis.mockRestore();
+    c.destroy();
+  });
+
   it('sends one more view once a doc that opened empty has its text', async () => {
     document.body.innerHTML = '<main id="ed" contenteditable="true"></main>';
     const ed = document.getElementById('ed') as HTMLElement;
@@ -201,6 +214,24 @@ describe('the card', () => {
     FakeStream.last?.emit({ type: 'clear', id: 'cm-bbbbbbbbbbbb' });
     expect(card()).not.toBeNull();
     FakeStream.last?.emit({ type: 'clear', id: MOMENT.id });
+    expect(card()).toBeNull();
+  });
+
+  it('Coach off for this board posts that board and takes the card away; a failure keeps it', async () => {
+    mount();
+    await flush();
+    FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
+    status = 0;
+    card()?.querySelector<HTMLButtonElement>('.cw-coach-off')?.click();
+    await flush();
+    expect(posted.at(-1)).toEqual({
+      url: '/coach/boards',
+      body: { workspaceId: 'w-harbor', off: true },
+    });
+    expect(card()?.querySelector<HTMLButtonElement>('.cw-coach-off')?.disabled).toBe(false);
+    status = 200;
+    card()?.querySelector<HTMLButtonElement>('.cw-coach-off')?.click();
+    await flush();
     expect(card()).toBeNull();
   });
 });

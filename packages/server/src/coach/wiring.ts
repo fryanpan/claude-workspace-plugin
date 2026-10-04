@@ -11,6 +11,7 @@
  *    Claude Code session, which hears every event (`session-feed.ts`).
  */
 import { type Event, onActivity } from '../activity.ts';
+import { type BoardPrivacy, placeIsOff } from './exclusion.ts';
 import { type GoalsDocReading, readGoalsDoc } from './goals-doc.ts';
 import { CoachHub } from './hub.ts';
 import { coachSectionFor } from './landing.ts';
@@ -45,6 +46,8 @@ export interface CoachWiringDeps {
   label: (docId: string) => DocLabel;
   boardName: (workspaceId: string) => string | undefined;
   workspaceOf: (docId: string) => string | undefined;
+  /** What makes a board off for the coach (`coach/exclusion.ts`). */
+  privacy: BoardPrivacy;
   /** The board's lead agent, if one is seated. */
   leadOf: (workspaceId: string) => string | undefined;
   sendToAgent: (workspaceId: string, agentId: string, frame: SessionFrame) => number;
@@ -80,6 +83,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     },
     send: deps.sendToAgent,
     connected: deps.agentConnected,
+    eventsOn: (at) => store.eventsOn(at),
   });
   const coach = createCoach({
     store,
@@ -88,6 +92,8 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     label: deps.label,
     boardName: deps.boardName,
     workspaceOf: deps.workspaceOf,
+    // An unreadable state file means the boards he turned off are unknown.
+    isOff: (place) => store.readFailed || placeIsOff(place, deps.privacy, store.offBoards),
     tell: (news, at) => feed.send(news, at),
     publish: (frame) => hub.publish(frame),
     ...(deps.now ? { now: deps.now } : {}),
@@ -127,7 +133,15 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     hub,
     feed,
     setup,
-    landing: () => coachSectionFor(store, readGoals, feed.reachable(), (deps.now ?? Date.now)()),
+    landing: () => {
+      const t = (deps.now ?? Date.now)();
+      return coachSectionFor(
+        store,
+        readGoals,
+        { online: feed.reachable(), paused: feed.paused(t), boardName: deps.boardName },
+        t,
+      );
+    },
     stop: () => {
       unsubscribe();
       store.flush();

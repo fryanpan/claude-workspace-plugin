@@ -185,6 +185,38 @@ describe('the owner’s settings and answers', () => {
   });
 });
 
+describe('POST /coach/boards — Coach off for this board', () => {
+  it('turns a real board off and on for the owner, and refuses a bad body, an agent and a visitor', async () => {
+    const { workspaceId } = ids();
+    const h = await ownerHeaders();
+    const bad = await postJson(
+      '/coach/boards',
+      { workspaceId: 'w-none', off: true },
+      h,
+      OWNER_HOST,
+    );
+    expect(bad.status).toBe(400);
+    const notBool = await postJson('/coach/boards', { workspaceId, off: 'yes' }, h, OWNER_HOST);
+    expect(notBool.status).toBe(400);
+    expect((await postJson('/coach/boards', { workspaceId, off: true }, {}, local())).status).toBe(
+      403,
+    );
+    expect(
+      (await postJson('/coach/boards', { workspaceId, off: true }, {}, SHARE_HOST)).status,
+    ).toBe(403);
+    expect(
+      (await postJson('/coach/boards', { workspaceId, off: true }, h, OWNER_HOST)).status,
+    ).toBe(200);
+    const page = await landingAsOwner();
+    expect(page).toContain('Coach off for:');
+    expect(page).toContain(`data-coach-on="${workspaceId}"`);
+    expect(
+      (await postJson('/coach/boards', { workspaceId, off: false }, h, OWNER_HOST)).status,
+    ).toBe(200);
+    expect(await landingAsOwner()).not.toContain('Coach off for:');
+  });
+});
+
 describe('POST /coach/here', () => {
   it('takes a view and a paragraph on a board and doc that exist, refuses the rest, and tells anyone else to stop', async () => {
     const { workspaceId, docId } = ids();

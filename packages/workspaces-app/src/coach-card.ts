@@ -24,6 +24,7 @@
 
 const HERE_URL = '/coach/here';
 const STREAM_URL = '/coach/stream';
+const BOARDS_URL = '/coach/boards';
 /** A typing pause this long sends the paragraph. */
 export const WROTE_PAUSE_MS = 3_000;
 /** Scrolling has stopped once it is this quiet: the passage he stopped at is
@@ -64,6 +65,8 @@ const STYLES = `
 .cw-coach-acts button { flex: 1 1 0; min-height: 44px; padding: 0 8px; border: 1px solid #d8dee4; border-radius: 6px; background: #fff; color: #1b1f23; font-size: 13.5px; cursor: pointer; }
 .cw-coach-acts button:hover { background: #f6f8fa; }
 .cw-coach-acts button:disabled { opacity: .55; cursor: default; }
+.cw-coach-off { display: block; margin: 8px 0 0; padding: 6px 0; min-height: 32px; border: none; background: none; color: #6e7781; font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cw-coach-off:disabled { opacity: .55; cursor: default; }
 `;
 
 async function defaultPost(url: string, body: unknown): Promise<number> {
@@ -145,10 +148,11 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   /** The paragraph he is typing in, until it is sent. */
   let writing: HTMLElement | null = null;
 
+  const hidden = () => document.visibilityState === 'hidden';
   const where = () => ({
     workspaceId: opts.workspaceId,
     ...(opts.docId ? { docId: opts.docId } : {}),
-    visible: document.visibilityState !== 'hidden',
+    visible: !hidden(),
   });
 
   const view = (): Promise<number> => {
@@ -171,7 +175,14 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     const text = block.textContent?.replace(/\s+/g, ' ').trim();
     if (!text) return;
     const heading = headingBefore(root, block);
-    void post(HERE_URL, { kind: 'wrote', ...where(), ...(heading ? { heading } : {}), text });
+    // He typed it while he could see it, even if the tab has just gone.
+    void post(HERE_URL, {
+      kind: 'wrote',
+      ...where(),
+      visible: true,
+      ...(heading ? { heading } : {}),
+      text,
+    });
   };
 
   const onInput = () => {
@@ -186,10 +197,15 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   const onSelection = () => {
     if (writing && root && blockAtCaret(root) !== writing) sendWriting();
   };
+  // A tab in the background says nothing about where he is: on another
+  // device he may be reading something else, and its view would close the
+  // moment there.
   const onScroll = () => {
-    if (stopped) return;
+    if (stopped || hidden()) return;
     clearTimeout(settle);
-    settle = setTimeout(() => void view(), SCROLL_SETTLE_MS);
+    settle = setTimeout(() => {
+      if (!hidden()) void view();
+    }, SCROLL_SETTLE_MS);
   };
   const onVisibility = () => {
     if (stopped) return;
@@ -247,11 +263,22 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
       b.addEventListener('click', () => void answer(m.id, b.dataset.answer ?? '', buttons));
       acts.appendChild(b);
     }
+    const off = document.createElement('button');
+    off.type = 'button';
+    off.className = 'cw-coach-off';
+    off.textContent = 'Coach off for this board';
+    off.addEventListener('click', async () => {
+      off.disabled = true;
+      const status = await post(BOARDS_URL, { workspaceId: opts.workspaceId, off: true });
+      if (status === 200) hide();
+      else off.disabled = false;
+    });
     card.append(
       line('cw-coach-who', m.name),
       line('cw-coach-line', m.line),
       line('cw-coach-goal', `Your goal: ${m.goal}`),
       acts,
+      off,
     );
     shadow.append(style, card);
     document.body.appendChild(host);
@@ -296,7 +323,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     arriving = new MutationObserver(() => {
       clearTimeout(settle);
       settle = setTimeout(() => {
-        if (stopped || !passageInView(root)) return;
+        if (stopped || hidden() || !passageInView(root)) return;
         arriving?.disconnect();
         arriving = null;
         void view();

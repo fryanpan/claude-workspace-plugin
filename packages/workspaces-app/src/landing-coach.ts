@@ -9,6 +9,7 @@
  *  - "Add a goal" adds an empty goal to that doc.
  *  - "No update needed" answers the weekly offer.
  *  - Less / Normal / More sets how readily the coach speaks up.
+ *  - "Turn back on" undoes a board's "Coach off for this board".
  */
 
 const SECTION = '#coach';
@@ -54,6 +55,8 @@ function requestFor(btn: HTMLButtonElement): { url: string; body: unknown } | nu
     return { url: '/coach/review', body: { answer: 'no-update' } };
   if (btn.dataset.readiness)
     return { url: '/coach/prefs', body: { readiness: btn.dataset.readiness } };
+  if (btn.dataset.coachOn)
+    return { url: '/coach/boards', body: { workspaceId: btn.dataset.coachOn, off: false } };
   return null;
 }
 

@@ -43,6 +43,7 @@ import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-mem
 import { createBoardSummaries } from './board-summary.ts';
 import { type BrowserSentryConfig } from './browser-sentry.ts';
 import { ChatAudit } from './chat-audit.ts';
+import { boardPrivacyFrom } from './coach/exclusion.ts';
 import { wireCoach } from './coach/wiring.ts';
 import { maybeCompress, maybeNotModified } from './compress.ts';
 import { type ConnectorHost, createConnectorHost } from './connector/host.ts';
@@ -439,6 +440,12 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // `boardShareTarget` is only ever asked at request time.
     isBoard: (workspaceId) => taskStore.getWorkspace(workspaceId) !== undefined,
   });
+  /** Anyone besides the owner can reach the board: a share link, a member
+   *  who redeemed one, or a share. Read by the sharing notice and the coach. */
+  const boardIsShared = (workspaceId: string): boolean =>
+    (shareLinks?.forWorkspace(workspaceId).length ?? 0) > 0 ||
+    (shareLinks?.membersOf(workspaceId).length ?? 0) > 0 ||
+    (shares?.list() ?? []).some((sh) => sh.workspaceId === workspaceId);
 
   const sse = new SseBus();
   // Pick up where the last clean shutdown left off, so a deploy is silent on
@@ -1461,6 +1468,19 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       docId.startsWith('task:')
         ? taskStore.getTask(docId.slice(5))?.workspaceId
         : (taskStore.workspaceOfDoc(docId) ?? undefined),
+    // What keeps a board off the coach. Two of the stores it reads are built
+    // further down; these run only for a page's or a row's event, and a
+    // throw counts as off (`coach/exclusion.ts`).
+    privacy: boardPrivacyFrom({
+      isLocalOnlySet: (setId) => attachmentPrivacy.isLocalOnly(setId),
+      setOfDoc: (docId) => setOfDoc(docId),
+      repoKeyOf: (docId) => docStore.repos.primaryKeyFor(docStore.resolveDocId(docId)),
+      projectIsLocalOnly: (repoKey) => mountStore.privacyOf(repoKey) === 'local-only',
+      docIdsOf: (id) => taskStore.getWorkspace(id)?.docIds ?? [],
+      isBoardLocked: (id) => sharingGate.isBoardLocked(id),
+      isBoardShared: boardIsShared,
+      boardsOfDoc: (docId) => boardsForDoc(docId),
+    }),
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     sendToAgent: (workspaceId, agentId, frame) =>
       sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
@@ -2646,10 +2666,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         taskStore.listWorkspaces().map((w) => ({
           id: w.id,
           retired: isRetired(w),
-          shared:
-            (shareLinks?.forWorkspace(w.id).length ?? 0) > 0 ||
-            (shareLinks?.membersOf(w.id).length ?? 0) > 0 ||
-            (shares?.list() ?? []).some((sh) => sh.workspaceId === w.id),
+          shared: boardIsShared(w.id),
           activeAt: lastBoardActivityAt(w, taskStore.listTasks(w.id)),
         })),
       ),

@@ -6,7 +6,9 @@
 import { describe, expect, it } from 'bun:test';
 import { SessionFeed, type SessionFrame } from '../src/coach/session-feed.ts';
 
-function feed(opts: { lead?: boolean; connected?: boolean; took?: number } = {}) {
+function feed(
+  opts: { lead?: boolean; connected?: boolean; took?: number; today?: number; limit?: number } = {},
+) {
   const sent: [string, string, SessionFrame][] = [];
   const f = new SessionFeed({
     lead: () => (opts.lead === false ? null : { workspaceId: 'w-coach', agentId: 'agent-coach' }),
@@ -15,6 +17,8 @@ function feed(opts: { lead?: boolean; connected?: boolean; took?: number } = {})
       sent.push([ws, agent, frame]);
       return opts.took ?? 1;
     },
+    eventsOn: () => opts.today ?? 0,
+    ...(opts.limit === undefined ? {} : { dailyLimit: opts.limit }),
   });
   return { f, sent };
 }
@@ -43,5 +47,17 @@ describe('SessionFeed', () => {
     expect(feed({ took: 0 }).f.send({ event: 'coach.preference', readiness: 'less' }, 1)).toBe(
       false,
     );
+  });
+
+  it('sends nothing once the day’s events reach the budget, 400 by default', () => {
+    const under = feed({ today: 399 });
+    expect(under.f.paused(1)).toBe(false);
+    expect(under.f.send({ event: 'coach.preference', readiness: 'more' }, 1)).toBe(true);
+    const at = feed({ today: 400 });
+    expect(at.f.paused(1)).toBe(true);
+    expect(at.f.send({ event: 'coach.preference', readiness: 'more' }, 1)).toBe(false);
+    expect(at.sent).toEqual([]);
+    const lower = feed({ today: 3, limit: 3 });
+    expect(lower.f.send({ event: 'coach.preference', readiness: 'more' }, 1)).toBe(false);
   });
 });

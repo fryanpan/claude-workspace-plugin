@@ -1844,11 +1844,15 @@ how-readily setting, and says how many events the session read today.
 paragraph he writes when he pauses, to `/coach/here`
 (`workspaces-app/src/coach-card.ts`); `coach/stream.ts` turns that and his
 own comment, reply and open rows (through `onActivity` in `activity.ts`)
-into one event per thing he does, dropping repeats.
+into one event per thing he does, dropping repeats. `coach/exclusion.ts`
+drops everything from a board that is local-only, sharing-locked, reachable
+by anyone besides him, or that he turned off from the card ("Coach off for
+this board", `POST /coach/boards`); a check that throws counts as off.
 (C) *Intervene*: `coach/moment.ts` sends every event, his answers and his
 how-readily setting to the coach's Claude Code session, the Coach board's
-lead, as addressed frames (`coach/session-feed.ts`); there is no trigger, cap
-or timer. The session raises a moment on `POST /coach/moments`, and
+lead, as addressed frames (`coach/session-feed.ts`); there is no trigger or
+timer, and past 400 events in a day it sends nothing and the front page says
+the coach is paused for today. The session raises a moment on `POST /coach/moments`, and
 `coach/judge.ts` refuses one that does not quote a goal's "act differently
 when", or arrives while another is open. A moment goes to his pages over
 `/coach/stream` (`coach/hub.ts`) and stays until he answers or moves to

@@ -5,6 +5,8 @@
  *   POST /coach/goals/add            add a goal's four empty parts to it
  *   POST /coach/review               `{ answer: 'no-update' }` to the weekly offer
  *   POST /coach/prefs                `{ readiness: 'less' | 'normal' | 'more' }`
+ *   POST /coach/boards               `{ workspaceId, off: boolean }`: "Coach off
+ *                                    for this board", or back on
  *   POST /coach/here                 where he is or what he wrote: `{ kind?:
  *                                    'view' | 'wrote', workspaceId, docId?,
  *                                    visible, heading?, text?, timeZone? }`
@@ -194,6 +196,18 @@ export async function handleCoachRoutes(
       });
     }
     coach.setReadiness(readiness as CoachReadiness);
+    return j(200, { ok: true });
+  }
+  if (pathname === '/coach/boards') {
+    const workspaceId = body?.workspaceId;
+    const off = body?.off;
+    if (typeof workspaceId !== 'string' || !ctx.boardExists(workspaceId)) {
+      return j(400, { error: 'bad-board', message: 'workspaceId names no board' });
+    }
+    if (typeof off !== 'boolean') {
+      return j(400, { error: 'bad-off', message: 'off is true or false' });
+    }
+    coach.setBoardOff(workspaceId, off);
     return j(200, { ok: true });
   }
   if (pathname === '/coach/here') {

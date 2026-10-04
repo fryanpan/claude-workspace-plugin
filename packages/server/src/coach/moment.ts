@@ -45,6 +45,8 @@ export interface CoachDeps {
   label: (docId: string) => DocLabel;
   boardName: (workspaceId: string) => string | undefined;
   workspaceOf: (docId: string) => string | undefined;
+  /** Nothing about this place may reach the session (`coach/exclusion.ts`). */
+  isOff: (place: { workspaceId: string; docId?: string }) => boolean;
   /** To the coach session; true when it took the frame. */
   tell: (news: SessionNews, at: number) => boolean;
   publish: (frame: CoachFrame) => void;
@@ -58,6 +60,9 @@ export interface Coach {
   raise(body: Record<string, unknown> | null): RaiseResult;
   answer(id: string, answer: MomentAnswer): boolean;
   setReadiness(readiness: CoachReadiness): void;
+  /** "Coach off for this board", or back on. Turning off the board he is on
+   *  counts as his leaving it. */
+  setBoardOff(workspaceId: string, off: boolean): void;
   /** The open moment as a page shows it, if any. */
   openFrame(): CoachFrame | null;
 }
@@ -98,10 +103,12 @@ export function createCoach(deps: CoachDeps): Coach {
   };
 
   /** He moved: a moment raised somewhere else closes, then the events go.
-   *  One raised before any page said where he was closes on his first move. */
+   *  One raised before any page said where he was closes on his first move,
+   *  and so does every moment when he goes where the coach cannot follow. */
   const take = (step: StreamStep, t: number) => {
     const open = deps.store.openMoment();
     const place = deps.stream.current;
+    if (step.moved && open && !place) close(open, 'moved-on', t);
     if (step.moved && open && place) {
       const there = open.docId
         ? open.docId === place.docId
@@ -114,6 +121,11 @@ export function createCoach(deps: CoachDeps): Coach {
   return {
     here(signal) {
       const t = now();
+      if (deps.isOff(signal)) {
+        // A hidden page off the coach's boards tells it nothing at all.
+        if (signal.visible) take(deps.stream.elsewhere(t), t);
+        return;
+      }
       take(deps.stream.here({ ...signal, at: t }), t);
     },
     activity(row) {
@@ -122,6 +134,12 @@ export function createCoach(deps: CoachDeps): Coach {
       const goalsDoc = deps.store.goalsDoc;
       if (goalsDoc && row.type === 'edit_session' && row.doc?.docId === goalsDoc.docId) {
         deps.store.noteGoalsChanged(t);
+      }
+      const docId = row.doc?.docId;
+      const workspaceId = docId ? deps.workspaceOf(docId) : undefined;
+      if (docId && workspaceId && deps.isOff({ workspaceId, docId })) {
+        if (row.type === 'doc_open') take(deps.stream.elsewhere(t), t);
+        return;
       }
       take(deps.stream.activity(row, t, deps.workspaceOf), t);
     },
@@ -163,6 +181,14 @@ export function createCoach(deps: CoachDeps): Coach {
     setReadiness(readiness) {
       deps.store.setReadiness(readiness);
       deps.tell({ event: 'coach.preference', readiness }, now());
+    },
+    setBoardOff(workspaceId, off) {
+      deps.store.setBoardOff(workspaceId, off);
+      const place = deps.stream.current;
+      if (off && place && deps.isOff(place)) {
+        const t = now();
+        take(deps.stream.elsewhere(t), t);
+      }
     },
     openFrame() {
       const m = deps.store.openMoment();

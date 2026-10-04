@@ -36,6 +36,10 @@ export interface CoachSectionInput {
   reviewDue: boolean;
   readiness: CoachReadiness;
   week: CoachWeek;
+  /** The day's event budget is spent; nothing is sent until tomorrow. */
+  paused: boolean;
+  /** Boards he turned the coach off for, by name. */
+  offBoards: readonly { id: string; name: string }[];
 }
 
 const READINESS_LABEL: Record<CoachReadiness, string> = {
@@ -81,10 +85,22 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
     w.eventsToday > 0
       ? `<p class="coach-sub">Today it read ${w.eventsToday} ${w.eventsToday === 1 ? 'event' : 'events'}, about $${(w.eventsToday * COST_PER_EVENT_USD).toFixed(2)} (estimate).</p>`
       : '';
+  const paused = input.paused
+    ? '<p class="coach-sub">Coach paused for today. It has read its day’s events and starts again tomorrow.</p>'
+    : '';
+  const off =
+    input.offBoards.length > 0
+      ? `<div class="coach-off"><p class="coach-sub">Coach off for:</p><ul class="coach-off-list">${input.offBoards
+          .map(
+            (b) =>
+              `<li><span>${escapeHtml(b.name)}</span><button type="button" class="board-btn" data-coach-on="${escapeHtml(b.id)}">Turn back on</button></li>`,
+          )
+          .join('')}</ul></div>`
+      : '';
   const offline = input.online
     ? ''
     : '<p class="coach-sub">Offline. No coach session is running, so it will not speak up.</p>';
-  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}${events}`;
+  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}${events}${paused}${off}`;
 }
 
 export function renderCoachSection(input: CoachSectionInput): string {
@@ -120,4 +136,7 @@ export const COACH_SECTION_CSS = `
 .coach-seg-btn:first-child{border-left:none}
 .coach-seg-btn[aria-pressed="true"]{background:var(--fg);color:var(--bg-panel)}
 .coach-often-hint{margin:0;min-width:13em}
+.coach-off{margin:10px 0 0}
+.coach-off-list{list-style:none;margin:0;padding:0}
+.coach-off-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0}
 `;

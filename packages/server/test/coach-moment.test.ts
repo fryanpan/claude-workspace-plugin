@@ -60,7 +60,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function harness(opts: { goals?: string | null; listening?: boolean } = {}) {
+function harness(
+  opts: {
+    goals?: string | null;
+    listening?: boolean;
+    isOff?: (place: { workspaceId: string; docId?: string }) => boolean;
+  } = {},
+) {
   let clock = at(8);
   const store = new CoachStore(dir, clock);
   store.noteTimeZone(ZONE);
@@ -74,6 +80,7 @@ function harness(opts: { goals?: string | null; listening?: boolean } = {}) {
     label,
     boardName: () => 'Harborlight',
     workspaceOf: () => WS,
+    isOff: opts.isOff ?? (() => false),
     tell: (news) => {
       if (opts.listening === false) return false;
       told.push(news);

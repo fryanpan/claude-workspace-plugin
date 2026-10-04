@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Event, appendActivity } from '../src/activity.ts';
+import type { BoardPrivacy } from '../src/coach/exclusion.ts';
 import { goalsDocTemplate } from '../src/coach/goals-doc.ts';
 import {
   type CoachSetupDeps,
@@ -88,6 +89,18 @@ describe('ensureGoalsDoc', () => {
     expect(f.boards).toEqual([]);
     expect(f.docs.get(doc?.docId ?? '')).toBe(GOALS_DOC);
   });
+
+  it('gives two Set up presses at once the same board and doc', async () => {
+    const store = new CoachStore(dir, at(9));
+    const f = fakes(dir);
+    const [a, b] = await Promise.all([
+      ensureGoalsDoc(store, f.deps, at(9)),
+      ensureGoalsDoc(store, f.deps, at(9)),
+    ]);
+    expect(b).toEqual(a);
+    expect(f.boards).toEqual(['Coach']);
+    expect(f.filed.map(([id]) => id)).toEqual([a?.docId ?? '', store.memoryDoc?.docId ?? '']);
+  });
 });
 
 describe('addGoal', () => {
@@ -101,6 +114,14 @@ describe('addGoal', () => {
     expect(f.docs.get(doc?.docId ?? '')).toContain('## Goal 4\n\n### What I want to do better');
   });
 });
+
+const OPEN_PRIVACY: BoardPrivacy = {
+  localOnlyBoard: () => false,
+  localOnlyDoc: () => false,
+  locked: () => false,
+  shared: () => false,
+  boardsOfDoc: () => [],
+};
 
 describe('wireCoach', () => {
   function wire(
@@ -124,6 +145,7 @@ describe('wireCoach', () => {
       label: () => ({}),
       boardName: () => undefined,
       workspaceOf: () => 'w-coach',
+      privacy: OPEN_PRIVACY,
       leadOf: () => undefined,
       sendToAgent: () => 0,
       agentConnected: () => false,
