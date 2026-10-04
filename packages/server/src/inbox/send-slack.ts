@@ -2,12 +2,20 @@
  * Bryan's reply on Slack: a message in the same thread, posted with his own
  * user token for the row's workspace (`send-keychain.ts`).
  *
- * Before the first post with a token, `auth.test` says which team it
- * belongs to, and the post goes ahead only when that team's URL is the host
- * the inbox config names for the row's workspace. A token stored under the
- * wrong workspace key therefore refuses rather than posting into another
+ * The tokens tried, in order: the raw entry under the row's workspace key,
+ * then each token on the secret card. Before a token is used, `auth.test`
+ * says which team it belongs to, and the post goes ahead only with the first
+ * token whose team URL is the host the inbox config names for the row's
+ * workspace. A token for any other team is never posted with, so a card
+ * token Bryan saved for one team cannot reach another, and a token stored
+ * under the wrong workspace key refuses rather than posting into another
  * team. The answer is kept per token (by its hash) for the life of the
- * process, so a replaced token is asked again.
+ * process, so a replaced token is asked again and a known one is not.
+ *
+ * `ready` reads no value. A raw entry for the workspace, or any card token,
+ * makes it true; which team a card token is for is only known after
+ * `auth.test`, so for card tokens it means "may be ready" and the send says
+ * which it was.
  *
  * The text is posted as typed. `&`, `<` and `>` are escaped as Slack asks,
  * so `<@U…>` or `<!channel>` Bryan types shows as those characters rather
@@ -15,7 +23,13 @@
  */
 import { createHash } from 'node:crypto';
 import type { FetchLike, SendOutcome } from './send-gmail.ts';
-import { SLACK_SEND_SERVICE, type SendKeychain } from './send-keychain.ts';
+import {
+  SLACK_CARD_TOKENS,
+  SLACK_SEND_SERVICE,
+  type SendKeychain,
+  cardHas,
+  cardRead,
+} from './send-keychain.ts';
 
 const API = 'https://slack.com/api';
 
@@ -54,22 +68,42 @@ export function slackSender(deps: { keychain: SendKeychain; fetch: FetchLike }):
     return (await res.json()) as Record<string, unknown>;
   }
 
+  /** Which team a token is for, asked once per token; null when refused. */
+  async function teamOf(token: string): Promise<string | null> {
+    const key = createHash('sha256').update(token).digest('hex');
+    if (!teamUrl.has(key)) {
+      const who = await call('auth.test', token, {});
+      if (who?.ok !== true || typeof who.url !== 'string') return null;
+      teamUrl.set(key, who.url);
+    }
+    return teamUrl.get(key) ?? null;
+  }
+
+  /** The token whose team is `host`, read lazily so a raw match reads no card. */
+  async function tokenFor(target: SlackTarget): Promise<string | { error: string }> {
+    const sources = [
+      () => deps.keychain.read(SLACK_SEND_SERVICE, target.workspace),
+      ...SLACK_CARD_TOKENS.map((n) => () => cardRead(deps.keychain, n)),
+    ];
+    let error = 'slack: no token';
+    for (const source of sources) {
+      const token = source();
+      if (!token) continue;
+      const url = await teamOf(token);
+      if (url === `https://${target.host}.slack.com/`) return token;
+      if (url) error = 'slack: token is for another workspace';
+      else if (error === 'slack: no token') error = 'slack: token refused';
+    }
+    return { error };
+  }
+
   return {
-    ready: (workspace) => deps.keychain.has(SLACK_SEND_SERVICE, workspace),
+    ready: (workspace) =>
+      deps.keychain.has(SLACK_SEND_SERVICE, workspace) ||
+      SLACK_CARD_TOKENS.some((n) => cardHas(deps.keychain, n)),
     async send(target, text) {
-      const token = deps.keychain.read(SLACK_SEND_SERVICE, target.workspace);
-      if (!token) return { ok: false, error: 'slack: no token' };
-      const key = createHash('sha256').update(token).digest('hex');
-      if (!teamUrl.has(key)) {
-        const who = await call('auth.test', token, {});
-        if (who?.ok !== true || typeof who.url !== 'string') {
-          return { ok: false, error: 'slack: token refused' };
-        }
-        teamUrl.set(key, who.url);
-      }
-      if (teamUrl.get(key) !== `https://${target.host}.slack.com/`) {
-        return { ok: false, error: 'slack: token is for another workspace' };
-      }
+      const token = await tokenFor(target);
+      if (typeof token !== 'string') return { ok: false, error: token.error };
       const out = await call('chat.postMessage', token, {
         channel: target.channelId,
         thread_ts: target.threadTs,
