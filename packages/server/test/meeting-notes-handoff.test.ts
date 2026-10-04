@@ -35,6 +35,7 @@ import {
 import { createNotesHeadingFileStore } from '../src/notes-heading-store.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { type MockScriptTurn, createMockTranscriptionEngine } from '../src/transcribe.ts';
+import { waitFor as pollUntil } from './wait-for.ts';
 import { seedBoard } from './workspace-seed.ts';
 
 /** Advanced by hand: `fire()` is the speaker going quiet. */
@@ -65,12 +66,9 @@ interface Frame {
   [key: string]: unknown;
 }
 
+/** Poll until `pred` holds; the house loop, so no fixed wait is declared. */
 const waitFor = async (pred: () => boolean, what: string): Promise<void> => {
-  const deadline = Date.now() + 2_000;
-  while (!pred()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 10));
-  }
+  await pollUntil(() => pred() || undefined, { describe: what, timeout: 2_000 });
 };
 
 let handle: ServerHandle;
