@@ -88,6 +88,34 @@ describe('board embed frames', () => {
     editor.destroy();
   });
 
+  it('reads the mapping only once a directive line exists', async () => {
+    let reads = 0;
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const editor = new Editor({
+      element: el,
+      extensions: [
+        StarterKit,
+        Markdown,
+        BoardEmbedFrames.configure({
+          workspaceId: 'w-saltmarsh',
+          load: async () => {
+            reads++;
+            return MAP;
+          },
+        }),
+      ],
+      content: 'Alice wrote this.',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(0);
+    editor.commands.insertContentAt(editor.state.doc.content.size, `<p>${LINE}</p>`);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(1);
+    expect(frames(el)).toHaveLength(1);
+    editor.destroy();
+  });
+
   it('shows nothing for an unmapped name, a bad block, or no mapping', async () => {
     for (const [md, map] of [
       ['::other{block="goal-chart"}', MAP],

@@ -84,6 +84,17 @@ function build(doc: ProseNode, workspaceId: string, embeds: BoardEmbeds | null):
   return DecorationSet.create(doc, decos);
 }
 
+function hasDirective(doc: ProseNode): boolean {
+  let found = false;
+  doc.descendants((node) => {
+    if (found) return false;
+    if (node.type.name !== 'paragraph') return true;
+    if (parseEmbedDirective(node.textContent)) found = true;
+    return false;
+  });
+  return found;
+}
+
 export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
   name: 'boardEmbedFrames',
 
@@ -110,13 +121,21 @@ export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
         },
         view(view) {
           let live = true;
-          load()
-            .then((m) => {
-              if (!live || !m) return;
-              embeds = m;
-              view.dispatch(view.state.tr.setMeta(META_KEY, true));
-            })
-            .catch(() => {});
+          let asked = false;
+          // The mapping is read once, and only when the doc first holds a
+          // directive line, so a doc without one makes no request.
+          const ensureLoaded = (doc: ProseNode): void => {
+            if (asked || !hasDirective(doc)) return;
+            asked = true;
+            load()
+              .then((m) => {
+                if (!live || !m) return;
+                embeds = m;
+                view.dispatch(view.state.tr.setMeta(META_KEY, true));
+              })
+              .catch(() => {});
+          };
+          ensureLoaded(view.state.doc);
           const onMessage = (ev: MessageEvent): void => {
             const data = ev.data as { type?: unknown; block?: unknown; height?: unknown } | null;
             if (data?.type !== 'sfworks:height' || typeof data.height !== 'number') return;
@@ -131,6 +150,9 @@ export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
           };
           window.addEventListener('message', onMessage);
           return {
+            update(v) {
+              ensureLoaded(v.state.doc);
+            },
             destroy() {
               live = false;
               window.removeEventListener('message', onMessage);
