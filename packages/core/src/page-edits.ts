@@ -82,7 +82,9 @@ export function readPageEdits(raw: unknown): PageEdit[] | undefined {
     if (!isElementAnchor(anchor)) continue;
     if (typeof selector !== 'string' || selector === '') continue;
     if (selector.length > MAX_PAGE_EDIT_SELECTOR) continue;
-    if (!okText(before) || !okText(after) || before === after) continue;
+    // `after` equal to `before` is not a no-op: `before` is plain words and
+    // `after` markdown, so it is bold or a link taken off them.
+    if (!okText(before) || !okText(after)) continue;
     out.push({ anchor, selector, before, after });
   }
   return out.length > 0 ? out : undefined;

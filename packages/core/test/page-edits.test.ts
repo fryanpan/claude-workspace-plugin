@@ -32,6 +32,14 @@ const edit = (over: Partial<PageEdit> = {}): PageEdit => ({
 });
 
 describe('readPageEdits', () => {
+  it('keeps an edit whose after reads as its before: the marks were taken off', () => {
+    const unbolded = edit({
+      before: 'Harborlight Street Projects',
+      after: 'Harborlight Street Projects',
+    });
+    expect(readPageEdits([unbolded])).toEqual([unbolded]);
+  });
+
   it('keeps the element, the text before and the text after', () => {
     expect(readPageEdits([edit()])).toEqual([edit()]);
   });
@@ -42,13 +50,12 @@ describe('readPageEdits', () => {
     expect(readPageEdits('main h1')).toBeUndefined();
   });
 
-  it('drops an edit with no element, or one that changes nothing', () => {
+  it('drops an edit with no element, no selector or no words', () => {
     const noAnchor = { ...edit(), anchor: { kind: 'subject' } };
     const thinAnchor = { ...edit(), anchor: { kind: 'element', fingerprint: { tag: 'H1' } } };
     const noSelector = { ...edit(), selector: '' };
-    const same = edit({ after: 'Harborlight Street Projects' });
     const notText = { ...edit(), after: 7 };
-    expect(readPageEdits([noAnchor, thinAnchor, noSelector, same, notText])).toBeUndefined();
+    expect(readPageEdits([noAnchor, thinAnchor, noSelector, notText])).toBeUndefined();
     expect(readPageEdits([noAnchor, edit()])).toEqual([edit()]);
   });
 
