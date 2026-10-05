@@ -419,6 +419,7 @@ async function emitBoardChannelMessage(
       break;
     }
     // Addressed to the coach session alone: what the owner does, and says.
+    case 'coach.digest':
     case 'coach.event':
     case 'coach.answer':
     case 'coach.preference': {

@@ -14159,18 +14159,49 @@ function clock(at, timeZone) {
   }).format(at);
   return ` ${t}`;
 }
+var whereOf = (p) => {
+  const board = `board "${p.board ?? p.boardId}"`;
+  return p.docId ? `"${p.doc ?? p.docId}" on ${board}` : `the page of ${board}`;
+};
+function digestItemLine(i, timeZone) {
+  if (!i.boardId || !i.kind)
+    return null;
+  const t = clock(i.at, timeZone).trim();
+  if (i.kind === "view") {
+    const heads = i.headings?.length ? ` (${i.headings.map((h) => `"${h}"`).join(", ")})` : "";
+    return `- ${t}, ${i.minutes ?? 0} min: read ${whereOf(i)}${heads}`;
+  }
+  const verb = VERB[i.kind];
+  if (!verb)
+    return null;
+  const under = i.heading ? `, under "${i.heading}"` : "";
+  const head = `- ${t}: ${verb} ${whereOf(i)}${under}`;
+  return i.text ? `${head}
+  ${i.text.replace(/\n/g, `
+  `)}` : head;
+}
+function digestLine(p, timeZone) {
+  const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
+  if (lines.length === 0)
+    return null;
+  const span = `${clock(p.from, timeZone)}–${clock(p.to, timeZone).trim()}`;
+  return `[coach.digest${span}] What the owner did:
+${lines.join(`
+`)}`;
+}
 function eventLine(p, timeZone) {
   const verb = p.kind ? VERB[p.kind] : undefined;
   if (!verb || !p.boardId)
     return null;
-  const board = `board "${p.board ?? p.boardId}"`;
-  const where = p.docId ? `"${p.doc ?? p.docId}" on ${board}` : `the page of ${board}`;
+  const where = whereOf(p);
   const under = p.heading ? `, under "${p.heading}"` : "";
   const head = `[coach.event${clock(p.at, timeZone)}] The owner ${verb} ${where}${under}.`;
   return p.text ? `${head}
 ${p.text}` : head;
 }
 function coachLine(event, p, timeZone) {
+  if (event === "coach.digest")
+    return digestLine(p, timeZone);
   if (event === "coach.event")
     return eventLine(p, timeZone);
   if (event === "coach.answer") {
@@ -14884,6 +14915,7 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       body = line;
       break;
     }
+    case "coach.digest":
     case "coach.event":
     case "coach.answer":
     case "coach.preference": {
@@ -15969,7 +16001,7 @@ var TOOL_LIST = {
     },
     {
       name: "coach_moment",
-      description: "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.event plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",
+      description: "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.digest plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",
       inputSchema: {
         type: "object",
         properties: {
@@ -21044,7 +21076,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.289";
+var PLUGIN_VERSION = "0.1.291";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -106,6 +106,8 @@ const OPEN_PRIVACY: BoardPrivacy = {
 };
 
 describe('wireCoach', () => {
+  /** Digest windows the feed opened; a test closes them by hand. */
+  const windows: (() => void)[] = [];
   function wire(
     dataDir: string,
     md: string | null,
@@ -132,6 +134,10 @@ describe('wireCoach', () => {
       agentConnected: () => false,
       ...session,
       now: () => at(9),
+      schedule: (fn) => {
+        windows.push(fn);
+        return () => {};
+      },
     });
   }
 
@@ -165,17 +171,18 @@ describe('wireCoach', () => {
       doc: { docId: 'd-hover' },
       payload: { text: 'Softer shadow?' },
     } as unknown as Event);
+    expect(sent).toEqual([]);
+    for (const close of windows.splice(0)) close();
     expect(sent).toEqual([
       [
         'w-coach',
         'agent-coach',
         expect.objectContaining({
-          event: 'coach.event',
+          event: 'coach.digest',
           workspaceId: 'w-coach',
-          kind: 'comment',
-          docId: 'd-hover',
-          text: 'Softer shadow?',
-          at: at(9),
+          items: [
+            expect.objectContaining({ kind: 'comment', docId: 'd-hover', text: 'Softer shadow?' }),
+          ],
         }),
       ],
     ]);
