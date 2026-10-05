@@ -46,6 +46,8 @@ export interface CoachWiringDeps {
   /** Whether that agent holds a stream on the board right now. */
   agentConnected: (workspaceId: string, agentId: string) => boolean;
   now?: () => number;
+  /** The digest window's timer (`SessionFeedDeps.schedule`). */
+  schedule?: (fn: () => void, ms: number) => () => void;
 }
 
 export interface CoachWiring {
@@ -76,6 +78,9 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     send: deps.sendToAgent,
     connected: deps.agentConnected,
     eventsOn: (at) => store.eventsOn(at),
+    countTurn: (at) => store.countEvent(at),
+    ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.schedule ? { schedule: deps.schedule } : {}),
   });
   const coach = createCoach({
     store,
@@ -133,6 +138,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     },
     stop: () => {
       unsubscribe();
+      feed.stop();
       store.flush();
       hub.close();
     },

@@ -15,8 +15,10 @@ import type { CoachWeek } from './store.ts';
 import { COACH_READINESS, type CoachReadiness } from './types.ts';
 
 /**
- * What one event costs the coach session, estimated: the eval measured
- * $0.0018 for the turn itself (`scripts/coach-eval.ts`, a bare session),
+ * What one turn of the coach session costs, estimated. A turn is one
+ * digest of up to 15 minutes of what he did (`coach/session-feed.ts`). The
+ * eval measured $0.0018 for a one-event turn (`scripts/coach-eval.ts`, a
+ * bare session),
  * and a real session also rereads about 36k tokens of plugin tools plus
  * Claude Code's own prompt every turn, cached or, after a quiet gap, written
  * again. The lead reads the real figure off the session's usage.
@@ -77,7 +79,7 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
       : '';
   const events =
     w.eventsToday > 0
-      ? `<p class="coach-sub">Today it read ${w.eventsToday} ${w.eventsToday === 1 ? 'event' : 'events'}, about $${(w.eventsToday * COST_PER_EVENT_USD).toFixed(2)} (estimate).</p>`
+      ? `<p class="coach-sub">Today it read what you did ${w.eventsToday === 1 ? 'once' : `${w.eventsToday} times`}, about $${(w.eventsToday * COST_PER_EVENT_USD).toFixed(2)} (estimate).</p>`
       : '';
   const paused = input.paused
     ? '<p class="coach-sub">Coach paused for today. It has read its day’s events and starts again tomorrow.</p>'
