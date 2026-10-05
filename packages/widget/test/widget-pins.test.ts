@@ -117,11 +117,18 @@ describe.skipIf(CHROME === null)('pins on a mock', () => {
     });
 
     it('stands no pin on another', () => {
-      const shown = look(width, 'walkBuilt').pins.filter((p) => p.shown);
-      expect(shown.length, 'CONTROL: two share an element, five a heading').toBe(15);
-      for (const [i, a] of shown.entries()) {
-        for (const b of shown.slice(i + 1)) {
-          expect(overlap(drop(a), drop(b)), `${a.id} on ${b.id}`).toBe(0);
+      // With resolved threads shown, the resolved one shares a title with an
+      // open one.
+      for (const [name, n] of [
+        ['walkBuilt', 14],
+        ['resolvedShown', 15],
+      ] as const) {
+        const shown = look(width, name).pins.filter((p) => p.shown);
+        expect(shown.length, `CONTROL: ${name}, five on a heading`).toBe(n);
+        for (const [i, a] of shown.entries()) {
+          for (const b of shown.slice(i + 1)) {
+            expect(overlap(drop(a), drop(b)), `${name}: ${a.id} on ${b.id}`).toBe(0);
+          }
         }
       }
     });
