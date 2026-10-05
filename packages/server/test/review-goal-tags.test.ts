@@ -133,11 +133,13 @@ describe('the plan lead’s goal tag', () => {
     expect(headings(before)).toEqual([]);
 
     const token = await tokenFor(LEAD.id);
-    expect(await jj(await tag(LEAD.id, harborKey, { goal: tideGoal }, token))).toEqual({
+    expect(await jj<unknown>(await tag(LEAD.id, harborKey, { goal: tideGoal }, token))).toEqual({
       key: harborKey,
       goal: tideGoal,
     });
-    expect(await jj(await tag(LEAD.id, riverKey, { rank: 1, goal: 'urgent' }, token))).toEqual({
+    expect(
+      await jj<unknown>(await tag(LEAD.id, riverKey, { rank: 1, goal: 'urgent' }, token)),
+    ).toEqual({
       key: riverKey,
       rank: 1,
       goal: 'urgent',
