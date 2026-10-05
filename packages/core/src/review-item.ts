@@ -649,6 +649,7 @@ export function storedJudgement(judgement: ReviewItemJudgement): ReviewItemJudge
     ...(judgement.gapKey !== undefined && judgement.gapKey !== ''
       ? { gapKey: judgement.gapKey }
       : {}),
+    ...(judgement.refused !== undefined ? { refused: judgement.refused } : {}),
   };
 }
 

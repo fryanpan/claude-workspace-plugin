@@ -1,3 +1,4 @@
+import type { ReviewRefusalKind } from '@claude-workspaces/core/review-refusal';
 /**
  * The two measurement rows a review item causes — built here and nowhere
  * else, so "ids and timestamps only" is a property of one function rather
@@ -19,7 +20,11 @@
  * is the file the no-text test drives.
  */
 import type { StoredReviewItem } from '@claude-workspaces/core/task-wire';
-import type { ReviewItemAnsweredEvent, ReviewItemViewedEvent } from '../tasks.ts';
+import type {
+  ReviewItemAnsweredEvent,
+  ReviewItemRefusedEvent,
+  ReviewItemViewedEvent,
+} from '../tasks.ts';
 import { LEGACY_REVIEW_ITEM_ID } from './derive.ts';
 
 /** Everything either row is allowed to know. */
@@ -77,6 +82,22 @@ export function reviewItemAnsweredEvent(m: ReviewItemMeasurement): ReviewItemAns
   };
 }
 
+/** The gate refused this item under a fleet rule. Same closed shape as the
+ *  two rows above, plus the rule's name. */
+export function reviewItemRefusedEvent(
+  m: Omit<ReviewItemMeasurement, 'isOwner' | 'filedById'> & { kind: ReviewRefusalKind },
+): ReviewItemRefusedEvent {
+  return {
+    type: 'review_item.refused',
+    workspaceId: m.workspaceId,
+    reviewItemId: m.reviewItemId,
+    ...(m.taskId !== undefined && m.taskId !== '' ? { taskId: m.taskId } : {}),
+    actorId: m.actorId,
+    kind: m.kind,
+    ts: m.ts,
+  };
+}
+
 /**
  * The agent that filed one review item on a ticket, or `undefined` when the
  * store never recorded one.
@@ -99,12 +120,16 @@ export function reviewItemFilerId(
 /**
  * The event names and the log, named once for the agent that reads them.
  *
- * Weekly Review is told these two strings and the file they land in; nothing
+ * Weekly Review is told these strings and the file they land in; nothing
  * else about this feature is addressable from outside the server. Exported so
  * the Activity view can strip them from a feed written for people, and so a
  * test asserts the names it documents.
  */
-export const REVIEW_ITEM_MEASUREMENT_EVENTS = ['review_item.viewed', 'review_item.answered'];
+export const REVIEW_ITEM_MEASUREMENT_EVENTS = [
+  'review_item.viewed',
+  'review_item.answered',
+  'review_item.refused',
+];
 
 /** Is this the name of a measurement row rather than a board event? */
 export function isReviewItemMeasurementEvent(event: unknown): boolean {
@@ -126,6 +151,9 @@ export function isReviewItemMeasurementEvent(event: unknown): boolean {
  * it. An answer is the thing an agent waits for, and the wake is the point.
  * The test for this list is "who acts on it", not "which file wrote it".
  *
+ * `review_item.refused` says the gate refused an ask a fleet rule answers.
+ * The filer is told in its own filing reply; the row exists to be counted.
+ *
  * `edit_session` says somebody edited a doc's body for a while. It is an
  * `activity.jsonl` row (`edit-sessions.ts`), written by `appendActivity`,
  * which has no fan-out at all; it is named here so that a later change
@@ -136,7 +164,7 @@ export function isReviewItemMeasurementEvent(event: unknown): boolean {
  * calls any listener, so Weekly Review reads the same `events.jsonl` it read
  * before.
  */
-export const ANALYTICS_ONLY_EVENTS = ['review_item.viewed', 'edit_session'];
+export const ANALYTICS_ONLY_EVENTS = ['review_item.viewed', 'review_item.refused', 'edit_session'];
 
 /** Does this event exist for measurement alone? */
 export function isAnalyticsOnlyEvent(event: unknown): boolean {

@@ -44,6 +44,12 @@ DO NOT use regular chat messages in Claude Code to share progress or ask for hel
 - Each review item is judged against the board's quality gate.
   - If it does not meet quality standards, you'll receive a `workspace.review_item_held` wake with a reason
   - Use the `revise_review_item` call to update the review itemYou must say what changed and address the reason
+- Don't ask what a fleet rule already answers. The gate refuses these asks, and they never reach the person:
+  - spend of $50 or less
+  - a push, merge or PR your ship method already allows
+  - a reversible implementation choice, such as a library, naming, structure or test strategy
+  - a fact you can read yourself
+  - The reply says `refused` and names the rule. Act on the rule, then withdraw the item. If the rule does not apply, revise the item to say why, and the revision is judged again. A refusal does not run out after two rounds or an hour.
 - How to write a good review item
   - The option label is the contract — the reviewer answers the label, not the reasoning under it. Plain words, phone-readable.
   - The item has to be actionable on its own. 
