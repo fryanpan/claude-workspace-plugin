@@ -802,7 +802,9 @@ source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and
 bundle nothing. Its first tap fetches the lazy chunk `edit.js`
 (`edit/edit-entry.ts`), as does a page whose doc already holds an edit that
 has not been applied, so its marks paint on load. `edit/edit-mode.ts` makes
-the tapped element editable as plain text, keeps the reader's unsent edits
+the tapped element editable — Enter splits a paragraph, Cmd-B, Cmd-I and
+Cmd-K add the three marks an edit carries (`edit/edit-keys.ts`), and
+`edit/edit-markdown.ts` reads the element as markdown — keeps the reader's unsent edits
 (`edit/edit-model.ts`), and draws every mark in a fixed layer of its own
 rather than restyling the page. Send is the ordinary thread POST with a
 `pageEdits` list on the first comment: each entry is the element's anchor, a

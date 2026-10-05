@@ -1,5 +1,6 @@
 import { createAnchor } from '@claude-workspaces/core/anchor/element';
 import { type PageEdit, readPageEdits } from '@claude-workspaces/core/page-edits';
+import { mdPlain } from '@claude-workspaces/core/page-edits-text';
 import { toMarkdown } from './edit-markdown.ts';
 
 /**
@@ -224,5 +225,5 @@ export function markFor(
   typedHere: boolean,
 ): 'pending' | 'applied' {
   if (!open) return 'applied';
-  return !typedHere && normText(shown) === normText(edit.after) ? 'applied' : 'pending';
+  return !typedHere && normText(shown) === mdPlain(edit.after) ? 'applied' : 'pending';
 }

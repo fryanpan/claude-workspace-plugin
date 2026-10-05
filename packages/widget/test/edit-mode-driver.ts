@@ -64,8 +64,8 @@ export interface Scenario {
   applied: Marks;
   /** The same, inside edit mode. */
   appliedInMode: Marks;
-  /** The dev page only: a paragraph split with Enter, and a heading that
-   *  holds an anchor link and its icon. */
+  /** The dev page only: a paragraph split with Enter and formatted with
+   *  keys, and a heading that holds an anchor link and its icon. */
   rich?: Rich;
 }
 
@@ -219,8 +219,29 @@ async function key(cdp: Cdp, k: string, code: string, vk: number, modifiers = 0)
   }
 }
 
+const META = 4;
+/** The address the driver types into the link prompt. */
+export const LINK = 'https://riverbend.example/ferry';
+
+/** Select `word` in the lede, where the reviewer would drag across it. */
+async function selectWord(s: Surface, word: string): Promise<void> {
+  await s.eval(`(() => {
+    const w = document.createTreeWalker(${LEDE}, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const i = n.data.indexOf(${JSON.stringify(word)});
+      if (i < 0) continue;
+      const r = document.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, i + ${word.length});
+      const q = getSelection(); q.removeAllRanges(); q.addRange(r);
+      return true;
+    }
+    return false;
+  })()`);
+}
+
 /** In edit mode on the dev page: tap the heading with the anchor link, then
- *  split the lede with Enter, type a second paragraph, and send. */
+ *  split the lede with Enter, type a second paragraph, format it, and send. */
 async function editLede(cdp: Cdp, s: Surface, threads: () => Array<{ id: string }>) {
   await tap(cdp, s, LANDING, 'the anchored heading');
   const headingEditable = await poll('the anchored heading is being edited', () =>
@@ -235,6 +256,12 @@ async function editLede(cdp: Cdp, s: Surface, threads: () => Array<{ id: string 
   );
   await key(cdp, 'Enter', 'Enter', 13);
   await cdp.send('Input.insertText', { text: 'Saltmarsh closes at six.' });
+  // Bold one word with Cmd-B, and link another with Cmd-K (the prompt is
+  // answered by the dialog handler).
+  await selectWord(s, 'six');
+  await key(cdp, 'b', 'KeyB', 66, META);
+  await selectWord(s, 'Saltmarsh');
+  await key(cdp, 'k', 'KeyK', 75, META);
   const seen = new Set(threads().map((t) => t.id));
   await tap(cdp, s, SEND, 'the Send button');
   return { headingEditable, seen };
@@ -315,11 +342,13 @@ async function main(): Promise<void> {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     // A page holding unsent edits asks before it unloads. Every reload here
-    // follows a send, so a dialog is a failed send: accept it and let the
-    // readings say so.
+    // follows a send, so that dialog is a failed send: accept it and let the
+    // readings say so. The one prompt is the link's, answered with LINK.
     cdp.on('Page.javascriptDialogOpening', () => {
       step('a dialog opened: accepting it');
-      void cdp.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
+      void cdp
+        .send('Page.handleJavaScriptDialog', { accept: true, promptText: LINK })
+        .catch(() => {});
     });
     const sessions = await frameSessions(cdp);
     const devSurface = pageSurface(cdp);

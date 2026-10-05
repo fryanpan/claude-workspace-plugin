@@ -61,8 +61,11 @@ describe.skipIf(CHROME === null)('editing the words on a page', () => {
     expect(result?.dev.rich?.headingEditable).toBe(true);
   });
 
-  it('sends a paragraph split with Enter as two blocks', () => {
-    expect(result?.dev.rich?.after).toBe('Riverbend opens at nine.\n\nSaltmarsh closes at six.');
+  it('sends a paragraph split with Enter as two blocks, its bold and links as markdown', () => {
+    // The page's own bold survives; the new paragraph's came from Cmd-B and Cmd-K.
+    expect(result?.dev.rich?.after).toBe(
+      'Riverbend **opens** at nine.\n\n[Saltmarsh](https://riverbend.example/ferry) closes at **six**.',
+    );
     expect(result?.dev.rich?.text).toBe(
       'Edited 1 paragraph\n- Riverbend opens at nine. **¶ Saltmarsh closes at six.**',
     );

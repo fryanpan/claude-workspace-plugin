@@ -1,6 +1,7 @@
 import { contextMatches, hasContext } from '@claude-workspaces/core/anchor/context';
 import { resolve } from '@claude-workspaces/core/anchor/element';
 import { type PageEdit, pageEditsText } from '@claude-workspaces/core/page-edits';
+import { mdPlain } from '@claude-workspaces/core/page-edits-text';
 import { DRAFTS_ARRIVED, draftKey, readDraft, writeDraft } from '../draft-store.ts';
 import { authedPost, httpBase } from '../widget-auth.ts';
 import type { FeedbackWidgetEl } from '../widget.ts';
@@ -15,8 +16,8 @@ import { EditDrafts, editableTarget, markFor, normText, sentEdits } from './edit
  * sends the changes to the agent as structured edits.
  *
  * The page's source is never written. Typing changes the words on this
- * screen only; Send posts the element, the words it showed and the words
- * typed on the page's thread (`pageEdits`, `core/src/page-edits.ts`), and
+ * screen only; Send posts the element, the words it showed and what was
+ * typed, as markdown, on the page's thread (`pageEdits`, `core/src/page-edits.ts`), and
  * the agent applies them to whatever generated the page. So it works the
  * same on a served mock and on a dev server this server cannot read.
  *
@@ -147,7 +148,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     if (res.ok) return res.element;
     try {
       const el = document.querySelector(edit.selector);
-      return el instanceof HTMLElement && normText(el.textContent) === normText(edit.after)
+      return el instanceof HTMLElement && normText(el.textContent) === mdPlain(edit.after)
         ? el
         : null;
     } catch {
@@ -230,12 +231,12 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     editing = el;
     priorEditable = el.getAttribute('contenteditable');
     el.setAttribute('data-cfw-editing', '');
-    // Rich, so a typed line break is an element the edit can read as a new
-    // paragraph; a paste still brings plain text only.
+    // Rich, so a line break and a bold word are elements the edit can read
+    // (`edit-markdown.ts`); a paste still brings plain text only.
     el.contentEditable = 'true';
     el.addEventListener('input', onInput);
     el.addEventListener('paste', plainPaste);
-    el.addEventListener('blur', commit, { once: true });
+    el.addEventListener('blur', onBlur);
     el.focus();
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -244,6 +245,12 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     sel?.removeAllRanges();
     sel?.addRange(range);
     schedule();
+  }
+
+  /** Focus leaving the page — the link prompt, another app — is not the
+   *  reader leaving the element. */
+  function onBlur(): void {
+    if (document.hasFocus()) commit();
   }
 
   function onInput(): void {
@@ -259,7 +266,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     editing = null;
     el.removeEventListener('input', onInput);
     el.removeEventListener('paste', plainPaste);
-    el.removeEventListener('blur', commit);
+    el.removeEventListener('blur', onBlur);
     el.removeAttribute('data-cfw-editing');
     if (priorEditable === null) el.removeAttribute('contenteditable');
     else el.setAttribute('contenteditable', priorEditable);
