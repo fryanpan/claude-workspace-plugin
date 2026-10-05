@@ -1,5 +1,5 @@
 /**
- * Which workspaces a row may name, and which agent may post rows.
+ * Which workspaces a row may name, and which agents may post rows.
  *
  * Two workspaces are built in: `email` (Gmail) and `texts` (Apple
  * Messages). Slack workspaces are configuration, because each one is a
@@ -11,10 +11,13 @@
  * The file is `<dataDir>/inbox/config.json`, written by hand:
  *
  *   { "readerAgentId": "<the reader session's agent id>",
+ *     "posterAgentIds": ["<another agent that posts its own picks>"],
  *     "slack": [{ "workspace": "harborlight", "label": "Harborlight", "host": "harborlight" }] }
  *
- * With no `readerAgentId` nobody may post: the reader's registration is
- * this one line until the reader session has a schedule row of its own.
+ * The reader and every `posterAgentIds` entry are posters: each may post
+ * rows and dismiss one as handled elsewhere, proved by its own token. With
+ * neither nobody may post. A file with `readerAgentId` alone reads exactly
+ * as it did before `posterAgentIds` existed.
  *
  * The server reads the file at boot and again whenever its mtime or size
  * changes (`inboxConfigReader`), so writing it takes effect on the next
@@ -36,6 +39,8 @@ export interface InboxWorkspace {
 
 export interface InboxConfig {
   readerAgentId: string | null;
+  /** The posters beside the reader, in file order, without the reader. */
+  posterAgentIds: readonly string[];
   workspaces: ReadonlyMap<string, InboxWorkspace>;
 }
 
@@ -58,6 +63,15 @@ export function parseInboxConfig(raw: unknown): { config: InboxConfig; problems:
   const reader = o.readerAgentId;
   const readerAgentId = typeof reader === 'string' && AGENT_ID.test(reader) ? reader : null;
   if (reader !== undefined && readerAgentId === null) problems.push('readerAgentId is not an id');
+  const posterAgentIds: string[] = [];
+  const posters = o.posterAgentIds;
+  if (posters !== undefined && !Array.isArray(posters))
+    problems.push('posterAgentIds is not a list');
+  for (const [i, p] of (Array.isArray(posters) ? posters : []).entries()) {
+    if (typeof p !== 'string' || !AGENT_ID.test(p))
+      problems.push(`posterAgentIds[${i}] is not an id`);
+    else if (p !== readerAgentId && !posterAgentIds.includes(p)) posterAgentIds.push(p);
+  }
   const slack = Array.isArray(o.slack) ? o.slack : [];
   for (const [i, entry] of slack.entries()) {
     const e = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
@@ -76,8 +90,17 @@ export function parseInboxConfig(raw: unknown): { config: InboxConfig; problems:
     }
     workspaces.set(workspace, { key: workspace, source: 'slack', label, slackHost: host });
   }
-  return { config: { readerAgentId, workspaces }, problems };
+  return { config: { readerAgentId, posterAgentIds, workspaces }, problems };
 }
+
+/** Whether `agentId` may post rows: the reader, or a listed poster. */
+export function isInboxPoster(config: InboxConfig, agentId: string): boolean {
+  return agentId === config.readerAgentId || config.posterAgentIds.includes(agentId);
+}
+
+/** Whether anybody may post at all. */
+export const hasInboxPoster = (config: InboxConfig): boolean =>
+  config.readerAgentId !== null || config.posterAgentIds.length > 0;
 
 export const INBOX_DIRNAME = 'inbox';
 

@@ -7,9 +7,11 @@
  * is never trimmed. A row retired for thirty days gets `archivedAt` and
  * leaves the live list; it stays in the file.
  *
- * Two writers, and they never share a verb:
- *  - the reader, through `post` — content, and the two state moves a pass
- *    can see (Bryan replied in the app; a new message arrived);
+ * Three writers, and they never share a verb:
+ *  - a poster (the reader or another listed agent), through `post` —
+ *    content, and the two state moves a pass can see (Bryan replied in the
+ *    app; a new message arrived) — and through `dismissByAgent`, which takes
+ *    an open row off his list as handled elsewhere;
  *  - Bryan, through `act` — snooze, dismiss, remove, mark answered, reopen, undo —
  *    and through `markSent`, once his Send from the page has gone out.
  */
@@ -18,6 +20,7 @@ import { join } from 'node:path';
 import { INBOX_DIRNAME } from './config.ts';
 import { readJsonFile, writeJsonFile } from './json-file.ts';
 import {
+  AGENT_DISMISS_REASON,
   ARCHIVE_AFTER_MS,
   type DismissReason,
   type InboxHistoryEntry,
@@ -48,6 +51,8 @@ export type OwnerAction =
 export type ActResult =
   | { ok: true; row: InboxRow }
   | { ok: false; status: 400 | 404 | 409; error: string };
+
+export type AgentDismissOutcome = 'dismissed' | 'not-found' | 'not-open';
 
 export interface PostResult {
   ok: true;
@@ -162,6 +167,9 @@ export class InboxStore {
   post(
     rows: readonly InboxRowInput[],
     pass: string,
+    /** False for a poster that is not the reader: "Last checked" is the
+     *  reader's pass over all of Bryan's messages, not another agent's picks. */
+    stampPass = true,
   ): PostResult | { ok: false; error: 'too-many-open' } {
     this.sweep();
     const at = this.now();
@@ -207,9 +215,29 @@ export class InboxStore {
       ids.push(existing.id);
       updated += 1;
     }
-    this.file.lastPass = { at, pass };
+    if (stampPass) this.file.lastPass = { at, pass };
     this.save();
     return { ok: true, ids, created, updated };
+  }
+
+  /**
+   * A poster takes rows off Bryan's list as handled elsewhere, by
+   * `dedupeKey`: an open or snoozed row is dismissed `by: agent`, which a
+   * new message does not reopen (the reason is set) and Bryan's Bring back
+   * or Undo does. A retired row is left alone. Nothing is deleted.
+   */
+  dismissByAgent(keys: readonly string[], agentId: string): AgentDismissOutcome[] {
+    this.sweep();
+    const at = this.now();
+    const out = keys.map((key): AgentDismissOutcome => {
+      const row = this.file.rows.find((r) => r.dedupeKey === key);
+      if (!row) return 'not-found';
+      if (isRetired(row.state)) return 'not-open';
+      this.move(row, 'dismissed', 'agent', at, { dismissReason: AGENT_DISMISS_REASON, agentId });
+      return 'dismissed';
+    });
+    if (out.includes('dismissed')) this.save();
+    return out;
   }
 
   /**
@@ -263,7 +291,8 @@ export class InboxStore {
       }
       case 'undo': {
         const last = row.history.at(-1);
-        if (!last || last.by !== 'owner' || last.why !== undefined) {
+        // His own last tap, or a poster's dismiss: both are his to undo.
+        if (!last || (last.by !== 'owner' && last.by !== 'agent') || last.why !== undefined) {
           return { ok: false, status: 409, error: 'nothing-to-undo' };
         }
         // What the row looked like before: the details of the entry that

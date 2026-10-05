@@ -1830,8 +1830,12 @@ the message text kept apart in `bodies.json`, both mode 600, soft delete
 only), the per-field checks the reader's rows pass, the rank and the
 server-drawn section. `routes/inbox.ts` has two gates that never overlap.
 `POST /inbox/rows` is the one write path, open only to the configured
-reader with its own agent token. The MCP verb for it is `post_inbox_rows`
-(`mcp/src/tools/inbox.ts`). A post may name the reader's own scheduled run,
+posters, each with its own agent token: the reader, and the agents in
+`posterAgentIds` (Job Search posts the recruiter leads it judges worth his
+time). The MCP verb for it is `post_inbox_rows` (`mcp/src/tools/inbox.ts`).
+A post may also dismiss rows as handled elsewhere, by thread id; the move
+is a history entry by `agent`, and the row waits in the removed fold for
+Bryan to bring back. A post may name the poster's own scheduled run,
 and `inbox/run-close.ts` moves it to done through the task store's
 transition, the one place this section touches a board. The body read and Bryan's taps need an owner
 person proof from the front page's origin. `landing.ts` in the same folder

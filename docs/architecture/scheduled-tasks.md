@@ -204,8 +204,8 @@ while a wake is owed, `Unanswered 2h` in red once the board has given up,
 and `Running` only when somebody has it.
 
 An owner that may not call `task_transition` can still answer its own run.
-The inbox reader's one verb, `post_inbox_rows`, takes the instance as `run`
-and the server moves it to done as the reader (`inbox/run-close.ts`), which
+An inbox poster's one verb, `post_inbox_rows`, takes the instance as `run`
+and the server moves it to done as that poster (`inbox/run-close.ts`), which
 the wake reads as answered like any other agent's move.
 
 ## A run's output reaches Home
