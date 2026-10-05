@@ -9,22 +9,32 @@
  *                                so the same data can be cut another way
  *   GET /api/review-size         the signed-in person's size choice
  *   PUT /api/review-size         change it: `{ size: "easy"|"medium"|"hard" }`
+ *   POST /api/review-queue/rank  the plan lead ranks one item:
+ *                                `{ agentId, key, rank: 1..10000 | null }`
  *   GET /review                  the page that walks the queue
  *
  * All of them are about ACROSS boards, which is why none is on the share or
  * member allowlist: a share is a grant over one board, and every answer here
  * is about all of them. A visitor gets 403 before anything is read.
  *
- * The one write is a person's own size choice, keyed by the session's
+ * One write is a person's own size choice, keyed by the session's
  * identity, so it needs a signed-in session and can change nobody else's.
  * Answers go through each board's own routes, so the write gates are the
  * ones those routes already have; and the project order is read off the plan
- * board's goals, so there is no verb here — or anywhere an agent can reach —
- * that sets a ranking.
+ * board's goals, so no verb sets the order of projects.
+ *
+ * The other write is the plan lead's rank for one item (`review-ranks.ts`).
+ * Only the agent seated as the plan board's lead may make it, proven by its
+ * own agent token from this machine (`auth/agent-token.ts`); any other
+ * caller is refused before the key is looked up. The key must name an open
+ * item on a board the lead may hear from (`ask-feed.ts`): an item on an
+ * excluded board answers the same 404 as one that does not exist.
  */
 import { parseReviewSize } from '@claude-workspaces/core';
+import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { CrossReview } from '../cross-review.ts';
 import { reviewWait } from '../review-answer-ledger.ts';
+import { type ReviewRanks, parseRank } from '../review-ranks.ts';
 import type { ReviewSizePrefs } from '../review-size-prefs.ts';
 
 export interface ReviewQueueRoutesContext {
@@ -39,6 +49,13 @@ export interface ReviewQueueRoutesContext {
   pageHeaders: Record<string, string>;
   j: (status: number, body: unknown) => Response;
   safeJson: (req: Request) => Promise<Record<string, unknown> | null>;
+  ranks: ReviewRanks;
+  /** The plan board's seated lead, or undefined. */
+  leadOf: (workspaceId: string) => string | undefined;
+  /** The caller proves it is `agentId` (token, loopback, not a browser). */
+  authorizeAgent: (req: Request, agentId: string) => AgentCallerVerdict;
+  /** True when nothing about this place may reach the plan lead. */
+  isOff: (place: { workspaceId: string; docId?: string }) => boolean;
 }
 
 export interface ReviewQueueRouteRequest {
@@ -58,7 +75,70 @@ export function parseSince(raw: string | null): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-const PATHS = new Set(['/review', '/api/review-queue', '/api/review-wait', '/api/review-size']);
+const RANK_PATH = '/api/review-queue/rank';
+
+const PATHS = new Set([
+  '/review',
+  '/api/review-queue',
+  '/api/review-wait',
+  '/api/review-size',
+  RANK_PATH,
+]);
+
+/** The longest key accepted: a board id, a kind, a doc id and a thread id. */
+const MAX_KEY = 512;
+
+async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<Response> {
+  const { j } = ctx;
+  if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
+  const body = await ctx.safeJson(req);
+  const agentId = body?.agentId;
+  if (typeof agentId !== 'string' || !/^[a-z0-9-]{1,128}$/.test(agentId)) {
+    return j(400, { error: 'bad-agent', message: 'agentId is required' });
+  }
+  const verdict = ctx.authorizeAgent(req, agentId);
+  if (!verdict.ok) return j(verdict.status, verdict.body);
+  // Who the plan lead is, before any key is looked up: a refused caller
+  // learns nothing about which items exist.
+  const { planWorkspaceId } = ctx.crossReview.projects();
+  const lead = planWorkspaceId ? ctx.leadOf(planWorkspaceId) : undefined;
+  if (!lead || lead !== agentId) {
+    return j(403, {
+      error: 'not-plan-lead',
+      message: 'Only the lead of the plan board may rank review items.',
+    });
+  }
+  const rank = parseRank(body?.rank);
+  if (rank === undefined) {
+    return j(400, {
+      error: 'bad-rank',
+      message: 'rank is a whole number from 1 to 10000, or null',
+    });
+  }
+  const key = body?.key;
+  if (typeof key !== 'string' || key.length === 0 || key.length > MAX_KEY) {
+    return j(400, { error: 'bad-key', message: 'key is the queue key the feed named' });
+  }
+  const { item } = await ctx.crossReview.item(key);
+  const docId =
+    item && item.kind !== 'task-review'
+      ? item.docId
+      : item?.taskId !== undefined
+        ? `task:${item.taskId}`
+        : undefined;
+  if (!item || ctx.isOff({ workspaceId: item.workspaceId, ...(docId ? { docId } : {}) })) {
+    return j(404, { error: 'not-found', message: 'No open review item has that key.' });
+  }
+  ctx.ranks.set(item.key, rank, agentId);
+  const taskId =
+    item.kind === 'task-review' || item.kind === 'task-thread' ? item.taskId : undefined;
+  const movedAt = taskId ? ctx.ranks.personMovedAt(item.workspaceId, taskId) : undefined;
+  return j(200, {
+    key: item.key,
+    rank,
+    ...(movedAt !== undefined ? { personMovedAt: movedAt } : {}),
+  });
+}
 
 export async function handleReviewQueueRoutes(
   ctx: ReviewQueueRoutesContext,
@@ -68,6 +148,7 @@ export async function handleReviewQueueRoutes(
   const { req, pathname, url, visitor } = rq;
   if (!PATHS.has(pathname)) return undefined;
   if (visitor) return j(403, { error: 'not available to share visitors' });
+  if (pathname === RANK_PATH) return handleRank(ctx, req);
 
   if (pathname === '/api/review-size') {
     const identityId = ctx.sessionIdentityId(req);

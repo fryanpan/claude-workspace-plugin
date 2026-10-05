@@ -43,7 +43,7 @@ import { DEFAULT_BOARD_WORKSPACE_NAME, createBoardMembership } from './board-mem
 import { createBoardSummaries } from './board-summary.ts';
 import { type BrowserSentryConfig } from './browser-sentry.ts';
 import { ChatAudit } from './chat-audit.ts';
-import { boardPrivacyFrom } from './coach/exclusion.ts';
+import { boardPrivacyFrom, placeIsOff } from './coach/exclusion.ts';
 import { wireCoach } from './coach/wiring.ts';
 import { maybeCompress, maybeNotModified } from './compress.ts';
 import { type ConnectorHost, createConnectorHost } from './connector/host.ts';
@@ -69,6 +69,7 @@ import { InboxReplies } from './inbox/reply.ts';
 import { systemTransport } from './inbox/send-transport.ts';
 import { InboxSends } from './inbox/sends.ts';
 import { InboxStore } from './inbox/store.ts';
+import { wireLeadRanks } from './lead-rank-wiring.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
 import { createMeetingClaude } from './meeting-claude.ts';
@@ -1446,6 +1447,19 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     config: inboxConfig,
     transport: opts.inboxTransport ?? systemTransport(),
   });
+  // What keeps a board off the coach. Two of the stores it reads are built
+  // further down; these run only for a page's or a row's event, and a
+  // throw counts as off (`coach/exclusion.ts`).
+  const boardPrivacy = boardPrivacyFrom({
+    isLocalOnlySet: (setId) => attachmentPrivacy.isLocalOnly(setId),
+    setOfDoc: (docId) => setOfDoc(docId),
+    repoKeyOf: (docId) => docStore.repos.primaryKeyFor(docStore.resolveDocId(docId)),
+    projectIsLocalOnly: (repoKey) => mountStore.privacyOf(repoKey) === 'local-only',
+    docIdsOf: (id) => taskStore.getWorkspace(id)?.docIds ?? [],
+    isBoardLocked: (id) => sharingGate.isBoardLocked(id),
+    isBoardShared: boardIsShared,
+    boardsOfDoc: (docId) => boardsForDoc(docId),
+  });
   /** The coach: the owner's learning goals, what he is doing, and the moments
    *  it raises (coach/wiring.ts). The Coach board's lead session hears every
    *  event; with no session listening, the coach stays quiet. */
@@ -1468,24 +1482,38 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       docId.startsWith('task:')
         ? taskStore.getTask(docId.slice(5))?.workspaceId
         : (taskStore.workspaceOfDoc(docId) ?? undefined),
-    // What keeps a board off the coach. Two of the stores it reads are built
-    // further down; these run only for a page's or a row's event, and a
-    // throw counts as off (`coach/exclusion.ts`).
-    privacy: boardPrivacyFrom({
-      isLocalOnlySet: (setId) => attachmentPrivacy.isLocalOnly(setId),
-      setOfDoc: (docId) => setOfDoc(docId),
-      repoKeyOf: (docId) => docStore.repos.primaryKeyFor(docStore.resolveDocId(docId)),
-      projectIsLocalOnly: (repoKey) => mountStore.privacyOf(repoKey) === 'local-only',
-      docIdsOf: (id) => taskStore.getWorkspace(id)?.docIds ?? [],
-      isBoardLocked: (id) => sharingGate.isBoardLocked(id),
-      isBoardShared: boardIsShared,
-      boardsOfDoc: (docId) => boardsForDoc(docId),
-    }),
+    privacy: boardPrivacy,
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     sendToAgent: (workspaceId, agentId, frame) =>
       sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
     agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
   });
+  /** The plan lead's per-item ranks and its batched feed of new asks
+   *  (lead-rank-wiring.ts). A board the coach may not hear from is excluded
+   *  from both, by the same check. */
+  const isOffForLead = (place: { workspaceId: string; docId?: string }): boolean =>
+    coachWiring.store.readFailed || placeIsOff(place, boardPrivacy, coachWiring.store.offBoards);
+  const leadRanks = wireLeadRanks({
+    dataDir,
+    planBoard: () => crossReview.projects().planWorkspaceId,
+    leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
+    boardName: (workspaceId) => taskStore.getWorkspace(workspaceId)?.name,
+    isOff: isOffForLead,
+    taskWorkspace: (taskId) => taskStore.getTask(taskId)?.workspaceId,
+    goalWorkspace: (rowId) => taskStore.getGoalRow(rowId)?.workspaceId,
+    boardsForDoc: (docId) => boardsForDoc(docId),
+    onTaskEvent: (listener) => taskStore.onEvent(listener),
+    sendToAgent: (workspaceId, agentId, frame) =>
+      sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
+    agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
+  });
+  {
+    const stallDocEvent = stallWiring.onLiveDocEvent;
+    onLiveDocEvent = (docId, payload) => {
+      stallDocEvent(docId, payload);
+      leadRanks.onDocEvent(docId, payload);
+    };
+  }
   // One queue over every board, in project order, and the ledger that records
   // where each answered item stood in it. Composed beside the Home pane
   // because it reads that pane's own rows — the cross-board order and a
@@ -1498,6 +1526,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     sizer,
     lastActivityOf: (w) => boardLastActivity(docStore, taskStore, w),
     spawnerAgentId: spawnerAgentId ?? null,
+    leadRank: leadRanks.leadRank,
     onError: (err) => captureServerError(err, { where: 'cross-review answer ledger' }),
   });
   const boardSummaries = createBoardSummaries({
@@ -2310,6 +2339,18 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     crossReview,
     boardName: (id) => taskStore.getWorkspace(id)?.name,
     sizePrefs: new ReviewSizePrefs(dataDir),
+    ranks: leadRanks.ranks,
+    leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
+    // The rank is held to the lead's token always, like an inbox post.
+    authorizeAgent: (req, agentId) =>
+      authorizeAgentCaller({
+        agentId,
+        req,
+        address: server.requestIP(req)?.address,
+        key: agentTokenKeyFor(),
+        requireToken: true,
+      }),
+    isOff: isOffForLead,
     sessionIdentityId: (req) => sessionIdentityFor(req)?.id ?? null,
     renderPage: () => renderReviewsShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,
@@ -4114,6 +4155,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // because the close handlers above start their teardowns async, and
       // their notes belong in the docs this flushes next.
       crossReview.dispose();
+      leadRanks.stop();
       await meetingRelay.dispose();
       await voiceRelay.dispose();
       // And the bots. A bot left in a call after this process is gone bills

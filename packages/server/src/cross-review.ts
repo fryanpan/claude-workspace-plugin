@@ -22,7 +22,9 @@ import { classifyActor } from './actor-identity.ts';
 import {
   type AskShape,
   type BoardQueueInput,
+  type CrossReviewItem,
   type CrossReviewQueue,
+  applyLeadRanks,
   askShapeOf,
   crossReviewQueue,
 } from './cross-review-queue.ts';
@@ -56,6 +58,9 @@ export interface CrossReviewContext {
   /** Newest real activity per board, the landing page's own reading. */
   lastActivityOf: (workspace: BoardWorkspace) => number;
   spawnerAgentId: string | null;
+  /** The plan lead's rank for one item, when one counts (`review-ranks.ts`).
+   *  Absent, or undefined for every item, leaves the order unchanged. */
+  leadRank?: (item: CrossReviewItem) => number | undefined;
   /** Where a failed measurement is reported. Never thrown. */
   onError?: (err: unknown) => void;
 }
@@ -73,6 +78,9 @@ export interface CrossReview {
   prepare(opts?: { includeRetired?: boolean }): Promise<number>;
   /** Every open item on every live board, top project first. */
   queue(): Promise<CrossReviewQueue & { planWorkspaceId?: string }>;
+  /** One open item by its queue key, with the plan board it was read
+   *  against. Not a read the reader was shown, so the ledger ignores it. */
+  item(key: string): Promise<{ item?: CrossReviewItem; planWorkspaceId?: string }>;
   ledger: ReviewAnswerLedger;
   /** Measure and record one answer now. Exposed for tests; the listeners
    *  call it a tick after the answer. */
@@ -177,7 +185,10 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
       if (!w) continue;
       inputs.push({ project, rows: reviewItemsFor(w), ...boardInput(w) });
     }
-    return { ...crossReviewQueue(inputs), ...(planWorkspaceId ? { planWorkspaceId } : {}) };
+    const q = crossReviewQueue(inputs);
+    const { leadRank } = ctx;
+    const items = leadRank ? applyLeadRanks(q.items, leadRank) : q.items;
+    return { ...q, items, ...(planWorkspaceId ? { planWorkspaceId } : {}) };
   };
 
   const queue = async () => {
@@ -185,6 +196,16 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     const q = compute();
     shown = { at: Date.now(), ranks: new Map(q.projects.map((p) => [p.workspaceId, p.rank])) };
     return q;
+  };
+
+  const item: CrossReview['item'] = async (key) => {
+    await prepare();
+    const q = compute();
+    const found = q.items.find((i) => i.key === key);
+    return {
+      ...(found ? { item: found } : {}),
+      ...(q.planWorkspaceId ? { planWorkspaceId: q.planWorkspaceId } : {}),
+    };
   };
 
   const recordAnswer: CrossReview['recordAnswer'] = async (args) => {
@@ -344,6 +365,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     projects: () => projectsOf(liveBoards()),
     prepare,
     queue,
+    item,
     ledger,
     recordAnswer,
     dispose: () => {

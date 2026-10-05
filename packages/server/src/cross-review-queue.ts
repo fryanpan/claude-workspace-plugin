@@ -237,6 +237,41 @@ export function crossReviewQueue(boards: BoardQueueInput[]): CrossReviewQueue {
   return { projects: ordered.map((b) => b.project), items };
 }
 
+/**
+ * The queue with the plan lead's ranks applied (`review-ranks.ts`): every
+ * ranked item first, lowest rank first, then every unranked item in the
+ * order it already had.
+ *
+ * Items on one task still keep their filing order (see the header): an item
+ * rides at the best rank of itself and every item filed after it on the same
+ * task, so ranking a task's second ask brings its first along ahead of it.
+ * Ties keep the existing order.
+ */
+export function applyLeadRanks(
+  items: CrossReviewItem[],
+  rankOf: (item: CrossReviewItem) => number | undefined,
+): CrossReviewItem[] {
+  const effective = items.map((item) => rankOf(item) ?? Number.POSITIVE_INFINITY);
+  // Walk backwards so each item sees the best rank filed after it on its task.
+  const bestAfter = new Map<string, number>();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const taskId = item ? taskOfRow(item) : undefined;
+    if (!item || !taskId) continue;
+    const key = `${item.workspaceId}:${taskId}`;
+    const best = Math.min(
+      effective[i] ?? Number.POSITIVE_INFINITY,
+      bestAfter.get(key) ?? Number.POSITIVE_INFINITY,
+    );
+    effective[i] = best;
+    bestAfter.set(key, best);
+  }
+  return items
+    .map((item, index) => ({ item, index, rank: effective[index] ?? Number.POSITIVE_INFINITY }))
+    .sort((a, b) => (a.rank === b.rank ? a.index - b.index : a.rank - b.rank))
+    .map((r) => r.item);
+}
+
 /** How many of `items` are at or under each size — the per-level count a
  *  cumulative filter shows. */
 export function countBySize(
