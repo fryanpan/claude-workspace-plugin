@@ -12,6 +12,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoardEmbedFrames } from '../src/doc/board-embed-frames.ts';
+import { installSheets, styleOf } from './css-harness.ts';
 
 const MAP: BoardEmbeds = {
   sfworks: { appDocId: 'd-app1', pathTemplate: '{mount}/embed/bike/{block}/' },
@@ -21,6 +22,7 @@ const DOC = `# Riverbend\n\nAlice wrote this.\n\n${LINE}\n\nBob wrote that.`;
 
 async function mount(markdown: string, embeds: BoardEmbeds | null = MAP) {
   const el = document.createElement('div');
+  el.id = 'editor';
   document.body.appendChild(el);
   const editor = new Editor({
     element: el,
@@ -86,6 +88,31 @@ describe('board embed frames', () => {
     );
     expect(frame.style.height).toBe('2000px');
     editor.destroy();
+  });
+
+  it('starts inert so the doc scrolls over it; a tap activates, a tap outside or Escape puts it back', async () => {
+    const cleanup = installSheets('styles.css', 'doc.css');
+    const { editor, el } = await mount(DOC);
+    const frame = frames(el)[0] as HTMLIFrameElement;
+    const wrap = frame.parentElement as HTMLElement;
+    const hint = wrap.querySelector('.board-embed-hint') as HTMLElement;
+    expect(frame.hasAttribute('referrerpolicy')).toBe(false);
+    expect(hint.textContent).toBe('Tap to interact');
+    expect(styleOf(frame).pointerEvents).toBe('none');
+    wrap.click();
+    expect(styleOf(frame).pointerEvents).toBe('auto');
+    expect(styleOf(hint).display).toBe('none');
+    // A tap inside the active frame's box keeps it active.
+    wrap.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(styleOf(frame).pointerEvents).toBe('auto');
+    const outside = el.querySelector('h1') as HTMLElement;
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(styleOf(frame).pointerEvents).toBe('none');
+    wrap.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(styleOf(frame).pointerEvents).toBe('none');
+    editor.destroy();
+    cleanup();
   });
 
   it('reads the mapping only once a directive line exists', async () => {

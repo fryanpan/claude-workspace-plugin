@@ -21,6 +21,10 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
  * and never `allow-same-origin`. Its height comes from a
  * `{type:"sfworks:height", block, height}` message, taken only when the
  * message's source is that frame's own window.
+ *
+ * Click to activate: a frame starts inert under a "Tap to interact" hint so
+ * the doc scrolls past it; a tap activates it, and a tap outside it or Escape
+ * puts it back.
  */
 
 const key = new PluginKey<DecorationSet>('board-embed-frames');
@@ -48,13 +52,23 @@ function frameEl(url: string, block: string): HTMLElement {
   const frame = document.createElement('iframe');
   frame.setAttribute('sandbox', 'allow-scripts');
   frame.setAttribute('loading', 'lazy');
-  frame.setAttribute('referrerpolicy', 'no-referrer');
   frame.setAttribute('title', block);
   frame.dataset.embedBlock = block;
   frame.style.height = `${DEFAULT_HEIGHT}px`;
   frame.src = url;
-  wrap.appendChild(frame);
+  // Inactive, the frame takes no pointer events, so a wheel or a swipe over
+  // it scrolls the doc; a tap anywhere on it hands it the pointer.
+  const hint = document.createElement('button');
+  hint.type = 'button';
+  hint.className = 'board-embed-hint';
+  hint.textContent = 'Tap to interact';
+  wrap.append(frame, hint);
+  wrap.addEventListener('click', () => setActive(wrap, true));
   return wrap;
+}
+
+function setActive(wrap: Element, on: boolean): void {
+  wrap.classList.toggle('is-active', on);
 }
 
 function build(doc: ProseNode, workspaceId: string, embeds: BoardEmbeds | null): DecorationSet {
@@ -149,6 +163,17 @@ export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
             }
           };
           window.addEventListener('message', onMessage);
+          const deactivate = (keep: EventTarget | null): void => {
+            for (const w of view.dom.querySelectorAll('.board-embed.is-active')) {
+              if (!(keep instanceof Node && w.contains(keep))) setActive(w, false);
+            }
+          };
+          const onPointerDown = (ev: PointerEvent): void => deactivate(ev.target);
+          const onKey = (ev: KeyboardEvent): void => {
+            if (ev.key === 'Escape') deactivate(null);
+          };
+          document.addEventListener('pointerdown', onPointerDown, true);
+          document.addEventListener('keydown', onKey);
           return {
             update(v) {
               ensureLoaded(v.state.doc);
@@ -156,6 +181,8 @@ export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
             destroy() {
               live = false;
               window.removeEventListener('message', onMessage);
+              document.removeEventListener('pointerdown', onPointerDown, true);
+              document.removeEventListener('keydown', onKey);
             },
           };
         },
