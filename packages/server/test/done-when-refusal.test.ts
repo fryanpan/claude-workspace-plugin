@@ -16,6 +16,10 @@
  *  - the SAME reason on a line nobody was refused still holds it, and a
  *    refused line held for a gap its filer can close is still held.
  *
+ * And an owner line is never REFUSED under a fleet rule (PR 1228's refusal
+ * is neither capped nor released): it is held, so the two-hold cap and the
+ * hourly release still bring it to the owner.
+ *
  * All fixtures are invented.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -23,10 +27,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REFUSED_CHECK_PASS_REASON } from '@claude-workspaces/core/done-when-refusal';
-import { REVIEW_REFUSAL_RULES } from '@claude-workspaces/core/review-refusal';
+import { REVIEW_REFUSAL_KINDS, REVIEW_REFUSAL_RULES } from '@claude-workspaces/core/review-refusal';
 import type { ReviewJudgeInput, ReviewJudgeVerdict } from '../src/review-judge.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import type { Task } from '../src/tasks.ts';
+import { waitFor } from './wait-for.ts';
 
 /** The gate's first hold on the refused check, as the lead was given it. */
 const FIRST_HOLD =
@@ -60,7 +65,7 @@ const post = (path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
-async function fresh(): Promise<void> {
+async function fresh(heldReleaseMs?: number): Promise<void> {
   dataDir = mkdtempSync(join(tmpdir(), 'refused-check-'));
   verdict = { ok: true, reason: 'fine' };
   judged = [];
@@ -69,6 +74,7 @@ async function fresh(): Promise<void> {
     dataDir,
     keepMovingCadenceMs: 0,
     heldReviewItemMs: 60 * 60_000,
+    ...(heldReleaseMs !== undefined ? { heldReleaseMs } : {}),
     reviewJudge: async (input) => {
       judged.push(input);
       return verdict;
@@ -250,19 +256,64 @@ describe('a line nobody was refused', () => {
     expect(await onQueue(taskId)).toBe(0);
   });
 
-  it('is REFUSED under the self-check rule, and no third report admits it', async () => {
+  it('is HELD, never refused, under the self-check opening, and the third report admits it', async () => {
     await fresh();
     const { taskId, lineId } = await lineTask();
     verdict = { ok: false, reason: FIRST_HOLD };
-    for (const words of ['the run log', 'the run log again', 'the run log, third time']) {
-      const { body, raw } = await report(taskId, lineId, [{ text: words, url: LOG }]);
+    // Two holds, each reworded so it is judged again.
+    for (const words of ['the run log', 'the run log again']) {
+      const { body } = await report(taskId, lineId, [{ text: words, url: LOG }]);
       expect(body.held).toHaveLength(1);
-      // The rule's fixed sentence, and the report call that ends it.
-      expect(body.held?.[0]?.heldReason).toBe(REVIEW_REFUSAL_RULES['self-check']);
-      expect(body.held?.[0]?.message).toContain('report_done_when');
-      expect(raw).not.toContain('GET /v1/models');
+      expect(body.held?.[0]?.heldReason).not.toBe(REVIEW_REFUSAL_RULES['self-check']);
+      expect((await detail(taskId)).reviews?.[0]?.judge?.refused).toBeUndefined();
     }
     expect(await onQueue(taskId)).toBe(0);
-    expect((await detail(taskId)).reviews?.[0]?.judge?.refused).toBe('self-check');
+    // The cap: a third hold is not placed, and the owner gets the line.
+    const third = await report(taskId, lineId, [{ text: 'the run log, third time', url: LOG }]);
+    expect(third.body.held).toBeUndefined();
+    expect(await onQueue(taskId)).toBe(1);
+    const judge = (await detail(taskId)).reviews?.[0]?.judge;
+    expect(judge?.verdict).toBe('ok');
+    expect(judge?.admitted).toBe('holds');
+  });
+
+  for (const kind of REVIEW_REFUSAL_KINDS) {
+    it(`is held, not refused, when the judge names the "${kind}" rule`, async () => {
+      await fresh();
+      const { taskId, lineId } = await lineTask();
+      verdict = { ok: false, reason: 'Only a rule answers this.', refuse: kind };
+      const { body } = await report(taskId, lineId, [{ text: 'the run log', url: LOG }]);
+      expect(body.held).toHaveLength(1);
+      expect(body.held?.[0]?.heldReason).not.toBe(REVIEW_REFUSAL_RULES[kind]);
+      const judge = (await detail(taskId)).reviews?.[0]?.judge;
+      expect(judge?.verdict).toBe('held');
+      expect(judge?.refused).toBeUndefined();
+      expect(judge?.heldFor).toHaveLength(1);
+    });
+  }
+
+  it('is held with the rule’s sentence when the judge refuses with no reason', async () => {
+    await fresh();
+    const { taskId, lineId } = await lineTask();
+    verdict = { ok: false, reason: '', refuse: 'self-check' };
+    const { body } = await report(taskId, lineId, [{ text: 'the run log', url: LOG }]);
+    expect(body.held?.[0]?.heldReason).toBe(REVIEW_REFUSAL_RULES['self-check']);
+    expect((await detail(taskId)).reviews?.[0]?.judge?.refused).toBeUndefined();
+  });
+
+  it('goes to the owner on the one-hour release when the judge named a rule', async () => {
+    await fresh(0);
+    const { taskId, lineId } = await lineTask();
+    verdict = { ok: false, reason: FIRST_HOLD, refuse: 'self-check' };
+    const { body } = await report(taskId, lineId, [{ text: 'the run log', url: LOG }]);
+    expect(body.held).toHaveLength(1);
+    await waitFor(
+      async () => {
+        handle?.nudgeStalls();
+        return (await onQueue(taskId)) === 1 || undefined;
+      },
+      { timeout: 10_000, interval: 25, describe: 'the owner line released to the queue' },
+    );
+    expect((await detail(taskId)).reviews?.[0]?.judge?.verdict).toBe('ok');
   });
 });

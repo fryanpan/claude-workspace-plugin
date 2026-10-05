@@ -44,7 +44,6 @@ import {
   judgedText,
 } from '@claude-workspaces/core/review-hold';
 import { threadReviewItemId } from '@claude-workspaces/core/review-item-id';
-import { OWNER_CHECK_SELF_PREFIX } from '@claude-workspaces/core/review-judge-prompt';
 import {
   REFUSAL_DENIAL_PASS_REASON,
   REVIEW_REFUSAL_RULES,
@@ -748,25 +747,30 @@ export function createReviewGate(ctx: ReviewGateContext) {
     }
     /**
      * A fleet rule already answers the ask: a REFUSAL, not a hold
-     * (`review-refusal.ts`). The judge names the rule; an owner check held
-     * with the gate's own "an agent can check this itself" opening is the
-     * self-check rule whether or not the judge named it.
+     * (`review-refusal.ts`). The judge names the rule.
      *
-     * Never on a refused check, and never on an item that reports a
-     * permission denial: a denial is final, the reader is the one person
-     * left to ask, and a refusal there would push the agent to get past it.
+     * Never on a done-when owner line: whatever the judge says, that is a
+     * HOLD, so the two-hold cap and the hourly release still admit it. A
+     * refusal is neither capped nor released, so a judge that wrongly calls
+     * an owner's check checkable (a feel on the owner's own iPad) kept the
+     * line from the owner for good, however the filer revised it.
+     *
+     * Never on an item that reports a permission denial either: a denial is
+     * final, the reader is the one person left to ask, and a refusal there
+     * would push the agent to get past it.
      */
     let refusal: ReviewRefusalKind | undefined;
-    if (verdict !== null && !verdict.ok && !target.refusedCheck) {
-      refusal =
-        verdict.refuse ??
-        (target.ownerCheck && verdict.reason.trimStart().startsWith(OWNER_CHECK_SELF_PREFIX)
-          ? 'self-check'
-          : undefined);
+    if (verdict !== null && !verdict.ok && !target.ownerCheck) {
+      refusal = verdict.refuse;
       if (refusal !== undefined && namesPermissionRefusal(judgedText(words))) {
         refusal = undefined;
         verdict = { ok: true, reason: REFUSAL_DENIAL_PASS_REASON };
       }
+    } else if (verdict !== null && !verdict.ok && verdict.refuse !== undefined) {
+      // The owner line's hold. The judge is told a refusal needs no reason,
+      // so a bare one is held with the rule's fixed sentence, never blank.
+      if (verdict.reason === '')
+        verdict = { ...verdict, reason: REVIEW_REFUSAL_RULES[verdict.refuse] };
     }
     const at = Date.now();
     const carried = { ...(heldFor.length > 0 ? { heldFor } : {}), ...carriedAdmission };
