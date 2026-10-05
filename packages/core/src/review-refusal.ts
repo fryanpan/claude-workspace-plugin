@@ -47,7 +47,8 @@ export const REVIEW_REFUSAL_RULES: Record<ReviewRefusalKind, string> = {
   reversible:
     'A reversible method or implementation choice is yours to make under the fleet Decision Framework, so pick one and log it.',
   // The gate's own rule for owner checks (`OWNER_CHECK_SELF_PREFIX`),
-  // widened to every ask.
+  // widened to every ask. A done-when owner line itself is only ever HELD
+  // under it, never refused (`review-gate.ts`).
   'self-check':
     'The answer is a fact you can read yourself from a log, a tracker, an API, a file, a test run or a page you can load, so read it instead of asking.',
 };
