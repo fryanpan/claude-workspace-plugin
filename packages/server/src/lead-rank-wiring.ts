@@ -89,11 +89,23 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
     }));
   };
 
+  // Both hooks run inside the write that emitted them, so a failure here is
+  // logged and never thrown back into the filing or the comment.
+  const guarded = (what: string, fn: () => void): void => {
+    try {
+      fn();
+    } catch (err) {
+      console.warn(`[lead-ranks] ${what} failed: ${String(err)}`);
+    }
+  };
+
   const offTask = deps.onTaskEvent((ev) => {
     if (ev.type === 'review_item.added') {
-      feed.offer(askFromReviewItemAdded(ev, deps.boardName(ev.workspaceId)));
+      guarded('ask feed', () =>
+        feed.offer(askFromReviewItemAdded(ev, deps.boardName(ev.workspaceId))),
+      );
     } else if (ev.type === 'task.regrouped' && ev.actor.kind === 'person') {
-      ranks.notePersonMove(ev.workspaceId, ev.taskId, ev.ts);
+      guarded('person move', () => ranks.notePersonMove(ev.workspaceId, ev.taskId, ev.ts));
     }
   });
 
@@ -113,11 +125,13 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
     },
     onDocEvent: (docId, payload) => {
       if (payload.event !== 'thread.created' && payload.event !== 'thread.replied') return;
-      const homes = threadHomes(docId).map((h) => {
-        const board = deps.boardName(h.workspaceId);
-        return board ? { ...h, board } : h;
+      guarded('ask feed', () => {
+        const homes = threadHomes(docId).map((h) => {
+          const board = deps.boardName(h.workspaceId);
+          return board ? { ...h, board } : h;
+        });
+        for (const ask of asksFromThreadEvent(payload, homes)) feed.offer(ask);
       });
-      for (const ask of asksFromThreadEvent(payload, homes)) feed.offer(ask);
     },
     stop: () => {
       offTask();
