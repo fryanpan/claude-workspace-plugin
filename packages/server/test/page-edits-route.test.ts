@@ -165,12 +165,7 @@ describe('a page edit posted from the widget', () => {
   }, 30_000);
 
   it('refuses an edit list that is not one', async () => {
-    for (const pageEdits of [
-      [],
-      [{ selector: 'h1' }],
-      'body > h1',
-      [{ ...EDIT, after: EDIT.before }],
-    ]) {
+    for (const pageEdits of [[], [{ selector: 'h1' }], 'body > h1']) {
       const res = await post(`/workspaces/${WS}/docs/${docId}/threads`, {
         author: PERSON,
         text: 'x',
@@ -179,6 +174,16 @@ describe('a page edit posted from the widget', () => {
       });
       expect(res.status).toBe(400);
     }
+  });
+
+  it('takes an edit whose after reads as its before: the formatting was taken off', async () => {
+    const res = await post(`/workspaces/${WS}/docs/${docId}/threads`, {
+      author: PERSON,
+      text: 'x',
+      anchor: EDIT.anchor,
+      pageEdits: [{ ...EDIT, after: EDIT.before }],
+    });
+    expect(res.status).toBe(200);
   });
 
   it('refuses an edit whose element anchor the server cannot store', async () => {
