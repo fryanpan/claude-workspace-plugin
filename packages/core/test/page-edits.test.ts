@@ -32,6 +32,14 @@ const edit = (over: Partial<PageEdit> = {}): PageEdit => ({
 });
 
 describe('readPageEdits', () => {
+  it('keeps an edit whose after reads as its before: the marks were taken off', () => {
+    const unbolded = edit({
+      before: 'Harborlight Street Projects',
+      after: 'Harborlight Street Projects',
+    });
+    expect(readPageEdits([unbolded])).toEqual([unbolded]);
+  });
+
   it('keeps the element, the text before and the text after', () => {
     expect(readPageEdits([edit()])).toEqual([edit()]);
   });
@@ -42,13 +50,12 @@ describe('readPageEdits', () => {
     expect(readPageEdits('main h1')).toBeUndefined();
   });
 
-  it('drops an edit with no element, or one that changes nothing', () => {
+  it('drops an edit with no element, no selector or no words', () => {
     const noAnchor = { ...edit(), anchor: { kind: 'subject' } };
     const thinAnchor = { ...edit(), anchor: { kind: 'element', fingerprint: { tag: 'H1' } } };
     const noSelector = { ...edit(), selector: '' };
-    const same = edit({ after: 'Harborlight Street Projects' });
     const notText = { ...edit(), after: 7 };
-    expect(readPageEdits([noAnchor, thinAnchor, noSelector, same, notText])).toBeUndefined();
+    expect(readPageEdits([noAnchor, thinAnchor, noSelector, notText])).toBeUndefined();
     expect(readPageEdits([noAnchor, edit()])).toEqual([edit()]);
   });
 
@@ -70,23 +77,22 @@ describe('readPageEdits', () => {
 });
 
 describe('pageEditsText', () => {
-  it('says what changed where, one line an edit', () => {
+  it('says what was edited in one line, then each change as a word diff', () => {
     const text = pageEditsText([
       edit(),
       edit({ selector: 'td:nth-of-type(2)', before: 'Riverbend Way', after: '' }),
     ]);
     expect(text).toBe(
-      '2 text edits on this page:\n' +
-        '- main h1: "Harborlight Street Projects" → "Harborlight Street Works"\n' +
-        '- td:nth-of-type(2): "Riverbend Way" → deleted',
+      'Edited 2 headings\n' +
+        '- Harborlight Street ~~Projects~~ **Works**\n' +
+        '- ~~Riverbend Way~~',
     );
   });
 
-  it('shortens long words in the line; the full text rides on the edit', () => {
-    const text = pageEditsText([edit({ after: 'y'.repeat(400) })]);
-    expect(text.startsWith('1 text edit on this page:\n')).toBe(true);
-    expect(text.length).toBeLessThan(400);
-    expect(text.endsWith('…"')).toBe(true);
+  it('keeps no selector and no quote in the words a person reads', () => {
+    const text = pageEditsText([edit()]);
+    expect(text).not.toContain('main h1');
+    expect(text).not.toContain('"');
   });
 });
 

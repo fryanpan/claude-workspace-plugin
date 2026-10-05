@@ -632,7 +632,7 @@ async function emitChannelMessage(
         after,
       }));
   const editHint = pageEdits?.length
-    ? '\n(Apply each edit to the page source, then resolve_thread. The full text is in page_edits.)'
+    ? '\n(Apply each edit to the page source, then resolve_thread. page_edits holds each edit whole; its after is markdown: a blank line between paragraphs, **bold**, *italic*, [text](url).)'
     : '';
 
   // Human-readable body — what the agent reads in their context.

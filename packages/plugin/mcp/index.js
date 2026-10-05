@@ -15077,7 +15077,7 @@ async function emitChannelMessage(deps, event, rawPayload) {
     after
   }));
   const editHint = pageEdits?.length ? `
-(Apply each edit to the page source, then resolve_thread. The full text is in page_edits.)` : "";
+(Apply each edit to the page source, then resolve_thread. page_edits holds each edit whole; its after is markdown: a blank line between paragraphs, **bold**, *italic*, [text](url).)` : "";
   const action = event.startsWith("thread.") ? event.slice("thread.".length) : event;
   const header = snippet ? `on "${truncate7(snippet, 60)}"` : "";
   const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate7(snippet, 60)}"` : ""} —` : "";

@@ -53,8 +53,22 @@ describe.skipIf(CHROME === null)('editing the words on a page', () => {
       expect(s.stored, name).toEqual([
         { selector: 'h1', before: BEFORE, after: AFTER, anchorKind: 'element' },
       ]);
-      expect(s.text, name).toBe(`1 text edit on this page:\n- h1: "${BEFORE}" → "${AFTER}"`);
+      expect(s.text, name).toBe('Edited 1 heading\n- Harborlight Street ~~Projects~~ **Works**');
     }
+  });
+
+  it('edits a heading that holds an anchor link and its icon', () => {
+    expect(result?.dev.rich?.headingEditable).toBe(true);
+  });
+
+  it('sends a paragraph split with Enter as two blocks, its bold and links as markdown', () => {
+    // The page's own bold survives; the new paragraph's came from Cmd-B and Cmd-K.
+    expect(result?.dev.rich?.after).toBe(
+      'Riverbend **opens** at nine.\n\n[Saltmarsh](https://riverbend.example/ferry) closes at **six**.',
+    );
+    expect(result?.dev.rich?.text).toBe(
+      'Edited 1 paragraph\n- Riverbend opens at nine. **¶ Saltmarsh closes at six.**',
+    );
   });
 
   it('never writes the page source itself', () => {
