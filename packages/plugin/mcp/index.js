@@ -18171,6 +18171,26 @@ var TOOL_LIST = {
       }
     },
     {
+      name: "set_board_embeds",
+      description: 'Set which doc lines show a live app frame on this board. A doc paragraph whose whole text is `::<name>{block="<block>"}` shows the mapped app page beneath it, sandboxed and read-only; the line itself stays plain text in the doc. Replaces the whole mapping; pass {} to clear it. Only `block` (lowercase letters, digits, hyphens) reaches the URL.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          workspaceId: { type: "string" },
+          embeds: {
+            type: "object",
+            description: 'Directive name → {appDocId, pathTemplate}. appDocId is an app attached to this board; pathTemplate starts with {mount} (the app door, /workspaces/<ws>/apps/<appDocId>) and may use {block}, e.g. {"sfworks": {"appDocId": "d-…", "pathTemplate": "{mount}/embed/bike/{block}/"}}.',
+            additionalProperties: {
+              type: "object",
+              properties: { appDocId: { type: "string" }, pathTemplate: { type: "string" } },
+              required: ["appDocId", "pathTemplate"]
+            }
+          }
+        },
+        required: ["workspaceId", "embeds"]
+      }
+    },
+    {
       name: "register_worktree",
       description: "Tell this machine that a directory is a checkout of a repo it already knows. A document's identity is its repo plus its path from the repo root. A doc opened in a registered checkout is therefore the SAME doc, with the same id and the same comments. Register a worktree when you create it. Machine-scoped: it takes no workspaceId and works only from the box.",
       inputSchema: {
@@ -20479,6 +20499,10 @@ async function handleWorkspaceTool(name, a, ctx) {
         lastChange: res.lastChange
       });
     }
+    case "set_board_embeds": {
+      const { workspaceId, embeds } = a;
+      return ok2(await http("PUT", `/workspaces/${encodeURIComponent(workspaceId)}/embeds`, { embeds }));
+    }
     case "register_worktree": {
       const { path } = a;
       return ok2(await http("POST", "/api/repos/checkouts", { path }));
@@ -21090,7 +21114,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.292";
+var PLUGIN_VERSION = "0.1.295";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

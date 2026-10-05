@@ -5,6 +5,7 @@ import type {
   TaskReviewItem,
   WriteVia,
 } from '@claude-workspaces/core';
+import type { BoardEmbeds } from '@claude-workspaces/core/board-embeds';
 import { DEFAULT_EFFORT_ESTIMATE_PROMPT } from '@claude-workspaces/core/effort-estimate-prompt';
 import type { ReviewRefusalKind } from '@claude-workspaces/core/review-refusal';
 import type {
@@ -413,6 +414,12 @@ export interface BoardWorkspace {
    * story.
    */
   parallelismCapLastChange?: ParallelismCapChange;
+  /**
+   * Which `::name{block="…"}` paragraphs a doc on this board shows as a live
+   * frame, and from which app (`@claude-workspaces/core/board-embeds`).
+   * Absent means none: the line stays plain text.
+   */
+  embeds?: BoardEmbeds | undefined;
   /**
    * Where this board's planning/discussion notes get checked in: a repo +
    * branch + directory, from which `POST /api/docs` derives a file (and a
@@ -3153,6 +3160,22 @@ export class TaskStore {
       workspace: state.workspace,
       parallelismCap: read ?? { value: DEFAULT_PARALLELISM_CAP, isDefault: true },
     };
+  }
+
+  /** The board's embed mapping, or undefined for an unknown board. */
+  boardEmbeds(workspaceId: string): BoardEmbeds | undefined {
+    const state = this.workspaces.get(workspaceId);
+    return state ? (state.workspace.embeds ?? {}) : undefined;
+  }
+
+  /** Replace the board's embed mapping whole; an empty one removes the field. */
+  setBoardEmbeds(workspaceId: string, embeds: BoardEmbeds): BoardEmbeds | undefined {
+    const state = this.workspaces.get(workspaceId);
+    if (!state) return undefined;
+    if (Object.keys(embeds).length > 0) state.workspace.embeds = embeds;
+    else state.workspace.embeds = undefined;
+    this.scheduleSave(workspaceId);
+    return embeds;
   }
 
   recordEffortEstimate(

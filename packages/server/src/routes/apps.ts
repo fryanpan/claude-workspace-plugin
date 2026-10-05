@@ -36,6 +36,7 @@
  * it is read once, to draw the host page's link back to the board.
  */
 import type { DocMeta, DocType } from '@claude-workspaces/core';
+import { EMBED_PARAM } from '@claude-workspaces/core/board-embeds';
 import type { AppOutages } from '../app-outage.ts';
 import {
   appPrefix,
@@ -376,7 +377,10 @@ function frameResponse(
   meta: DocMeta,
   status: number,
 ): Response {
-  const withWidget = injectWidget(page, meta.docId, workspaceId);
+  // A doc's board embed (`doc/board-embed-frames.ts`) is read-only, so it
+  // gets the app's page without the comment widget's buttons over it.
+  const withWidget =
+    url.searchParams.get(EMBED_PARAM) === '1' ? page : injectWidget(page, meta.docId, workspaceId);
   const body = injectFrameScripts(withWidget, url, ctx.widgetDist, ctx.markdownAppDist);
   return new Response(body, {
     status,

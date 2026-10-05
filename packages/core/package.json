@@ -37,6 +37,7 @@
     "./goal-summary": "./src/goal-summary.ts",
     "./goal-effort": "./src/goal-effort.ts",
     "./identity": "./src/identity.ts",
+    "./board-embeds": "./src/board-embeds.ts",
     "./note-suggestion": "./src/note-suggestion.ts",
     "./related-work": "./src/related-work.ts",
     "./review-dock": "./src/review-dock.ts",

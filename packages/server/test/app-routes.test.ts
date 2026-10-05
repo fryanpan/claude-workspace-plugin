@@ -190,6 +190,14 @@ describe('attaching and serving a dev server', () => {
       expect(html).toContain('href="site.css"');
     });
 
+    it("answers a doc embed's frame with the app's page and no widget, still sandboxed", async () => {
+      const r = await get(`${prefix}?cw-frame=1&cw-embed=1`);
+      expect(r.headers.get('content-security-policy')).toBe(MOCK_FRAME_CSP);
+      const html = await r.text();
+      expect(html).toContain('<h1 id="title">Harborlight events</h1>');
+      expect(html).not.toContain('claude-feedback-widget');
+    });
+
     it('relays a file with its headers, minus the hop-by-hop ones', async () => {
       const r = await get(`${prefix}site.css`);
       expect(r.status).toBe(200);
