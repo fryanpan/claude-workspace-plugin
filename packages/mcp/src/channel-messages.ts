@@ -14,6 +14,7 @@
  * `emitBoardChannelMessage`; everything else keeps the doc-shaped path.
  */
 import { appUnreachableLine } from './app-unreachable-line.ts';
+import { type AsksPayload, asksLine } from './asks-line.ts';
 import { isBookkeepingEvent } from './bookkeeping-events.ts';
 import { type CoachPayload, coachLine } from './coach-line.ts';
 import { decisionAnsweredLine, fromMockNote, openPartsClause } from './decision-line.ts';
@@ -414,6 +415,13 @@ async function emitBoardChannelMessage(
     // to do; see voice-line.ts.
     case 'voice.request': {
       const line = voiceRequestLine(p);
+      if (line === null) return;
+      body = line;
+      break;
+    }
+    // Addressed to the plan lead alone: the new asks on other boards.
+    case 'workspace.new_asks': {
+      const line = asksLine(rawPayload as AsksPayload);
       if (line === null) return;
       body = line;
       break;

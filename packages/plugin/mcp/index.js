@@ -13870,7 +13870,7 @@ function agentTokenPath(agentId) {
   return `/api/agents/${encodeURIComponent(agentId)}/token`;
 }
 function pathNeedsAgentToken(path) {
-  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path) || path === "/inbox/rows";
+  return /^\/api\/agents\/[^/?]+\/watches(\?|$)/.test(path) || /^\/workspaces\/[^/?]+\/voice-queue\/[^/?]+\/answer$/.test(path) || path === "/inbox/rows" || path === "/api/review-queue/rank";
 }
 function createAgentTokenStore(deps) {
   let token = null;
@@ -14102,6 +14102,36 @@ function appUnreachableLine(p) {
   return `[workspace.app_unreachable] ${lead} Start its dev server on that origin.${whose} This notice fires once per outage, again only when a waiting reader asks, and re-arms after the app next answers.`;
 }
 
+// packages/mcp/src/asks-line.ts
+function clock(at, timeZone) {
+  if (typeof at !== "number" || !Number.isFinite(at))
+    return "?";
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    ...timeZone ? { timeZone } : {}
+  }).format(at);
+}
+var rowOf = (row) => row?.taskId ? `task ${row.taskId}` : row?.docId ? `doc ${row.docId}` : "row ?";
+function itemLine(i, timeZone) {
+  if (!i.key || !i.headline)
+    return null;
+  const board = i.board ?? i.workspaceId ?? "?";
+  return `- ${clock(i.createdAt, timeZone)} ${board}, ${rowOf(i.row)}: "${i.headline}" (key ${i.key})`;
+}
+function asksLine(p, timeZone) {
+  const lines = (p.items ?? []).flatMap((i) => itemLine(i, timeZone) ?? []);
+  if (lines.length === 0)
+    return null;
+  const more = p.more ? `
+(${p.more} more in this window, not listed.)` : "";
+  const head = `[workspace.new_asks ${clock(p.from, timeZone)}–${clock(p.to, timeZone)}] ${lines.length} new ask${lines.length === 1 ? "" : "s"} on other boards. Rank any that this week's goals put ahead of the plan order with rank_review_item(key, rank):`;
+  return `${head}
+${lines.join(`
+`)}${more}`;
+}
+
 // packages/mcp/src/bookkeeping-events.ts
 function mayCarryAnOpenAsk(thread) {
   if (!thread || typeof thread !== "object")
@@ -14148,7 +14178,7 @@ var READINESS = {
   normal: "as readily as before: when you see a clear match",
   more: "more readily: also when you are less sure"
 };
-function clock(at, timeZone) {
+function clock2(at, timeZone) {
   if (typeof at !== "number" || !Number.isFinite(at))
     return "";
   const t = new Intl.DateTimeFormat("en-GB", {
@@ -14166,7 +14196,7 @@ var whereOf = (p) => {
 function digestItemLine(i, timeZone) {
   if (!i.boardId || !i.kind)
     return null;
-  const t = clock(i.at, timeZone).trim();
+  const t = clock2(i.at, timeZone).trim();
   if (i.kind === "view") {
     const heads = i.headings?.length ? ` (${i.headings.map((h) => `"${h}"`).join(", ")})` : "";
     return `- ${t}, ${i.minutes ?? 0} min: read ${whereOf(i)}${heads}`;
@@ -14184,7 +14214,7 @@ function digestLine(p, timeZone) {
   const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
   if (lines.length === 0)
     return null;
-  const span = `${clock(p.from, timeZone)}–${clock(p.to, timeZone).trim()}`;
+  const span = `${clock2(p.from, timeZone)}–${clock2(p.to, timeZone).trim()}`;
   return `[coach.digest${span}] What the owner did:
 ${lines.join(`
 `)}`;
@@ -14195,7 +14225,7 @@ function eventLine(p, timeZone) {
     return null;
   const where = whereOf(p);
   const under = p.heading ? `, under "${p.heading}"` : "";
-  const head = `[coach.event${clock(p.at, timeZone)}] The owner ${verb} ${where}${under}.`;
+  const head = `[coach.event${clock2(p.at, timeZone)}] The owner ${verb} ${where}${under}.`;
   return p.text ? `${head}
 ${p.text}` : head;
 }
@@ -14208,13 +14238,13 @@ function coachLine(event, p, timeZone) {
     const how = p.answer ? ANSWER[p.answer] : undefined;
     if (!how || !p.momentId)
       return null;
-    return `[coach.answer${clock(p.at, timeZone)}] The owner ${how}. Your moment ${p.momentId} (goal: ${p.goal ?? "?"}) said: "${p.line ?? ""}". Write what it teaches you in your memory doc.`;
+    return `[coach.answer${clock2(p.at, timeZone)}] The owner ${how}. Your moment ${p.momentId} (goal: ${p.goal ?? "?"}) said: "${p.line ?? ""}". Write what it teaches you in your memory doc.`;
   }
   if (event === "coach.preference") {
     const how = p.readiness ? READINESS[p.readiness] : undefined;
     if (!how)
       return null;
-    return `[coach.preference${clock(p.at, timeZone)}] The owner wants you to speak up ${how}. Write it in your memory doc.`;
+    return `[coach.preference${clock2(p.at, timeZone)}] The owner wants you to speak up ${how}. Write it in your memory doc.`;
   }
   return null;
 }
@@ -14263,8 +14293,8 @@ function capClause(cap, now2, style) {
   let setter = "";
   if (change !== undefined && typeof name === "string" && name.length > 0) {
     const at = typeof change.ts === "number" ? change.ts : undefined;
-    const clock2 = typeof now2 === "number" ? now2 : Date.now();
-    const ago = at === undefined ? "" : ` ${humanDuration2(Math.max(0, clock2 - at))} ago`;
+    const clock3 = typeof now2 === "number" ? now2 : Date.now();
+    const ago = at === undefined ? "" : ` ${humanDuration2(Math.max(0, clock3 - at))} ago`;
     const was = typeof change.from === "number" ? `, was ${change.from}` : "";
     setter = `, set by ${name}${ago}${was}`;
   }
@@ -14910,6 +14940,13 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       break;
     case "voice.request": {
       const line = voiceRequestLine(p);
+      if (line === null)
+        return;
+      body = line;
+      break;
+    }
+    case "workspace.new_asks": {
+      const line = asksLine(rawPayload);
       if (line === null)
         return;
       body = line;
@@ -16009,6 +16046,24 @@ var TOOL_LIST = {
           }
         },
         required: ["workspaceId", "queueId", "text"]
+      }
+    },
+    {
+      name: "rank_review_item",
+      description: "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, so Bryan's Home queue shows it in that order. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. rank null clears it. A rank stops counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description: "The item's queue key, as the workspace.new_asks line gives it."
+          },
+          rank: {
+            type: ["number", "null"],
+            description: "A whole number from 1 (first) to 10000, or null to clear the rank."
+          }
+        },
+        required: ["key", "rank"]
       }
     },
     {
@@ -20601,6 +20656,29 @@ async function handleWorkspaceTool(name, a, ctx) {
         return ok2({ raised: false, reason: body.error ?? "refused", message: body.message });
       }
     }
+    case "rank_review_item": {
+      const { key, rank } = a;
+      if (typeof key !== "string" || key === "")
+        return err2("key is required");
+      if (rank !== null && typeof rank !== "number") {
+        return err2("rank is a whole number from 1, or null to clear it");
+      }
+      try {
+        return ok2(await http("POST", "/api/review-queue/rank", { agentId: AUTHOR.id, key, rank }));
+      } catch (e) {
+        const m = String(e).match(/→ (400|403|404): (.*)$/s);
+        if (!m)
+          throw e;
+        const body = (() => {
+          try {
+            return JSON.parse(m[2] ?? "");
+          } catch {
+            return {};
+          }
+        })();
+        return ok2({ ranked: false, reason: body.error ?? "refused", message: body.message });
+      }
+    }
     case "request_plugin_refresh": {
       return ok2(await http("POST", "/api/plugin/refresh"));
     }
@@ -21090,7 +21168,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.292";
+var PLUGIN_VERSION = "0.1.294";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

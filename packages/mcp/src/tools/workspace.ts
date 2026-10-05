@@ -809,6 +809,29 @@ export async function handleWorkspaceTool(
         return ok({ raised: false, reason: body.error ?? 'refused', message: body.message });
       }
     }
+    case 'rank_review_item': {
+      // The plan lead's rank for one item; the server checks the caller is
+      // that lead by its token, and refuses anyone else.
+      const { key, rank } = a as { key?: unknown; rank?: unknown };
+      if (typeof key !== 'string' || key === '') return err('key is required');
+      if (rank !== null && typeof rank !== 'number') {
+        return err('rank is a whole number from 1, or null to clear it');
+      }
+      try {
+        return ok(await http('POST', '/api/review-queue/rank', { agentId: AUTHOR.id, key, rank }));
+      } catch (e) {
+        const m = String(e).match(/→ (400|403|404): (.*)$/s);
+        if (!m) throw e;
+        const body = (() => {
+          try {
+            return JSON.parse(m[2] ?? '') as { error?: string; message?: string };
+          } catch {
+            return {};
+          }
+        })();
+        return ok({ ranked: false, reason: body.error ?? 'refused', message: body.message });
+      }
+    }
     case 'request_plugin_refresh': {
       // No arguments reach the process this runs — the server's argv is
       // fixed. Nothing a caller can send gets spawned.
