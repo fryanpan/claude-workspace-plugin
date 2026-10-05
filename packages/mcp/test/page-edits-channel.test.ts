@@ -32,6 +32,8 @@ describe('a page edit on the channel', () => {
     expect(JSON.parse(String(f.meta.page_edits))).toEqual([edit]);
     expect(f.content).toContain('→ "Harborlight Works"');
     expect(f.content).toContain('resolve_thread');
+    // The agent is told what `after` is written in before it applies one.
+    expect(f.content).toContain('after is markdown');
   });
 
   it('leaves an ordinary comment exactly as it was', async () => {
