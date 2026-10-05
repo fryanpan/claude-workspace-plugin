@@ -9,8 +9,10 @@
  *                                so the same data can be cut another way
  *   GET /api/review-size         the signed-in person's size choice
  *   PUT /api/review-size         change it: `{ size: "easy"|"medium"|"hard" }`
- *   POST /api/review-queue/rank  the plan lead ranks one item:
- *                                `{ agentId, key, rank: 1..10000 | null }`
+ *   POST /api/review-queue/rank  the plan lead ranks or tags one item:
+ *                                `{ agentId, key, rank?: 1..10000 | null,
+ *                                goal?: <plan goal id> | "urgent" |
+ *                                "not-this-week" | "drop" | null }`
  *   GET /review                  the page that walks the queue
  *
  * All of them are about ACROSS boards, which is why none is on the share or
@@ -29,12 +31,17 @@
  * caller is refused before the key is looked up. The key must name an open
  * item on a board the lead may hear from (`ask-feed.ts`): an item on an
  * excluded board answers the same 404 as one that does not exist.
+ *
+ * The goal tag rides the same verb rather than a sibling: the lead places an
+ * ask against the week's goals in one decision, rank and goal together, and
+ * one route keeps one gate. A call may carry either field or both; a field
+ * left out is left as it was.
  */
 import { parseReviewSize } from '@claude-workspaces/core';
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { CrossReview } from '../cross-review.ts';
 import { reviewWait } from '../review-answer-ledger.ts';
-import { type ReviewRanks, parseRank } from '../review-ranks.ts';
+import { type ReviewRanks, parseGoalTag, parseRank } from '../review-ranks.ts';
 import type { ReviewSizePrefs } from '../review-size-prefs.ts';
 
 export interface ReviewQueueRoutesContext {
@@ -50,6 +57,8 @@ export interface ReviewQueueRoutesContext {
   j: (status: number, body: unknown) => Response;
   safeJson: (req: Request) => Promise<Record<string, unknown> | null>;
   ranks: ReviewRanks;
+  /** The plan board's goal ids, in order — what a goal tag may name. */
+  planGoalIds: (planWorkspaceId: string) => string[];
   /** The plan board's seated lead, or undefined. */
   leadOf: (workspaceId: string) => string | undefined;
   /** Through the edge, from off this machine, or from a page: refused
@@ -91,7 +100,7 @@ const PATHS = new Set([
 /** The longest key accepted: a board id, a kind, a doc id and a thread id. */
 const MAX_KEY = 512;
 
-/** The largest rank body read: an agent id, a key and a number. */
+/** The largest rank body read: an agent id, a key, a number and a goal. */
 const MAX_RANK_BYTES = 4096;
 
 async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<Response> {
@@ -118,11 +127,24 @@ async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<
       message: 'Only the lead of the plan board may rank review items.',
     });
   }
-  const rank = parseRank(body?.rank);
+  const hasRank = body !== null && 'rank' in body;
+  const hasGoal = body !== null && 'goal' in body;
+  if (!hasRank && !hasGoal) {
+    return j(400, { error: 'bad-rank', message: 'send a rank, a goal, or both' });
+  }
+  const rank = hasRank ? parseRank(body?.rank) : null;
   if (rank === undefined) {
     return j(400, {
       error: 'bad-rank',
       message: 'rank is a whole number from 1 to 10000, or null',
+    });
+  }
+  const goalIds = ctx.planGoalIds(planWorkspaceId ?? '');
+  const goal = hasGoal ? parseGoalTag(body?.goal, goalIds) : null;
+  if (goal === undefined) {
+    return j(400, {
+      error: 'bad-goal',
+      message: `goal is one of the plan board's goal ids (${goalIds.join(', ') || 'none'}), urgent, not-this-week, drop, or null`,
     });
   }
   const key = body?.key;
@@ -139,13 +161,15 @@ async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<
   if (!item || ctx.isOff({ workspaceId: item.workspaceId, ...(docId ? { docId } : {}) })) {
     return j(404, { error: 'not-found', message: 'No open review item has that key.' });
   }
-  ctx.ranks.set(item.key, rank, agentId);
+  if (hasRank) ctx.ranks.set(item.key, rank, agentId);
+  if (hasGoal) ctx.ranks.setGoal(item.key, goal, agentId);
   const taskId =
     item.kind === 'task-review' || item.kind === 'task-thread' ? item.taskId : undefined;
   const movedAt = taskId ? ctx.ranks.personMovedAt(item.workspaceId, taskId) : undefined;
   return j(200, {
     key: item.key,
-    rank,
+    ...(hasRank ? { rank } : {}),
+    ...(hasGoal ? { goal } : {}),
     ...(movedAt !== undefined ? { personMovedAt: movedAt } : {}),
   });
 }

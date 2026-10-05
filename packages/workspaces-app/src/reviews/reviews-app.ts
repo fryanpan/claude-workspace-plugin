@@ -77,7 +77,8 @@ async function boot(): Promise<void> {
     ? createSizeChoice(browserStorage, httpSizePref(), (size) => applySize(size))
     : null;
   let level: ReviewSize = choice?.level() ?? 'hard';
-  const from = new URLSearchParams(location.search).get('from');
+  const params = new URLSearchParams(location.search);
+  const from = params.get('from');
   // The aim, as the board's walk keeps it: a key, and the index it was at, so
   // the card that replaces an answered one is the one that slid into its place.
   const walk: {
@@ -86,7 +87,7 @@ async function boot(): Promise<void> {
     walkProgress: { cleared: number; last: ReviewItem | null };
   } = {
     walkIndex: 0,
-    walkKey: startKey(allowedEntries(entries, level), from),
+    walkKey: startKey(allowedEntries(entries, level), from, params.get('item')),
     walkProgress: { cleared: 0, last: null },
   };
 

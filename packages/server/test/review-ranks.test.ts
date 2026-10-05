@@ -18,7 +18,7 @@ import {
   crossReviewQueue,
 } from '../src/cross-review-queue.ts';
 import type { RankedProject } from '../src/review-plan.ts';
-import { MAX_RANK, ReviewRanks, parseRank } from '../src/review-ranks.ts';
+import { MAX_RANK, ReviewRanks, parseGoalTag, parseRank } from '../src/review-ranks.ts';
 import type { SizedReviewItemRow } from '../src/review-sizing.ts';
 
 const REVIEW: ReviewPayload = { shape: 'review', headline: 'Look at this' };
@@ -167,6 +167,37 @@ describe('ReviewRanks', () => {
 
     reread.set('w-river:doc-thread:d-ferry:th-1', null, 'agent-team-lead');
     expect(reread.rankOf('w-river:doc-thread:d-ferry:th-1', 'w-river')).toBeUndefined();
+  });
+
+  it('keeps goal tags across a restart, and a person’s move voids one set before it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'review-ranks-'));
+    let now = 1_000;
+    const key = 'w-harbor:task-review:t-a:r-1';
+    const ranks = new ReviewRanks(dir, () => now);
+    ranks.setGoal(key, 'g-tide', 'agent-team-lead');
+    now = 2_500;
+    ranks.set(key, 4, 'agent-team-lead');
+    ranks.notePersonMove('w-harbor', 't-a', 2_000);
+    const reread = new ReviewRanks(dir, () => now);
+    // The tag predates the move; the rank came after it.
+    expect(reread.goalOf(key, 'w-harbor', 't-a')).toBeUndefined();
+    expect(reread.rankOf(key, 'w-harbor', 't-a')).toBe(4);
+    reread.setGoal(key, 'urgent', 'agent-team-lead');
+    expect(reread.goalOf(key, 'w-harbor', 't-a')).toBe('urgent');
+    reread.setGoal(key, null, 'agent-team-lead');
+    expect(reread.goalOf(key, 'w-harbor', 't-a')).toBeUndefined();
+    expect(reread.rankOf(key, 'w-harbor', 't-a')).toBe(4);
+  });
+
+  it('accepts a goal tag naming a plan goal or a fixed bucket, or null, and nothing else', () => {
+    const goals = ['g-tide', 'g-ferry'];
+    for (const ok of ['g-tide', 'urgent', 'not-this-week', 'drop']) {
+      expect(parseGoalTag(ok, goals)).toBe(ok);
+    }
+    expect(parseGoalTag(null, goals)).toBeNull();
+    for (const bad of ['g-gone', 'chores', '', 3, undefined, {}]) {
+      expect(parseGoalTag(bad, goals)).toBeUndefined();
+    }
   });
 
   it('accepts a whole rank from 1 to the maximum, or null, and nothing else', () => {

@@ -379,7 +379,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'rank_review_item',
       description:
-        "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, so Bryan's Home queue shows it in that order. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. rank null clears it. A rank stops counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
+        "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, and file it under the goal it serves, so Bryan's Home shows your Top 10 and then his asks by goal. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. Send rank, goal or both; a field left out is left as it was, and null clears it. goal is a plan-board goal id, urgent, not-this-week or drop. Both stop counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -391,8 +391,13 @@ export const TOOL_LIST: ListToolsResult = {
             type: ['number', 'null'],
             description: 'A whole number from 1 (first) to 10000, or null to clear the rank.',
           },
+          goal: {
+            type: ['string', 'null'],
+            description:
+              "A goal id from the plan board's goal list, or urgent, not-this-week or drop; null clears the tag.",
+          },
         },
-        required: ['key', 'rank'],
+        required: ['key'],
       },
     },
     {

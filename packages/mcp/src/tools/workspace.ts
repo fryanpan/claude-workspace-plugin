@@ -812,13 +812,24 @@ export async function handleWorkspaceTool(
     case 'rank_review_item': {
       // The plan lead's rank for one item; the server checks the caller is
       // that lead by its token, and refuses anyone else.
-      const { key, rank } = a as { key?: unknown; rank?: unknown };
+      // A field left out is left as it was, so only the ones sent are posted.
+      const { key, rank, goal } = a as { key?: unknown; rank?: unknown; goal?: unknown };
       if (typeof key !== 'string' || key === '') return err('key is required');
-      if (rank !== null && typeof rank !== 'number') {
+      if (rank === undefined && goal === undefined) return err('send a rank, a goal, or both');
+      if (rank !== undefined && rank !== null && typeof rank !== 'number') {
         return err('rank is a whole number from 1, or null to clear it');
       }
+      if (goal !== undefined && goal !== null && typeof goal !== 'string') {
+        return err('goal is a plan goal id, urgent, not-this-week or drop, or null');
+      }
+      const body = {
+        agentId: AUTHOR.id,
+        key,
+        ...(rank !== undefined ? { rank } : {}),
+        ...(goal !== undefined ? { goal } : {}),
+      };
       try {
-        return ok(await http('POST', '/api/review-queue/rank', { agentId: AUTHOR.id, key, rank }));
+        return ok(await http('POST', '/api/review-queue/rank', body));
       } catch (e) {
         const m = String(e).match(/→ (400|403|404): (.*)$/s);
         if (!m) throw e;

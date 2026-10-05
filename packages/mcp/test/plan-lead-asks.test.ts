@@ -39,7 +39,7 @@ describe('asksLine', () => {
     );
     expect(line).toBe(
       [
-        "[workspace.new_asks 17:00–17:10] 2 new asks on other boards. Rank any that this week's goals put ahead of the plan order with rank_review_item(key, rank):",
+        "[workspace.new_asks 17:00–17:10] 2 new asks on other boards. Rank any that this week's goals put ahead of the plan order, and file each under its goal, with rank_review_item(key, rank, goal):",
         '- 17:02 Harborlight, task t-1: "Which tide table?" (key w-harbor:task-review:t-1:r-1)',
         '- 17:04 w-river, doc d-ferry: "Does this read right?" (key w-river:doc-thread:d-ferry:th-1)',
         '(3 more in this window, not listed.)',
@@ -80,6 +80,20 @@ describe('rank_review_item', () => {
     expect(JSON.parse(text(r))).toEqual({ key: KEY, rank: 2 });
   });
 
+  it('posts a goal tag alone, leaving the rank out so the server keeps it', async () => {
+    const { calls, ctx } = ctxFor(() => ({ key: KEY, goal: 'urgent' }));
+    await handleWorkspaceTool('rank_review_item', { key: KEY, goal: 'urgent' }, ctx);
+    await handleWorkspaceTool('rank_review_item', { key: KEY, rank: 3, goal: null }, ctx);
+    expect(calls).toEqual([
+      ['POST', '/api/review-queue/rank', { agentId: 'agent-team-lead', key: KEY, goal: 'urgent' }],
+      [
+        'POST',
+        '/api/review-queue/rank',
+        { agentId: 'agent-team-lead', key: KEY, rank: 3, goal: null },
+      ],
+    ]);
+  });
+
   it('hands back a refusal with its reason, and throws anything else', async () => {
     const refused = ctxFor(() => {
       throw new Error(
@@ -102,6 +116,12 @@ describe('rank_review_item', () => {
     expect(
       text(await handleWorkspaceTool('rank_review_item', { key: KEY, rank: 'first' }, ctx)),
     ).toContain('rank');
+    expect(text(await handleWorkspaceTool('rank_review_item', { key: KEY }, ctx))).toContain(
+      'goal',
+    );
+    expect(
+      text(await handleWorkspaceTool('rank_review_item', { key: KEY, goal: 4 }, ctx)),
+    ).toContain('goal');
     expect(calls).toEqual([]);
   });
 });

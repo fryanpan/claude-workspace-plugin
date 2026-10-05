@@ -52,6 +52,6 @@ export function asksLine(p: AsksPayload, timeZone?: string): string | null {
   const lines = (p.items ?? []).flatMap((i) => itemLine(i, timeZone) ?? []);
   if (lines.length === 0) return null;
   const more = p.more ? `\n(${p.more} more in this window, not listed.)` : '';
-  const head = `[workspace.new_asks ${clock(p.from, timeZone)}–${clock(p.to, timeZone)}] ${lines.length} new ask${lines.length === 1 ? '' : 's'} on other boards. Rank any that this week's goals put ahead of the plan order with rank_review_item(key, rank):`;
+  const head = `[workspace.new_asks ${clock(p.from, timeZone)}–${clock(p.to, timeZone)}] ${lines.length} new ask${lines.length === 1 ? '' : 's'} on other boards. Rank any that this week's goals put ahead of the plan order, and file each under its goal, with rank_review_item(key, rank, goal):`;
   return `${head}\n${lines.join('\n')}${more}`;
 }

@@ -155,6 +155,9 @@ describe('the walk opens where Home pointed', () => {
     // A project with nothing waiting any more: the top.
     expect(startKey(queue(), 'w-kiln')).toBe('r1');
     expect(startKey([], 'w-harbor')).toBeNull();
+    // A goal-grouped row of Home names the ask itself.
+    expect(startKey(queue(), null, 'h1')).toBe('h1');
+    expect(startKey(queue(), null, 'gone')).toBe('r1');
   });
 });
 

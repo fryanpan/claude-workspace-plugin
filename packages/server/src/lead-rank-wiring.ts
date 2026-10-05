@@ -47,6 +47,7 @@ export interface LeadRankWiring {
   ranks: ReviewRanks;
   feed: AskFeed;
   leadRank: (item: CrossReviewItem) => number | undefined;
+  leadGoal: (item: CrossReviewItem) => string | undefined;
   onDocEvent: (docId: string, payload: WebhookPayload) => void;
   stop: () => void;
 }
@@ -109,20 +110,24 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
     }
   });
 
+  /** Whether an item may carry the lead's opinion at all. Only an item with
+   *  something stored pays for the privacy check. */
+  const counts = (item: CrossReviewItem): boolean => {
+    if (!ranks.has(item.key)) return false;
+    try {
+      return !deps.isOff(placeOfItem(item));
+    } catch {
+      return false;
+    }
+  };
+
   return {
     ranks,
     feed,
-    leadRank: (item) => {
-      // Only an item with a rank stored pays for the privacy check.
-      if (!ranks.get(item.key)) return undefined;
-      let off: boolean;
-      try {
-        off = deps.isOff(placeOfItem(item));
-      } catch {
-        off = true;
-      }
-      return off ? undefined : ranks.rankOf(item.key, item.workspaceId, taskOfItem(item));
-    },
+    leadRank: (item) =>
+      counts(item) ? ranks.rankOf(item.key, item.workspaceId, taskOfItem(item)) : undefined,
+    leadGoal: (item) =>
+      counts(item) ? ranks.goalOf(item.key, item.workspaceId, taskOfItem(item)) : undefined,
     onDocEvent: (docId, payload) => {
       if (payload.event !== 'thread.created' && payload.event !== 'thread.replied') return;
       guarded('ask feed', () => {
