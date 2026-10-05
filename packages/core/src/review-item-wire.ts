@@ -1,3 +1,18 @@
+import { applySecretShape } from './review-item-secret-wire.ts';
+import type {
+  ReviewAnswerUndone,
+  ReviewInfoRequest,
+  ReviewItemAnswer,
+  ReviewItemJudgement,
+  ReviewItemRange,
+  ReviewItemRevision,
+  ReviewJudgeVerdictKind,
+  ReviewOption,
+  ReviewPartialAnswer,
+  ReviewPayload,
+  ReviewShape,
+  TaskReviewItem,
+} from './review-item-types.ts';
 /**
  * Reading a stored review item back out of the CRDT.
  *
@@ -17,21 +32,7 @@
  * module is a leaf at runtime, and `review-item.ts` re-exports both it and
  * the contract.
  */
-import { applySecretShape } from './review-item-secret-wire.ts';
-import type {
-  ReviewAnswerUndone,
-  ReviewInfoRequest,
-  ReviewItemAnswer,
-  ReviewItemJudgement,
-  ReviewItemRange,
-  ReviewItemRevision,
-  ReviewJudgeVerdictKind,
-  ReviewOption,
-  ReviewPartialAnswer,
-  ReviewPayload,
-  ReviewShape,
-  TaskReviewItem,
-} from './review-item-types.ts';
+import { isReviewRefusalKind } from './review-refusal.ts';
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -396,6 +397,10 @@ function readJudgement(value: unknown): ReviewItemJudgement | undefined {
       : {}),
     ...(typeof value.gapKey === 'string' && value.gapKey.trim() !== ''
       ? { gapKey: value.gapKey }
+      : {}),
+    // Only on a hold: a stray `refused` on a pass must not read as one.
+    ...(value.verdict === 'held' && isReviewRefusalKind(value.refused)
+      ? { refused: value.refused }
       : {}),
   };
 }

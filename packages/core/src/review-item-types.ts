@@ -15,6 +15,8 @@
  * name below, and `packages/core/src/index.ts` re-exports that.
  */
 
+import type { ReviewRefusalKind } from './review-refusal.ts';
+
 /**
  * Two shapes, not three.
  *
@@ -523,6 +525,13 @@ export interface ReviewItemJudgement {
    *  tell whether the gate is repeating itself. Written on a hold, carried
    *  nowhere else, shown to nobody. */
   gapKey?: string;
+  /**
+   * On a `held` verdict: the fleet rule that already answers this ask, which
+   * makes it a REFUSAL rather than a hold (`review-refusal.ts`). A refusal is
+   * never admitted by the hold cap or the one-hour release; a revision that
+   * says why the rule does not apply is judged again, and that is the appeal.
+   */
+  refused?: ReviewRefusalKind;
 }
 
 /**
