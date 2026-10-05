@@ -268,6 +268,22 @@ boot sweep, and an item whose recorded filer is some OTHER session than the
 one whose call re-gated it (`heldInReply`, `review-gate-types.ts`). The
 overdue nudge below is a different telling — nobody asked for it — and is
 untouched.
+**A fleet rule can REFUSE an ask, which is not a hold.** The judge is also
+taught four rules the agent already works under (`review-refusal.ts`): spend
+of $50 or less, a push / merge / PR the ship method already consents to, a
+reversible implementation choice, and a fact the agent can read itself. When
+one answers the ask, the judge names it in `refuse`, and the item is stored
+`held` with `judge.refused` set and the rule's fixed sentence as its reason —
+never the judge's words, so a refusal cannot tell an agent to get past a
+denial. A refusal is not counted in `heldFor`, so the two-hold cap never
+admits it; `releaseUnrevisedHold` and both held-item listers skip it, so the
+one-hour release never sends it and the lead is never nudged about it. The
+appeal is a revision: the judge is told which rule refused the earlier
+version and to pass it when the item now says why that rule does not apply.
+An item whose words report a permission refusal is never refused (it passes
+with `REFUSAL_DENIAL_PASS_REASON`). Each refusal writes an analytics-only
+`review_item.refused` row — workspace, item, filer id, `kind` — to the
+board's `events.jsonl`, which is where the per-board, per-kind count is read.
 A judge that has no key, times out, errors, or answers unparseably PASSES
 the item — the gate is a nudge toward better asks, never a door that
 closes when the API does (`decisions.md`, 2026-08-29). Held state is

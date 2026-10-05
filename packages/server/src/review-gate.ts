@@ -426,7 +426,7 @@ export function createReviewGate(ctx: ReviewGateContext) {
       case 'task':
         return `withdraw_review_item(workspaceId="${workspaceId}", reviewItemId="${address.reviewItemId}")`;
       case 'decision':
-        return `archive_task(taskId="${address.taskId}")`;
+        return `archive_task(workspaceId="${workspaceId}", taskId="${address.taskId}")`;
       default:
         return `withdraw_review_item(workspaceId="${workspaceId}", docId="${address.docId}", threadId="${address.threadId}", commentId="${address.commentId}")`;
     }

@@ -1602,6 +1602,16 @@ not state — is checked on the server before the hold is sent, while the
 derived note a card draws from a stored verdict is read in the browser. One
 definition, two readers, no boundary moved.
 
+`review-refusal.ts` sits beside it: the four fleet rules that answer an ask
+outright (spend of $50 or less, a push or merge the ship method already
+consents to, a reversible implementation choice, a fact the agent can read),
+the block of the judge's prompt that teaches them, and the one fixed sentence
+per rule a refused filer is told. The judge's prompt reads it, the gate
+records a refusal under its rule name, and the stored verdict is read back on
+both sides. `review-judge-sentence.ts` is the judge reason's one-sentence clip,
+moved out of `review-judge-prompt.ts` to keep that file under the line limit.
+Neither moves a boundary.
+
 `secret-name.ts` joins that third tier for the same reason, with the two
 readers furthest apart in this repo: the server's writer spells the stored
 name when it runs `security`, and the MCP tool descriptions tell an agent the
