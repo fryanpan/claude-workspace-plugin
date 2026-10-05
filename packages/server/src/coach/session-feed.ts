@@ -26,6 +26,7 @@
  * frame is replayed to a stream that comes back, so a session that is gone
  * would otherwise read a backlog of stale events when it returns.
  */
+import { HeldWindow } from '../held-window.ts';
 import { type DigestEvent, type DigestItem, digestOf } from './digest.ts';
 import type { CoachEventKind } from './stream.ts';
 import { type CoachReadiness, DAILY_EVENT_LIMIT, type MomentAnswer } from './types.ts';
@@ -88,18 +89,17 @@ export interface SessionFeedDeps {
 /** How long a window stays open before it goes as one digest. */
 export const DIGEST_WINDOW_MS = 15 * 60_000;
 
-const timer = (fn: () => void, ms: number): (() => void) => {
-  const t = setTimeout(fn, ms);
-  t.unref?.();
-  return () => clearTimeout(t);
-};
-
 export class SessionFeed {
-  private held: DigestEvent[] = [];
-  private openedAt = 0;
-  private cancel: (() => void) | null = null;
+  private readonly window: HeldWindow<DigestEvent>;
 
-  constructor(private readonly deps: SessionFeedDeps) {}
+  constructor(private readonly deps: SessionFeedDeps) {
+    this.window = new HeldWindow<DigestEvent>({
+      windowMs: DIGEST_WINDOW_MS,
+      close: (held, from, to) => this.close(held, from, to),
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.schedule ? { schedule: deps.schedule } : {}),
+    });
+  }
 
   /** Whether a session would hear a frame sent now. */
   reachable(): boolean {
@@ -118,28 +118,19 @@ export class SessionFeed {
     if (news.event !== 'coach.event') return this.deliver(news, at);
     if (this.paused(at) || !this.reachable()) return false;
     const { event: _event, ...e } = news;
-    this.held.push({ ...e, at });
-    if (!this.cancel) {
-      this.openedAt = (this.deps.now ?? Date.now)();
-      this.cancel = (this.deps.schedule ?? timer)(() => this.close(), DIGEST_WINDOW_MS);
-    }
+    this.window.hold({ ...e, at });
     return true;
   }
 
   /** Drops a window still open, sending nothing. */
   stop(): void {
-    this.cancel?.();
-    this.cancel = null;
-    this.held = [];
+    this.window.stop();
   }
 
-  private close(): void {
-    const at = (this.deps.now ?? Date.now)();
-    const items = digestOf(this.held, at);
-    this.cancel = null;
-    this.held = [];
+  private close(held: DigestEvent[], from: number, at: number): void {
+    const items = digestOf(held, at);
     if (items.length === 0) return;
-    if (this.deliver({ event: 'coach.digest', from: this.openedAt, to: at, items }, at)) {
+    if (this.deliver({ event: 'coach.digest', from, to: at, items }, at)) {
       this.deps.countTurn(at);
     }
   }

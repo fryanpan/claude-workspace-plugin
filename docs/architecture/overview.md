@@ -53,7 +53,7 @@ flowchart TB
   subgraph srv["server — one Bun process"]
     edge["HTTP edge<br/>server.ts · routes/ · middleware/ · shells.ts · app-waiting-page.ts · member-home.ts<br/>request-admission · request-attribution<br/>socket-handlers · server-options<br/>connector/ (hosted MCP at /mcp)"]
     docs["Doc store and attachments<br/>doc-store.ts · binds.ts · file-binding.ts · file-stamp.ts<br/>doc-*.ts · doc-origin-repo.ts · doc-key.ts · repo-registry.ts<br/>repo-registry-file.ts · repo-registry-checkouts.ts<br/>doc-thread-merge.ts · doc-identity-plan.ts · doc-identity-migration.ts<br/>doc-identity-renames.ts · doc-identity-journal.ts · doc-identity-check.ts<br/>attachment-backfill.ts<br/>note-list-gap-repair.ts · note-list-gap-corpus.ts<br/>mount-registry.ts · mount-registry-file.ts · mount-scan.ts<br/>mount-reconcile.ts · mount-store.ts · attachment-privacy.ts<br/>mockup-capture.ts · mockup-versions.ts · mockup-live.ts · mockup-widget.ts<br/>mockup-linked-items.ts · mockup-frame.ts · mockup-page-links.ts · app-proxy.ts · app-outage.ts · page-thread.ts<br/>yjs-protocol.ts · sse.ts · sse-mux.ts · sse-writer.ts"]
-    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review<br/>review-size-prefs · inbox/ · coach/"]
+    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review<br/>review-size-prefs · review-ranks · ask-feed<br/>lead-rank-wiring · held-window · inbox/ · coach/"]
     meet["Meetings<br/>meetings.ts · meeting-*.ts · notes-*.ts<br/>notes-edit-guard.ts · notes-invented-links.ts · notes-scheme-links.ts<br/>notes-method-*.ts · transcribe-*.ts · recall*.ts"]
     keep["Keep-moving<br/>stall-wiring · stall-gate · stall-nudge<br/>stall-escalation · waiting-unfiled-escalation<br/>waiting-unfiled-review · waiting-unfiled-sidecar<br/>waiting-unfiled-routing · waiting-unfiled-frame<br/>waiting-unfiled-filing<br/>unanswered-thread · keep-moving · owner-ask · waiting-unfiled · blockage-lift<br/>keep-moving-verdict · ui-review-gate<br/>stall-frame-news · wake-sent-sets<br/>ready-nudge · ready-gate · ready-release · board-activity"]
     ident["Identity and sharing<br/>auth/ · share/ · identities.ts<br/>sharing-notice.ts"]
@@ -524,7 +524,9 @@ edit chunk installs it when the doc holds a words anchor, then redraws the
 pins. An optional `suggest` stores new words on the first comment; the same
 chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
-Reject, which only resolves it.
+Reject, which only resolves it. The same chunk redraws an edit's comment in the widget
+as its word diff (`edit/edit-diff-view.ts`), since the budgeted bundle shows
+every comment as plain text.
 
 Every link to such a thread is the page plus `?thread=<id>`, built by
 `page-thread-link.ts`, a top-level module of core so the server and the
@@ -802,12 +804,17 @@ source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and
 bundle nothing. Its first tap fetches the lazy chunk `edit.js`
 (`edit/edit-entry.ts`), as does a page whose doc already holds an edit that
 has not been applied, so its marks paint on load. `edit/edit-mode.ts` makes
-the tapped element editable as plain text, keeps the reader's unsent edits
+the tapped element editable — Enter splits a paragraph, Cmd-B, Cmd-I and
+Cmd-K add the three marks an edit carries (`edit/edit-keys.ts`), and
+`edit/edit-markdown.ts` reads the element as markdown — keeps the reader's unsent edits
 (`edit/edit-model.ts`), and draws every mark in a fixed layer of its own
 rather than restyling the page. Send is the ordinary thread POST with a
 `pageEdits` list on the first comment: each entry is the element's anchor, a
-short CSS selector, and the words before and after. `core/src/page-edits.ts`
-reads and caps that list and writes the comment's text from it, and
+short CSS selector, the words before, and the words after as a small
+markdown. `core/src/page-edits.ts` reads and caps that list;
+`core/src/page-edits-text.ts` holds that markdown's reader and writes the
+comment's text from the list — one line saying what was edited, then each
+change as a word diff, with selectors left to the list — and
 `routes/doc-threads-routes.ts` refuses a malformed one outright. It rides
 `thread.created`, so there is no new event: the MCP channel line
 (`mcp/src/channel-messages.ts`) carries the list as `page_edits` and tells the
@@ -1823,6 +1830,20 @@ picks is kept per signed-in identity by `review-size-prefs.ts` (the browser's
 copy is only a cache), and the project
 order comes from a hand-edited `review-plan.json` naming the plan board —
 there is no route that sets it.
+
+The plan board's lead may rank single items on any board, and the queue puts
+ranked items first, lowest rank first, with every unranked item in the order
+above (`applyLeadRanks` in `cross-review-queue.ts`). The ranks are kept on the
+plan side in `review-ranks.ts` (`review-ranks.json`), not beside each item,
+and a person moving a task after the rank voids it. `POST
+/api/review-queue/rank` is the one write, open only to that lead with its own
+agent token (MCP verb `rank_review_item`). The lead hears what to rank from
+`ask-feed.ts`: every new review item on another board, batched over a
+10-minute window into one addressed `workspace.new_asks` frame carrying board,
+row, key, headline and filing time, never the detail. A board the coach is
+off for (`coach/exclusion.ts`) is excluded from both the feed and the ranks.
+The window is `held-window.ts`, which the coach's session feed uses too, and
+`lead-rank-wiring.ts` composes the three against the stores.
 
 **Incoming Messages** is a section on the landing page that lists the
 message threads an inbox reader agent judged worth Bryan's time. It is not a

@@ -151,8 +151,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/api/prompts', 'GET'],
     ['trusted-local', '/api/prompts/:id', 'GET PUT'],
   ]),
+  // The rank is the plan lead's alone and checks its peer address and token
+  // (`authorizeAgentCaller`), then that it is the plan board's lead.
   ...family('routes/review-queue.ts', [
     ['trusted-local', '/api/review-queue', 'GET'],
+    ['loopback-only', '/api/review-queue/rank', 'POST'],
     ['trusted-local', '/api/review-wait', 'GET'],
     ['trusted-local', '/api/review-size', 'GET PUT'],
     ['trusted-local', '/review', 'GET'],

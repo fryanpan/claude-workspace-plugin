@@ -1,11 +1,14 @@
 import { contextMatches, hasContext } from '@claude-workspaces/core/anchor/context';
 import { resolve } from '@claude-workspaces/core/anchor/element';
 import { type PageEdit, pageEditsText } from '@claude-workspaces/core/page-edits';
+import { mdPlain } from '@claude-workspaces/core/page-edits-text';
 import { DRAFTS_ARRIVED, draftKey, readDraft, writeDraft } from '../draft-store.ts';
 import { authedPost, httpBase } from '../widget-auth.ts';
 import type { FeedbackWidgetEl } from '../widget.ts';
 import type { EditMode } from './edit-button.ts';
 import { EDIT_PAGE_CSS, EDIT_SHADOW_CSS } from './edit-css.ts';
+import { editingKey, plainPaste } from './edit-keys.ts';
+import { renderMarkdown } from './edit-markdown.ts';
 import { EditDrafts, editableTarget, markFor, normText, sentEdits } from './edit-model.ts';
 
 /**
@@ -13,8 +16,8 @@ import { EditDrafts, editableTarget, markFor, normText, sentEdits } from './edit
  * sends the changes to the agent as structured edits.
  *
  * The page's source is never written. Typing changes the words on this
- * screen only; Send posts the element, the words it showed and the words
- * typed on the page's thread (`pageEdits`, `core/src/page-edits.ts`), and
+ * screen only; Send posts the element, the words it showed and what was
+ * typed, as markdown, on the page's thread (`pageEdits`, `core/src/page-edits.ts`), and
  * the agent applies them to whatever generated the page. So it works the
  * same on a served mock and on a dev server this server cannot read.
  *
@@ -145,7 +148,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     if (res.ok) return res.element;
     try {
       const el = document.querySelector(edit.selector);
-      return el instanceof HTMLElement && normText(el.textContent) === normText(edit.after)
+      return el instanceof HTMLElement && normText(el.textContent) === mdPlain(edit.after)
         ? el
         : null;
     } catch {
@@ -191,7 +194,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     if (!el) return 'wait';
     if (drafts.has(el) || normText(el.textContent) !== edit.before) return 'gone';
     drafts.begin(el);
-    el.textContent = edit.after;
+    renderMarkdown(el, edit.after);
     typedHere.add(el);
     return 'placed';
   }
@@ -228,12 +231,12 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     editing = el;
     priorEditable = el.getAttribute('contenteditable');
     el.setAttribute('data-cfw-editing', '');
-    // Plain text only: an edit carries words, never markup a paste brought.
-    el.contentEditable = 'plaintext-only';
-    if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+    // Rich, so a line break and a bold word are elements the edit can read
+    // (`edit-markdown.ts`); a paste still brings plain text only.
+    el.contentEditable = 'true';
     el.addEventListener('input', onInput);
-    el.addEventListener('paste', onPaste);
-    el.addEventListener('blur', commit, { once: true });
+    el.addEventListener('paste', plainPaste);
+    el.addEventListener('blur', onBlur);
     el.focus();
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -244,6 +247,12 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     schedule();
   }
 
+  /** Focus leaving the page — the link prompt, another app — is not the
+   *  reader leaving the element. */
+  function onBlur(): void {
+    if (document.hasFocus()) commit();
+  }
+
   function onInput(): void {
     if (editing) typedHere.add(editing);
     note = '';
@@ -251,19 +260,13 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     schedule();
   }
 
-  function onPaste(ev: ClipboardEvent): void {
-    ev.preventDefault();
-    const text = ev.clipboardData?.getData('text/plain') ?? '';
-    document.execCommand('insertText', false, text);
-  }
-
   function commit(): void {
     const el = editing;
     if (!el) return;
     editing = null;
     el.removeEventListener('input', onInput);
-    el.removeEventListener('paste', onPaste);
-    el.removeEventListener('blur', commit);
+    el.removeEventListener('paste', plainPaste);
+    el.removeEventListener('blur', onBlur);
     el.removeAttribute('data-cfw-editing');
     if (priorEditable === null) el.removeAttribute('contenteditable');
     else el.setAttribute('contenteditable', priorEditable);
@@ -431,10 +434,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     }
     const inEdit = editing?.contains(ev.target as Node);
     if (!inEdit) return;
-    if (ev.type === 'keydown' && ev.key === 'Enter' && !ev.shiftKey) {
-      ev.preventDefault();
-      editing?.blur();
-    }
+    if (editing) editingKey(ev, editing);
     // The page's own shortcuts do not see the reviewer's typing.
     ev.stopPropagation();
   }

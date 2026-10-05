@@ -114,9 +114,10 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
       continue;
     }
     annotated.push({ thread: t, status: statusBase, el: res.element });
-    // Every thread on the page has a pin, resolved ones included — the pin is
-    // how a comment is found again, and a resolved one is still worth
-    // reopening. Its look says which it is (the light styles in `widget.ts`).
+    // A resolved thread is pinned only while the panel shows resolved ones:
+    // done work left on the page reads as work still waiting. Its look says
+    // which it is (the light styles in `widget.ts`).
+    if (statusBase === 'resolved' && !el.showResolved) continue;
     const pin = document.createElement('div');
     pin.setAttribute(IGNORE_ATTR, '');
     pin.className = 'cfw-pin';
@@ -285,7 +286,7 @@ function renderPanelList(
     toggle.addEventListener('click', () => {
       el.showResolved = !el.showResolved;
       localStorage.setItem('cfw:showResolved', el.showResolved ? '1' : '0');
-      // Rerender to show or hide the resolved group; their pins stay either way
+      // Rerender to show or hide the resolved group and its pins
       el.scheduleRender();
     });
     list.appendChild(toggle);

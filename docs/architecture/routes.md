@@ -73,6 +73,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/review-items` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/api/review-items/*` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/api/review-queue` | GET | `routes/review-queue.ts` | trusted-local |  |
+| `/api/review-queue/rank` | POST | `routes/review-queue.ts` | loopback-only |  |
 | `/api/review-size` | GET, PUT | `routes/review-queue.ts` | trusted-local |  |
 | `/api/review-wait` | GET | `routes/review-queue.ts` | trusted-local |  |
 | `/api/reviews` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |

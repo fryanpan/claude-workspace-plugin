@@ -14,6 +14,7 @@
  * `emitBoardChannelMessage`; everything else keeps the doc-shaped path.
  */
 import { appUnreachableLine } from './app-unreachable-line.ts';
+import { type AsksPayload, asksLine } from './asks-line.ts';
 import { isBookkeepingEvent } from './bookkeeping-events.ts';
 import { type CoachPayload, coachLine } from './coach-line.ts';
 import { decisionAnsweredLine, fromMockNote, openPartsClause } from './decision-line.ts';
@@ -418,6 +419,13 @@ async function emitBoardChannelMessage(
       body = line;
       break;
     }
+    // Addressed to the plan lead alone: the new asks on other boards.
+    case 'workspace.new_asks': {
+      const line = asksLine(rawPayload as AsksPayload);
+      if (line === null) return;
+      body = line;
+      break;
+    }
     // Addressed to the coach session alone: what the owner does, and says.
     case 'coach.digest':
     case 'coach.event':
@@ -624,7 +632,7 @@ async function emitChannelMessage(
         after,
       }));
   const editHint = pageEdits?.length
-    ? '\n(Apply each edit to the page source, then resolve_thread. The full text is in page_edits.)'
+    ? '\n(Apply each edit to the page source, then resolve_thread. page_edits holds each edit whole; its after is markdown: a blank line between paragraphs, **bold**, *italic*, [text](url).)'
     : '';
 
   // Human-readable body — what the agent reads in their context.
