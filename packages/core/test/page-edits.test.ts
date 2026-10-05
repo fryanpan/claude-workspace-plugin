@@ -70,23 +70,22 @@ describe('readPageEdits', () => {
 });
 
 describe('pageEditsText', () => {
-  it('says what changed where, one line an edit', () => {
+  it('says what was edited in one line, then each change as a word diff', () => {
     const text = pageEditsText([
       edit(),
       edit({ selector: 'td:nth-of-type(2)', before: 'Riverbend Way', after: '' }),
     ]);
     expect(text).toBe(
-      '2 text edits on this page:\n' +
-        '- main h1: "Harborlight Street Projects" → "Harborlight Street Works"\n' +
-        '- td:nth-of-type(2): "Riverbend Way" → deleted',
+      'Edited 2 headings\n' +
+        '- Harborlight Street ~~Projects~~ **Works**\n' +
+        '- ~~Riverbend Way~~',
     );
   });
 
-  it('shortens long words in the line; the full text rides on the edit', () => {
-    const text = pageEditsText([edit({ after: 'y'.repeat(400) })]);
-    expect(text.startsWith('1 text edit on this page:\n')).toBe(true);
-    expect(text.length).toBeLessThan(400);
-    expect(text.endsWith('…"')).toBe(true);
+  it('keeps no selector and no quote in the words a person reads', () => {
+    const text = pageEditsText([edit()]);
+    expect(text).not.toContain('main h1');
+    expect(text).not.toContain('"');
   });
 });
 

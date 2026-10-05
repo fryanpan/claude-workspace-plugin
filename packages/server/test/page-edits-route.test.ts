@@ -158,7 +158,7 @@ describe('a page edit posted from the widget', () => {
     expect(JSON.parse(String(meta.page_edits))).toEqual([
       { selector: 'body > h1', before: EDIT.before, after: EDIT.after },
     ]);
-    expect(sent[0]?.params.content).toContain('Harborlight Street Works');
+    expect(sent[0]?.params.content).toContain('Harborlight Street ~~Projects~~ **Works**');
 
     // The widget wrote nothing to the page's source.
     expect(readFileSync(mdPath, 'utf8')).toBe('# Harborlight Street Projects\n\nBody.\n');

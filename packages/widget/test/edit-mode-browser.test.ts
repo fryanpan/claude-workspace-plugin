@@ -53,7 +53,7 @@ describe.skipIf(CHROME === null)('editing the words on a page', () => {
       expect(s.stored, name).toEqual([
         { selector: 'h1', before: BEFORE, after: AFTER, anchorKind: 'element' },
       ]);
-      expect(s.text, name).toBe(`1 text edit on this page:\n- h1: "${BEFORE}" → "${AFTER}"`);
+      expect(s.text, name).toBe('Edited 1 heading\n- Harborlight Street ~~Projects~~ **Works**');
     }
   });
 
@@ -63,6 +63,9 @@ describe.skipIf(CHROME === null)('editing the words on a page', () => {
 
   it('sends a paragraph split with Enter as two blocks', () => {
     expect(result?.dev.rich?.after).toBe('Riverbend opens at nine.\n\nSaltmarsh closes at six.');
+    expect(result?.dev.rich?.text).toBe(
+      'Edited 1 paragraph\n- Riverbend opens at nine. **¶ Saltmarsh closes at six.**',
+    );
   });
 
   it('never writes the page source itself', () => {

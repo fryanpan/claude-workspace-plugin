@@ -806,8 +806,11 @@ the tapped element editable as plain text, keeps the reader's unsent edits
 (`edit/edit-model.ts`), and draws every mark in a fixed layer of its own
 rather than restyling the page. Send is the ordinary thread POST with a
 `pageEdits` list on the first comment: each entry is the element's anchor, a
-short CSS selector, and the words before and after. `core/src/page-edits.ts`
-reads and caps that list and writes the comment's text from it, and
+short CSS selector, the words before, and the words after as a small
+markdown. `core/src/page-edits.ts` reads and caps that list;
+`core/src/page-edits-text.ts` holds that markdown's reader and writes the
+comment's text from the list — one line saying what was edited, then each
+change as a word diff, with selectors left to the list — and
 `routes/doc-threads-routes.ts` refuses a malformed one outright. It rides
 `thread.created`, so there is no new event: the MCP channel line
 (`mcp/src/channel-messages.ts`) carries the list as `page_edits` and tells the
