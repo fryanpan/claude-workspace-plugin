@@ -1,3 +1,19 @@
+import { applySecretShape } from './review-item-secret-wire.ts';
+import type {
+  ReviewAnswerUndone,
+  ReviewInfoRequest,
+  ReviewItemAnswer,
+  ReviewItemJudgement,
+  ReviewItemRange,
+  ReviewItemRevision,
+  ReviewJudgeVerdictKind,
+  ReviewOption,
+  ReviewPartialAnswer,
+  ReviewPayload,
+  ReviewShape,
+  TaskReviewItem,
+} from './review-item-types.ts';
+import type { ReviewRefusalKind } from './review-refusal.ts';
 /**
  * Reading a stored review item back out of the CRDT.
  *
@@ -17,21 +33,6 @@
  * module is a leaf at runtime, and `review-item.ts` re-exports both it and
  * the contract.
  */
-import { applySecretShape } from './review-item-secret-wire.ts';
-import type {
-  ReviewAnswerUndone,
-  ReviewInfoRequest,
-  ReviewItemAnswer,
-  ReviewItemJudgement,
-  ReviewItemRange,
-  ReviewItemRevision,
-  ReviewJudgeVerdictKind,
-  ReviewOption,
-  ReviewPartialAnswer,
-  ReviewPayload,
-  ReviewShape,
-  TaskReviewItem,
-} from './review-item-types.ts';
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -369,6 +370,13 @@ export function readTaskReviewItem(value: unknown): TaskReviewItem | undefined {
   return out;
 }
 
+/** `{[key]: text}` when `value[key]` is a string with words in it, else `{}`.
+ *  One spelling for the judgement's optional text fields. */
+function words(value: Record<string, unknown>, key: string): Record<string, string> {
+  const text = value[key];
+  return typeof text === 'string' && text.trim() !== '' ? { [key]: text } : {};
+}
+
 function readJudgement(value: unknown): ReviewItemJudgement | undefined {
   if (!isPlainObject(value)) return undefined;
   if (typeof value.verdict !== 'string' || !JUDGE_VERDICTS.has(value.verdict)) return undefined;
@@ -381,22 +389,20 @@ function readJudgement(value: unknown): ReviewItemJudgement | undefined {
     verdict: value.verdict as ReviewJudgeVerdictKind,
     reason: str(value.reason, ''),
     ...(heldFor.length > 0 ? { heldFor } : {}),
-    ...(typeof value.quote === 'string' && value.quote.trim() !== '' ? { quote: value.quote } : {}),
+    ...words(value, 'quote'),
     // How it got to the reader without passing, and the filer's reason when
     // that is why. Both are facts about the item's history, so both are read
     // back off disk rather than re-derived — nothing else records them.
     ...(value.admitted === 'holds' || value.admitted === 'less-specific'
       ? { admitted: value.admitted }
       : {}),
-    ...(typeof value.lessSpecific === 'string' && value.lessSpecific.trim() !== ''
-      ? { lessSpecific: value.lessSpecific }
-      : {}),
-    ...(typeof value.lessSpecificFor === 'string' && value.lessSpecificFor.trim() !== ''
-      ? { lessSpecificFor: value.lessSpecificFor }
-      : {}),
-    ...(typeof value.gapKey === 'string' && value.gapKey.trim() !== ''
-      ? { gapKey: value.gapKey }
-      : {}),
+    ...words(value, 'lessSpecific'),
+    ...words(value, 'lessSpecificFor'),
+    ...words(value, 'gapKey'),
+    // Only the server writes it, from a checked rule name, so it is read back
+    // as words rather than re-checked: this reader ships in the widget bundle,
+    // which has no bytes to spare.
+    ...(words(value, 'refused') as { refused?: ReviewRefusalKind }),
   };
 }
 

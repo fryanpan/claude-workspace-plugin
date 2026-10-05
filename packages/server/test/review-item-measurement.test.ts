@@ -106,8 +106,12 @@ describe('the constructors are the only shape either row can have', () => {
     expect('taskId' in reviewItemViewedEvent(withoutTask)).toBe(false);
   });
 
-  it('names the two events for the agent that reads them', () => {
-    expect(REVIEW_ITEM_MEASUREMENT_EVENTS).toEqual(['review_item.viewed', 'review_item.answered']);
+  it('names the events for the agent that reads them', () => {
+    expect(REVIEW_ITEM_MEASUREMENT_EVENTS).toEqual([
+      'review_item.viewed',
+      'review_item.answered',
+      'review_item.refused',
+    ]);
     expect(isReviewItemMeasurementEvent('review_item.viewed')).toBe(true);
     expect(isReviewItemMeasurementEvent('review_item.answered')).toBe(true);
     // A board event a person reads is not one of these — the Activity view

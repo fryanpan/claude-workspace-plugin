@@ -23,6 +23,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REFUSED_CHECK_PASS_REASON } from '@claude-workspaces/core/done-when-refusal';
+import { REVIEW_REFUSAL_RULES } from '@claude-workspaces/core/review-refusal';
 import type { ReviewJudgeInput, ReviewJudgeVerdict } from '../src/review-judge.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import type { Task } from '../src/tasks.ts';
@@ -247,5 +248,21 @@ describe('a line nobody was refused', () => {
     expect(body.held?.[0]?.heldReason).not.toBe(REFUSED_CHECK_PASS_REASON);
     expect(judged[0]?.item.refusedCheck).toBeUndefined();
     expect(await onQueue(taskId)).toBe(0);
+  });
+
+  it('is REFUSED under the self-check rule, and no third report admits it', async () => {
+    await fresh();
+    const { taskId, lineId } = await lineTask();
+    verdict = { ok: false, reason: FIRST_HOLD };
+    for (const words of ['the run log', 'the run log again', 'the run log, third time']) {
+      const { body, raw } = await report(taskId, lineId, [{ text: words, url: LOG }]);
+      expect(body.held).toHaveLength(1);
+      // The rule's fixed sentence, and the report call that ends it.
+      expect(body.held?.[0]?.heldReason).toBe(REVIEW_REFUSAL_RULES['self-check']);
+      expect(body.held?.[0]?.message).toContain('report_done_when');
+      expect(raw).not.toContain('GET /v1/models');
+    }
+    expect(await onQueue(taskId)).toBe(0);
+    expect((await detail(taskId)).reviews?.[0]?.judge?.refused).toBe('self-check');
   });
 });

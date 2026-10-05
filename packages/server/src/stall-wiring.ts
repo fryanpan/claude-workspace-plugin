@@ -948,7 +948,9 @@ export function createStallWiring(ctx: StallWiringContext): StallWiring {
           const review = comment.review;
           // `held`, not `gated`: a verdict still out is seconds old, and a
           // complaint about it would fire on every fresh filing.
+          // A refusal is not a hold to chase or release — see `heldReviewItems`.
           if (!review || !isReviewPayloadHeld(review) || review.judge === undefined) continue;
+          if (review.judge.refused !== undefined) continue;
           out.push({
             title,
             ...(taskId !== undefined ? { taskId } : {}),

@@ -7,14 +7,18 @@ description: Use when about to file or revise a review item, or to post a link a
 
 The reader acts on the item without asking you anything. Run these checks, in order, before you file.
 
-## 1. Look for an earlier answer
+## 1. Check that no rule already answers it
+
+Don't file an ask for spend of $50 or less, a push, merge or PR your ship method already allows, a reversible implementation choice, or a fact you can read yourself. Decide or check it, and carry on. The board refuses these asks. If a rule seems to fit but does not apply, say why in the item: for example, the spend is over $50, the repo ships push-only, or the push is a force-push.
+
+## 2. Look for an earlier answer
 
 Call `list_threads(docId: "task:<taskId>")`, and `list_threads` on the doc or mock under review. Resolved threads count.
 
 - **Already answered:** act on the answer. Drop the question, cite the answer with a link to its thread, and report the done line `met` with the answer as proof.
 - **Your own open item asks something similar:** use `revise_review_item` on it. Don't add a second item.
 
-## 2. Open every link through the reader's route
+## 3. Open every link through the reader's route
 
 **Copy each board link from a tool response** (`reviewUrl`, `threadUrl`, or the path `attach_mockup` returned). Board links are relative, inline and under `/workspaces/<workspaceId>/`. A mock's link is `…/mockups/<docId>`, never `/mockup/` or `…/docs/`.
 
@@ -27,9 +31,9 @@ Call `list_threads(docId: "task:<taskId>")`, and `list_threads` on the doc or mo
 
 The board holds an item whose board link names a missing id or retired route, but not one with a blank page or dead external link.
 
-## 3. File, with a proof on each done criterion
+## 4. File, with a proof on each done criterion
 
-Call `report_done_when` for each line. Each proof's `url` is a link you opened in step 2. Then file the item with `add_review_item`, or as a `review` payload on a reply in the existing thread, or revise the existing item. Done criteria go in `doneWhen`, not in the item's text. For format, see "Asking for Help from Humans" and "Done When" in `claude-workspaces:working-in-a-workspace`.
+Call `report_done_when` for each line. Each proof's `url` is a link you opened in step 3. Then file the item with `add_review_item`, or as a `review` payload on a reply in the existing thread, or revise the existing item. Done criteria go in `doneWhen`, not in the item's text. For format, see "Asking for Help from Humans" and "Done When" in `claude-workspaces:working-in-a-workspace`.
 
 ## Red flags
 

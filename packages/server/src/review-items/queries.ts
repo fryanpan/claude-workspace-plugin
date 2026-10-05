@@ -182,7 +182,9 @@ export class ReviewItemQueries {
       // (`revise_review_item(taskId=…)`) rather than at an item id that does
       // not exist.
       const decision = legacyDecisionItem(task);
-      if (decision && isReviewItemHeld(decision) && decision.judge) {
+      // A REFUSED item is skipped on both rows: a fleet rule answered it, so
+      // there is nothing for the lead to chase and no clock to release it on.
+      if (decision && isReviewItemHeld(decision) && decision.judge && !decision.judge.refused) {
         out.push({
           taskId: task.id,
           title: task.title,
@@ -198,7 +200,7 @@ export class ReviewItemQueries {
       }
       for (const raw of task.reviews ?? []) {
         const item = readTaskReviewItem(raw);
-        if (!item || !isReviewItemHeld(item) || !item.judge) continue;
+        if (!item || !isReviewItemHeld(item) || !item.judge || item.judge.refused) continue;
         out.push({
           taskId: task.id,
           title: task.title,
