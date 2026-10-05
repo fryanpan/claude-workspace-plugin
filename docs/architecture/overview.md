@@ -1837,7 +1837,10 @@ board feature; the one agent it reaches is its own session.
 (A) *Goals*: "Set up my coach" on the front page makes one learning-goals doc
 and the session's Coach memory doc on a board of their own (`coach/setup.ts`,
 `coach/goals-doc.ts`); the planning interview fills the goals when he taps
-Talk. The front page's section (`coach/section.ts`, `coach/landing.ts`) lists
+Talk. The doc has the coach's name and one section, "What I want to do
+better": each top-level bullet or paragraph there is one goal and names its
+own trigger. A doc in the older layout, one section of four parts per goal,
+still reads, its "Act differently when" joined to each goal. The front page's section (`coach/section.ts`, `coach/landing.ts`) lists
 the goals, offers a review when they have not changed in a week, holds the
 how-readily setting, and says how many events the session read today.
 (B) *Observe*: board and doc pages send what he is looking at, and each
@@ -1853,8 +1856,8 @@ how-readily setting to the coach's Claude Code session, the Coach board's
 lead, as addressed frames (`coach/session-feed.ts`); there is no trigger or
 timer, and past 400 events in a day it sends nothing and the front page says
 the coach is paused for today. The session raises a moment on `POST /coach/moments`, and
-`coach/judge.ts` refuses one that does not quote a goal's "act differently
-when", or arrives while another is open. A moment goes to his pages over
+`coach/judge.ts` refuses one that does not copy three words in order from the
+goal it names, or arrives while another is open. A moment goes to his pages over
 `/coach/stream` (`coach/hub.ts`) and stays until he answers or moves to
 another page. In the session, `mcp/src/coach-line.ts` renders each frame and
 `coach_moment` raises a moment; the persona is the plugin's `coaching` skill.

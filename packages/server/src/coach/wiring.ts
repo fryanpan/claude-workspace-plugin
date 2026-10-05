@@ -21,9 +21,6 @@ import { type CoachSetupDeps, ensureMemoryDoc } from './setup.ts';
 import { CoachStore } from './store.ts';
 import { CoachStream } from './stream.ts';
 
-/** The coach's edits to the goals doc are signed as the coach. */
-export const COACH_AUTHOR = { author: 'coach', authorName: 'Coach', authorColor: '#5b7f4e' };
-
 export interface CoachWiringDeps {
   dataDir: string;
   docStore: {
@@ -35,11 +32,6 @@ export interface CoachWiringDeps {
     attachFileAsync(docId: string, path: string): Promise<{ ok: boolean }>;
     docExists(docId: string): boolean;
     readMarkdownBody(docId: string): string | null;
-    applyBlockEdits(
-      docId: string,
-      edits: { op: 'insert_at_end'; markdown: string }[],
-      who: typeof COACH_AUTHOR,
-    ): { ok: boolean };
   };
   createBoard: (name: string) => string;
   fileUnderBoard: (docId: string, workspaceId: string) => void;
@@ -119,9 +111,6 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
       return attached.ok ? id : null;
     },
     docExists: (docId) => deps.docStore.docExists(docId),
-    readMarkdown: (docId) => deps.docStore.readMarkdownBody(docId),
-    appendMarkdown: (docId, markdown) =>
-      deps.docStore.applyBlockEdits(docId, [{ op: 'insert_at_end', markdown }], COACH_AUTHOR).ok,
   };
   // A board set up before the memory doc existed gets one now.
   void ensureMemoryDoc(store, setup, (deps.now ?? Date.now)()).catch((err) =>

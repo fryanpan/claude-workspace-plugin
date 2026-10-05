@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newDocId } from '../doc-ids.ts';
-import { goalSection, goalsDocTemplate, readGoalsDoc } from './goals-doc.ts';
+import { goalsDocTemplate } from './goals-doc.ts';
 import { COACH_DIRNAME, type CoachStore } from './store.ts';
 import type { CoachDocRef } from './types.ts';
 
@@ -38,9 +38,6 @@ export interface CoachSetupDeps {
     workspaceId: string,
   ) => Promise<string | null>;
   docExists: (docId: string) => boolean;
-  readMarkdown: (docId: string) => string | null;
-  /** Append markdown at the end of the doc, as the coach. */
-  appendMarkdown: (docId: string, markdown: string) => boolean;
 }
 
 export const goalsDocPath = (dataDir: string) => join(dataDir, COACH_DIRNAME, 'learning-goals.md');
@@ -143,15 +140,4 @@ async function makeMemoryDoc(
   const doc = { workspaceId: goals.workspaceId, docId, createdAt: now };
   store.setMemoryDoc(doc);
   return doc;
-}
-
-/** "Add a goal": four empty parts at the end, numbered after the rest. */
-export function addGoal(store: CoachStore, deps: CoachSetupDeps): boolean {
-  const doc = store.goalsDoc;
-  if (!doc) return false;
-  const md = deps.readMarkdown(doc.docId);
-  if (md === null) return false;
-  const sections = (md.match(/^##\s+(?!#)/gm) ?? []).length;
-  const goals = Math.max(readGoalsDoc(md).goals.length, sections - 1);
-  return deps.appendMarkdown(doc.docId, goalSection(goals + 1));
 }

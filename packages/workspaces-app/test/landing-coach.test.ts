@@ -10,7 +10,7 @@ import { startCoach } from '../src/landing-coach.ts';
 const SET_UP =
   '<section id="coach"><button type="button" data-act="setup">Set up my coach</button></section>';
 const READY = (pressed: string) =>
-  `<section id="coach"><ol><li>Hard work first</li></ol><button type="button" data-act="add-goal">Add a goal</button><button type="button" data-review="no-update">No update needed</button>${[
+  `<section id="coach"><ol><li>Hard work first</li></ol><button type="button" data-review="no-update">No update needed</button>${[
     'less',
     'normal',
     'more',
@@ -82,13 +82,11 @@ describe('Your coach', () => {
     expect(bodyOf('/coach/prefs')).toEqual({ readiness: 'less' });
   });
 
-  it('Add a goal and No update needed each post their own request', async () => {
+  it('No update needed posts its own request and redraws the section', async () => {
     start(READY('normal'), READY('normal'));
-    click('[data-act="add-goal"]');
-    await until(() => calls.some((c) => c.url === '/'));
     click('[data-review="no-update"]');
-    await until(() => calls.filter((c) => c.url === '/').length === 2);
-    expect(calls.map((c) => c.url)).toEqual(['/coach/goals/add', '/', '/coach/review', '/']);
+    await until(() => calls.some((c) => c.url === '/'));
+    expect(calls.map((c) => c.url)).toEqual(['/coach/review', '/']);
     expect(bodyOf('/coach/review')).toEqual({ answer: 'no-update' });
   });
 

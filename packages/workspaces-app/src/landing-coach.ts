@@ -6,7 +6,6 @@
  *
  *  - "Set up my coach" makes the learning-goals doc and opens it, where Talk
  *    starts the interview.
- *  - "Add a goal" adds an empty goal to that doc.
  *  - "No update needed" answers the weekly offer.
  *  - Less / Normal / More sets how readily the coach speaks up.
  *  - "Turn back on" undoes a board's "Coach off for this board".
@@ -50,7 +49,6 @@ function setBusy(busy: boolean): void {
 /** The request a button makes, or null for a click that is not ours. */
 function requestFor(btn: HTMLButtonElement): { url: string; body: unknown } | null {
   if (btn.dataset.act === 'setup') return { url: '/coach/setup', body: {} };
-  if (btn.dataset.act === 'add-goal') return { url: '/coach/goals/add', body: {} };
   if (btn.dataset.review === 'no-update')
     return { url: '/coach/review', body: { answer: 'no-update' } };
   if (btn.dataset.readiness)
