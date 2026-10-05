@@ -32,6 +32,7 @@ import type { DoneWhenLine } from '@claude-workspaces/core/done-when';
 import {
   REFUSED_CHECK_PASS_REASON,
   isGetItAnywayHold,
+  namesPermissionRefusal,
   refusalProof,
 } from '@claude-workspaces/core/done-when-refusal';
 import { pageThreadHref, pageUrlOf } from '@claude-workspaces/core/page-thread-link';
@@ -42,6 +43,13 @@ import {
   holdGapKey,
   judgedText,
 } from '@claude-workspaces/core/review-hold';
+import { threadReviewItemId } from '@claude-workspaces/core/review-item-id';
+import { OWNER_CHECK_SELF_PREFIX } from '@claude-workspaces/core/review-judge-prompt';
+import {
+  REFUSAL_DENIAL_PASS_REASON,
+  REVIEW_REFUSAL_RULES,
+  type ReviewRefusalKind,
+} from '@claude-workspaces/core/review-refusal';
 import type { DocStore } from './doc-store.ts';
 import { taskDeepLink } from './home-brief.ts';
 import type { GateRunOpts, ReviewGate, ThreadReviewGate } from './review-gate-types.ts';
@@ -49,7 +57,9 @@ import {
   admittedLessSpecificMessage,
   admittedUnjudgedMessage,
   holdMessage,
+  refusalMessage,
 } from './review-hold-message.ts';
+import { reviewItemRefusedEvent } from './review-items/analytics.ts';
 import { linkHoldReason } from './review-items/link-check.ts';
 import { type PriorAskRow, priorAsksFor } from './review-items/prior-asks.ts';
 import type { ReviewJudge, ReviewJudgeVerdict } from './review-judge.ts';
@@ -263,11 +273,15 @@ export function createReviewGate(ctx: ReviewGateContext) {
     const stored = thread.comments.find((c) => c.id === commentId)?.review;
     if (!stored || !isReviewPayloadHeld(stored) || stored.judge === undefined) return undefined;
     const reason = stored.judge.reason;
+    const address: ReviewGateAddress = { kind: 'thread', docId, threadId: thread.id, commentId };
     return {
       held: true,
       review: stored,
       reason,
-      message: heldMessage({ kind: 'thread', docId, threadId: thread.id, commentId }, reason),
+      message:
+        stored.judge.refused !== undefined
+          ? refusedMessage(address, stored.judge.refused)
+          : heldMessage(address, reason),
     };
   }
 
@@ -401,6 +415,35 @@ export function createReviewGate(ctx: ReviewGateContext) {
       surface: address.kind === 'thread' ? 'thread' : 'ticket',
       holds,
       maxHolds: REVIEW_GATE_MAX_HOLDS,
+    });
+  }
+
+  /** The call that takes a refused item back, per surface. A ticket's own
+   *  decision has no item to withdraw, so the ticket is archived — which,
+   *  like a withdrawal, is reversible. */
+  function withdrawCallFor(address: ReviewGateAddress, workspaceId: string): string {
+    switch (address.kind) {
+      case 'task':
+        return `withdraw_review_item(workspaceId="${workspaceId}", reviewItemId="${address.reviewItemId}")`;
+      case 'decision':
+        return `archive_task(taskId="${address.taskId}")`;
+      default:
+        return `withdraw_review_item(workspaceId="${workspaceId}", docId="${address.docId}", threadId="${address.threadId}", commentId="${address.commentId}")`;
+    }
+  }
+
+  /** What a filing route says when a fleet rule answers the ask — composed
+   *  in `review-hold-message.ts` from fixed words, never the judge's. */
+  function refusedMessage(address: ReviewGateAddress, kind: ReviewRefusalKind): string {
+    const workspaceId =
+      address.kind === 'thread'
+        ? (resolveWorkspaceForDoc(address.docId) ?? '')
+        : (taskStore.getTask(address.taskId)?.workspaceId ?? '');
+    return refusalMessage({
+      kind,
+      reviseCall: reviseCallFor(address),
+      withdrawCall: withdrawCallFor(address, workspaceId),
+      ownerCheck: ownerLineOf(address) !== undefined,
     });
   }
 
@@ -664,6 +707,11 @@ export function createReviewGate(ctx: ReviewGateContext) {
             ...(priorAsks.length > 0 ? { priorAsks } : {}),
             ...(target.ownerCheck ? { ownerCheck: true } : {}),
             ...(target.refusedCheck ? { refusedCheck: true } : {}),
+            // The appeal: a revision of a refused item is told which rule
+            // refused it, so saying why that rule does not apply is heard.
+            ...(priorJudgement?.refused !== undefined
+              ? { priorRefusal: priorJudgement.refused }
+              : {}),
           },
         });
       } catch (err) {
@@ -697,6 +745,28 @@ export function createReviewGate(ctx: ReviewGateContext) {
       isGetItAnywayHold(verdict.reason)
     ) {
       verdict = { ok: true, reason: REFUSED_CHECK_PASS_REASON };
+    }
+    /**
+     * A fleet rule already answers the ask: a REFUSAL, not a hold
+     * (`review-refusal.ts`). The judge names the rule; an owner check held
+     * with the gate's own "an agent can check this itself" opening is the
+     * self-check rule whether or not the judge named it.
+     *
+     * Never on a refused check, and never on an item that reports a
+     * permission denial: a denial is final, the reader is the one person
+     * left to ask, and a refusal there would push the agent to get past it.
+     */
+    let refusal: ReviewRefusalKind | undefined;
+    if (verdict !== null && !verdict.ok && !target.refusedCheck) {
+      refusal =
+        verdict.refuse ??
+        (target.ownerCheck && verdict.reason.trimStart().startsWith(OWNER_CHECK_SELF_PREFIX)
+          ? 'self-check'
+          : undefined);
+      if (refusal !== undefined && namesPermissionRefusal(judgedText(words))) {
+        refusal = undefined;
+        verdict = { ok: true, reason: REFUSAL_DENIAL_PASS_REASON };
+      }
     }
     const at = Date.now();
     const carried = { ...(heldFor.length > 0 ? { heldFor } : {}), ...carriedAdmission };
@@ -759,8 +829,13 @@ export function createReviewGate(ctx: ReviewGateContext) {
       gapKey !== undefined &&
       carriedAdmission.lessSpecificFor !== undefined &&
       gapKey === carriedAdmission.lessSpecificFor;
+    // Never a refusal: the cap ends a hold the filer keeps rewording, and a
+    // refused ask is not a wording problem. Its way out is the appeal.
     const admitAfterHolds =
-      verdict !== null && !verdict.ok && (heldFor.length >= REVIEW_GATE_MAX_HOLDS || answeredAgain);
+      refusal === undefined &&
+      verdict !== null &&
+      !verdict.ok &&
+      (heldFor.length >= REVIEW_GATE_MAX_HOLDS || answeredAgain);
     const judgement: ReviewItemJudgement =
       restoredHold !== undefined
         ? { ...restoredHold }
@@ -787,19 +862,29 @@ export function createReviewGate(ctx: ReviewGateContext) {
                   ? ('less-specific' as const)
                   : (carriedAdmission.admitted ?? ('holds' as const)),
               }
-            : verdict.ok
-              ? { at, verdict: 'ok' as const, reason: verdict.reason, ...carried }
-              : {
+            : refusal !== undefined
+              ? // The rule's sentence, never the judge's, and not added to
+                // `heldFor`: a refusal is not a round of the hold count.
+                {
                   at,
                   verdict: 'held' as const,
-                  reason: bounded?.reason ?? verdict.reason,
-                  heldFor: [...heldFor, bounded?.reason ?? verdict.reason],
-                  // Which gap this is, so a `lessSpecific` answer to it can be
-                  // matched when the judge makes the same demand again.
-                  ...(gapKey !== undefined ? { gapKey } : {}),
-                  ...(bounded?.quote !== undefined ? { quote: bounded.quote } : {}),
-                  ...carriedAdmission,
-                };
+                  reason: REVIEW_REFUSAL_RULES[refusal],
+                  refused: refusal,
+                  ...carried,
+                }
+              : verdict.ok
+                ? { at, verdict: 'ok' as const, reason: verdict.reason, ...carried }
+                : {
+                    at,
+                    verdict: 'held' as const,
+                    reason: bounded?.reason ?? verdict.reason,
+                    heldFor: [...heldFor, bounded?.reason ?? verdict.reason],
+                    // Which gap this is, so a `lessSpecific` answer to it can be
+                    // matched when the judge makes the same demand again.
+                    ...(gapKey !== undefined ? { gapKey } : {}),
+                    ...(bounded?.quote !== undefined ? { quote: bounded.quote } : {}),
+                    ...carriedAdmission,
+                  };
     const recorded = target.record(judgement, {
       forVersion,
       // Also refused if the reader overruled the gate while we were out: a
@@ -817,17 +902,21 @@ export function createReviewGate(ctx: ReviewGateContext) {
     if (!recorded.ok) {
       const current = target.current();
       if (current !== undefined && target.held(current)) {
-        const reason = target.judgement(current)?.reason ?? '';
+        const standing = target.judgement(current);
+        const reason = standing?.reason ?? '';
         return {
           held: true,
           row: current,
           reason,
-          message: heldMessage(
-            target.address,
-            reason,
-            target.judgement(current)?.quote,
-            target.judgement(current)?.heldFor?.length ?? 0,
-          ),
+          message:
+            standing?.refused !== undefined
+              ? refusedMessage(target.address, standing.refused)
+              : heldMessage(
+                  target.address,
+                  reason,
+                  standing?.quote,
+                  standing?.heldFor?.length ?? 0,
+                ),
         };
       }
       return { held: false, row: current ?? row };
@@ -851,6 +940,31 @@ export function createReviewGate(ctx: ReviewGateContext) {
       };
     }
     const address = target.address;
+    if (judgement.refused !== undefined && restoredHold === undefined) {
+      // The count Team Lead reads (`review_item.refused`, analytics-only).
+      // Once per verdict: a restored refusal is not a second one.
+      const taskId =
+        address.kind === 'thread'
+          ? address.docId.startsWith('task:')
+            ? address.docId.slice('task:'.length)
+            : undefined
+          : address.taskId;
+      taskStore.emit(
+        reviewItemRefusedEvent({
+          workspaceId: target.workspaceId,
+          reviewItemId:
+            address.kind === 'task'
+              ? address.reviewItemId
+              : address.kind === 'decision'
+                ? LEGACY_REVIEW_ITEM_ID
+                : threadReviewItemId(address.docId, address.threadId, address.commentId),
+          ...(taskId !== undefined ? { taskId } : {}),
+          actorId: author.id,
+          kind: judgement.refused,
+          ts: at,
+        }),
+      );
+    }
     const frame: ReviewItemHeldFrame = {
       event: REVIEW_ITEM_HELD_EVENT,
       workspaceId: target.workspaceId,
@@ -886,7 +1000,14 @@ export function createReviewGate(ctx: ReviewGateContext) {
         (restoredHold
           ? 'The judge could not answer, so this stays held on its standing verdict. '
           : '') +
-        heldMessage(address, judgement.reason, judgement.quote, judgement.heldFor?.length ?? 0),
+        (judgement.refused !== undefined
+          ? refusedMessage(address, judgement.refused)
+          : heldMessage(
+              address,
+              judgement.reason,
+              judgement.quote,
+              judgement.heldFor?.length ?? 0,
+            )),
     };
   }
 
@@ -1113,7 +1234,16 @@ export function createReviewGate(ctx: ReviewGateContext) {
    * `admittedUnjudged` is the machine-readable half of the same fact.
    */
   function heldFields(gate: ReviewGate | ThreadReviewGate | undefined): Record<string, unknown> {
-    if (gate?.held) return { held: true, heldReason: gate.reason, message: gate.message };
+    if (gate?.held) {
+      // `refused` names the fleet rule when that is what stopped it.
+      const refused = 'item' in gate ? gate.item.judge?.refused : gate.review.judge?.refused;
+      return {
+        held: true,
+        heldReason: gate.reason,
+        message: gate.message,
+        ...(refused !== undefined ? { refused } : {}),
+      };
+    }
     if (gate && !gate.held && gate.message !== undefined) {
       // Which admission it was, read off the row the gate just stamped —
       // `held`/`less-specific` rather than a second copy of the fact carried
@@ -1167,7 +1297,10 @@ export function createReviewGate(ctx: ReviewGateContext) {
       const stored = docStore
         .getThread(item.docId, item.threadId)
         ?.comments.find((c) => c.id === item.commentId)?.review;
-      if (!stored || !isReviewPayloadHeld(stored)) return false;
+      // A refusal is not a hold waiting out a clock: it never goes as filed.
+      if (!stored || !isReviewPayloadHeld(stored) || stored.judge?.refused !== undefined) {
+        return false;
+      }
       const res = docStore.judgeCommentReview(
         item.docId,
         item.threadId,
@@ -1182,7 +1315,9 @@ export function createReviewGate(ctx: ReviewGateContext) {
     const task = taskStore.getTask(item.taskId);
     if (!task) return false;
     const current = taskStore.listReviewItems(task.id).find((r) => r.id === item.reviewItemId);
-    if (!current || !isReviewItemHeld(current)) return false;
+    if (!current || !isReviewItemHeld(current) || current.judge?.refused !== undefined) {
+      return false;
+    }
     const judgement = released(current.judge?.heldFor);
     const res =
       item.reviewItemId === LEGACY_REVIEW_ITEM_ID

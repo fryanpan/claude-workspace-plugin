@@ -6,6 +6,7 @@ import type {
   WriteVia,
 } from '@claude-workspaces/core';
 import { DEFAULT_EFFORT_ESTIMATE_PROMPT } from '@claude-workspaces/core/effort-estimate-prompt';
+import type { ReviewRefusalKind } from '@claude-workspaces/core/review-refusal';
 import type {
   ArtifactCheck,
   GoalListEntry,
@@ -1620,9 +1621,27 @@ export interface ReviewItemAnsweredEvent {
   ts: number;
 }
 
+/**
+ * The quality gate REFUSED an ask because a fleet rule already answers it
+ * (`review-refusal.ts`). Analytics-only: it is the count Team Lead reads per
+ * board and per `kind`, against the week that measured 66 of 206 such asks.
+ * Ids, the rule name and a timestamp — the ask's words stay on the item.
+ */
+export interface ReviewItemRefusedEvent {
+  type: 'review_item.refused';
+  workspaceId: string;
+  reviewItemId: string;
+  taskId?: string;
+  /** The filer. */
+  actorId: string;
+  kind: ReviewRefusalKind;
+  ts: number;
+}
+
 export type TaskStoreEvent =
   | ReviewItemAddedEvent
   | ReviewItemViewedEvent
+  | ReviewItemRefusedEvent
   | ReviewItemAnsweredEvent
   | ReviewItemRevisedEvent
   | ReviewItemWithdrawnEvent

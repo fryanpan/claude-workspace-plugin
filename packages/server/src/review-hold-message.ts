@@ -15,6 +15,10 @@
  */
 import { judgeReasonSentence } from '@claude-workspaces/core';
 import { REVIEW_HOLD_REREAD, holdCountWord } from '@claude-workspaces/core/review-hold';
+import {
+  REVIEW_REFUSAL_RULES,
+  type ReviewRefusalKind,
+} from '@claude-workspaces/core/review-refusal';
 
 export interface HoldMessageInput {
   /** The judge's one sentence, already bounded — see `boundHoldWords`. */
@@ -96,4 +100,32 @@ export function admittedUnjudgedMessage(holds: number): string {
  *  so the sentence says where it will be read rather than restating it. */
 export function admittedLessSpecificMessage(): string {
   return "The gate raised that gap again and it is admitted on your note: the item is on the reader's queue, with your note shown on the card in your words. It will not be raised again.";
+}
+
+/**
+ * What a filing route says when a fleet rule already answers the ask.
+ *
+ * Every word is fixed here or is the rule's own sentence: nothing the judge
+ * wrote reaches a refused filer, so no refusal can tell an agent to get past
+ * a denial by some other route. The two ways out are both named — act on the
+ * rule and withdraw, or revise to say why the rule does not reach this ask —
+ * because a refusal is not capped like a hold, and a filer who believes the
+ * judge is wrong needs a way to say so that is judged again.
+ */
+export function refusalMessage(input: {
+  kind: ReviewRefusalKind;
+  reviseCall: string;
+  withdrawCall: string;
+  /** A done-when check: the line is the item, so the remedy is a report. */
+  ownerCheck: boolean;
+}): string {
+  const rule = `Refused, and not sent to the reader — ${REVIEW_REFUSAL_RULES[input.kind]}`;
+  if (input.ownerCheck) {
+    return `${rule} It is the done-when check you handed over: check the line yourself and report what you read with ${input.reviseCall}. If only a person can judge it, report it owner again and say why in the proof; that report is judged again.`;
+  }
+  return [
+    rule,
+    `Act on that rule yourself, then take the item back with ${input.withdrawCall}.`,
+    `If the rule does not apply here, revise it with ${input.reviseCall} and say in the item why not; the revision is judged again.`,
+  ].join(' ');
 }
