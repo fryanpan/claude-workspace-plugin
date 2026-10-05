@@ -221,7 +221,7 @@ async function key(cdp: Cdp, k: string, code: string, vk: number, modifiers = 0)
 
 const META = 4;
 /** The address the driver types into the link prompt. */
-export const LINK = 'https://riverbend.example/ferry';
+const LINK = 'https://riverbend.example/ferry';
 
 /** Select `word` in the lede, where the reviewer would drag across it. */
 async function selectWord(s: Surface, word: string): Promise<void> {
