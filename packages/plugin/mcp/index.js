@@ -15981,7 +15981,7 @@ var TOOL_LIST = {
     },
     {
       name: "coach_moment",
-      description: `The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.event plainly matches one goal's "Act differently when"; otherwise say nothing. The server refuses a quote that is not that goal's words, a goal with no trigger, and a second moment while one is open, and says why (raised:false).`,
+      description: "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.event plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",
       inputSchema: {
         type: "object",
         properties: {
@@ -15991,7 +15991,7 @@ var TOOL_LIST = {
           },
           matched: {
             type: "string",
-            description: `At least three words copied in order from that goal's "Act differently when".`
+            description: "At least three words copied in order from that goal's text, from the trigger it names."
           },
           observed: {
             type: "string",

@@ -2,7 +2,7 @@
  * "Your coach" for one front-page load, drawn with its styles. Asked only
  * for the owner's own signed-in session.
  */
-import { actionableGoals, goalTitle } from './goals-doc.ts';
+import { goalTitle } from './goals-doc.ts';
 import type { GoalsDocReading } from './goals-doc.ts';
 import { DEFAULT_COACH_NAME } from './moment.ts';
 import { COACH_SECTION_CSS, renderCoachSection } from './section.ts';
@@ -32,7 +32,6 @@ export function coachSectionFor(
     name: reading?.name ?? DEFAULT_COACH_NAME,
     online: state.online,
     goals: goals.map(goalTitle),
-    unready: reading ? goals.length - actionableGoals(reading).length : 0,
     reviewDue: store.reviewDue(now),
     readiness: store.readiness,
     week: store.week(now),

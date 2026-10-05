@@ -23,6 +23,7 @@ import {
   GOALS_DOC,
   LABELLED_POINTS,
   ON_TRACK_DAY,
+  SPOKEN_GOALS_DOC,
   type Signal,
   WS,
   ZONE,
@@ -182,6 +183,24 @@ describe('a moment', () => {
     expect(h.coach.raise(MOMENTS[0] ?? null)).toMatchObject({ ok: true });
     expect(h.coach.raise(MOMENTS[1] ?? null)).toMatchObject({ ok: false, error: 'moment-open' });
     expect(h.frames.filter((f) => f.type === 'moment')).toHaveLength(1);
+  });
+
+  it('reaches the page from a doc filled in by voice, with no trigger part', () => {
+    const h = harness({ goals: SPOKEN_GOALS_DOC });
+    const raised = h.coach.raise({
+      goal: 1,
+      matched: 'more than about an hour on a mock',
+      observed: 'An hour and ten minutes on the hover mock',
+      line: 'Hi, I’m noticing over an hour on the hover mock. Is the Harborlight post done?',
+    });
+    expect(raised).toMatchObject({ ok: true });
+    expect(h.frames[0]).toMatchObject({
+      type: 'moment',
+      moment: {
+        name: 'Riverbend',
+        goal: 'If I spend more than about an hour on a mock, ask me whether the Harborlight post is done.',
+      },
+    });
   });
 
   it('raised before any page said where he was, it closes on his first move', () => {

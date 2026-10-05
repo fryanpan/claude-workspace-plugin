@@ -31,8 +31,6 @@ export interface CoachSectionInput {
   online: boolean;
   /** Goal titles, in the doc's order. */
   goals: readonly string[];
-  /** Goals with no "Act differently when" yet: the coach cannot use them. */
-  unready: number;
   reviewDue: boolean;
   readiness: CoachReadiness;
   week: CoachWeek;
@@ -63,10 +61,6 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
     input.goals.length === 0
       ? `<p class="coach-quiet">No goals yet. Open <a href="${escapeHtml(docUrl)}">Learning goals</a> and tap Talk.</p>`
       : `<ol class="coach-goals">${input.goals.map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ol>`;
-  const unready =
-    input.unready > 0
-      ? `<p class="coach-sub">${input.unready === 1 ? 'One goal needs' : `${input.unready} goals need`} “Act differently when” before the coach can use it.</p>`
-      : '';
   const review = input.reviewDue
     ? `<div class="coach-review"><p class="coach-q">Your goals haven’t changed in a week. Are they still right?</p><div class="coach-acts"><a class="board-btn" href="${escapeHtml(docUrl)}">Review my goals</a><button type="button" class="board-btn" data-review="no-update">No update needed</button></div></div>`
     : '';
@@ -100,7 +94,7 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
   const offline = input.online
     ? ''
     : '<p class="coach-sub">Offline. No coach session is running, so it will not speak up.</p>';
-  return `${offline}${list}${unready}<div class="coach-acts"><button type="button" class="board-btn" data-act="add-goal">Add a goal</button></div>${review}${often}${week}${events}${paused}${off}`;
+  return `${offline}${list}${review}${often}${week}${events}${paused}${off}`;
 }
 
 export function renderCoachSection(input: CoachSectionInput): string {

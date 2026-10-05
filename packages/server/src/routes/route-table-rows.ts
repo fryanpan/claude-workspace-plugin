@@ -165,7 +165,6 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ...family('routes/coach.ts', [
     ['loopback-only', '/coach/moments', 'POST'],
     ['trusted-local', '/coach/setup', 'POST'],
-    ['trusted-local', '/coach/goals/add', 'POST'],
     ['trusted-local', '/coach/review', 'POST'],
     ['trusted-local', '/coach/prefs', 'POST'],
     ['trusted-local', '/coach/boards', 'POST'],

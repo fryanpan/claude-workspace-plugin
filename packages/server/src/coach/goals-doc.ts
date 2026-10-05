@@ -10,51 +10,42 @@
  * heading here avoids those words: with equal scores it asks in the doc's
  * order, and the coach's name comes first.
  *
- * Each goal is one `##` section with four `###` parts. The doc may hold any
- * number; "Add a goal" appends `goalSection(n)`. A goal the coach can act on
- * has both "What I want to do better" and "Act differently when" filled in.
+ * The goals live in one section, "What I want to do better". Each top-level
+ * bullet (with its sub-bullets) or paragraph there is one goal, and carries
+ * its own trigger: "If I spend more than an hour on X, ask me Y." He asked
+ * for no more structure than that (the owner, 2026-10-05).
+ *
+ * Docs made before that have one `##` section per goal with four `###`
+ * parts. They still read: every "What I want to do better" item is a goal,
+ * with its section's "Act differently when" joined to it, and a section
+ * with only a trigger is a goal of its own.
  */
 
 export const NAME_HEADING = 'Your coach’s name';
-
-export const PARTS = [
-  { key: 'what', heading: 'What I want to do better' },
-  { key: 'behind', heading: 'What’s behind it' },
-  { key: 'when', heading: 'Act differently when' },
-  { key: 'how', heading: 'How' },
-] as const;
-export type PartKey = (typeof PARTS)[number]['key'];
+export const GOALS_HEADING = 'What I want to do better';
+/** The four-part layout's trigger, still read. */
+const TRIGGER_HEADING = 'Act differently when';
 
 export interface LearningGoal {
-  /** The section heading as he left it ("Goal 1" or his own words). */
-  heading: string;
-  what: string;
-  behind: string;
-  /** The moment to watch for. A moment must quote words from this. */
-  when: string;
-  how: string;
+  /** What he wrote, trigger included. A moment must quote words from it. */
+  text: string;
 }
 
 export interface GoalsDocReading {
   name?: string;
+  /** In doc order; a moment names one by its 1-based place here. */
   goals: LearningGoal[];
 }
 
 const NAME_CHARS = 40;
-const PART_CHARS = 600;
-
-export function goalSection(n: number): string {
-  return `## Goal ${n}\n\n${PARTS.map((p) => `### ${p.heading}\n`).join('\n')}`;
-}
+const GOAL_CHARS = 600;
 
 export function goalsDocTemplate(): string {
-  return `# Learning goals\n\nTap Talk and your coach asks about each empty section, starting with its name. You can type here too.\n\n## ${NAME_HEADING}\n\n${goalSection(1)}`;
+  return `# Learning goals\n\nTap Talk and your coach asks its name, then what you want to do better. Say as many goals as you like, each with when it should speak up. You can type here too.\n\n## ${NAME_HEADING}\n\n## ${GOALS_HEADING}\n`;
 }
 
 /** Curly and straight apostrophes, case and spacing all read as one. */
 const norm = (s: string) => s.replace(/[’']/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
-
-const PART_BY_HEADING = new Map(PARTS.map((p) => [norm(p.heading), p.key]));
 
 /** "Let's call it Sage." → "Sage". A bare name is taken as it is. */
 export function nameFrom(text: string): string | undefined {
@@ -71,69 +62,97 @@ export function nameFrom(text: string): string | undefined {
   return name.split(/\s+/).slice(0, 3).join(' ').slice(0, NAME_CHARS);
 }
 
+const BULLET = /^\s*(?:[-*+]|\d+[.)])\s+/;
+
 const bodyText = (lines: string[]): string =>
   lines
-    .map((l) => l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim())
+    .map((l) => l.replace(BULLET, '').trim())
     .filter(Boolean)
     .join('\n')
-    .slice(0, PART_CHARS);
+    .slice(0, GOAL_CHARS);
+
+/** One goal per top-level bullet, sub-bullets and wrapped lines kept with
+ *  it, and one per paragraph. */
+function goalItems(lines: string[]): string[] {
+  const items: string[][] = [];
+  let item: string[] | null = null;
+  let gap = false;
+  for (const line of lines) {
+    if (!line.trim()) {
+      gap = true;
+      continue;
+    }
+    const topLevel = line.length - line.trimStart().length < 2;
+    if (!item || (topLevel && (gap || BULLET.test(line)))) {
+      item = [];
+      items.push(item);
+    }
+    item.push(line);
+    gap = false;
+  }
+  return items.map(bodyText).filter(Boolean);
+}
+
+/** One `##` section: its goal items and, in the four-part layout, its trigger. */
+interface Section {
+  items: string[];
+  trigger: string;
+  /** "## What I want to do better" itself: any sub-heading stays in it. */
+  goalsOnly: boolean;
+}
 
 /** The doc as the coach reads it. Headings it does not know are skipped. */
 export function readGoalsDoc(markdown: string): GoalsDocReading {
   const reading: GoalsDocReading = { goals: [] };
-  let nameLines: string[] | null = null;
-  let goal: LearningGoal | null = null;
-  let part: PartKey | null = null;
-  let partLines: string[] = [];
-  const flushPart = () => {
-    if (goal && part) goal[part] = bodyText(partLines);
-    part = null;
-    partLines = [];
-  };
-  const flushName = () => {
-    if (nameLines) {
-      const n = nameFrom(bodyText(nameLines));
+  const sections: Section[] = [];
+  let section: Section | null = null;
+  let part: 'name' | 'goals' | 'trigger' | null = null;
+  let lines: string[] = [];
+  const flush = () => {
+    if (part === 'name') {
+      const n = nameFrom(bodyText(lines));
       if (n) reading.name = n;
-    }
-    nameLines = null;
+    } else if (part === 'goals' && section) section.items.push(...goalItems(lines));
+    else if (part === 'trigger' && section) section.trigger = bodyText(lines);
+    lines = [];
   };
   for (const line of markdown.split('\n')) {
     const h = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
     if (!h) {
-      if (nameLines) nameLines.push(line);
-      else if (part) partLines.push(line);
+      if (part) lines.push(line);
       continue;
     }
+    flush();
     const level = h[1]?.length ?? 0;
-    const text = h[2] ?? '';
-    flushPart();
-    flushName();
-    if (level === 2) {
-      goal = null;
-      if (norm(text) === norm(NAME_HEADING)) {
-        nameLines = [];
+    const text = norm(h[2] ?? '');
+    if (level <= 2) {
+      section = null;
+      part = null;
+      if (level === 1) continue;
+      if (text === norm(NAME_HEADING)) {
+        part = 'name';
         continue;
       }
-      goal = { heading: text, what: '', behind: '', when: '', how: '' };
-      reading.goals.push(goal);
-    } else if (level === 3 && goal) {
-      part = PART_BY_HEADING.get(norm(text)) ?? null;
+      const goalsOnly = text === norm(GOALS_HEADING);
+      section = { items: [], trigger: '', goalsOnly };
+      sections.push(section);
+      if (goalsOnly) part = 'goals';
+    } else if (section) {
+      if (text === norm(GOALS_HEADING) || section.goalsOnly) part = 'goals';
+      else part = text === norm(TRIGGER_HEADING) ? 'trigger' : null;
     }
   }
-  flushPart();
-  flushName();
-  reading.goals = reading.goals.filter((g) => g.what || g.behind || g.when || g.how);
+  flush();
+  const goal = (text: string): LearningGoal => ({ text: text.slice(0, GOAL_CHARS) });
+  reading.goals = sections.flatMap((s) => {
+    if (s.items.length === 0) return s.trigger ? [goal(s.trigger)] : [];
+    return s.items.map((i) => goal(s.trigger ? `${i}\n${s.trigger}` : i));
+  });
   return reading;
-}
-
-/** Goals the coach may act on: what to do better, and when. */
-export function actionableGoals(reading: GoalsDocReading): LearningGoal[] {
-  return reading.goals.filter((g) => g.what && g.when);
 }
 
 /** A goal's one-line title for the front page and the card. */
 export function goalTitle(goal: LearningGoal): string {
-  const first = (goal.what.split('\n')[0] ?? '').trim();
-  const t = first || goal.heading;
+  const t = (goal.text.split('\n')[0] ?? '').trim();
   return t.length > 120 ? `${t.slice(0, 119)}…` : t;
 }
