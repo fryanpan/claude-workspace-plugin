@@ -524,7 +524,9 @@ edit chunk installs it when the doc holds a words anchor, then redraws the
 pins. An optional `suggest` stores new words on the first comment; the same
 chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
-Reject, which only resolves it.
+Reject, which only resolves it. The same chunk redraws an edit's comment in the widget
+as its word diff (`edit/edit-diff-view.ts`), since the budgeted bundle shows
+every comment as plain text.
 
 Every link to such a thread is the page plus `?thread=<id>`, built by
 `page-thread-link.ts`, a top-level module of core so the server and the
@@ -802,12 +804,17 @@ source. The pencil is `edit/edit-button.ts`, mounted by `mic-entry.ts` and
 bundle nothing. Its first tap fetches the lazy chunk `edit.js`
 (`edit/edit-entry.ts`), as does a page whose doc already holds an edit that
 has not been applied, so its marks paint on load. `edit/edit-mode.ts` makes
-the tapped element editable as plain text, keeps the reader's unsent edits
+the tapped element editable — Enter splits a paragraph, Cmd-B, Cmd-I and
+Cmd-K add the three marks an edit carries (`edit/edit-keys.ts`), and
+`edit/edit-markdown.ts` reads the element as markdown — keeps the reader's unsent edits
 (`edit/edit-model.ts`), and draws every mark in a fixed layer of its own
 rather than restyling the page. Send is the ordinary thread POST with a
 `pageEdits` list on the first comment: each entry is the element's anchor, a
-short CSS selector, and the words before and after. `core/src/page-edits.ts`
-reads and caps that list and writes the comment's text from it, and
+short CSS selector, the words before, and the words after as a small
+markdown. `core/src/page-edits.ts` reads and caps that list;
+`core/src/page-edits-text.ts` holds that markdown's reader and writes the
+comment's text from the list — one line saying what was edited, then each
+change as a word diff, with selectors left to the list — and
 `routes/doc-threads-routes.ts` refuses a malformed one outright. It rides
 `thread.created`, so there is no new event: the MCP channel line
 (`mcp/src/channel-messages.ts`) carries the list as `page_edits` and tells the

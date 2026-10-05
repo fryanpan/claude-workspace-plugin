@@ -92,7 +92,7 @@ describe("an agent's suggestion on the page", () => {
     const { ydoc } = page();
     const threads = ydoc.getMap('threads');
     expect(hasAgentPageThread(threads.toJSON())).toBe(true);
-    // A resolved pin is still drawn, so its resolver is still needed.
+    // A resolved pin is still drawn on Show resolved, so its resolver is still needed.
     (threads.get('t-sugg') as Y.Map<unknown>).set('status', 'resolved');
     expect(hasAgentPageThread(threads.toJSON())).toBe(true);
     threads.delete('t-sugg');

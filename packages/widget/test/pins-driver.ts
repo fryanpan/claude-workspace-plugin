@@ -303,6 +303,14 @@ async function drive(cdp: Cdp, dir: string, bundle: string, width: number, heigh
   })()`);
   await sleep(400);
   await look('slid');
+  // Show resolved in the panel brings the resolved pin back; a second tap
+  // puts the preference back for the next width's load.
+  const toggleResolved = `(() => { const w = document.querySelector('${TAG}'); w.togglePanel(true);
+    w.shadowRoot.querySelector('.resolved-toggle').click(); w.togglePanel(false); return true; })()`;
+  await cdp.evaluate(toggleResolved);
+  await sleep(400);
+  await look('resolvedShown');
+  await cdp.evaluate(toggleResolved);
   return { width, height, taps, anchors, main, looks };
 }
 
