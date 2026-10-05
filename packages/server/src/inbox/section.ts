@@ -24,7 +24,7 @@
  * text is not here at all — the page fetches it when a line opens.
  */
 import { escapeHtml } from '@claude-workspaces/core';
-import type { InboxConfig } from './config.ts';
+import { type InboxConfig, hasInboxPoster } from './config.ts';
 import { type RankContext, rankRows } from './rank.ts';
 import type { InboxGoalRef, InboxRow } from './types.ts';
 
@@ -134,7 +134,7 @@ function removedLine(row: InboxRow): string {
   const at = row.history.at(-1)?.at ?? row.lastSeenAt;
   return `<div class="inbox-row inbox-row-folded" data-row="${escapeHtml(row.id)}"><div class="board-review-row"><span class="board-review-row-title">${escapeHtml(
     row.purpose,
-  )}</span><span class="board-review-row-sub">${escapeHtml(row.senderLabel)} · removed <time data-at="${at}">${escapeHtml(
+  )}</span><span class="board-review-row-sub">${escapeHtml(row.senderLabel)} · ${row.history.at(-1)?.by === 'agent' ? 'handled elsewhere' : 'removed'} <time data-at="${at}">${escapeHtml(
     whenText(at),
   )}</time></span><button type="button" class="inbox-undo" data-act="reopen">Bring back</button></div></div>`;
 }
@@ -148,7 +148,7 @@ function fold(kind: 'snoozed' | 'removed', lines: string[]): string {
 /** The section, or nothing when the inbox has never been set up. */
 export function renderInboxSection(input: InboxSectionInput): string {
   const { rows, config } = input;
-  if (rows.length === 0 && config.readerAgentId === null && input.lastPassAt === undefined) {
+  if (rows.length === 0 && !hasInboxPoster(config) && input.lastPassAt === undefined) {
     return '';
   }
   const sent = new Map<string, number>();
@@ -181,9 +181,14 @@ export function renderInboxSection(input: InboxSectionInput): string {
     shown.length > INBOX_VISIBLE_LINES
       ? `<button type="button" class="inbox-more" data-more>${shown.length - INBOX_VISIBLE_LINES} more</button>`
       : '';
-  // Removed by Bryan's tap only: one a pass retired is not his to bring back.
+  // Removed by Bryan's tap, or by a poster as handled elsewhere: both are
+  // his to bring back. One a pass retired is not.
   const removed = rows
-    .filter((r) => r.state === 'dismissed' && r.dismissReason === undefined)
+    .filter(
+      (r) =>
+        r.state === 'dismissed' &&
+        (r.dismissReason === undefined || r.history.at(-1)?.by === 'agent'),
+    )
     .sort((a, b) => (b.history.at(-1)?.at ?? 0) - (a.history.at(-1)?.at ?? 0));
   const folds =
     fold('snoozed', snoozed.map(snoozedLine)) + fold('removed', removed.map(removedLine));

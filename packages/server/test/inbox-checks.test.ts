@@ -8,7 +8,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadInboxConfig, parseInboxConfig } from '../src/inbox/config.ts';
+import { isInboxPoster, loadInboxConfig, parseInboxConfig } from '../src/inbox/config.ts';
 import { rebuildLink } from '../src/inbox/links.ts';
 import { BODY_MAX, checkLineText, checkSenderLabel, cleanBody } from '../src/inbox/text-checks.ts';
 
@@ -142,6 +142,24 @@ describe('the inbox config', () => {
     expect([...config.workspaces.keys()]).toEqual(['email', 'texts', 'harbor']);
     expect(config.workspaces.get('email')?.source).toBe('gmail');
     expect(problems).toHaveLength(3);
+  });
+
+  it('lists posters beside the reader, leaving out bad ids and repeats', () => {
+    const { config, problems } = parseInboxConfig({
+      readerAgentId: 'agent-reader',
+      posterAgentIds: ['agent-saltmarsh', 'a b', 'agent-reader', 'agent-saltmarsh', 7],
+    });
+    expect(config.posterAgentIds).toEqual(['agent-saltmarsh']);
+    expect(problems).toEqual(['posterAgentIds[1] is not an id', 'posterAgentIds[4] is not an id']);
+    expect(isInboxPoster(config, 'agent-reader')).toBe(true);
+    expect(isInboxPoster(config, 'agent-saltmarsh')).toBe(true);
+    expect(isInboxPoster(config, 'agent-riverbend')).toBe(false);
+    const old = parseInboxConfig({ readerAgentId: 'agent-reader' });
+    expect(old.config.posterAgentIds).toEqual([]);
+    expect(old.problems).toEqual([]);
+    expect(parseInboxConfig({ posterAgentIds: 'agent-saltmarsh' }).problems).toEqual([
+      'posterAgentIds is not a list',
+    ]);
   });
 
   it('allows nobody to post when the file is missing, malformed or names a bad id', () => {

@@ -15937,7 +15937,7 @@ var TOOL_LIST = {
     },
     {
       name: "post_inbox_rows",
-      description: "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id), and close the scheduled run it answers by passing run. Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
+      description: "Only for an agent the inbox config lists (the inbox reader, or a poster such as Job Search): post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id), take rows off his list as handled elsewhere by passing dismiss, and close the scheduled run it answers by passing run. Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
       inputSchema: {
         type: "object",
         properties: {
@@ -15947,7 +15947,7 @@ var TOOL_LIST = {
           },
           rows: {
             type: "array",
-            description: `Up to 40 rows (at least one unless run is given). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderId (the sender's own id as the source gives it: the email address, the Slack user id, or the phone number; the server hashes it into the sender key and never stores it, so never compute a hash yourself), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread's own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.`,
+            description: `Up to 40 rows (at least one unless run or dismiss is given; omit with dismiss alone). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderId (the sender's own id as the source gives it: the email address, the Slack user id, or the phone number; the server hashes it into the sender key and never stores it, so never compute a hash yourself), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread's own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.`,
             items: { type: "object" }
           },
           run: {
@@ -15955,9 +15955,21 @@ var TOOL_LIST = {
             description: "The scheduled run this pass answers: {workspaceId, taskId} of the run instance the board woke you for. The server moves it to done if it is your own open run, and says in the reply's run field if it did not. With run, rows may be empty.",
             properties: { workspaceId: { type: "string" }, taskId: { type: "string" } },
             required: ["workspaceId", "taskId"]
+          },
+          dismiss: {
+            type: "array",
+            description: `Up to 40 rows to take off Bryan's list because they are handled elsewhere: each {dedupeKey, reason: "handled-elsewhere"}, the only reason accepted. An open or snoozed row is dismissed and a new message on it does not bring it back; Bryan can. The reply's dismissed field gives each entry's result by index: dismissed, not-found, not-open, or why it was refused.`,
+            items: {
+              type: "object",
+              properties: {
+                dedupeKey: { type: "string" },
+                reason: { type: "string", enum: ["handled-elsewhere"] }
+              },
+              required: ["dedupeKey", "reason"]
+            }
           }
         },
-        required: ["pass", "rows"]
+        required: ["pass"]
       }
     },
     {
@@ -19108,18 +19120,20 @@ async function handleDocsTool(name, a, ctx) {
 async function handleInboxTool(name, a, ctx) {
   switch (name) {
     case "post_inbox_rows": {
-      const { pass, rows, run } = a;
+      const { pass, run, dismiss } = a;
+      const rows = a.rows ?? (dismiss !== undefined ? [] : undefined);
       if (typeof pass !== "string" || pass === "")
         return ctx.err("pass is required");
       if (!Array.isArray(rows))
         return ctx.err("rows must be a list");
-      if (rows.length === 0 && run === undefined)
-        return ctx.err("rows must be a non-empty list unless run is given");
+      if (rows.length === 0 && run === undefined && dismiss === undefined)
+        return ctx.err("rows must be a non-empty list unless run or dismiss is given");
       const res = await ctx.http("POST", "/inbox/rows", {
         agentId: ctx.AUTHOR.id,
         pass,
         rows,
-        ...run !== undefined ? { run } : {}
+        ...run !== undefined ? { run } : {},
+        ...dismiss !== undefined ? { dismiss } : {}
       });
       return ctx.ok(res);
     }
@@ -21076,7 +21090,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.291";
+var PLUGIN_VERSION = "0.1.292";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

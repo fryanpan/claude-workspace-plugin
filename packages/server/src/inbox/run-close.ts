@@ -8,6 +8,11 @@
  * the server moves the instance to `done` — after checking the instance is
  * the reader's own scheduled run, open, on the board named.
  *
+ * Any configured poster may close a run, not only the reader: the check
+ * that the instance is owned by the caller is what keeps one poster from
+ * closing another's run, and a second poster on a schedule needs the same
+ * close for the same reason.
+ *
  * The move goes through the task store's own `transition`, as any agent's
  * would: same gates, same trail, same event. The note carries counts only,
  * never a word of a row.

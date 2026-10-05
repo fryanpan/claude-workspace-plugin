@@ -66,6 +66,15 @@ describe('post_inbox_rows', () => {
     ]);
   });
 
+  it('forwards dismiss, and with dismiss alone sends an empty rows list', async () => {
+    const r = recorder(() => ({ ok: true, dismissed: [{ index: 0, result: 'dismissed' }] }));
+    const dismiss = [{ dedupeKey: 'gmail:abc', reason: 'handled-elsewhere' }];
+    await handleInboxTool('post_inbox_rows', { pass: 'p3', dismiss }, r.ctx as never);
+    expect(r.calls).toEqual([
+      ['POST', '/inbox/rows', { agentId: 'agent-reader', pass: 'p3', rows: [], dismiss }],
+    ]);
+  });
+
   it("surfaces the server's refusal of a caller that is not the reader", async () => {
     const r = recorder(() => {
       throw new Error('POST /inbox/rows → 403: not-the-inbox-reader');
