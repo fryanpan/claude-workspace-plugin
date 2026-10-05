@@ -52,6 +52,9 @@ export interface ReviewQueueRoutesContext {
   ranks: ReviewRanks;
   /** The plan board's seated lead, or undefined. */
   leadOf: (workspaceId: string) => string | undefined;
+  /** Through the edge, from off this machine, or from a page: refused
+   *  before the body is read. */
+  refuseNonLocal: (req: Request) => Extract<AgentCallerVerdict, { ok: false }> | null;
   /** The caller proves it is `agentId` (token, loopback, not a browser). */
   authorizeAgent: (req: Request, agentId: string) => AgentCallerVerdict;
   /** True when nothing about this place may reach the plan lead. */
@@ -88,9 +91,16 @@ const PATHS = new Set([
 /** The longest key accepted: a board id, a kind, a doc id and a thread id. */
 const MAX_KEY = 512;
 
+/** The largest rank body read: an agent id, a key and a number. */
+const MAX_RANK_BYTES = 4096;
+
 async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<Response> {
   const { j } = ctx;
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
+  const notLocal = ctx.refuseNonLocal(req);
+  if (notLocal) return j(notLocal.status, notLocal.body);
+  const length = Number(req.headers.get('content-length') ?? '0');
+  if (!Number.isFinite(length) || length > MAX_RANK_BYTES) return j(413, { error: 'too-large' });
   const body = await ctx.safeJson(req);
   const agentId = body?.agentId;
   if (typeof agentId !== 'string' || !/^[a-z0-9-]{1,128}$/.test(agentId)) {

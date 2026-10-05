@@ -2340,6 +2340,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     boardName: (id) => taskStore.getWorkspace(id)?.name,
     sizePrefs: new ReviewSizePrefs(dataDir),
     ranks: leadRanks.ranks,
+    refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     // The rank is held to the lead's token always, like an inbox post.
     authorizeAgent: (req, agentId) =>
