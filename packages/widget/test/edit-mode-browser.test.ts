@@ -57,6 +57,14 @@ describe.skipIf(CHROME === null)('editing the words on a page', () => {
     }
   });
 
+  it('edits a heading that holds an anchor link and its icon', () => {
+    expect(result?.dev.rich?.headingEditable).toBe(true);
+  });
+
+  it('sends a paragraph split with Enter as two blocks', () => {
+    expect(result?.dev.rich?.after).toBe('Riverbend opens at nine.\n\nSaltmarsh closes at six.');
+  });
+
   it('never writes the page source itself', () => {
     for (const [name, s] of surfaces()) expect(s.sourceUnchanged, name).toBe(true);
   });

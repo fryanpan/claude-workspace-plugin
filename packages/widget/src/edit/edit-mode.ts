@@ -6,6 +6,8 @@ import { authedPost, httpBase } from '../widget-auth.ts';
 import type { FeedbackWidgetEl } from '../widget.ts';
 import type { EditMode } from './edit-button.ts';
 import { EDIT_PAGE_CSS, EDIT_SHADOW_CSS } from './edit-css.ts';
+import { editingKey, plainPaste } from './edit-keys.ts';
+import { renderMarkdown } from './edit-markdown.ts';
 import { EditDrafts, editableTarget, markFor, normText, sentEdits } from './edit-model.ts';
 
 /**
@@ -191,7 +193,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     if (!el) return 'wait';
     if (drafts.has(el) || normText(el.textContent) !== edit.before) return 'gone';
     drafts.begin(el);
-    el.textContent = edit.after;
+    renderMarkdown(el, edit.after);
     typedHere.add(el);
     return 'placed';
   }
@@ -228,11 +230,11 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     editing = el;
     priorEditable = el.getAttribute('contenteditable');
     el.setAttribute('data-cfw-editing', '');
-    // Plain text only: an edit carries words, never markup a paste brought.
-    el.contentEditable = 'plaintext-only';
-    if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+    // Rich, so a typed line break is an element the edit can read as a new
+    // paragraph; a paste still brings plain text only.
+    el.contentEditable = 'true';
     el.addEventListener('input', onInput);
-    el.addEventListener('paste', onPaste);
+    el.addEventListener('paste', plainPaste);
     el.addEventListener('blur', commit, { once: true });
     el.focus();
     const range = document.createRange();
@@ -251,18 +253,12 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     schedule();
   }
 
-  function onPaste(ev: ClipboardEvent): void {
-    ev.preventDefault();
-    const text = ev.clipboardData?.getData('text/plain') ?? '';
-    document.execCommand('insertText', false, text);
-  }
-
   function commit(): void {
     const el = editing;
     if (!el) return;
     editing = null;
     el.removeEventListener('input', onInput);
-    el.removeEventListener('paste', onPaste);
+    el.removeEventListener('paste', plainPaste);
     el.removeEventListener('blur', commit);
     el.removeAttribute('data-cfw-editing');
     if (priorEditable === null) el.removeAttribute('contenteditable');
@@ -431,10 +427,7 @@ export function mountEditMode(widget: FeedbackWidgetEl, button: HTMLButtonElemen
     }
     const inEdit = editing?.contains(ev.target as Node);
     if (!inEdit) return;
-    if (ev.type === 'keydown' && ev.key === 'Enter' && !ev.shiftKey) {
-      ev.preventDefault();
-      editing?.blur();
-    }
+    if (editing) editingKey(ev, editing);
     // The page's own shortcuts do not see the reviewer's typing.
     ev.stopPropagation();
   }

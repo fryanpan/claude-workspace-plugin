@@ -1,3 +1,4 @@
+import { createAnchor } from '@claude-workspaces/core/anchor/element';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   EditDrafts,
@@ -34,6 +35,18 @@ describe('editableTarget', () => {
     page('<div id="d"><p>One</p><p>Two</p></div><input id="i" value="x">');
     expect(editableTarget(document.getElementById('d') as HTMLElement)).toBeNull();
     expect(editableTarget(document.getElementById('i') as HTMLElement)).toBeNull();
+  });
+
+  it('edits a heading that holds its own anchor link and icon, as a static site builds one', () => {
+    page(
+      '<article><h2 id="riverbend">Riverbend landing' +
+        '<a class="heading-anchor" href="#riverbend" aria-hidden="true">' +
+        '<svg viewBox="0 0 16 16"><path d="M0 0h16v16H0z"></path></svg></a></h2></article>',
+    );
+    const h2 = document.querySelector('h2') as HTMLElement;
+    expect(editableTarget(h2)).toBe(h2);
+    // A tap on the icon edits the heading it sits in.
+    expect(editableTarget(document.querySelector('a') as HTMLElement)).toBe(h2);
   });
 
   it('refuses the widget itself and an element with no words', () => {
@@ -94,6 +107,28 @@ describe('EditDrafts', () => {
     drafts.begin(h);
     h.textContent = 'Harborlight ';
     expect(drafts.changed()).toEqual([]);
+  });
+});
+
+describe('a draft with a new paragraph', () => {
+  it('sends the paragraphs as blocks joined by a blank line', () => {
+    page('<p id="p">Riverbend opens at nine. Saltmarsh closes at six.</p>');
+    const p = document.getElementById('p') as HTMLElement;
+    const drafts = new EditDrafts();
+    drafts.begin(p);
+    p.innerHTML = 'Riverbend opens at nine.<br>Saltmarsh closes at six.<br><br>';
+    expect(drafts.changed()[0]?.after).toBe('Riverbend opens at nine.\n\nSaltmarsh closes at six.');
+    expect(drafts.changed()[0]?.before).toBe('Riverbend opens at nine. Saltmarsh closes at six.');
+  });
+
+  it('marks a split paragraph applied once the page shows its words', () => {
+    const edit = {
+      anchor: createAnchor(page('<p>x</p>').firstElementChild as HTMLElement),
+      selector: 'p',
+      before: 'Riverbend opens. Saltmarsh closes.',
+      after: 'Riverbend opens.\n\nSaltmarsh closes.',
+    };
+    expect(markFor(true, edit, 'Riverbend opens. Saltmarsh closes.', false)).toBe('applied');
   });
 });
 

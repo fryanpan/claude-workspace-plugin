@@ -64,6 +64,18 @@ export interface Scenario {
   applied: Marks;
   /** The same, inside edit mode. */
   appliedInMode: Marks;
+  /** The dev page only: a paragraph split with Enter, and a heading that
+   *  holds an anchor link and its icon. */
+  rich?: Rich;
+}
+
+export interface Rich {
+  /** The heading with the anchor link took the caret when tapped. */
+  headingEditable: boolean;
+  /** The `after` the board stored for the split paragraph. */
+  after: string | null;
+  /** The stored comment's words. */
+  text: string | null;
 }
 
 export interface Marks {
@@ -84,7 +96,11 @@ const TAG = 'claude-feedback-widget';
 
 const body = (title: string) =>
   `<h1 id="title">${title}</h1><p id="lede">Riverbend <b>opens</b> at nine.</p>` +
-  '<p><a href="/elsewhere">Saltmarsh ferry times</a></p>';
+  '<p><a href="/elsewhere">Saltmarsh ferry times</a></p>' +
+  // A heading as a static site builds one: its words, then an anchor link
+  // holding an icon.
+  '<h2 id="landing">Riverbend landing<a class="heading-anchor" href="#landing">' +
+  '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"></path></svg></a></h2>';
 
 /** A dev server's page: it embeds the widget from the board, as the
  *  embedding instructions say. */
@@ -188,6 +204,42 @@ async function enterEditMode(cdp: Cdp, s: Surface): Promise<void> {
   throw new Error('never happened: edit mode is on');
 }
 
+const LEDE = `document.getElementById('lede')`;
+const LANDING = `document.getElementById('landing')`;
+
+async function key(cdp: Cdp, k: string, code: string, vk: number, modifiers = 0): Promise<void> {
+  for (const type of ['rawKeyDown', 'keyUp'] as const) {
+    await cdp.send('Input.dispatchKeyEvent', {
+      type,
+      key: k,
+      code,
+      windowsVirtualKeyCode: vk,
+      modifiers,
+    });
+  }
+}
+
+/** In edit mode on the dev page: tap the heading with the anchor link, then
+ *  split the lede with Enter, type a second paragraph, and send. */
+async function editLede(cdp: Cdp, s: Surface, threads: () => Array<{ id: string }>) {
+  await tap(cdp, s, LANDING, 'the anchored heading');
+  const headingEditable = await poll('the anchored heading is being edited', () =>
+    s.eval(`${LANDING}.isContentEditable`).then((v) => (v ? true : null)),
+  ).catch(() => false);
+  await tap(cdp, s, LEDE, 'the lede');
+  await poll('the lede is being edited', () =>
+    s.eval(`${LEDE}.isContentEditable`).then((v) => (v ? true : null)),
+  );
+  await s.eval(
+    `(() => { const r = document.createRange(); r.selectNodeContents(${LEDE}); r.collapse(false); const q = getSelection(); q.removeAllRanges(); q.addRange(r); return true; })()`,
+  );
+  await key(cdp, 'Enter', 'Enter', 13);
+  await cdp.send('Input.insertText', { text: 'Saltmarsh closes at six.' });
+  const seen = new Set(threads().map((t) => t.id));
+  await tap(cdp, s, SEND, 'the Send button');
+  return { headingEditable, seen };
+}
+
 let browser: { proc: ChildProcess; profile: string } | undefined;
 
 async function main(): Promise<void> {
@@ -270,6 +322,7 @@ async function main(): Promise<void> {
       void cdp.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
     });
     const sessions = await frameSessions(cdp);
+    const devSurface = pageSurface(cdp);
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: 1180,
       height: 820,
@@ -311,7 +364,25 @@ async function main(): Promise<void> {
       const appliedMarks = await readMarks(surface, (m) => m.heading === AFTER);
       await enterEditMode(cdp, surface);
       const appliedInMode = await readMarks(surface, (m) => m.green > 0);
+      let rich: Rich | undefined;
+      if (surface === devSurface) {
+        const list = () => h.docStore.listThreads(docId());
+        const { headingEditable, seen } = await editLede(cdp, surface, list);
+        const sent = await poll(
+          'the split paragraph reached the board',
+          () => list().find((t) => !seen.has(t.id) && t.comments[0]?.pageEdits) ?? null,
+        ).catch(() => null);
+        const lede = sent?.comments[0]?.pageEdits?.find(
+          (e) => e.selector.includes('lede') || e.before.startsWith('Riverbend'),
+        );
+        rich = {
+          headingEditable,
+          after: lede?.after ?? null,
+          text: sent?.comments[0]?.text ?? null,
+        };
+      }
       return {
+        ...(rich ? { rich } : {}),
         stored: (first?.pageEdits ?? []).map((e) => ({
           selector: e.selector,
           before: e.before,
@@ -327,13 +398,7 @@ async function main(): Promise<void> {
     };
 
     const devDoc = (): string => 'harborlight-dev';
-    const devScenario = await run(
-      devUrl,
-      devDoc,
-      pageSurface(cdp),
-      devFile,
-      devPage(AFTER, board, ws),
-    );
+    const devScenario = await run(devUrl, devDoc, devSurface, devFile, devPage(AFTER, board, ws));
     const mockScenario = await run(
       mockUrl,
       () => mockId,

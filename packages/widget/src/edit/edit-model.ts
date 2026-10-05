@@ -1,5 +1,6 @@
 import { createAnchor } from '@claude-workspaces/core/anchor/element';
 import { type PageEdit, readPageEdits } from '@claude-workspaces/core/page-edits';
+import { toMarkdown } from './edit-markdown.ts';
 
 /**
  * Edit mode's rules that need no screen: which element a tap edits, the
@@ -74,8 +75,14 @@ export function normText(s: string | null | undefined): string {
   return (s ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/** Pictures a text element may carry and still be edited as text: the icon
+ *  in a heading's anchor link, an emoji image. They hold no words, so the
+ *  edit leaves them out (`edit-markdown.ts`). */
+const PICTURE = new Set(['svg', 'SVG', 'IMG']);
+
 function onlyInline(el: Element): boolean {
   for (const c of el.children) {
+    if (PICTURE.has(c.tagName)) continue;
     if (!INLINE.has(c.tagName) || !onlyInline(c)) return false;
   }
   return true;
@@ -124,6 +131,9 @@ export function cssPath(el: Element): string {
 
 interface Draft {
   edit: Omit<PageEdit, 'after'>;
+  /** The element as `after` would say it before any change, so a draft
+   *  typed back to where it started is no edit. */
+  start: string;
   /** The element's children as they were, so undo gives its markup back. */
   nodes: Node[];
 }
@@ -141,6 +151,7 @@ export class EditDrafts {
     if (this.drafts.has(el)) return;
     this.drafts.set(el, {
       edit: { anchor: createAnchor(el), selector: cssPath(el), before: normText(el.textContent) },
+      start: toMarkdown(el),
       nodes: [...el.childNodes].map((n) => n.cloneNode(true)),
     });
   }
@@ -149,18 +160,16 @@ export class EditDrafts {
     return this.drafts.has(el);
   }
 
-  /** The elements whose words now differ from what they were. */
+  /** The elements that now differ from what they were. */
   elements(): HTMLElement[] {
-    return [...this.drafts.keys()].filter(
-      (el) => normText(el.textContent) !== this.drafts.get(el)?.edit.before,
-    );
+    return [...this.drafts.keys()].filter((el) => toMarkdown(el) !== this.drafts.get(el)?.start);
   }
 
   /** Every draft that changes something, as the edit the agent will get. */
   changed(): PageEdit[] {
     return this.elements().map((el) => ({
       ...(this.drafts.get(el) as Draft).edit,
-      after: normText(el.textContent),
+      after: toMarkdown(el),
     }));
   }
 
