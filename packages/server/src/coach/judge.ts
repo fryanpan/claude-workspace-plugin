@@ -5,15 +5,17 @@
  * reach his page. QUIET BY DEFAULT: models asked when to coach step in far
  * too often (in MetaCLASS, arXiv 2602.02457, they stayed quiet in 4% of the
  * cases where quiet was right in 42%). So a moment must name one goal AND
- * quote words from that goal's "Act differently when", and the quote is
- * checked here against the goal's own text. Anything else is refused, with
- * the reason, so the session can see why.
+ * quote words from it, and the quote is checked here against the goal's own
+ * text. He writes each goal with its trigger in it ("If I spend more than an
+ * hour on X, ask me Y"), so the words a moment can quote are the moment he
+ * named. Anything else is refused, with the reason, so the session can see
+ * why.
  */
 import type { LearningGoal } from './goals-doc.ts';
 
 export const OBSERVED_MAX_CHARS = 140;
 export const LINE_MAX_CHARS = 220;
-/** The fewest words a quote of a longer trigger may have. */
+/** The fewest words a quote of a longer goal may have. */
 const MIN_QUOTE_WORDS = 3;
 
 export interface CheckedMoment {
@@ -37,10 +39,10 @@ const words = (s: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-/** Are `quote`'s words, in order, a run of the trigger's words? */
-export function quotesTrigger(quote: string, trigger: string): boolean {
+/** Are `quote`'s words, in order, a run of the goal's words? */
+export function quotesGoal(quote: string, goalText: string): boolean {
   const q = words(quote);
-  const t = words(trigger);
+  const t = words(goalText);
   if (!q || !t) return false;
   const n = q.split(' ').length;
   if (n < Math.min(MIN_QUOTE_WORDS, t.split(' ').length)) return false;
@@ -60,8 +62,8 @@ export function checkMoment(
     return 'matched, observed and line are text';
   }
   const target = goals[goal - 1];
-  if (!target || !quotesTrigger(matched, target.when)) {
-    return `matched must copy at least ${MIN_QUOTE_WORDS} words in order from goal ${goal}'s "Act differently when"`;
+  if (!target || !quotesGoal(matched, target.text)) {
+    return `matched must copy at least ${MIN_QUOTE_WORDS} words in order from goal ${goal}’s own words: "${target?.text.split('\n').join(' ') ?? ''}"`;
   }
   const o = clean(observed);
   const l = clean(line);

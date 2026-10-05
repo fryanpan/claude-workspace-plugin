@@ -161,9 +161,8 @@ describe('the owner’s settings and answers', () => {
     expect(await landingAsOwner()).toContain('data-readiness="more" aria-pressed="true"');
   });
 
-  it('adds a goal, takes “no update needed”, and has no moment to answer', async () => {
+  it('takes “no update needed”, and has no moment to answer', async () => {
     const h = await ownerHeaders();
-    expect((await postJson('/coach/goals/add', {}, h, OWNER_HOST)).status).toBe(200);
     expect((await postJson('/coach/review', { answer: 'later' }, h, OWNER_HOST)).status).toBe(400);
     expect((await postJson('/coach/review', { answer: 'no-update' }, h, OWNER_HOST)).status).toBe(
       200,

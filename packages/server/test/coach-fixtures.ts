@@ -88,6 +88,48 @@ I start on a solution before I have written down why it matters.
 Write two lines on the problem and who has it, then the design.
 `;
 
+/**
+ * The doc as he fills it by voice: both goals as bullets under Goal 1's
+ * "What I want to do better", each carrying its own trigger, and the other
+ * three parts left empty.
+ */
+export const SPOKEN_GOALS_DOC = `# Learning goals
+
+## Your coach’s name
+
+Riverbend
+
+## Goal 1
+
+### What I want to do better
+
+- If I spend more than about an hour on a mock, ask me whether the Harborlight post is done.
+- When I leave a Saltmarsh message unanswered at the end of the day, ask me to reply first.
+
+### What’s behind it
+
+### Act differently when
+
+### How
+`;
+
+/** The one-section layout: goals as bullets (one with a sub-bullet) and a
+ *  paragraph, in any order. */
+export const ONE_SECTION_GOALS_DOC = `# Learning goals
+
+## Your coach’s name
+
+Saltmarsh
+
+## What I want to do better
+
+- If I polish styles while the Harborlight post is unfinished, ask me why.
+  - Twenty minutes is enough.
+- When Alice waits on me, ask me to answer the same day.
+
+If I start a design before writing down why it matters, ask me who has the problem.
+`;
+
 export const DOCS: Record<string, { title: string; board: string; kind: string }> = {
   'd-post': { title: 'Harborlight launch post draft', board: 'Harborlight', kind: 'markdown' },
   'd-hover': { title: 'Button hover states mock', board: 'Harborlight', kind: 'mockup' },

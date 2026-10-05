@@ -20,7 +20,6 @@ const base: CoachSectionInput = {
   name: 'Your coach',
   online: true,
   goals: [],
-  unready: 0,
   reviewDue: false,
   readiness: 'normal',
   week: WEEK,
@@ -36,20 +35,20 @@ describe('renderCoachSection', () => {
     expect(html).not.toContain('Learning goals</a>');
   });
 
-  it('lists the goals, names what is missing, and presses his setting', () => {
+  it('lists the goals and presses his setting', () => {
     const html = renderCoachSection({
       ...base,
       docUrl: '/workspaces/w-coach/docs/d-goals',
       name: 'Salt <b>marsh</b>',
       goals: ['Hard <i>work</i> first', 'Reply the same day'],
-      unready: 1,
       readiness: 'less',
     });
     expect(html).toContain('<h2 id="coach-h">Salt &lt;b&gt;marsh&lt;/b&gt;</h2>');
     expect(html).toContain(
       '<li>Hard &lt;i&gt;work&lt;/i&gt; first</li><li>Reply the same day</li>',
     );
-    expect(html).toContain('One goal needs “Act differently when”');
+    expect(html).not.toContain('Act differently when');
+    expect(html).not.toContain('add-goal');
     expect(html).toContain('data-readiness="less" aria-pressed="true"');
     expect(html).toContain('data-readiness="normal" aria-pressed="false"');
     expect(html).toContain('>How readily<');

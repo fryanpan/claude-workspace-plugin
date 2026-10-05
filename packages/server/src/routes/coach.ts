@@ -2,7 +2,6 @@
  * ── The coach: the owner's learning goals, where he is, and his answers ──
  *
  *   POST /coach/setup                make the learning-goals doc, once → `{ url }`
- *   POST /coach/goals/add            add a goal's four empty parts to it
  *   POST /coach/review               `{ answer: 'no-update' }` to the weekly offer
  *   POST /coach/prefs                `{ readiness: 'less' | 'normal' | 'more' }`
  *   POST /coach/boards               `{ workspaceId, off: boolean }`: "Coach off
@@ -30,14 +29,14 @@
  *    the page reads as "stop": every board and doc page sends it.
  *  - Raising a moment is for the coach session, a process on this machine
  *    (`refuseNonLocal`). What it sends is checked before it reaches a page:
- *    a goal to act on, no other moment open, and a quote of that goal's
- *    "Act differently when" (`coach/judge.ts`).
+ *    a goal to act on, no other moment open, and words quoted from that
+ *    goal (`coach/judge.ts`).
  *
  * What he does reaches one agent stream, the coach session's
  * (`coach/session-feed.ts`).
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
-import { addGoal, ensureGoalsDoc } from '../coach/setup.ts';
+import { ensureGoalsDoc } from '../coach/setup.ts';
 import type { HereSignal } from '../coach/stream.ts';
 import {
   COACH_READINESS,
@@ -176,10 +175,6 @@ export async function handleCoachRoutes(
     return j(200, {
       url: `/workspaces/${encodeURIComponent(doc.workspaceId)}/docs/${encodeURIComponent(doc.docId)}`,
     });
-  }
-  if (pathname === '/coach/goals/add') {
-    if (!store.goalsDoc) return j(409, { error: 'not-set-up' });
-    return addGoal(store, setup) ? j(200, { ok: true }) : j(500, { error: 'add-failed' });
   }
   if (pathname === '/coach/review') {
     if (body?.answer !== 'no-update')

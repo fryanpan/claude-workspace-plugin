@@ -2,7 +2,7 @@
  * Workflow A's first step and the coach's composition: "Set up my coach"
  * makes the goals doc and the memory doc on a board of its own and never
  * overwrites a file, a board set up before the memory doc gets one at boot,
- * "Add a goal" numbers after the rest, and the live activity feed reaches
+ * and the live activity feed reaches
  * the coach of its own data dir only, and from there the coach session.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -15,7 +15,6 @@ import { goalsDocTemplate } from '../src/coach/goals-doc.ts';
 import {
   type CoachSetupDeps,
   MEMORY_TEMPLATE,
-  addGoal,
   ensureGoalsDoc,
   goalsDocPath,
   memoryDocPath,
@@ -50,11 +49,6 @@ function fakes(dataDir: string) {
       return docId;
     },
     docExists: (id) => docs.has(id),
-    readMarkdown: (id) => docs.get(id) ?? null,
-    appendMarkdown: (id, md) => {
-      docs.set(id, `${docs.get(id) ?? ''}\n${md}`);
-      return true;
-    },
   };
   return { deps, docs, boards, filed };
 }
@@ -103,18 +97,6 @@ describe('ensureGoalsDoc', () => {
   });
 });
 
-describe('addGoal', () => {
-  it('appends the next goal number after the ones already there', async () => {
-    const store = new CoachStore(dir, at(9));
-    const f = fakes(dir);
-    expect(addGoal(store, f.deps)).toBe(false);
-    const doc = await ensureGoalsDoc(store, f.deps, at(9));
-    f.docs.set(doc?.docId ?? '', GOALS_DOC);
-    expect(addGoal(store, f.deps)).toBe(true);
-    expect(f.docs.get(doc?.docId ?? '')).toContain('## Goal 4\n\n### What I want to do better');
-  });
-});
-
 const OPEN_PRIVACY: BoardPrivacy = {
   localOnlyBoard: () => false,
   localOnlyDoc: () => false,
@@ -135,7 +117,6 @@ describe('wireCoach', () => {
       attachFileAsync: async () => ({ ok: true }),
       docExists: () => md !== null,
       readMarkdownBody: () => md,
-      applyBlockEdits: () => ({ ok: true }),
     };
     return wireCoach({
       dataDir,

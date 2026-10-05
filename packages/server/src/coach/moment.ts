@@ -14,7 +14,7 @@
  * another doc or board, which closes it as `moved-on`.
  */
 import type { Event } from '../activity.ts';
-import { type GoalsDocReading, actionableGoals, goalTitle } from './goals-doc.ts';
+import { type GoalsDocReading, goalTitle } from './goals-doc.ts';
 import { checkMoment } from './judge.ts';
 import type { SessionNews } from './session-feed.ts';
 import type { CoachStore } from './store.ts';
@@ -146,12 +146,12 @@ export function createCoach(deps: CoachDeps): Coach {
     raise(body) {
       const t = now();
       const reading = deps.readGoals();
-      const goals = reading ? actionableGoals(reading) : [];
+      const goals = reading?.goals ?? [];
       if (goals.length === 0) {
         return {
           ok: false,
           error: 'no-goals',
-          message: 'He has no goal with "Act differently when" filled in.',
+          message: 'He has no goals written under "What I want to do better".',
         };
       }
       if (deps.store.openMoment()) {
