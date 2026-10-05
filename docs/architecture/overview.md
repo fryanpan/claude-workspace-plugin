@@ -1840,8 +1840,8 @@ and the session's Coach memory doc on a board of their own (`coach/setup.ts`,
 Talk. The doc has the coach's name and one section, "What I want to do
 better": each top-level bullet or paragraph there is one goal and names its
 own trigger. A doc in the older layout, one section of four parts per goal,
-still reads, its "Act differently when" joined to each goal. The front page's section (`coach/section.ts`, `coach/landing.ts`) lists
-the goals, offers a review when they have not changed in a week, holds the
+still reads, its "Act differently when" joined to each goal. The front
+page's section (`coach/section.ts`, `coach/landing.ts`) lists the goals, offers a review when they have not changed in a week, holds the
 how-readily setting, and says how many events the session read today.
 (B) *Observe*: board and doc pages send what he is looking at, and each
 paragraph he writes when he pauses, to `/coach/here`
