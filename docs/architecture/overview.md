@@ -524,7 +524,9 @@ edit chunk installs it when the doc holds a words anchor, then redraws the
 pins. An optional `suggest` stores new words on the first comment; the same
 chunk (`edit/edit-suggest.ts`) shows them in the popover with Accept, which
 files a pencil-style `pageEdits` thread and resolves the suggestion, and
-Reject, which only resolves it.
+Reject, which only resolves it. The same chunk redraws an edit's comment in the widget
+as its word diff (`edit/edit-diff-view.ts`), since the budgeted bundle shows
+every comment as plain text.
 
 Every link to such a thread is the page plus `?thread=<id>`, built by
 `page-thread-link.ts`, a top-level module of core so the server and the
