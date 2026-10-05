@@ -23,8 +23,9 @@ import { isValidAgentId } from '../agent-watches.ts';
  * TWO GATES, AND THEY NEVER OVERLAP:
  *
  *  - The post is for the posters the inbox config names (the reader and
- *    `posterAgentIds`), each proved the way an agent's own feed is (`authorizeAgentCaller`: on this
- *    machine, not through the edge, not from a page) AND with its token,
+ *    `posterAgentIds`), each proved the way an agent's own feed is
+ *    (`authorizeAgentCaller`: on this machine, not through the edge, not
+ *    from a page) AND with its token,
  *    always — not only once `CW_REQUIRE_AGENT_TOKEN` is on. A token is
  *    minted only to the process of a session launched as that agent, so a
  *    second session that merely names a poster's id is refused. A poster's
@@ -94,6 +95,7 @@ const MAX_REPLY_BYTES = 64_000;
 const PASS_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 const POST_KEYS = new Set(['agentId', 'pass', 'rows', 'run', 'dismiss']);
 const DISMISS_KEYS = new Set(['dedupeKey', 'reason']);
+const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state|reply)$/;
 
 /** A dismiss entry's thread id, or why it is refused. Only the one reason
  *  is accepted, so a poster cannot file a row under spam or not-needed. */
@@ -108,7 +110,6 @@ function parseDismiss(raw: unknown): { key: string } | { reason: string } {
   }
   return { key: e.dedupeKey };
 }
-const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state|reply)$/;
 
 /** Bryan's own front page, and nobody else's: the grant door's three checks. */
 function refuseNonOwner(ctx: InboxRoutesContext, rq: InboxRouteRequest): Response | null {
