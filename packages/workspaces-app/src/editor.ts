@@ -23,6 +23,7 @@ import type { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockIdentity } from './block-identity.ts';
 import { workspaceIdFromPath } from './doc-path.ts';
+import { boardEmbedFramesFor } from './doc/board-embed-frames.ts';
 import { FootnoteDecorations } from './doc/footnote-decorations.ts';
 import { resolveDocLink, safeLinkHref } from './link-open.ts';
 import { ListBehavior } from './list-behavior.ts';
@@ -249,6 +250,10 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // plan doc — render-time only, self-gating on the doc's own meta, so
       // it costs nothing on every other surface.
       PlanPlaceholder.configure({ ydoc: opts.ydoc }),
+      // `::sfworks{block="…"}` lines show the board app's live frame under
+      // them — render-time only, on a page under a board; elsewhere it installs
+      // nothing (doc/board-embed-frames.ts).
+      boardEmbedFramesFor(workspaceIdFromPath(location.pathname)),
       ...(opts.extraExtensions ?? []),
     ],
     onSelectionUpdate: () => opts.onSelectionChange?.(),

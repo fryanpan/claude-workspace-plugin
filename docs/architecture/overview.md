@@ -1236,6 +1236,14 @@ one row however it was found, and nothing addressed to a person carries an
 identifier. Its recovery line is the commonest rule a reader can act ON,
 which is not always the commonest rule.
 
+A BOARD EMBED — a doc line `::sfworks{block="goal-chart"}` showing a board
+app's page beneath it — is `core/board-embeds.ts`, a new top-level core module
+and no new box: the mapping's shape, the directive parser and the URL builder,
+read by both the route that stores the mapping (`routes/workspace-embeds.ts`,
+a field on the board record) and the editor decoration that draws the frame
+(`workspaces-app/doc/board-embed-frames.ts`). The frame is a view decoration,
+never a node, so the doc's text is the line as typed.
+
 The NOTE-TAKER A DOC USES is five modules and no new box.
 `core/notes-method.ts` is the shared vocabulary — the three methods, their
 labels and prices, the default, and the parser that drops an unknown one

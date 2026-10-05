@@ -1192,6 +1192,43 @@ body.has-set .doc-switcher-caret {
   max-width: 100%;
 }
 
+/* ========== board embeds (doc/board-embed-frames.ts) ========== */
+/* A `::name{block="…"}` line's live app frame, drawn under the line. */
+#editor > .ProseMirror .board-embed {
+  position: relative;
+  margin: 0.5em 0 1em;
+  cursor: pointer;
+}
+#editor > .ProseMirror .board-embed iframe {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  pointer-events: none; /* inert until tapped: the doc scrolls over it */
+}
+#editor > .ProseMirror .board-embed.is-active {
+  cursor: auto;
+}
+#editor > .ProseMirror .board-embed.is-active iframe {
+  pointer-events: auto;
+}
+#editor > .ProseMirror .board-embed-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  font: 12px / 1.4 var(--sans);
+  color: var(--fg-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+#editor > .ProseMirror .board-embed.is-active .board-embed-hint {
+  display: none;
+}
+
 /* ========== thread highlights ========== */
 #editor > .ProseMirror .thread-range {
   background: rgba(255, 213, 79, 0.35);
