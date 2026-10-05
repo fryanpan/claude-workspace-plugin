@@ -621,6 +621,13 @@ export async function handleWorkspaceTool(
         lastChange: res.lastChange,
       });
     }
+    case 'set_board_embeds': {
+      const { workspaceId, embeds } = a as { workspaceId: string; embeds: unknown };
+      // The route checks the mapping's shape and answers a 400 naming it.
+      return ok(
+        await http('PUT', `/workspaces/${encodeURIComponent(workspaceId)}/embeds`, { embeds }),
+      );
+    }
     // --- The repo registry: this machine's checkouts of a project ---
     //
     // Machine verbs, not board verbs, and deliberately without a

@@ -233,6 +233,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
 
   ...family('routes/doc-move.ts', [['trusted-local', '/workspaces/:ws/docs/:docId/move', 'POST']]),
 
+  ...family('routes/workspace-embeds.ts', [['trusted-local', '/workspaces/:ws/embeds', 'GET PUT']]),
+
   ...family('routes/workspace-settings.ts', [
     ['trusted-local', '/workspaces/:ws/goal', 'PUT'],
     ['trusted-local', '/workspaces/:ws/retired', 'PUT'],

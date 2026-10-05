@@ -20,6 +20,7 @@
 import { handleWorkspaceAttachments } from './workspace-attachments.ts';
 import { handleWorkspaceContent } from './workspace-content.ts';
 import { handleWorkspaceDelete } from './workspace-delete.ts';
+import { handleWorkspaceEmbeds } from './workspace-embeds.ts';
 import { handleWorkspaceGoals } from './workspace-goals.ts';
 import { handleWorkspaceHome } from './workspace-home.ts';
 import { handleWorkspaceKeepMoving } from './workspace-keep-moving.ts';
@@ -66,6 +67,9 @@ export async function handleWorkspaceRoutes(
     // here, so its position carries no behaviour.
     (await handleWorkspaceRelated(ctx, rq)) ??
     (await handleWorkspaceSettings(ctx, rq)) ??
+    // The embed mapping. Anchored on its own `embeds` segment; position
+    // carries no behaviour.
+    (await handleWorkspaceEmbeds(ctx, rq)) ??
     // Who has access to this board, and at what level. Anchored on its own
     // `members` segment, which nothing else here matches, so its position
     // carries no behaviour — it sits beside the settings because that is the
