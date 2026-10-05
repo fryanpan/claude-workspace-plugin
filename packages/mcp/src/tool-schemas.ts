@@ -377,6 +377,25 @@ export const TOOL_LIST: ListToolsResult = {
       },
     },
     {
+      name: 'rank_review_item',
+      description:
+        "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, so Bryan's Home queue shows it in that order. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. rank null clears it. A rank stops counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            description: "The item's queue key, as the workspace.new_asks line gives it.",
+          },
+          rank: {
+            type: ['number', 'null'],
+            description: 'A whole number from 1 (first) to 10000, or null to clear the rank.',
+          },
+        },
+        required: ['key', 'rank'],
+      },
+    },
+    {
       name: 'coach_moment',
       description:
         "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.digest plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",

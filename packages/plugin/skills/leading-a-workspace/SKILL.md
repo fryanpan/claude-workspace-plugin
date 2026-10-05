@@ -71,6 +71,8 @@ The second question is which order needs the fewest reviews and decisions from t
 
 **Re-rank the band on a trigger.** When a task is filed above the band's median, a goal is edited, or several tasks have arrived since the last pass, re-read the whole band against its goal and rewrite the order, documenting what moved and why. **Never move a task a person placed without asking them.**
 
+**If you lead the plan board, rank the new asks on every board.** A `workspace.new_asks` line arrives every ten minutes that something was filed: each ask's board, row, headline and key. For each one this week's goals put ahead of the plan order, call `rank_review_item(key, rank)`, where 1 is first. Ranked items lead the primary user's Home queue; everything else keeps the plan order, so rank only what should move. `rank: null` clears a rank. When the primary user moves that task themselves, your earlier rank stops counting — do not re-rank it over their move.
+
 ## 3. Work in priority order — including over the primary user
 
 **Do not work the latest request first, even when it comes straight from the primary user.** Check priority first, say where the new thing lands, and then work the top. Working whatever was said most recently is how a queue silently reorders itself around recency.

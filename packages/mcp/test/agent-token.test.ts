@@ -140,9 +140,11 @@ describe('the MCP agent-token store', () => {
 });
 
 describe('which paths carry the bearer', () => {
-  it('carries it on the durable watch set, the spoken answer, the inbox post, and nothing else', () => {
+  it('carries it on the durable watch set, the spoken answer, the inbox post, the plan lead’s rank, and nothing else', () => {
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches')).toBe(true);
     expect(pathNeedsAgentToken('/inbox/rows')).toBe(true);
+    expect(pathNeedsAgentToken('/api/review-queue/rank')).toBe(true);
+    expect(pathNeedsAgentToken('/api/review-queue')).toBe(false);
     // Bryan's own taps are not an agent's to make; they carry no bearer.
     expect(pathNeedsAgentToken('/inbox/rows/ib-abcdefghijkl/state')).toBe(false);
     expect(pathNeedsAgentToken('/api/agents/agent-mira/watches?x=1')).toBe(true);
