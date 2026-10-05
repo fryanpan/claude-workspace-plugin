@@ -177,7 +177,7 @@ export class CoachStore {
     return true;
   }
 
-  /** One event went to the coach session. */
+  /** One turn of the coach session: a digest it was sent. */
   countEvent(now: number): void {
     const day = localDay(now, this.state.timeZone);
     const counts = this.state.eventsByDay;

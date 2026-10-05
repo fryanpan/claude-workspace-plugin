@@ -32,6 +32,51 @@ describe('coachLine', () => {
     );
   });
 
+  it('reads a digest as one line per stay or thing done, with the words he wrote', () => {
+    const t = (h: number, m: number) => Date.UTC(2026, 9, 7, h, m);
+    const line = coachLine(
+      'coach.digest',
+      {
+        from: t(17, 0),
+        to: t(17, 15),
+        items: [
+          {
+            kind: 'view',
+            at: t(17, 0),
+            minutes: 12,
+            boardId: 'w-1',
+            board: 'Harborlight',
+            docId: 'd-2',
+            doc: 'Button hover mock',
+            headings: ['Hover', 'Focus'],
+          },
+          {
+            kind: 'comment',
+            at: t(17, 12),
+            boardId: 'w-1',
+            board: 'Harborlight',
+            docId: 'd-2',
+            doc: 'Button hover mock',
+            text: 'Softer shadow?\nAnd a 2px lift.',
+          },
+          { kind: 'left', at: t(17, 14), boardId: 'w-1', board: 'Harborlight' },
+        ],
+      },
+      'America/Los_Angeles',
+    );
+    expect(line).toBe(
+      [
+        '[coach.digest 10:00–10:15] What the owner did:',
+        '- 10:00, 12 min: read "Button hover mock" on board "Harborlight" ("Hover", "Focus")',
+        '- 10:12: commented on "Button hover mock" on board "Harborlight"',
+        '  Softer shadow?',
+        '  And a 2px lift.',
+        '- 10:14: left the page of board "Harborlight"',
+      ].join('\n'),
+    );
+    expect(coachLine('coach.digest', { items: [{ kind: 'danced', boardId: 'w-1' }] })).toBeNull();
+  });
+
   it('reads an answer and a preference as things to remember', () => {
     expect(
       coachLine('coach.answer', {

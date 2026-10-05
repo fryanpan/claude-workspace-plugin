@@ -22,7 +22,6 @@ import {
   DRIFTING_DAY,
   GOALS_DOC,
   LABELLED_POINTS,
-  ON_TRACK_DAY,
   SPOKEN_GOALS_DOC,
   type Signal,
   WS,
@@ -121,7 +120,6 @@ describe('every event reaches the session', () => {
       docId: 'd-hover',
       text: 'Try a softer shadow on hover, and a 2px lift.',
     });
-    expect(h.store.week(at(18)).eventsToday).toBe(16);
   });
 
   it('drops a repeat of the same view, and sends a changed passage', () => {
@@ -131,12 +129,6 @@ describe('every event reaches the session', () => {
     h.coach.here({ ...here, heading: 'Why', text: 'one' });
     h.coach.here({ ...here, heading: 'Why', text: 'two' });
     expect(events(h.told).map((e) => e.text)).toEqual(['one', 'two']);
-  });
-
-  it('with no session listening, nothing is counted', () => {
-    const h = harness({ listening: false });
-    for (const s of ON_TRACK_DAY) h.step(s);
-    expect(h.store.week(at(18)).eventsToday).toBe(0);
   });
 });
 

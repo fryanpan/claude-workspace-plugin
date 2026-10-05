@@ -1,8 +1,9 @@
 /**
  * How the coach's frames read to the coach session that receives them.
  *
- * The server sends the Coach board's lead every event as it happens: what
- * the owner is reading, writing and commenting (`coach.event`), how they
+ * The server sends the Coach board's lead what the owner read, wrote and
+ * commented as one digest per 15-minute window (`coach.digest`; a single
+ * `coach.event` still reads, for a server from before digests), how they
  * answered a moment (`coach.answer`), and how readily they want the coach to
  * speak up (`coach.preference`). The session stays quiet unless an event
  * plainly matches a goal, and speaks through `coach_moment`; what to do with
@@ -27,6 +28,24 @@ export interface CoachPayload {
   goal?: string;
   line?: string;
   readiness?: string;
+  /** A digest's window, and what happened in it. */
+  from?: number;
+  to?: number;
+  items?: CoachDigestItem[];
+}
+
+/** One line of a digest: a stay in one place, or one thing done. */
+export interface CoachDigestItem {
+  kind?: string;
+  at?: number;
+  minutes?: number;
+  headings?: string[];
+  boardId?: string;
+  board?: string;
+  docId?: string;
+  doc?: string;
+  heading?: string;
+  text?: string;
 }
 
 const VERB: Record<string, string> = {
@@ -64,11 +83,37 @@ function clock(at: number | undefined, timeZone?: string): string {
   return ` ${t}`;
 }
 
+const whereOf = (p: CoachDigestItem): string => {
+  const board = `board "${p.board ?? p.boardId}"`;
+  return p.docId ? `"${p.doc ?? p.docId}" on ${board}` : `the page of ${board}`;
+};
+
+/** `- 14:05, 12 min: read …` or `- 14:05: wrote, in …`, with any text below. */
+function digestItemLine(i: CoachDigestItem, timeZone?: string): string | null {
+  if (!i.boardId || !i.kind) return null;
+  const t = clock(i.at, timeZone).trim();
+  if (i.kind === 'view') {
+    const heads = i.headings?.length ? ` (${i.headings.map((h) => `"${h}"`).join(', ')})` : '';
+    return `- ${t}, ${i.minutes ?? 0} min: read ${whereOf(i)}${heads}`;
+  }
+  const verb = VERB[i.kind];
+  if (!verb) return null;
+  const under = i.heading ? `, under "${i.heading}"` : '';
+  const head = `- ${t}: ${verb} ${whereOf(i)}${under}`;
+  return i.text ? `${head}\n  ${i.text.replace(/\n/g, '\n  ')}` : head;
+}
+
+function digestLine(p: CoachPayload, timeZone?: string): string | null {
+  const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
+  if (lines.length === 0) return null;
+  const span = `${clock(p.from, timeZone)}–${clock(p.to, timeZone).trim()}`;
+  return `[coach.digest${span}] What the owner did:\n${lines.join('\n')}`;
+}
+
 function eventLine(p: CoachPayload, timeZone?: string): string | null {
   const verb = p.kind ? VERB[p.kind] : undefined;
   if (!verb || !p.boardId) return null;
-  const board = `board "${p.board ?? p.boardId}"`;
-  const where = p.docId ? `"${p.doc ?? p.docId}" on ${board}` : `the page of ${board}`;
+  const where = whereOf(p);
   const under = p.heading ? `, under "${p.heading}"` : '';
   const head = `[coach.event${clock(p.at, timeZone)}] The owner ${verb} ${where}${under}.`;
   return p.text ? `${head}\n${p.text}` : head;
@@ -76,6 +121,7 @@ function eventLine(p: CoachPayload, timeZone?: string): string | null {
 
 /** The line for one coach frame, or null when the frame is not one. */
 export function coachLine(event: string, p: CoachPayload, timeZone?: string): string | null {
+  if (event === 'coach.digest') return digestLine(p, timeZone);
   if (event === 'coach.event') return eventLine(p, timeZone);
   if (event === 'coach.answer') {
     const how = p.answer ? ANSWER[p.answer] : undefined;

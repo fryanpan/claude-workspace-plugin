@@ -86,7 +86,7 @@ export function createCoach(deps: CoachDeps): Coach {
   const forward = (e: CoachEvent) => {
     const label = e.docId ? deps.label(e.docId) : {};
     const board = deps.boardName(e.workspaceId);
-    const sent = deps.tell(
+    deps.tell(
       {
         event: 'coach.event',
         kind: e.kind,
@@ -99,7 +99,6 @@ export function createCoach(deps: CoachDeps): Coach {
       },
       e.at,
     );
-    if (sent) deps.store.countEvent(e.at);
   };
 
   /** He moved: a moment raised somewhere else closes, then the events go.
