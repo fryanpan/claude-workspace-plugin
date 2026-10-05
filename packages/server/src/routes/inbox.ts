@@ -2,11 +2,13 @@ import { isValidAgentId } from '../agent-watches.ts';
 /**
  * ── Incoming Messages: the reader's post and Bryan's taps ──
  *
- *   POST /inbox/rows               the reader's pass: up to 40 rows, upserted
+ *   POST /inbox/rows               a poster's pass: up to 40 rows, upserted
  *                                  by source thread id. The ONLY write path
  *                                  for message content. An optional `run`
- *                                  closes the reader's own scheduled run
- *                                  (inbox/run-close.ts).
+ *                                  closes the poster's own scheduled run
+ *                                  (inbox/run-close.ts); an optional
+ *                                  `dismiss` takes up to 40 rows off the
+ *                                  list as handled elsewhere.
  *   GET  /inbox/rows/:id/body      the message text, for an opened line,
  *                                  and which reply it offers
  *   POST /inbox/rows/:id/state     Bryan's tap: snooze, dismiss, remove,
@@ -20,12 +22,14 @@ import { isValidAgentId } from '../agent-watches.ts';
  *
  * TWO GATES, AND THEY NEVER OVERLAP:
  *
- *  - The post is for one agent: the reader the inbox config names, proved
- *    the way an agent's own feed is (`authorizeAgentCaller`: on this
+ *  - The post is for the posters the inbox config names (the reader and
+ *    `posterAgentIds`), each proved the way an agent's own feed is (`authorizeAgentCaller`: on this
  *    machine, not through the edge, not from a page) AND with its token,
  *    always — not only once `CW_REQUIRE_AGENT_TOKEN` is on. A token is
  *    minted only to the process of a session launched as that agent, so a
- *    second session that merely names the reader's id is refused.
+ *    second session that merely names a poster's id is refused. A poster's
+ *    one state move is the dismiss, by thread id, with the one reason
+ *    `handled-elsewhere`; it is a history entry Bryan can undo.
  *  - The read and the taps are for Bryan: a person proof (the Access email
  *    or the session cookie) that resolves to the owner, from the front
  *    page's own origin — the grant door's gate (`task-grants.ts`). An agent
@@ -41,12 +45,17 @@ import { isValidAgentId } from '../agent-watches.ts';
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
 import type { InboxBodies } from '../inbox/bodies.ts';
-import type { InboxConfig } from '../inbox/config.ts';
+import { type InboxConfig, hasInboxPoster, isInboxPoster } from '../inbox/config.ts';
 import type { InboxReplies } from '../inbox/reply.ts';
 import { type RunCloseStore, closeInboxRun } from '../inbox/run-close.ts';
 import type { InboxStore, OwnerAction } from '../inbox/store.ts';
-import { DISMISS_REASONS, type DismissReason, MAX_ROWS_PER_POST } from '../inbox/types.ts';
-import { type ValidateContext, validateRow } from '../inbox/validate.ts';
+import {
+  AGENT_DISMISS_REASON,
+  DISMISS_REASONS,
+  type DismissReason,
+  MAX_ROWS_PER_POST,
+} from '../inbox/types.ts';
+import { DEDUPE_KEY, type ValidateContext, validateRow } from '../inbox/validate.ts';
 
 export interface InboxRoutesContext {
   store: InboxStore;
@@ -83,7 +92,22 @@ const MAX_POST_BYTES = 1_000_000;
 /** A reply's 4000 code points, each up to four bytes, JSON-escaped, and room over. */
 const MAX_REPLY_BYTES = 64_000;
 const PASS_ID = /^[A-Za-z0-9._:-]{1,64}$/;
-const POST_KEYS = new Set(['agentId', 'pass', 'rows', 'run']);
+const POST_KEYS = new Set(['agentId', 'pass', 'rows', 'run', 'dismiss']);
+const DISMISS_KEYS = new Set(['dedupeKey', 'reason']);
+
+/** A dismiss entry's thread id, or why it is refused. Only the one reason
+ *  is accepted, so a poster cannot file a row under spam or not-needed. */
+function parseDismiss(raw: unknown): { key: string } | { reason: string } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { reason: 'not an object' };
+  const e = raw as Record<string, unknown>;
+  if (Object.keys(e).some((k) => !DISMISS_KEYS.has(k))) return { reason: 'unknown field' };
+  if (e.reason !== AGENT_DISMISS_REASON)
+    return { reason: `reason must be ${AGENT_DISMISS_REASON}` };
+  if (typeof e.dedupeKey !== 'string' || !DEDUPE_KEY.test(e.dedupeKey)) {
+    return { reason: 'dedupeKey' };
+  }
+  return { key: e.dedupeKey };
+}
 const ROW_PATH = /^\/inbox\/rows\/(ib-[A-Za-z0-9]{12})\/(body|state|reply)$/;
 
 /** Bryan's own front page, and nobody else's: the grant door's three checks. */
@@ -127,20 +151,32 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   const allowed = ctx.authorizeAgent(req, agentId);
   if (!allowed.ok) return j(allowed.status, allowed.body);
   const config = ctx.config();
-  if (config.readerAgentId === null) {
+  if (!hasInboxPoster(config)) {
     return j(503, { error: 'inbox-reader-unset', message: 'No inbox reader is configured.' });
   }
-  if (agentId !== config.readerAgentId) {
-    return j(403, { error: 'not-the-inbox-reader', message: 'Only the inbox reader posts rows.' });
+  // The code predates the second poster; callers match on it, so it stays.
+  if (!isInboxPoster(config, agentId)) {
+    return j(403, {
+      error: 'not-the-inbox-reader',
+      message: 'Only an agent the inbox config lists posts rows.',
+    });
   }
   if (Object.keys(body).some((k) => !POST_KEYS.has(k))) return j(400, { error: 'unknown field' });
   const pass = body.pass;
   if (typeof pass !== 'string' || !PASS_ID.test(pass)) return j(400, { error: 'pass' });
   const rows = body.rows;
-  // A pass with nothing new is still a pass, so it may close its run with
-  // no rows. Without a run an empty post says nothing and stays refused.
+  const dismiss = body.dismiss;
+  if (
+    dismiss !== undefined &&
+    (!Array.isArray(dismiss) || dismiss.length < 1 || dismiss.length > MAX_ROWS_PER_POST)
+  ) {
+    return j(400, { error: `dismiss must hold 1 to ${MAX_ROWS_PER_POST} entries` });
+  }
+  // A pass with nothing new is still a pass, so it may close its run, or
+  // dismiss rows, with none. Otherwise an empty post says nothing and stays
+  // refused.
   const hasRun = body.run !== undefined;
-  const min = hasRun ? 0 : 1;
+  const min = hasRun || dismiss !== undefined ? 0 : 1;
   if (!Array.isArray(rows) || rows.length < min || rows.length > MAX_ROWS_PER_POST) {
     return j(400, { error: `rows must hold ${min} to ${MAX_ROWS_PER_POST} rows` });
   }
@@ -171,6 +207,7 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   const posted = store.post(
     accepted.map((a) => a.row),
     pass,
+    agentId === config.readerAgentId,
   );
   if (!posted.ok) {
     log(`[inbox] pass ${pass} refused: over the open-row cap`);
@@ -178,6 +215,11 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
   }
   bodies.putAll(posted.ids.map((id, i) => [id, accepted[i]?.body ?? ''] as const));
   log(`[inbox] pass ${pass}: ${accepted.length} accepted, ${rejected.length} rejected`);
+  const dismissed = Array.isArray(dismiss) ? dismissRows(ctx, dismiss, seen, agentId) : undefined;
+  if (dismissed) {
+    const n = dismissed.filter((d) => d.result === 'dismissed').length;
+    log(`[inbox] pass ${pass}: ${n} of ${dismissed.length} dismissed by ${agentId}`);
+  }
   // After the rows are stored, and never instead of them: a refused close
   // leaves the pass's rows in place and says why in `run`.
   const run = hasRun
@@ -195,8 +237,38 @@ async function handlePost(ctx: InboxRoutesContext, rq: InboxRouteRequest): Promi
     created: posted.created,
     updated: posted.updated,
     rejected,
+    ...(dismissed ? { dismissed } : {}),
     ...(run ? { run } : {}),
   });
+}
+
+/** Each dismiss entry's result by index. A thread this same pass posted is
+ *  refused: a post and a dismiss of one row in one call contradict. */
+function dismissRows(
+  ctx: InboxRoutesContext,
+  entries: readonly unknown[],
+  postedKeys: ReadonlySet<string>,
+  agentId: string,
+): Array<{ index: number; result: string }> {
+  const results: Array<{ index: number; result: string }> = [];
+  const keys: string[] = [];
+  const slots: number[] = [];
+  for (const [index, raw] of entries.entries()) {
+    const p = parseDismiss(raw);
+    if ('reason' in p) results.push({ index, result: p.reason });
+    else if (postedKeys.has(p.key)) results.push({ index, result: 'posted in this pass' });
+    else if (keys.includes(p.key)) results.push({ index, result: 'dedupeKey repeated' });
+    else {
+      keys.push(p.key);
+      slots.push(results.length);
+      results.push({ index, result: '' });
+    }
+  }
+  for (const [i, outcome] of ctx.store.dismissByAgent(keys, agentId).entries()) {
+    const slot = results[slots[i] ?? -1];
+    if (slot) slot.result = outcome;
+  }
+  return results;
 }
 
 function parseAction(body: Record<string, unknown> | null): OwnerAction | null {

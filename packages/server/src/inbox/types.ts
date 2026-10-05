@@ -38,8 +38,13 @@ export const DISMISS_REASONS: readonly DismissReason[] = [
 ];
 
 /** Who moved a row. `owner` is Bryan's tap; `reader` is a pass;
- *  `owner-send` is Bryan's Send from the page (`reply.ts`). */
-export type InboxActor = 'owner' | 'reader' | 'owner-send';
+ *  `owner-send` is Bryan's Send from the page (`reply.ts`); `agent` is a
+ *  poster taking a row off his list as handled elsewhere, named by
+ *  `agentId` on the entry. */
+export type InboxActor = 'owner' | 'reader' | 'owner-send' | 'agent';
+
+/** The one reason a poster may dismiss a row with. */
+export const AGENT_DISMISS_REASON: DismissReason = 'handled-elsewhere';
 
 /** The channels the server sends on. Texts are sent by Bryan in Messages. */
 export type SendChannel = 'gmail' | 'slack';
@@ -59,6 +64,8 @@ export interface InboxHistoryEntry {
   /** A Send from the page: where it went and the id the source gave it. */
   channel?: SendChannel;
   upstreamId?: string;
+  /** An `agent` entry: the poster that dismissed the row. */
+  agentId?: string;
 }
 
 export interface InboxGoalRef {

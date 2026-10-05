@@ -294,7 +294,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'post_inbox_rows',
       description:
-        "Only for the inbox reader session: post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id), and close the scheduled run it answers by passing run. Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
+        "Only for an agent the inbox config lists (the inbox reader, or a poster such as Job Search): post one pass of Incoming Messages rows to Bryan's front page, upserted by dedupeKey (the source thread id), take rows off his list as handled elsewhere by passing dismiss, and close the scheduled run it answers by passing run. Any other caller is refused. Each row is checked field by field; a row with markup, a link, an address or an oversized field is refused by index and the rest are kept. Nothing posted reaches any agent.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -305,7 +305,7 @@ export const TOOL_LIST: ListToolsResult = {
           rows: {
             type: 'array',
             description:
-              'Up to 40 rows (at least one unless run is given). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderId (the sender\'s own id as the source gives it: the email address, the Slack user id, or the phone number; the server hashes it into the sender key and never stores it, so never compute a hash yourself), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
+              'Up to 40 rows (at least one unless run or dismiss is given; omit with dismiss alone). Each: dedupeKey ("gmail:<id>", "slack:<id>" or "messages:<id>"), source (gmail | slack | messages), workspace (email, texts, or a configured Slack workspace key), senderLabel (a short name, no address or number), senderId (the sender\'s own id as the source gives it: the email address, the Slack user id, or the phone number; the server hashes it into the sender key and never stores it, so never compute a hash yourself), senderKnown, purpose (one plain sentence, at most 140 characters, no links), body (the message text, plain), askKind (reply | decision | meeting | intro | fyi), replyBy (today | tomorrow | this-week | when-free), stated? (YYYY-MM-DD), goal? ({workspaceId, goalId} or null), link (the thread\'s own Gmail, Slack or sms: link, or null), receivedAt (ms), messageCount, lastFromOwner.',
             items: { type: 'object' },
           },
           run: {
@@ -315,8 +315,21 @@ export const TOOL_LIST: ListToolsResult = {
             properties: { workspaceId: { type: 'string' }, taskId: { type: 'string' } },
             required: ['workspaceId', 'taskId'],
           },
+          dismiss: {
+            type: 'array',
+            description:
+              "Up to 40 rows to take off Bryan's list because they are handled elsewhere: each {dedupeKey, reason: \"handled-elsewhere\"}, the only reason accepted. An open or snoozed row is dismissed and a new message on it does not bring it back; Bryan can. The reply's dismissed field gives each entry's result by index: dismissed, not-found, not-open, or why it was refused.",
+            items: {
+              type: 'object',
+              properties: {
+                dedupeKey: { type: 'string' },
+                reason: { type: 'string', enum: ['handled-elsewhere'] },
+              },
+              required: ['dedupeKey', 'reason'],
+            },
+          },
         },
-        required: ['pass', 'rows'],
+        required: ['pass'],
       },
     },
     {

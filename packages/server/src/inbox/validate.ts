@@ -42,7 +42,7 @@ const ROW_KEYS = new Set([
   'lastFromOwner',
 ]);
 
-const DEDUPE_KEY = /^(gmail|slack|messages):[A-Za-z0-9._-]{1,96}$/;
+export const DEDUPE_KEY = /^(gmail|slack|messages):[A-Za-z0-9._-]{1,96}$/;
 const SENDER_KEY = /^[0-9a-f]{16}$/;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_MS = 86_400_000;
