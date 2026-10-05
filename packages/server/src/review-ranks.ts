@@ -45,7 +45,7 @@ export const MAX_RANK = 10_000;
 /** A rank older than this is dropped on the next write. */
 export const RANK_TTL_MS = 30 * 24 * 60 * 60_000;
 
-/** The tags that are not a goal id, in the order Home shows them. */
+/** The tags that are not a goal id. */
 export const URGENT_TAG = 'urgent';
 export const NOT_THIS_WEEK_TAG = 'not-this-week';
 export const DROP_TAG = 'drop';
