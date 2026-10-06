@@ -2851,7 +2851,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'set_board_embeds',
       description:
-        'Set which doc lines show a live app frame on this board. A doc paragraph whose whole text is `::<name>{block="<block>"}` shows the mapped app page beneath it, sandboxed and read-only; the line itself stays plain text in the doc. Replaces the whole mapping; pass {} to clear it. Only `block` (lowercase letters, digits, hyphens) reaches the URL.',
+        'Set which doc lines show a live app frame on this board. A doc paragraph whose whole text is `::<name>{block="<block>"}` shows the mapped page beneath it, sandboxed and read-only; the line itself stays plain text in the doc. An entry loads either from an app on this board or from an https origin on the server embed allowlist (an array the owner writes to embed-origins.json in the server data dir; none by default); use an origin when the page needs its own origin, e.g. for a referrer-restricted map key. Replaces the whole mapping; pass {} to clear it. Only `block` (lowercase letters, digits, hyphens) reaches the URL.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -2859,11 +2859,15 @@ export const TOOL_LIST: ListToolsResult = {
           embeds: {
             type: 'object',
             description:
-              'Directive name → {appDocId, pathTemplate}. appDocId is an app attached to this board; pathTemplate starts with {mount} (the app door, /workspaces/<ws>/apps/<appDocId>) and may use {block}, e.g. {"sfworks": {"appDocId": "d-…", "pathTemplate": "{mount}/embed/bike/{block}/"}}.',
+              'Directive name → {appDocId, pathTemplate} or {origin, pathTemplate}, never both. appDocId is an app attached to this board; its pathTemplate starts with {mount} (the app door, /workspaces/<ws>/apps/<appDocId>) and may use {block}, e.g. {"sfworks": {"appDocId": "d-…", "pathTemplate": "{mount}/embed/bike/{block}/"}}. origin is an exact allowlisted https origin; its pathTemplate starts with {origin}, e.g. {"sfworks": {"origin": "https://<allowlisted host>", "pathTemplate": "{origin}/embed/bike/{block}/"}}.',
             additionalProperties: {
               type: 'object',
-              properties: { appDocId: { type: 'string' }, pathTemplate: { type: 'string' } },
-              required: ['appDocId', 'pathTemplate'],
+              properties: {
+                appDocId: { type: 'string' },
+                origin: { type: 'string' },
+                pathTemplate: { type: 'string' },
+              },
+              required: ['pathTemplate'],
             },
           },
         },

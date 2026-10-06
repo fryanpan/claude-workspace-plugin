@@ -1242,7 +1242,9 @@ and no new box: the mapping's shape, the directive parser and the URL builder,
 read by both the route that stores the mapping (`routes/workspace-embeds.ts`,
 a field on the board record) and the editor decoration that draws the frame
 (`workspaces-app/doc/board-embed-frames.ts`). The frame is a view decoration,
-never a node, so the doc's text is the line as typed.
+never a node, so the doc's text is the line as typed. An
+entry names an app door or an allowlisted https origin; the allowlist lives
+as `<dataDir>/embed-origins.json`, read per request by the route.
 
 The NOTE-TAKER A DOC USES is five modules and no new box.
 `core/notes-method.ts` is the shared vocabulary — the three methods, their

@@ -7,9 +7,37 @@
  *
  * Trusted-local, like the parallelism cap: a share visitor never reaches it,
  * so on a shared board the visitor's doc shows the directive as plain text.
+ *
+ * An entry that names an origin is stored only when that origin is on the
+ * deployment's allowlist, and is left out of a read once it no longer is. The
+ * owner writes the allowlist to `<dataDir>/embed-origins.json`, a JSON array
+ * of https origins; `CW_EMBED_ORIGINS` overrides it. It is read on every
+ * request, so a change needs no restart, and a missing or invalid file
+ * allows none.
  */
-import { parseBoardEmbeds } from '@claude-workspaces/core/board-embeds';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  allowedEmbeds,
+  embedOriginsFrom,
+  embedOriginsFromJson,
+  parseBoardEmbeds,
+} from '@claude-workspaces/core/board-embeds';
 import type { WorkspaceRouteRequest, WorkspaceRoutesContext } from './workspace-routes-context.ts';
+
+export const EMBED_ORIGINS_FILE = 'embed-origins.json';
+
+function embedOrigins(dataDir: string): string[] {
+  const env = process.env.CW_EMBED_ORIGINS;
+  if (env !== undefined) return embedOriginsFrom(env);
+  try {
+    return embedOriginsFromJson(
+      JSON.parse(readFileSync(join(dataDir, EMBED_ORIGINS_FILE), 'utf8')),
+    );
+  } catch {
+    return [];
+  }
+}
 
 export async function handleWorkspaceEmbeds(
   ctx: WorkspaceRoutesContext,
@@ -19,9 +47,10 @@ export async function handleWorkspaceEmbeds(
   if (!/^\/workspaces\/[^/]+\/embeds$/.test(pathname) || !scope) return undefined;
   if (req.method !== 'GET' && req.method !== 'PUT') return undefined;
   const { workspaceId } = scope;
+  const origins = embedOrigins(ctx.dataDir);
   if (req.method === 'PUT') {
     const body = await ctx.safeJson(req);
-    const parsed = parseBoardEmbeds(body?.embeds);
+    const parsed = parseBoardEmbeds(body?.embeds, origins);
     if (!parsed.ok) return ctx.j(400, { error: parsed.error });
     if (!ctx.taskStore.setBoardEmbeds(workspaceId, parsed.embeds)) {
       return ctx.j(404, { error: 'workspace not found' });
@@ -29,5 +58,5 @@ export async function handleWorkspaceEmbeds(
   }
   const embeds = ctx.taskStore.boardEmbeds(workspaceId);
   if (!embeds) return ctx.j(404, { error: 'workspace not found' });
-  return ctx.j(200, { workspaceId, embeds });
+  return ctx.j(200, { workspaceId, embeds: allowedEmbeds(embeds, origins) });
 }
