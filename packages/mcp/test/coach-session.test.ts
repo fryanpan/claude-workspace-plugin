@@ -84,7 +84,7 @@ describe('coachLine', () => {
       {
         items,
         plan: {
-          week: '2026-10-05',
+          set: '2026-10-05',
           goals: [
             { id: 'g-harbor', title: 'Harborlight ships the berth map' },
             { id: 'g-river', title: 'Riverbend answers every ask' },
@@ -94,9 +94,21 @@ describe('coachLine', () => {
       'UTC',
     );
     expect(line?.split('\n').slice(-3)).toEqual([
-      "This week's plan (week of 2026-10-05), first to last:",
+      "This week's plan (set 2026-10-05), first to last:",
       '1. Harborlight ships the berth map (g-harbor)',
       '2. Riverbend answers every ask (g-river)',
+    ]);
+    const stale = coachLine(
+      'coach.digest',
+      {
+        items,
+        plan: { set: '2026-09-20', stale: true, goals: [{ id: 'g-salt', title: 'Saltmarsh' }] },
+      },
+      'UTC',
+    );
+    expect(stale?.split('\n').slice(-2)).toEqual([
+      "This week's plan (set 2026-09-20; plan may be stale), first to last:",
+      '1. Saltmarsh (g-salt)',
     ]);
     const none = coachLine('coach.digest', { items, plan: 'no current week plan' }, 'UTC');
     expect(none?.split('\n').at(-1)).toBe("This week's plan: no current week plan.");

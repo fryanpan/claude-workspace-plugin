@@ -14216,9 +14216,13 @@ function planLines(plan) {
   if (typeof plan === "string")
     return [`This week's plan: ${plan}.`];
   const goals = (plan.goals ?? []).filter((g) => g.title);
-  const week = plan.week ? ` (week of ${plan.week})` : "";
+  const notes = [
+    ...plan.set ? [`set ${plan.set}`] : [],
+    ...plan.stale ? ["plan may be stale"] : []
+  ];
+  const note = notes.length > 0 ? ` (${notes.join("; ")})` : "";
   return [
-    `This week's plan${week}, first to last:`,
+    `This week's plan${note}, first to last:`,
     ...goals.map((g, i) => `${i + 1}. ${g.title}${g.id ? ` (${g.id})` : ""}`)
   ];
 }

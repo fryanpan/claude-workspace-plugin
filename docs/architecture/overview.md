@@ -1912,8 +1912,9 @@ lead, as addressed frames (`coach/session-feed.ts`). Events are held: the
 first opens a 15-minute window, which then goes as one digest
 (`coach/digest.ts`: a run of views is a place and its minutes, and what he
 wrote, commented or replied keeps its words). Each digest also carries the
-plan board's goals in order when its "Week of" date is this week, and says
-there is no current week plan otherwise (`coach/week-plan.ts`). A quiet stretch sends nothing,
+plan board's goals in board order with the day the list was last set, marked
+possibly stale past eight days, or says there is no current week plan
+(`coach/week-plan.ts`). A quiet stretch sends nothing,
 and answers and the setting go at once. Past 400 turns in a day it sends
 nothing and the front page says the coach is paused for today. The session raises a moment on `POST /coach/moments`, and
 `coach/judge.ts` refuses one that does not copy three words in order from the

@@ -1,31 +1,39 @@
 /**
- * Each coach digest carries this week's plan goals, id and title, in plan
+ * Each coach digest carries the plan board's goals, id and title, in board
  * order, so the coach judges priority from the plan rather than from task
- * titles. No plan board, no "Week of" date, or a week that has passed reads
- * as no current plan, with no goals listed.
+ * titles. It says when the list was last set, flags a list older than eight
+ * days as possibly stale, and reads no plan board or an empty one as no
+ * current plan.
  */
 import { describe, expect, it } from 'bun:test';
 import { DIGEST_WINDOW_MS, SessionFeed, type SessionFrame } from '../src/coach/session-feed.ts';
 import {
   NO_WEEK_PLAN,
   type PlanBoardReading,
+  planBoardReading,
   weekPlanOf,
-  weekStartOf,
 } from '../src/coach/week-plan.ts';
 
 const ZONE = 'America/Los_Angeles';
-/** Tuesday 6 October 2026, 10:00 in Los Angeles. */
-const TUESDAY = Date.UTC(2026, 9, 6, 17, 0);
 const DAY = 86_400_000;
+/** Monday 5 October 2026, 09:00 in Los Angeles: when Team Lead set the list. */
+const SET = Date.UTC(2026, 9, 5, 16, 0);
+/** The next day, 10:00 there. */
+const TUESDAY = SET + DAY + 60 * 60_000;
 
-const plan = (name: string): PlanBoardReading => ({
-  name,
+const plan = (setAt = SET): PlanBoardReading => ({
   goals: [
-    { id: 'g-harbor', title: 'Harborlight ships the berth map' },
-    { id: 'g-river', title: 'Riverbend answers every ask' },
-    { id: 'g-salt', title: 'Saltmarsh signs in' },
+    { id: 'g-harbor', title: 'Harborlight ships the berth map', changedAt: setAt - 60_000 },
+    { id: 'g-river', title: 'Riverbend answers every ask', changedAt: setAt },
+    { id: 'g-salt', title: 'Saltmarsh signs in', changedAt: setAt - 120_000 },
   ],
 });
+
+const GOALS = [
+  { id: 'g-harbor', title: 'Harborlight ships the berth map' },
+  { id: 'g-river', title: 'Riverbend answers every ask' },
+  { id: 'g-salt', title: 'Saltmarsh signs in' },
+];
 
 function digestFrom(board: PlanBoardReading | undefined, start: number) {
   let now = start;
@@ -57,88 +65,75 @@ function digestFrom(board: PlanBoardReading | undefined, start: number) {
 }
 
 describe('the coach digest carries the week plan', () => {
-  it('lists the current plan goals in plan order, id and title only', () => {
-    const frame = digestFrom(plan('Team Lead · Week of 5 Oct'), TUESDAY);
-    expect(frame.plan).toEqual({
-      week: '2026-10-05',
-      goals: [
-        { id: 'g-harbor', title: 'Harborlight ships the berth map' },
-        { id: 'g-river', title: 'Riverbend answers every ask' },
-        { id: 'g-salt', title: 'Saltmarsh signs in' },
-      ],
-    });
+  it('lists the plan goals in board order, id and title only, with the day they were set', () => {
+    expect(digestFrom(plan(), TUESDAY).plan).toEqual({ set: '2026-10-05', goals: GOALS });
   });
 
   it('says there is no current week plan when there is no plan board', () => {
     expect(digestFrom(undefined, TUESDAY).plan).toBe(NO_WEEK_PLAN);
   });
 
-  it('says there is no current week plan once the week has passed', () => {
-    const board = plan('Week of 5 Oct');
-    expect(digestFrom(board, TUESDAY + 5 * DAY).plan).not.toBe(NO_WEEK_PLAN);
-    expect(digestFrom(board, TUESDAY + 6 * DAY).plan).toBe(NO_WEEK_PLAN);
+  it('says there is no current week plan when the board has no goals', () => {
+    expect(digestFrom({ goals: [] }, TUESDAY).plan).toBe(NO_WEEK_PLAN);
+  });
+
+  it('keeps an old list but marks it possibly stale past eight days', () => {
+    expect(digestFrom(plan(), SET + 7 * DAY).plan).toEqual({ set: '2026-10-05', goals: GOALS });
+    expect(digestFrom(plan(), SET + 9 * DAY).plan).toEqual({
+      set: '2026-10-05',
+      stale: true,
+      goals: GOALS,
+    });
   });
 });
 
 describe('weekPlanOf', () => {
-  it('reads the week from a goal title when the board name has none', () => {
+  it('leaves out the backlog and the decisions and urgent bands', () => {
     const board: PlanBoardReading = {
-      name: 'Team Lead',
       goals: [
-        { id: 'g-week', title: 'Week of Oct 5: Harborlight first' },
-        { id: 'g-river', title: 'Riverbend' },
+        { id: 'g-urgent', title: 'Urgent' },
+        { id: 'g-harbor', title: 'Harborlight ships the berth map' },
+        { id: 'chores', title: 'Backlog' },
+        { id: 'g-decide', title: ' Decisions ' },
       ],
     };
     expect(weekPlanOf(board, TUESDAY, ZONE)).toEqual({
-      week: '2026-10-05',
-      goals: [
-        { id: 'g-week', title: 'Week of Oct 5: Harborlight first' },
-        { id: 'g-river', title: 'Riverbend' },
-      ],
+      goals: [{ id: 'g-harbor', title: 'Harborlight ships the berth map' }],
     });
   });
 
-  it('does not guess when nothing names a week', () => {
-    expect(weekPlanOf(plan('Team Lead'), TUESDAY, ZONE)).toBe(NO_WEEK_PLAN);
+  it('reads a board of only those bands as no current plan', () => {
+    const board: PlanBoardReading = { goals: [{ id: 'g-urgent', title: 'urgent' }] };
+    expect(weekPlanOf(board, TUESDAY, ZONE)).toBe(NO_WEEK_PLAN);
   });
 
-  it('does not count a week that has not started', () => {
-    expect(weekPlanOf(plan('Week of 12 Oct'), TUESDAY, ZONE)).toBe(NO_WEEK_PLAN);
-  });
-
-  it('reads the day in the owner zone, not UTC', () => {
-    // Sunday 11 Oct, 20:00 in Los Angeles is already Monday 12 Oct in UTC.
-    const sundayEvening = Date.UTC(2026, 9, 12, 3, 0);
-    expect(weekPlanOf(plan('Week of 5 Oct'), sundayEvening, ZONE)).not.toBe(NO_WEEK_PLAN);
-    expect(weekPlanOf(plan('Week of 5 Oct'), sundayEvening, 'UTC')).toBe(NO_WEEK_PLAN);
+  it('names the set day in the owner zone', () => {
+    // 20:00 Sunday 4 Oct in Los Angeles is already Monday 5 Oct in UTC.
+    const sundayEvening = Date.UTC(2026, 9, 5, 3, 0);
+    expect(weekPlanOf(plan(sundayEvening), TUESDAY, ZONE)).toMatchObject({ set: '2026-10-04' });
+    expect(weekPlanOf(plan(sundayEvening), TUESDAY, 'UTC')).toMatchObject({ set: '2026-10-05' });
   });
 });
 
-describe('weekStartOf', () => {
-  const today = Date.UTC(2026, 9, 6) / DAY;
-  const oct5 = Date.UTC(2026, 9, 5) / DAY;
-
-  it('reads the date forms a plan is written in', () => {
-    for (const text of [
-      'Week of 2026-10-05',
-      'Week of 5 Oct',
-      'week of 5th October',
-      'Week of Oct 5',
-      'Week of October 5, 2026',
-      'Plan — Week of 5 Oct 2026',
-    ]) {
-      expect(weekStartOf(text, today)).toBe(oct5);
-    }
-  });
-
-  it('takes the nearest year when a date has none', () => {
-    const lateDecember = Date.UTC(2026, 11, 30) / DAY;
-    expect(weekStartOf('Week of 4 Jan', lateDecember)).toBe(Date.UTC(2027, 0, 4) / DAY);
-  });
-
-  it('answers nothing for a phrase that is not a date', () => {
-    expect(weekStartOf('Week of Harborlight', today)).toBeUndefined();
-    expect(weekStartOf('Week of 31 Feb', today)).toBeUndefined();
-    expect(weekStartOf('Riverbend', today)).toBeUndefined();
+describe('planBoardReading', () => {
+  it('keeps board order, takes each row time, and drops an archived band', () => {
+    const reading = planBoardReading(
+      [
+        { id: 'g-river', title: 'Riverbend' },
+        { id: 'g-old', title: 'Saltmarsh' },
+        { id: 'g-harbor', title: 'Harborlight' },
+        { id: 'g-new', title: 'Alice' },
+      ],
+      [
+        { id: 'g-harbor', updatedAt: 200 },
+        { id: 'g-old', updatedAt: 900, archivedAt: 950 },
+        { id: 'g-river', updatedAt: 100 },
+      ],
+    );
+    expect(reading.goals).toEqual([
+      { id: 'g-river', title: 'Riverbend', changedAt: 100 },
+      { id: 'g-harbor', title: 'Harborlight', changedAt: 200 },
+      { id: 'g-new', title: 'Alice' },
+    ]);
   });
 });
