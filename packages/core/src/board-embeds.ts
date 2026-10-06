@@ -108,9 +108,8 @@ function parseTarget(
   if (t.appDocId !== undefined && t.origin !== undefined) {
     return `${name}: name an appDocId or an origin, not both`;
   }
-  const tpl = t.pathTemplate;
-  const tplOk = (re: RegExp): tpl is string =>
-    typeof tpl === 'string' && tpl.length <= 200 && re.test(tpl) && !tpl.includes('..');
+  const tpl = typeof t.pathTemplate === 'string' ? t.pathTemplate : '';
+  const tplOk = (re: RegExp): boolean => tpl.length <= 200 && re.test(tpl) && !tpl.includes('..');
   if (t.origin !== undefined) {
     if (typeof t.origin !== 'string' || !isExactHttpsOrigin(t.origin)) {
       return `${name}: origin must be an exact https origin, with no path`;
