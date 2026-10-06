@@ -1,6 +1,7 @@
 import { parseThreadReviewItemId } from '@claude-workspaces/core';
 import { matchRest, restIs } from '../middleware/workspace-scope.ts';
 import { reviewItemViewedEvent } from '../review-items/analytics.ts';
+import { recentTicketAnswers } from '../review-items/answer-change.ts';
 import { legacyDecisionItem } from '../review-items/derive.ts';
 import { taskIdOfBodyDoc } from '../task-row.ts';
 /**
@@ -243,6 +244,15 @@ export async function handleWorkspaceHome(
         (item) => !('docId' in item) || !docWithheldFrom(req, item.docId),
       ),
       you: { role, canAnswerSecrets: !visitor && role === 'owner' },
+      // What was answered in the last day, so Home can offer a way back to
+      // an answer given by mistake. Ticket items only: the task projection
+      // already ships every one of these answers to the same readers.
+      answered: recentTicketAnswers(
+        taskStore
+          .listTasks(workspaceId)
+          .map((t) => ({ id: t.id, reviews: taskStore.listReviewItems(t.id) })),
+        Date.now(),
+      ),
     });
   }
   // ── Home pane (§ approved home-pane design) ──────────────────────

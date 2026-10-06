@@ -175,6 +175,8 @@ export interface BoardEventPayload {
    *  links, which decide whether the line offers a propagation checklist.
    *  See decision-line.ts and nudge-line.ts. */
   links?: unknown[];
+  /** `decision.answered` only: the earlier answer a changed one replaces. */
+  replaces?: { answer?: string; by?: string };
   newGoal?: string;
   kind?: string;
   movedToChores?: string[];

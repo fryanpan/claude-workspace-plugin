@@ -13,6 +13,7 @@ import { type SpokenReviewTarget, reviewAnswerRequest } from '@claude-workspaces
 import { api } from '../doc-path.ts';
 import { type BoardGoal, type BoardTask, goalRank, ownedByPerson } from './board-model.ts';
 import { timeAgo, waitShort } from './board-presence-model.ts';
+import type { RecentAnswer } from './recent-answers.ts';
 
 // ── Decisions strip ────────────────────────────────────────────────────────
 
@@ -290,14 +291,20 @@ export function applyRefresh<R, V>(current: V, res: R | null, read: (r: R) => V)
  * survives-an-outage behaviour is driven by a test instead of asserted about.
  */
 export async function refreshReviewItems(
-  state: { reviewItems: ReviewThreadItem[]; secretsGate: 'open' | 'not-owner' | 'off-machine' },
+  state: {
+    reviewItems: ReviewThreadItem[];
+    secretsGate: 'open' | 'not-owner' | 'off-machine';
+    recentAnswers?: RecentAnswer[];
+  },
   fetchItems: () => Promise<{
     items?: ReviewThreadItem[];
+    answered?: RecentAnswer[];
     you?: { role?: string; canAnswerSecrets?: boolean };
   } | null>,
 ): Promise<void> {
   const res = await fetchItems();
   state.reviewItems = applyRefresh(state.reviewItems, res, (r) => r.items ?? []);
+  state.recentAnswers = applyRefresh(state.recentAnswers, res, (r) => r.answered ?? []);
   // Under the same guard as the list, for the same reason: a read that never
   // arrived must not be read as "you are a Regular User now". A payload that
   // arrived without the fields leaves the gate alone too — an older server

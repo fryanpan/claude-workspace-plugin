@@ -1193,6 +1193,13 @@ export interface DecisionAnsweredEvent {
    * closed the item. See `answer-coverage.ts`.
    */
   openParts?: string[];
+  /**
+   * The answer this one REPLACES, when the person changed their mind — over
+   * a standing answer, or after taking one back. The filer acted on the old
+   * pick, so it needs to know the new one supersedes it rather than read a
+   * second answer. Absent on a first answer. See `answer-change.ts`.
+   */
+  replaces?: { answer: string; optionId?: string; by: string; ts: number };
   actor: TaskActor;
   /** The decision task's links — a ready-made propagation checklist. */
   links: Ref[];

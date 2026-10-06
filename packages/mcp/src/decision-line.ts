@@ -22,6 +22,18 @@ export interface DecisionAnsweredPayload {
   via?: string;
   /** The item's questions this answer left open. Absent when it closed. */
   openParts?: unknown[];
+  /** The earlier answer this one replaces, when the person changed it. */
+  replaces?: { answer?: string; by?: string };
+}
+
+/**
+ * What a line adds for a CHANGED answer: the pick it replaces, so the filer
+ * reverses whatever it did on the old one instead of reading a second answer
+ * as a second instruction.
+ */
+export function replacesClause(replaces: DecisionAnsweredPayload['replaces']): string {
+  if (!replaces || typeof replaces.answer !== 'string') return '';
+  return ` — CHANGED: replaces the earlier answer "${truncate(replaces.answer, 80)}"; act on this one and undo anything done on the old one`;
 }
 
 /**
@@ -75,5 +87,5 @@ export function decisionAnsweredLine(p: DecisionAnsweredPayload): string {
     Array.isArray(p.links) && p.links.length > 0
       ? ' — walk its links as the propagation checklist'
       : '';
-  return `[decision.answered] ${p.taskId}${by}: "${truncate(p.answer ?? '', 120)}"${asked}${openPartsClause(p.openParts)}${walk}`;
+  return `[decision.answered] ${p.taskId}${by}: "${truncate(p.answer ?? '', 120)}"${asked}${replacesClause(p.replaces)}${openPartsClause(p.openParts)}${walk}`;
 }

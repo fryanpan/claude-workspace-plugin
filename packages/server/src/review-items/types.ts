@@ -6,13 +6,19 @@ import type { TaskReviewItem } from '@claude-workspaces/core';
 import type { Task } from '@claude-workspaces/core/task-wire';
 import type { BoardWorkspace } from '../tasks.ts';
 
+/** Somebody else's answer stands, and only its answerer may change it —
+ *  see `answer-change.ts`. */
+export type AnsweredByOther = { ok: false; error: 'answered-by-other'; message: string };
+
 export type AnswerDecisionResult =
   | { ok: true; task: Task }
-  | { ok: false; error: 'not-found' | 'not-a-decision' | 'unknown-option' };
+  | { ok: false; error: 'not-found' | 'not-a-decision' | 'unknown-option' }
+  | AnsweredByOther;
 
 export type WithdrawAnswerResult =
   | { ok: true; task: Task }
-  | { ok: false; error: 'not-found' | 'not-a-decision' | 'no-answer' };
+  | { ok: false; error: 'not-found' | 'not-a-decision' | 'no-answer' }
+  | AnsweredByOther;
 
 export type RequestMoreInfoResult =
   | { ok: true; task: Task }
@@ -64,7 +70,8 @@ export type AnswerTaskReviewResult =
   /** An agent answering an item filed for a done-when owner line. */
   | { ok: false; error: 'not-a-person'; message: string }
   /** A secret or grant item answered through any door but its own. */
-  | { ok: false; error: 'secret-item' | 'grant-item'; message: string };
+  | { ok: false; error: 'secret-item' | 'grant-item'; message: string }
+  | AnsweredByOther;
 
 export type RequestInfoOnReviewResult =
   | { ok: true; task: Task; item: TaskReviewItem }

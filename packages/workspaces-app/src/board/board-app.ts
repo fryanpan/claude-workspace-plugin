@@ -320,6 +320,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     openReviewItem: (item) => openReviewItem(item),
     openReviewThread: (item) => openReviewThread(item),
     startWalkthrough: () => startWalkthrough(),
+    undoTicketAnswer: (taskId, reviewItemId) => undoTicketAnswer(taskId, reviewItemId),
     openTaskDetail: (task, tab) => openTaskDetail(task, tab),
     commentOnActivity: (taskId, phrase, text) => commentOnActivity(taskId, phrase, text),
     replyOnActivity: (taskId, threadId, text) => replyOnActivity(taskId, threadId, text),
@@ -389,6 +390,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     replyToReviewItem,
     saveSecretsOnItem,
     grantOnItem,
+    undoTicketAnswer,
     commentOnActivity,
     replyOnActivity,
   } = review;
@@ -629,6 +631,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     replyToReviewItem: (item, text, optionId) => replyToReviewItem(item, text, optionId),
     saveSecretsOnItem: (item, values) => saveSecretsOnItem(item, values),
     grantOnItem: (item, decision) => grantOnItem(item, decision),
+    undoTicketAnswer: (taskId, reviewItemId) => undoTicketAnswer(taskId, reviewItemId),
     onQueueDrained: () => chainWalkDrain?.(),
   });
   // Destructured rather than wrapped: a local `function renderWalkthrough`

@@ -181,6 +181,30 @@ export function createBoardReviewController(deps: BoardReviewControllerDeps) {
     return true;
   }
 
+  /**
+   * Take back an answer on a ticket item or the ticket's own decision — the
+   * walkthrough banner's and Home's "Answered" fold's Undo. The item reopens
+   * on every queue; answering it again tells its filer the new pick replaces
+   * the old one. A 409 means somebody else answered it, and only they can.
+   */
+  async function undoTicketAnswer(taskId: string, reviewItemId: string): Promise<boolean> {
+    const res = await send(
+      api(
+        `tasks/${encodeURIComponent(taskId)}/review-items/${encodeURIComponent(reviewItemId)}/answer/undo`,
+      ),
+      'POST',
+      { author },
+    );
+    if (!res.ok) {
+      showToast('Taking the answer back failed');
+      await loadReviewItems();
+      return false;
+    }
+    showToast('Answer taken back — pick again');
+    await loadReviewItems();
+    return true;
+  }
+
   async function undoTaskAnswer(task: BoardTask): Promise<boolean> {
     const res = await send(api(`tasks/${encodeURIComponent(task.id)}/answer/undo`), 'POST', {
       author,
@@ -594,6 +618,7 @@ export function createBoardReviewController(deps: BoardReviewControllerDeps) {
     answerTaskDecision,
     undoThreadAnswer,
     undoTaskAnswer,
+    undoTicketAnswer,
     releaseHeldReviewItem,
     answerPanelThreadItem,
     askOnReviewItem,

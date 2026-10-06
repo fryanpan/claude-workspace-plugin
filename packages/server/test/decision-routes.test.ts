@@ -275,12 +275,12 @@ describe('decision routes', () => {
       expect(stored?.answer?.optionId).toBeUndefined();
     });
 
-    it('keeps a standing answer’s words when a second answer lands over it', async () => {
-      // The race this reproduces: two browsers both show the unanswered card,
-      // Bryan answers, and a collaborator whose panel has not repainted yet
-      // answers two seconds later. The second write must not hard-delete the
-      // first answer — soft delete is the project-wide rule for user content,
-      // and `answerHistory` exists precisely so overwritten words survive.
+    it('keeps a standing answer’s words when its answerer answers over it', async () => {
+      // The answerer changing their mind over their own answer must not
+      // hard-delete the first one — soft delete is the project-wide rule for
+      // user content, and `answerHistory` exists precisely so overwritten
+      // words survive. Somebody ELSE answering over it is refused: only the
+      // answerer may change an answer (`review-items/answer-change.ts`).
       const wsId = await seedWorkspace();
       const task = await seedDecision(wsId, { options: [{ label: 'Ship now' }] });
       const picked = task.options?.[0];
@@ -291,24 +291,29 @@ describe('decision routes', () => {
           author: PERSON,
         }),
       );
+      const other = await post(`/workspaces/${wsId}/tasks/${task.id}/answer`, {
+        text: 'Wait for the rebuild',
+        author: { id: 'known-sam', name: 'Sam', kind: 'known', color: '#888888' },
+      });
+      expect(other.status).toBe(409);
       await jj(
         await post(`/workspaces/${wsId}/tasks/${task.id}/answer`, {
           text: 'Wait for the rebuild',
-          author: { id: 'known-sam', name: 'Sam', kind: 'known', color: '#888888' },
+          author: PERSON,
         }),
       );
       const stored = (await getTasks(wsId)).find((t) => t.id === task.id);
       // Last write stands…
       expect(stored?.answer?.text).toBe('Wait for the rebuild');
-      expect(stored?.answer?.by).toBe('Sam');
+      expect(stored?.answer?.by).toBe('Jordan');
       // …and the displaced words survive with their full provenance: whose
       // they were, which option carried them, and who displaced them.
       expect(stored?.answerHistory?.map((a) => a.text)).toEqual(['Ship now']);
       expect(stored?.answerHistory?.[0]?.by).toBe('Jordan');
       expect(stored?.answerHistory?.[0]?.optionId).toBe(picked?.id);
-      expect(stored?.answerHistory?.[0]?.withdrawnBy).toBe('Sam');
+      expect(stored?.answerHistory?.[0]?.withdrawnBy).toBe('Jordan');
       expect(stored?.answerHistory?.[0]?.withdrawnAt).toBeGreaterThan(0);
-      // Undo after the race recovers round by round: first the second answer…
+      // Undo after the change recovers round by round: first the second answer…
       await jj(await post(`/workspaces/${WS}/tasks/${task.id}/answer/undo`, { author: PERSON }));
       const undone = (await getTasks(wsId)).find((t) => t.id === task.id);
       expect(undone?.answer).toBeUndefined();

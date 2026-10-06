@@ -49,6 +49,7 @@ import type {
   UptimeReport,
 } from './board-presence-model.ts';
 import type { ReviewItem, ReviewThreadItem } from './board-review-model.ts';
+import type { RecentAnswer } from './recent-answers.ts';
 import type { DetailTab } from './task-detail-island.tsx';
 import type { WalkProgress } from './walkthrough-island.tsx';
 
@@ -160,6 +161,9 @@ export interface BoardState {
    * not be a second one. Decisions are derived from `tasks` here.
    */
   reviewItems: ReviewThreadItem[];
+  /** Ticket items answered in the last day — Home's way back to an answer
+   *  given by mistake. Rides the same read as `reviewItems`. */
+  recentAnswers?: RecentAnswer[];
   /**
    * What this reader may DO on this board, as the server itself reads it.
    *

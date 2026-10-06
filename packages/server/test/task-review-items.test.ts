@@ -302,8 +302,15 @@ describe('review items on a task', () => {
         actor: PERSON,
         answeredWith: 'o-7f3a',
       });
-      const second = store.answerTaskReview(task.id, added.item.id, 'Keep memory', {
+      // Only the answerer may change an answer; an agent's write over it is
+      // refused and changes nothing.
+      const refused = store.answerTaskReview(task.id, added.item.id, 'Keep memory', {
         actor: AGENT,
+        answeredWith: 'o-4b2e',
+      });
+      expect(refused.ok).toBe(false);
+      const second = store.answerTaskReview(task.id, added.item.id, 'Keep memory', {
+        actor: PERSON,
         answeredWith: 'o-4b2e',
       });
       expect(second.ok, JSON.stringify(second)).toBe(true);

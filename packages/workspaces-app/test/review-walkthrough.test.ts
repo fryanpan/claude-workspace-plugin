@@ -949,6 +949,29 @@ describe('renderReviewWalkthrough — saying that the advance happened', () => {
     expect(onStep).not.toHaveBeenCalled();
   });
 
+  it('offers Undo on an answered decision, handing back the item just answered', () => {
+    const onUndoLast = vi.fn(async () => true);
+    const queue = twoDecisions();
+    const answered = queue.items[0] as ReviewItem;
+    const done = reviewQueue([decision({ title: 'Ship Friday?' })], [], NOW);
+    renderReviewWalkthrough(root, done, 0, walk({ onUndoLast }), { cleared: 1, last: answered });
+    const undo = root.querySelector('.board-walk-advanced-undo') as HTMLElement;
+    expect(undo?.textContent).toBe('Undo');
+    undo.click();
+    expect(onUndoLast).toHaveBeenCalledWith(answered);
+  });
+
+  it('offers no Undo for a reply, which is taken back on its thread', () => {
+    const queue = reviewQueue([], [threadItem({ title: 'Ship the widget' })], NOW);
+    renderReviewWalkthrough(root, reviewQueue([], [], NOW), 0, walk({ onUndoLast: vi.fn() }), {
+      cleared: 1,
+      last: queue.items[0] as ReviewItem,
+    });
+    // Positive control: the banner is there, only the Undo is not.
+    expect(root.querySelector('.board-walk-advanced-back')).toBeTruthy();
+    expect(root.querySelector('.board-walk-advanced-undo')).toBeNull();
+  });
+
   it('finishes with a count, so the end of a sitting is an ending', () => {
     renderReviewWalkthrough(root, reviewQueue([], [], NOW), 0, walk(), { cleared: 4, last: null });
     const done = root.querySelector('.board-walk-done') as HTMLElement;

@@ -2,12 +2,9 @@
  * The 0..n review items filed ON a ticket — asking, answering, asking for
  * more, rewriting the ask, and taking it back.
  *
- * Lifted out of `TaskStore` whole. These verbs used to sit in the middle of
- * an 8,000-line class, sharing a `this` with goals, attachments, voice queues
- * and the sidecar writer — so nothing stopped one reaching for any of them,
- * and nothing said which of them it actually needed. Now that answer is the
- * nine-member `ReviewItemPersistence` this module declares itself, and a test
- * can hand it a plain object.
+ * Lifted out of `TaskStore` whole. What these verbs need is the nine-member
+ * `ReviewItemPersistence` this module declares, so a test can hand it a
+ * plain object.
  *
  * The `r-legacy` row is not one of these: it is DERIVED from a legacy
  * decision's own fields, so the two verbs that accept it hand it straight to
@@ -30,6 +27,7 @@ import {
 import type { StoredReviewItem, TaskActor } from '@claude-workspaces/core/task-wire';
 import { classifyActor } from '../actor-identity.ts';
 import { cryptoId } from '../task-fields.ts';
+import { answeredByOther, mayChangeAnswer, replacedItemAnswer } from './answer-change.ts';
 import { TaskDecisionStore } from './decisions.ts';
 import { LEGACY_REVIEW_ITEM_ID } from './derive.ts';
 import type { ReviewItemPersistence } from './persistence.ts';
@@ -181,17 +179,19 @@ export class ReviewItemStore {
       return { ok: false, error: 'unknown-option' };
     }
 
+    // Only the answerer may change an answer (`answer-change.ts`).
+    if (item.answer && !mayChangeAnswer(item.answer, opts.actor)) {
+      return answeredByOther(item.answer.by);
+    }
     const ts = this.p.now();
     const actor: TaskActor = {
       id: opts.actor.id,
       name: opts.actor.name,
       kind: classifyActor(opts.actor),
     };
-    // Answering twice is legal — somebody changes their mind, a retry lands,
-    // two people reach for the same row — but the words already recorded are
-    // USER CONTENT and this project does not hard-delete user content. The
-    // superseded answer moves aside instead of being written over; nothing
-    // else anywhere would have reported that it was gone.
+    // Read before the superseded answer moves aside: the words already
+    // recorded are user content, never written over.
+    const replaces = replacedItemAnswer(item);
     const record = {
       text,
       by: actor.name,
@@ -221,6 +221,7 @@ export class ReviewItemStore {
       headline: item.review.headline,
       ...(opts.via ? { via: opts.via } : {}),
       ...(openParts.length > 0 ? { openParts } : {}),
+      ...(replaces && openParts.length === 0 ? { replaces } : {}),
       actor,
       links: task.links,
       ts,

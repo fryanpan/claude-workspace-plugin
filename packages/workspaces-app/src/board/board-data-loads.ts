@@ -1,3 +1,15 @@
+import type { BoardState } from './board-actions.ts';
+import { fetchJson } from './board-actions.ts';
+import {
+  type ActivityEvent,
+  type ChatAuditView,
+  type ClientRelease,
+  type LeadSeatView,
+  type PluginRelease,
+  type PresenceAgent,
+  type UptimeReport,
+} from './board-presence-model.ts';
+import { type ReviewThreadItem, applyRefresh, refreshReviewItems } from './board-review-model.ts';
 /**
  * The three REST reads the board keeps making, and the repaints they arm.
  *
@@ -25,18 +37,7 @@
  *
  * `BoardLoadDeps` is the whole list of what these reads may reach.
  */
-import type { BoardState } from './board-actions.ts';
-import { fetchJson } from './board-actions.ts';
-import {
-  type ActivityEvent,
-  type ChatAuditView,
-  type ClientRelease,
-  type LeadSeatView,
-  type PluginRelease,
-  type PresenceAgent,
-  type UptimeReport,
-} from './board-presence-model.ts';
-import { type ReviewThreadItem, applyRefresh, refreshReviewItems } from './board-review-model.ts';
+import type { RecentAnswer } from './recent-answers.ts';
 
 /** Everything the loads need from `bootBoard`, and nothing else. */
 export interface BoardLoadDeps {
@@ -95,7 +96,7 @@ export function createBoardLoads(deps: BoardLoadDeps): BoardLoads {
 
   async function fetchReviewItems(): Promise<void> {
     await refreshReviewItems(state, () =>
-      fetchJson<{ items: ReviewThreadItem[] }>(
+      fetchJson<{ items: ReviewThreadItem[]; answered?: RecentAnswer[] }>(
         `/workspaces/${encodeURIComponent(workspaceId)}/review-items`,
       ),
     );

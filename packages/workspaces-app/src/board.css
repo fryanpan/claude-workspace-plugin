@@ -1163,8 +1163,11 @@ body.board-body {
    a phone, where a toast is gone before the thumb is back down. */
 .board-walk-advanced {
   display: grid;
-  /* minmax(0, …) so a long title wraps instead of widening the panel. */
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* minmax(0, …) so a long title wraps instead of widening the panel; each
+     button after it takes its own auto column (Back to it, then Undo). */
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -1177,7 +1180,9 @@ body.board-body {
 }
 /* The answered item is OUT of the queue, so Back steps to whatever preceded it
    — this is the only route to the thing that was actually just answered. */
-.board-walk-advanced-back {
+/* Undo sits beside it: the answer just given, taken back on the spot. */
+.board-walk-advanced-back,
+.board-walk-advanced-undo {
   min-height: 36px;
   white-space: nowrap;
 }
@@ -2760,6 +2765,49 @@ html:has(.board-walk-cred-form) {
   background: none;
   color: var(--accent);
   cursor: pointer;
+}
+/* The way back to an answer given by mistake: the reader's answers from the
+   last day, folded shut under the queue. One muted line until opened. */
+.board-home-answered {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.board-home-answered-head {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+/* `display: flex` drops the native disclosure triangle, so draw one: the
+   line has to read as something that opens. */
+.board-home-answered-head::before {
+  content: "▸";
+  width: 14px;
+  flex: none;
+}
+.board-home-answered[open] > .board-home-answered-head::before {
+  content: "▾";
+}
+.board-home-answered-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+.board-home-answered-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.board-home-answered-undo {
+  min-height: 36px;
+  white-space: nowrap;
 }
 /* ################# BOARD · HOME RECENT ACTIVITY #################
    What moved lately, grouped BY TASK.

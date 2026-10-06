@@ -125,6 +125,23 @@ describe('the decision.answered channel line only sends a reader to links that e
     expect(line).not.toMatch(/—\s*$/);
   });
 
+  it('says a changed answer replaces the earlier one, and a first answer says nothing of the kind', async () => {
+    const first = await answerDecisionWith([]);
+    // Control: a first answer carries no marker.
+    expect(first).not.toContain('CHANGED');
+    const taskId = (lastAnsweredRow() as { taskId?: string }).taskId;
+    const undo = await post(`/workspaces/${WS}/tasks/${taskId}/answer/undo`, { author: PERSON });
+    expect(undo.status).toBe(200);
+    const again = await post(`/workspaces/${WS}/tasks/${taskId}/answer`, {
+      text: 'Rebuild now.',
+      author: PERSON,
+    });
+    expect(again.status).toBe(200);
+    const line = lastAnsweredLine();
+    expect(line).toContain('Rebuild now.');
+    expect(line).toContain('CHANGED: replaces the earlier answer "Rebuild after the freeze."');
+  });
+
   it('names what was asked beside the answer, so a bare option label is not orphaned', async () => {
     // The case the lead hit: a review ITEM on a row, whose headline is not
     // the row's title, answered with an option label. The frame has to say

@@ -47,6 +47,7 @@ export async function handleTaskReviewAnswerUndo(
   if (isCategoryAuthor(author)) return refuseCategoryAuthor();
   const res = taskStore.undoTaskReviewAnswer(taskId, reviewItemId, { actor: author });
   if (!res.ok) {
+    if (res.error === 'answered-by-other') return j(409, res);
     const status = res.error === 'not-found' || res.error === 'unknown-review-item' ? 404 : 400;
     return j(status, { error: res.error });
   }
