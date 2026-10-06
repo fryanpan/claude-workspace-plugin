@@ -1490,16 +1490,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
   });
   /** The plan lead's per-item ranks and its batched feed of new asks
-   *  (lead-rank-wiring.ts). A board the coach may not hear from is excluded
-   *  from both, by the same check. */
+   *  (lead-rank-wiring.ts). The feed skips every board the coach may not hear
+   *  from; a rank or tag skips the same boards except shared ones. */
   const isOffForLead = (place: { workspaceId: string; docId?: string }): boolean =>
     coachWiring.store.readFailed || placeIsOff(place, boardPrivacy, coachWiring.store.offBoards);
+  const isOffForRank = (place: { workspaceId: string; docId?: string }): boolean =>
+    coachWiring.store.readFailed ||
+    placeIsOff(place, boardPrivacy, coachWiring.store.offBoards, { allowShared: true });
   const leadRanks = wireLeadRanks({
     dataDir,
     planBoard: () => crossReview.projects().planWorkspaceId,
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     boardName: (workspaceId) => taskStore.getWorkspace(workspaceId)?.name,
     isOff: isOffForLead,
+    rankIsOff: isOffForRank,
     taskWorkspace: (taskId) => taskStore.getTask(taskId)?.workspaceId,
     goalWorkspace: (rowId) => taskStore.getGoalRow(rowId)?.workspaceId,
     boardsForDoc: (docId) => boardsForDoc(docId),
@@ -2361,7 +2365,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         key: agentTokenKeyFor(),
         requireToken: true,
       }),
-    isOff: isOffForLead,
+    isOff: isOffForRank,
     sessionIdentityId: (req) => sessionIdentityFor(req)?.id ?? null,
     renderPage: () => renderReviewsShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,

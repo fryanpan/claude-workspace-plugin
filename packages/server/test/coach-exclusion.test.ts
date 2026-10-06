@@ -61,6 +61,18 @@ describe('placeIsOff', () => {
     expect(placeIsOff({ workspaceId: 'w-a' }, alsoShared, NONE)).toBe(false);
   });
 
+  it('with allowShared, a shared board is on and a locked or local-only one stays off', () => {
+    const shared = { ...OPEN, boardsOfDoc: () => ['w-a', 'w-b'], shared: () => true };
+    const opts = { allowShared: true };
+    expect(placeIsOff({ workspaceId: 'w-a', docId: 'd-1' }, shared, NONE)).toBe(true);
+    expect(placeIsOff({ workspaceId: 'w-a', docId: 'd-1' }, shared, NONE, opts)).toBe(false);
+    const lockedToo = { ...shared, locked: (id: string) => id === 'w-b' };
+    expect(placeIsOff({ workspaceId: 'w-a', docId: 'd-1' }, lockedToo, NONE, opts)).toBe(true);
+    const localToo = { ...shared, localOnlyBoard: (id: string) => id === 'w-a' };
+    expect(placeIsOff({ workspaceId: 'w-a' }, localToo, NONE, opts)).toBe(true);
+    expect(placeIsOff({ workspaceId: 'w-a' }, shared, new Set(['w-a']), opts)).toBe(true);
+  });
+
   it('counts a check that throws as off', () => {
     const throws = () => {
       throw new Error('store not ready');

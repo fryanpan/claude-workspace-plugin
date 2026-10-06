@@ -63,13 +63,24 @@ export function boardOffReason(
   }
 }
 
+export interface PlaceOffOptions {
+  /** A board shared with someone else still counts as on. The plan lead's
+   *  rank and goal tag use this: they reach only the owner's Home. */
+  allowShared?: boolean;
+}
+
 /** True when nothing about this place may reach the coach session. */
 export function placeIsOff(
   place: CoachPlaceRef,
   privacy: BoardPrivacy,
   turnedOff: ReadonlySet<string>,
+  opts: PlaceOffOptions = {},
 ): boolean {
-  if (boardOffReason(place.workspaceId, privacy, turnedOff) !== null) return true;
+  const boardOff = (id: string): boolean => {
+    const reason = boardOffReason(id, privacy, turnedOff);
+    return reason !== null && !(opts.allowShared && reason === 'shared');
+  };
+  if (boardOff(place.workspaceId)) return true;
   const { docId } = place;
   if (!docId) return false;
   if (safely(() => privacy.localOnlyDoc(docId))) return true;
@@ -79,7 +90,7 @@ export function placeIsOff(
   } catch {
     return true;
   }
-  return boards.some((id) => boardOffReason(id, privacy, turnedOff) !== null);
+  return boards.some(boardOff);
 }
 
 /** The server's stores, as `boardPrivacyFrom` reads them. */

@@ -9,9 +9,12 @@
  *    the task store's `review_item.added` and on a doc thread through the
  *    live-doc event hook (`onDocEvent`), and sends them to the lead in
  *    batches.
- *  - `isOff` is the one exclusion both use: the coach's
- *    (`coach/exclusion.ts`), including the boards the owner turned the coach
- *    off for, and every board while the coach's state cannot be read.
+ *  - `isOff` is the feed's exclusion: the coach's (`coach/exclusion.ts`),
+ *    including the boards the owner turned the coach off for, and every board
+ *    while the coach's state cannot be read.
+ *  - `rankIsOff` is the same check with shared boards allowed. A rank or tag
+ *    sends nothing anywhere: the lead names a key it already holds, and the
+ *    value is read only on the owner's Home.
  */
 import type { WebhookPayload } from '@claude-workspaces/core';
 import {
@@ -32,6 +35,8 @@ export interface LeadRankWiringDeps {
   leadOf: (workspaceId: string) => string | undefined;
   boardName: (workspaceId: string) => string | undefined;
   isOff: (place: { workspaceId: string; docId?: string }) => boolean;
+  /** `isOff`, except that a shared board counts as on. */
+  rankIsOff: (place: { workspaceId: string; docId?: string }) => boolean;
   /** Where a doc's threads sit (`threadHomes`). */
   taskWorkspace: (taskId: string) => string | undefined;
   goalWorkspace: (rowId: string) => string | undefined;
@@ -115,7 +120,7 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
   const counts = (item: CrossReviewItem): boolean => {
     if (!ranks.has(item.key)) return false;
     try {
-      return !deps.isOff(placeOfItem(item));
+      return !deps.rankIsOff(placeOfItem(item));
     } catch {
       return false;
     }

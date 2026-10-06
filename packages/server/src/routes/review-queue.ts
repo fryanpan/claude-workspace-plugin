@@ -66,7 +66,8 @@ export interface ReviewQueueRoutesContext {
   refuseNonLocal: (req: Request) => Extract<AgentCallerVerdict, { ok: false }> | null;
   /** The caller proves it is `agentId` (token, loopback, not a browser). */
   authorizeAgent: (req: Request, agentId: string) => AgentCallerVerdict;
-  /** True when nothing about this place may reach the plan lead. */
+  /** True when the lead may not rank or tag at this place: local-only,
+   *  locked, turned off, or unreadable. A shared board is allowed. */
   isOff: (place: { workspaceId: string; docId?: string }) => boolean;
 }
 

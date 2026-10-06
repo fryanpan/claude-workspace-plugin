@@ -3,7 +3,9 @@
  * /api/review-queue/rank` with a `goal` files an ask under one of the plan
  * board's goals (or urgent, not-this-week, drop), the queue carries it, and
  * Home groups by it. Only the plan lead may tag, a tag must name something the
- * plan has, and an item on a locked board cannot be tagged.
+ * plan has, and an item on a locked board cannot be tagged. A shared board's
+ * item can: the lead holds the key already, the write answers with no more
+ * than it was sent, and the tag is read only on the owner's Home.
  *
  * Fixtures are invented; the repo is public.
  */
@@ -88,6 +90,7 @@ const tag = async (agentId: string, key: string, body: Record<string, unknown>, 
   );
 
 let plan = '';
+let harbor = '';
 let river = '';
 let tideGoal = '';
 let harborKey = '';
@@ -101,6 +104,14 @@ beforeAll(async () => {
     dataDir,
     spawnerAgentId: null,
     identifyAgentCaller: async () => ({ ok: true, agentId: callerIs, via: 'session' }),
+    // A share hostname, so a board can be shared; no visitor ever arrives.
+    cfAccess: {
+      teamDomain: 'test.cloudflareaccess.com',
+      audience: 'aud-owner',
+      jwks: { keys: [] },
+    },
+    shareLinkHosts: ['share.example.test'],
+    shareLinkAudience: 'aud-share',
   });
   base = `http://127.0.0.1:${handle.port}`;
   plan = await board('Saltmarsh plan');
@@ -113,7 +124,7 @@ beforeAll(async () => {
     }),
   );
   tideGoal = created[0]?.id ?? '';
-  const harbor = await board('Harborlight');
+  harbor = await board('Harborlight');
   harborKey = await ticketItem(harbor, 'Harbour timetable', 'Is the harbour table right?');
   river = await board('Riverbend');
   riverKey = await ticketItem(river, 'Ferry timetable', 'Is the ferry table right?');
@@ -186,6 +197,19 @@ describe('the plan lead’s goal tag', () => {
     expect(lock.status, await lock.clone().text()).toBe(200);
     expect((await tag(LEAD.id, riverKey, { goal: 'drop' }, token)).status).toBe(404);
     expect(headings(await landing())).not.toContain('Urgent 1');
+  });
+
+  it('ranks and tags an item on a shared board, and Home applies both', async () => {
+    const shared = await post('/api/share/workspace', { workspaceId: harbor });
+    expect(shared.status, await shared.clone().text()).toBe(200);
+    const token = await tokenFor(LEAD.id);
+    expect(
+      await jj<unknown>(await tag(LEAD.id, harborKey, { rank: 2, goal: tideGoal }, token)),
+    ).toEqual({ key: harborKey, rank: 2, goal: tideGoal });
+    const row = (await queue()).find((i) => i.key === harborKey);
+    expect(row?.leadRank).toBe(2);
+    expect(row?.goalTag).toBe(tideGoal);
+    expect(headings(await landing())).toContain('Tide tables out 1');
   });
 
   it('clears a tag with null', async () => {
