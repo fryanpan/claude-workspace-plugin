@@ -123,6 +123,13 @@ export interface TranscriptionOpenOpts {
   tuning?: MeetingTuning;
   onTurn: (turn: EngineTurn) => void;
   onError: (message: string) => void;
+  /**
+   * The engine closed this session without being asked, after it opened. It
+   * will hear nothing more, so the meeting it served has to end or reopen;
+   * `onError` has already carried the reason. Optional so an engine with no
+   * such ending (the mock) need not say anything.
+   */
+  onClosed?: () => void;
 }
 
 export interface TranscriptionEngine {

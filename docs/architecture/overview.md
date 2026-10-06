@@ -1141,6 +1141,13 @@ decision a test reads and a reviewer checks, not a number buried in a
 `setTimeout`. No state, no `Request`, nothing to schedule: the relay owns the
 timer, this owns only how long it runs.
 
+`meeting-takeover.ts` joins the same family and changes nothing in the
+picture: one predicate, `samePerson`, and the frame and close code a socket
+gets when the person it proved starts or resumes the same meeting on a newer
+socket. The relay owns the takeover; this owns only who may make one. The
+identity is the one the `/audio` upgrade proved and stamped as `data.author`,
+never the start frame's own claim.
+
 `race-deadline.ts` is a leaf under the services tier and changes nothing in
 the picture: one function, `raceDeadline(work, ms)`, which settles when the
 work settles or when the window runs out, and clears its own timer either way.
