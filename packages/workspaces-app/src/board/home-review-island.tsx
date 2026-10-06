@@ -30,9 +30,11 @@ import {
   type ReviewKind,
   type ReviewQueue,
   askedMeta,
+  decidedMetaLine,
   reviewRowTitle,
   reviewShapeBadge,
 } from './board-review-model.ts';
+import type { RecentAnswer } from './recent-answers.ts';
 
 export interface ReviewStripHandlers {
   /** Open this one in the queue itself — the card that carries the ask and the
@@ -57,6 +59,9 @@ export interface ReviewStripHandlers {
   onOpenThread: (item: ReviewItem) => void;
   /** Go through all of them, one at a time. */
   onWalkthrough: () => void;
+  /** Take back one of the reader's recent answers; the item reopens on the
+   *  queue above. Resolves to whether it landed. */
+  onUndoAnswer?: (answer: RecentAnswer) => Promise<boolean>;
 }
 
 /** What each kind is, for the row's hover title. The card's own badge comes
@@ -76,6 +81,8 @@ export interface HomeReviewData {
    *  queue render as done — an item still present (a replied thread the next
    *  refresh hasn't dropped yet) stays a live row. */
   settled: ReviewItem[];
+  /** The reader's own answers from the last day — the "Answered" fold. */
+  answered?: RecentAnswer[];
   now: number;
 }
 
@@ -84,6 +91,7 @@ export interface HomeReviewData {
 export const homeReviewData = signal<HomeReviewData>({
   queue: { items: [], total: 0, blocking: 0 },
   settled: [],
+  answered: [],
   now: 0,
 });
 
@@ -196,8 +204,45 @@ function SettledRow(props: { item: ReviewItem; now: number; handlers: ReviewStri
   );
 }
 
+/**
+ * The way back to an answer given by mistake: the reader's answers from the
+ * last day, folded shut under the queue so it costs one quiet line until it
+ * is wanted. Undo reopens the item, which then reappears in the queue above.
+ */
+function AnsweredFold(props: {
+  answered: RecentAnswer[];
+  now: number;
+  handlers: ReviewStripHandlers;
+}) {
+  const { answered, now, handlers } = props;
+  const undo = handlers.onUndoAnswer;
+  if (answered.length === 0 || !undo) return null;
+  return (
+    <details class="board-home-answered">
+      <summary class="board-home-answered-head">{`Answered in the last day (${answered.length})`}</summary>
+      {answered.map((a) => (
+        <div key={`answered:${a.key}`} class="board-home-answered-row">
+          <span class="board-home-answered-text">
+            <span class="board-review-row-title">{a.headline}</span>
+            <span class="board-review-row-sub">
+              {`“${a.answer.length > 60 ? `${a.answer.slice(0, 59)}…` : a.answer}” · ${decidedMetaLine(a.by, a.by, a.ts, now, false)}`}
+            </span>
+          </span>
+          <button
+            type="button"
+            class="board-btn board-home-answered-undo"
+            onClick={() => void undo(a)}
+          >
+            Undo
+          </button>
+        </div>
+      ))}
+    </details>
+  );
+}
+
 function HomeReview(props: { handlers: ReviewStripHandlers }) {
-  const { queue, settled, now } = homeReviewData.value;
+  const { queue, settled, answered, now } = homeReviewData.value;
   // Settled rows stay in the stack marked done (approved design): an answered
   // item vanishing outright reads as the page losing things.
   const live = new Set(queue.items.map((i) => i.key));
@@ -234,6 +279,7 @@ function HomeReview(props: { handlers: ReviewStripHandlers }) {
       {done.map((item) => (
         <SettledRow key={`done:${item.key}`} item={item} now={now} handlers={props.handlers} />
       ))}
+      <AnsweredFold answered={answered ?? []} now={now} handlers={props.handlers} />
     </section>
   );
 }

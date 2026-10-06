@@ -112,7 +112,12 @@ export async function handleTaskAnswers(
       actor: author,
       ...(optionId !== undefined ? { optionId } : {}),
     });
-    if (!res.ok) return j(res.error === 'not-found' ? 404 : 400, res);
+    if (!res.ok) {
+      return j(
+        res.error === 'not-found' ? 404 : res.error === 'answered-by-other' ? 409 : 400,
+        res,
+      );
+    }
     // MEASUREMENT, beside `decision.answered` rather than instead of it. The
     // ticket's own decision is shown on the queue as a row like any other, so
     // it writes a `viewed` row like any other, and this is the other end of
@@ -152,7 +157,12 @@ export async function handleTaskAnswers(
     const author = authorFor(body?.author);
     if (!author) return j(400, { error: 'author required' });
     const res = taskStore.withdrawAnswer(taskId, { actor: author });
-    if (!res.ok) return j(res.error === 'not-found' ? 404 : 400, res);
+    if (!res.ok) {
+      return j(
+        res.error === 'not-found' ? 404 : res.error === 'answered-by-other' ? 409 : 400,
+        res,
+      );
+    }
     return j(200, res);
   }
   // "Tell me more" — a question asked back at a decision INSTEAD of

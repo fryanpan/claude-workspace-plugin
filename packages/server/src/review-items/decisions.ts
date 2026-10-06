@@ -23,6 +23,7 @@ import type { DecisionOption, Task, TaskActor } from '@claude-workspaces/core/ta
 import { classifyActor } from '../actor-identity.ts';
 import { checkDecisionShape, decisionShapeMessage } from '../decision-shape.ts';
 import { bumpWordsRevision, cryptoId } from '../task-fields.ts';
+import { answeredByOther, mayChangeAnswer, replacedDecisionAnswer } from './answer-change.ts';
 import { legacyDecisionItem } from './derive.ts';
 import type { ReviewItemPersistence } from './persistence.ts';
 import type {
@@ -107,6 +108,11 @@ export class TaskDecisionStore {
     if (opts.optionId !== undefined && !task.options?.some((o) => o.id === opts.optionId)) {
       return { ok: false, error: 'unknown-option' };
     }
+    if (task.answer && !mayChangeAnswer(task.answer, opts.actor)) {
+      return answeredByOther(task.answer.by);
+    }
+    // Read before the write below moves the standing answer aside.
+    const replaces = replacedDecisionAnswer(task);
     const ts = this.p.now();
     const actor: TaskActor = {
       id: opts.actor.id,
@@ -147,6 +153,7 @@ export class TaskDecisionStore {
       ...(opts.optionId !== undefined ? { optionId: opts.optionId } : {}),
       // A legacy decision row IS its question: the title asks it.
       headline: task.title,
+      ...(replaces ? { replaces } : {}),
       actor,
       links: task.links,
       ts,
@@ -177,6 +184,7 @@ export class TaskDecisionStore {
     if (task.needs !== 'decision') return { ok: false, error: 'not-a-decision' };
     const answer = task.answer;
     if (!answer) return { ok: false, error: 'no-answer' };
+    if (!mayChangeAnswer(answer, opts.actor)) return answeredByOther(answer.by);
     const ts = this.p.now();
     const actor: TaskActor = {
       id: opts.actor.id,

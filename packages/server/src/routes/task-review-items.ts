@@ -227,7 +227,13 @@ export async function handleTaskReviewItems(
       ...(via ? { via } : {}),
       ...(openParts.length > 0 ? { openParts } : {}),
     });
-    if (!res.ok) return j(res.error === 'not-found' ? 404 : 400, res);
+    // Somebody else's answer stands: a conflict, not a malformed request.
+    if (!res.ok) {
+      return j(
+        res.error === 'not-found' ? 404 : res.error === 'answered-by-other' ? 409 : 400,
+        res,
+      );
+    }
     taskProjection.refreshTask(res.task);
     // MEASUREMENT, beside `decision.answered` rather than instead of it: one
     // ids-only row per landed answer, so the minutes between this reader

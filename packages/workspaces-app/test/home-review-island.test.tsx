@@ -364,3 +364,48 @@ describe('the queue row says when an ask wants a secret', () => {
     host.remove();
   });
 });
+
+describe('the Answered fold', () => {
+  const answer = {
+    key: 'task-review:t-1:r-1',
+    taskId: 't-1',
+    reviewItemId: 'r-1',
+    headline: 'Export nightly?',
+    answer: 'Nightly',
+    by: 'Alice',
+    ts: NOW - 3_600_000,
+  };
+
+  it('lists the reader’s recent answers, folded, with an Undo that hands back the row', async () => {
+    const onUndoAnswer = vi.fn(async () => true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    homeReviewData.value = { queue: queueOf([]), settled: [], answered: [answer], now: NOW };
+    const unmount = mountHomeReviewIsland(host, { ...handlers(), onUndoAnswer });
+    await tick();
+    const fold = host.querySelector('details.board-home-answered') as HTMLDetailsElement;
+    expect(fold).toBeTruthy();
+    // Folded shut by default: one quiet line until the reader opens it.
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector('summary')?.textContent).toBe('Answered in the last day (1)');
+    expect(fold.textContent).toContain('Export nightly?');
+    expect(fold.textContent).toContain('“Nightly” · Answered by you 1 hour ago');
+    (fold.querySelector('.board-home-answered-undo') as HTMLElement).click();
+    expect(onUndoAnswer).toHaveBeenCalledWith(answer);
+    unmount();
+    host.remove();
+  });
+
+  it('draws nothing when there is nothing answered', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    homeReviewData.value = { queue: queueOf([]), settled: [], answered: [], now: NOW };
+    const unmount = mountHomeReviewIsland(host, { ...handlers(), onUndoAnswer: vi.fn() });
+    await tick();
+    // Control: the pane itself rendered.
+    expect(host.querySelector('.board-home-review-card')).toBeTruthy();
+    expect(host.querySelector('.board-home-answered')).toBeNull();
+    unmount();
+    host.remove();
+  });
+});

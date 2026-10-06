@@ -64,6 +64,7 @@ export function initialBoardState(bootLoc: BoardLocation): BoardState {
     discussion: { loading: false, threads: [] },
     discussionTaskId: null,
     reviewItems: [],
+    recentAnswers: [],
     secretsGate: 'open',
     walkIndex: -1,
     walkKey: null,

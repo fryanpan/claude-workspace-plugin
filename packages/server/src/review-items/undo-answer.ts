@@ -18,13 +18,15 @@
 import type { TaskReviewItem } from '@claude-workspaces/core';
 import type { Task, TaskActor } from '@claude-workspaces/core/task-wire';
 import { classifyActor } from '../actor-identity.ts';
+import { answeredByOther, mayChangeAnswer } from './answer-change.ts';
 import { TaskDecisionStore } from './decisions.ts';
 import { LEGACY_REVIEW_ITEM_ID } from './derive.ts';
 import type { ReviewItemPersistence } from './persistence.ts';
 
 export type UndoTaskReviewAnswerResult =
   | { ok: true; task: Task; item: TaskReviewItem }
-  | { ok: false; error: 'not-found' | 'unknown-review-item' | 'no-answer' | 'not-a-decision' };
+  | { ok: false; error: 'not-found' | 'unknown-review-item' | 'no-answer' | 'not-a-decision' }
+  | ReturnType<typeof answeredByOther>;
 
 export class ReviewAnswerUndo {
   private readonly decisions: TaskDecisionStore;
@@ -53,6 +55,7 @@ export class ReviewAnswerUndo {
     if (!item) return { ok: false, error: 'unknown-review-item' };
     const answer = item.answer;
     if (!answer) return { ok: false, error: 'no-answer' };
+    if (!mayChangeAnswer(answer, opts.actor)) return answeredByOther(answer.by);
 
     const ts = this.p.now();
     const actor: TaskActor = {

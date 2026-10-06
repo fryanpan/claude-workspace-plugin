@@ -14250,6 +14250,11 @@ function coachLine(event, p, timeZone) {
 }
 
 // packages/mcp/src/decision-line.ts
+function replacesClause(replaces) {
+  if (!replaces || typeof replaces.answer !== "string")
+    return "";
+  return ` — CHANGED: replaces the earlier answer "${truncate2(replaces.answer, 80)}"; act on this one and undo anything done on the old one`;
+}
 function openPartsClause(openParts) {
   if (!Array.isArray(openParts))
     return "";
@@ -14269,7 +14274,7 @@ function decisionAnsweredLine(p) {
   const by = `${p.actor?.name ? ` by ${p.actor.name}` : ""}${fromMockNote(p.via)}`;
   const asked = p.headline ? ` to "${truncate2(p.headline, 100)}"` : "";
   const walk = Array.isArray(p.links) && p.links.length > 0 ? " — walk its links as the propagation checklist" : "";
-  return `[decision.answered] ${p.taskId}${by}: "${truncate2(p.answer ?? "", 120)}"${asked}${openPartsClause(p.openParts)}${walk}`;
+  return `[decision.answered] ${p.taskId}${by}: "${truncate2(p.answer ?? "", 120)}"${asked}${replacesClause(p.replaces)}${openPartsClause(p.openParts)}${walk}`;
 }
 
 // packages/mcp/src/done-when-ready-line.ts
@@ -21207,7 +21212,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.296";
+var PLUGIN_VERSION = "0.1.297";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

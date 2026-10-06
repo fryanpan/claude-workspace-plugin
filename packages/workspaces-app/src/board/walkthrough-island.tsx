@@ -74,6 +74,7 @@ import {
   revisedPhrase,
 } from './board-review-model.ts';
 import { requireText } from './board-review-render.ts';
+import { undoTarget } from './recent-answers.ts';
 import { GateHoldLine, GateLessSpecificNote } from './review-gate-note.tsx';
 import { ReviewGrantBlock } from './review-grant-block.tsx';
 import { markPhrase, unmarkPhrase } from './review-item-phrase.ts';
@@ -122,6 +123,10 @@ export interface WalkthroughHandlers {
   /** Approve or decline a GRANT item's allow lines, through its own route.
    *  Absent is a refusal: the card lists the lines with no buttons. */
   onGrant?: (item: ReviewItem, decision: 'approve' | 'decline') => Promise<boolean>;
+  /** Take back the answer just given on the banner's item, and return to its
+   *  card. Absent where the page has no undo door; the banner then offers
+   *  only "Back to it". */
+  onUndoLast?: (item: ReviewItem) => Promise<boolean>;
   /** Go to the exact place instead of answering here — the task's discussion at
    *  that thread, the doc anchored on that comment. */
   onOpenItem: (item: ReviewItem) => void;
@@ -481,6 +486,17 @@ function AdvancedBanner(props: { last: ReviewItem; handlers: WalkthroughHandlers
       >
         Back to it
       </button>
+      {/* Undo: the answer given by mistake, taken back here and picked again
+          on the same card. Only for an item the server can take back. */}
+      {handlers.onUndoLast && undoTarget(last) && (
+        <button
+          type="button"
+          class="board-btn board-walk-advanced-undo"
+          onClick={() => void handlers.onUndoLast?.(last)}
+        >
+          Undo
+        </button>
+      )}
     </div>
   );
 }

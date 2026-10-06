@@ -31,6 +31,7 @@ import { mountGoalDetailIsland } from './goal-detail-island.tsx';
 import { mountHomeActivityIsland } from './home-activity-island.tsx';
 import { mountHomeReviewIsland } from './home-review-island.tsx';
 import { mountDriftIsland, mountPresenceIsland } from './presence-island.tsx';
+import type { RecentAnswer } from './recent-answers.ts';
 import { type DetailTab, mountTaskDetailIsland } from './task-detail-island.tsx';
 import { mountWalkthroughIsland } from './walkthrough-island.tsx';
 
@@ -53,6 +54,8 @@ export interface BoardIslandDeps {
   openReviewThread(item: ReviewItem): boolean;
   /** Start a sitting from the top of the queue. */
   startWalkthrough(): void;
+  /** Take back an answer on a ticket item — Home's "Answered" fold. */
+  undoTicketAnswer?(taskId: string, reviewItemId: string): Promise<boolean>;
   /** The one opener behind every task tap. */
   openTaskDetail(task: BoardTask, tab?: DetailTab): void;
   /** The Home activity pane's two writes — the same thread on the task's doc
@@ -80,6 +83,7 @@ export function mountBoardIslands(deps: BoardIslandDeps): void {
     openReviewItem,
     openReviewThread,
     startWalkthrough,
+    undoTicketAnswer,
     openTaskDetail,
     commentOnActivity,
     replyOnActivity,
@@ -98,6 +102,9 @@ export function mountBoardIslands(deps: BoardIslandDeps): void {
     onOpen: (item) => openReviewItem(item),
     onOpenThread: (item) => void openReviewThread(item),
     onWalkthrough: () => startWalkthrough(),
+    ...(undoTicketAnswer
+      ? { onUndoAnswer: (a: RecentAnswer) => undoTicketAnswer(a.taskId, a.reviewItemId) }
+      : {}),
   });
 
   // "Recent activity" — the second island on Home, under the queue and above

@@ -29,6 +29,7 @@ import { renderHomeBrief } from './board-render.ts';
 import type { ReviewQueue } from './board-review-model.ts';
 import { homeActivityData } from './home-activity-island.tsx';
 import { homeReviewData } from './home-review-island.tsx';
+import { ownRecentAnswers } from './recent-answers.ts';
 
 /** Everything the Home pane needs from `bootBoard`, and nothing else. */
 export interface BoardHomeDeps {
@@ -99,6 +100,13 @@ export function createBoardHomeRegion(deps: BoardHomeDeps): BoardHomeRegion {
     homeReviewData.value = {
       queue,
       settled: [...state.homeSettled.values()],
+      // Keyed on the name a write is attributed by, because that is the name
+      // the server checks before it lets an answer be taken back.
+      answered: ownRecentAnswers(
+        state.recentAnswers ?? [],
+        author.name,
+        new Set(queue.items.map((i) => i.key)),
+      ),
       now,
     };
     // The activity pane's one input: the projection as it stands, plus what

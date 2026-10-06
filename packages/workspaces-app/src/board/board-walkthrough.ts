@@ -34,6 +34,7 @@ import {
   walkAimAfterOpen,
   walkPosition,
 } from './board-review-model.ts';
+import { undoTarget } from './recent-answers.ts';
 import { walkthroughData } from './walkthrough-island.tsx';
 
 /** Everything the walkthrough needs from `bootBoard`, and nothing else. */
@@ -81,6 +82,8 @@ export interface BoardWalkthroughDeps {
   ) => Promise<boolean>;
   /** Approve or decline a grant item. Boolean for the secret door's reason. */
   grantOnItem?: (item: ReviewItem, decision: 'approve' | 'decline') => Promise<boolean>;
+  /** Take back an answer on a ticket item or the ticket's own decision. */
+  undoTicketAnswer?: (taskId: string, reviewItemId: string) => Promise<boolean>;
   /** This board's queue just drained. `bootBoard` decides whether the sitting
    *  continues on another board (`?then=`) or ends here. */
   onQueueDrained(): void;
@@ -108,6 +111,7 @@ export function createBoardWalkthrough(deps: BoardWalkthroughDeps): BoardWalkthr
     replyToReviewItem,
     saveSecretsOnItem,
     grantOnItem,
+    undoTicketAnswer,
   } = deps;
 
   /**
@@ -230,6 +234,9 @@ export function createBoardWalkthrough(deps: BoardWalkthroughDeps): BoardWalkthr
                 finishWalkItem(item, next, () => grantOnItem(item, decision)),
             }
           : {}),
+        ...(undoTicketAnswer
+          ? { onUndoLast: (item: ReviewItem) => undoLast(item, undoTicketAnswer) }
+          : {}),
         onOpenItem: (item) => openFromWalk((back) => openReviewItem(item, back)),
         // Same one-step close-then-open as `onOpenItem`, aimed at the thread —
         // and the same doc jump underneath when the item has no thread on a
@@ -289,6 +296,25 @@ export function createBoardWalkthrough(deps: BoardWalkthroughDeps): BoardWalkthr
     renderWalkthrough();
     renderHomeRegion();
     return ok;
+  }
+
+  /**
+   * The banner's Undo: take back the answer just given and put the reader
+   * back on that card to pick again. The item reopens on the server, so the
+   * walk aims at its key; the queue's next read brings it back under the aim.
+   */
+  async function undoLast(
+    item: ReviewItem,
+    undo: (taskId: string, reviewItemId: string) => Promise<boolean>,
+  ): Promise<boolean> {
+    const target = undoTarget(item);
+    if (!target || !(await undo(target.taskId, target.reviewItemId))) return false;
+    state.walkProgress = { cleared: Math.max(0, state.walkProgress.cleared - 1), last: null };
+    state.homeSettled.delete(item.key);
+    state.walkKey = item.key;
+    renderWalkthrough();
+    renderHomeRegion();
+    return true;
   }
 
   return { render: renderWalkthrough, close: closeWalkthrough };
