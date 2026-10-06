@@ -38,7 +38,8 @@ export function ownRecentAnswers(
 
 /**
  * Where the undo for a queue item goes, or undefined for a kind with no
- * ticket-item undo (a thread reply is taken back on its thread). One route
+ * ticket-item undo (a thread reply is taken back on its thread, and the
+ * route refuses a secret or grant item). One route
  * serves both ticket kinds: it accepts the ticket's own decision as
  * `r-legacy`. The item is read structurally so this module imports nothing
  * back from `board-review-model.ts`.
@@ -47,7 +48,9 @@ export function undoTarget(item: {
   kind: string;
   decision?: { task: { id: string } };
   thread?: { taskId?: string; reviewItemId?: string };
+  review?: { shape?: string };
 }): { taskId: string; reviewItemId: string } | undefined {
+  if (item.review?.shape === 'secret' || item.review?.shape === 'grant') return undefined;
   if (item.kind === 'decision' && item.decision) {
     return { taskId: item.decision.task.id, reviewItemId: LEGACY_ID };
   }

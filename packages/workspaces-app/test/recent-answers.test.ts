@@ -37,4 +37,11 @@ describe('undoTarget', () => {
   it('has no target for a thread reply', () => {
     expect(undoTarget({ kind: 'task-thread', thread: { taskId: 't-1' } })).toBeUndefined();
   });
+
+  it('has no target for a secret or grant item, whose answer the undo route refuses', () => {
+    const thread = { taskId: 't-1', reviewItemId: 'r-1' };
+    for (const shape of ['secret', 'grant']) {
+      expect(undoTarget({ kind: 'task-review', thread, review: { shape } })).toBeUndefined();
+    }
+  });
 });

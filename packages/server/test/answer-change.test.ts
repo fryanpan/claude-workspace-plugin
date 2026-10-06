@@ -79,6 +79,16 @@ describe('recent answers', () => {
             item({ id: 'r-legacy', answer: { text: 'C', by: 'Alice', ts: now - 1 } }),
             item({ id: 'r-open' }),
             item({
+              id: 'r-secret',
+              answer: { text: 'saved', by: 'Alice', ts: now - 1 },
+              review: { shape: 'secret', headline: 'Signing value' },
+            }),
+            item({
+              id: 'r-grant',
+              answer: { text: 'approved', by: 'Alice', ts: now - 1 },
+              review: { shape: 'grant', headline: 'Allow push' },
+            }),
+            item({
               id: 'r-gone',
               answer: { text: 'D', by: 'Alice', ts: now - 1 },
               review: { shape: 'decision', headline: 'x', withdrawnAt: now - 1 },

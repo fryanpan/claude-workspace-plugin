@@ -20,7 +20,7 @@
  *
  * `recentTicketAnswers` is the read Home's "Answered" fold is drawn from.
  */
-import type { TaskReviewItem } from '@claude-workspaces/core';
+import { type TaskReviewItem, normalizeReviewType } from '@claude-workspaces/core';
 import type { Task } from '@claude-workspaces/core/task-wire';
 import { LEGACY_REVIEW_ITEM_ID } from './derive.ts';
 
@@ -113,7 +113,8 @@ export interface RecentTicketAnswer {
 /**
  * Every ticket item answered in the last day, newest first. A withdrawn item
  * is left out: its asker took the question back, so there is nothing to
- * change an answer to.
+ * change an answer to. So are secret and grant items: the undo route refuses
+ * both shapes, so a row for one would offer an Undo that always fails.
  */
 export function recentTicketAnswers(
   tasks: ReadonlyArray<{ id: string; reviews: TaskReviewItem[] }>,
@@ -124,6 +125,8 @@ export function recentTicketAnswers(
     for (const r of t.reviews) {
       const a = r.answer;
       if (!a || r.review.withdrawnAt !== undefined) continue;
+      const shape = normalizeReviewType(r.review.shape);
+      if (shape === 'secret' || shape === 'grant') continue;
       if (now - a.ts > RECENT_ANSWER_WINDOW_MS) continue;
       out.push({
         key: r.id === LEGACY_REVIEW_ITEM_ID ? `decision:${t.id}` : `task-review:${t.id}:${r.id}`,
