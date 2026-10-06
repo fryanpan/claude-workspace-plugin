@@ -1,7 +1,8 @@
 /**
  * The doc store and the board, narrowed to what an interview may do: check a
  * doc is on the board, read its outline, append under one heading, put the
- * agent's cursor on the words it is asking about, and, in a planning
+ * agent's cursor on the words it is asking about, replace one block (a
+ * revised goal, `interview-goals.ts`), and, in a planning
  * meeting, hold the notes' copy of an answer (`meeting-ears.ts`).
  *
  * The write is `applyBlockEdits` with `insert_under_heading` — the verb
@@ -13,7 +14,7 @@ import type { prose } from '@claude-workspaces/core';
 import { AGENT_FOCUS_FIELD, type AgentFocus } from '@claude-workspaces/core/spoken-reply';
 import type { Awareness } from 'y-protocols/awareness';
 import type { BlockEditsAuthor, BlockEditsResult, DocOutline } from '../doc-outline-ops.ts';
-import type { InterviewDocs, InterviewWrite } from './interview.ts';
+import type { InterviewDocs, InterviewWrite } from './interview-types.ts';
 import type { MeetingEars } from './meeting-ears.ts';
 
 export const INTERVIEW_AUTHOR: BlockEditsAuthor = {
@@ -40,6 +41,15 @@ export function interviewDocs(
   wrote?: (docId: string, headingId: string) => void,
 ): InterviewDocs {
   let seq = 0;
+  const write = (docId: string, edit: prose.BlockEdit): InterviewWrite => {
+    const res = docStore.applyBlockEdits(docId, [edit], INTERVIEW_AUTHOR);
+    if (!res.ok) return res.error === 'not-found' ? 'gone' : 'failed';
+    const outcome = res.outcomes[0];
+    if (outcome?.status === 'applied' || outcome?.status === 'suggested') return 'written';
+    return outcome?.error === 'unknown-block' || outcome?.error === 'not-a-heading'
+      ? 'gone'
+      : 'failed';
+  };
   return {
     ...(ears
       ? {
@@ -51,21 +61,12 @@ export function interviewDocs(
     onBoard: (workspaceId, docId) => boardDocIds(workspaceId)?.includes(docId) === true,
     outline: (docId) => docStore.readOutline(docId)?.blocks ?? null,
     writeUnder: (docId, headingId, markdown): InterviewWrite => {
-      const res = docStore.applyBlockEdits(
-        docId,
-        [{ op: 'insert_under_heading', headingId, markdown }],
-        INTERVIEW_AUTHOR,
-      );
-      if (!res.ok) return res.error === 'not-found' ? 'gone' : 'failed';
-      const outcome = res.outcomes[0];
-      if (outcome?.status === 'applied' || outcome?.status === 'suggested') {
-        wrote?.(docId, headingId);
-        return 'written';
-      }
-      return outcome?.error === 'unknown-block' || outcome?.error === 'not-a-heading'
-        ? 'gone'
-        : 'failed';
+      const res = write(docId, { op: 'insert_under_heading', headingId, markdown });
+      if (res === 'written') wrote?.(docId, headingId);
+      return res;
     },
+    replaceBlock: (docId, blockId, markdown) =>
+      write(docId, { op: 'replace_block', blockId, markdown }),
     focus: (docId, at) => {
       const live = docStore.get(docId);
       if (!live) return;

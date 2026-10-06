@@ -89,7 +89,10 @@ describe('the planning voice in a meeting stays on', () => {
     expect(asked).toMatchObject({ spoken: 'Who signs off the dredging?', detail: [] });
     f.answerer.close();
     const tapped = await f.say('We dredge first.');
-    expect(tapped.detail).toEqual(['Say skip, come back to that, or that’s enough.']);
+    expect(tapped.detail).toEqual([
+      'Written under Work.',
+      'Say skip, come back to that, or that’s enough.',
+    ]);
   });
 
   it('off a meeting, a reading run still ends as it did', async () => {

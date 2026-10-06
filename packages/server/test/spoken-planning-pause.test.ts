@@ -153,7 +153,7 @@ describe('the planning voice asks only at a pause', () => {
       const words = played.filter((f) => f.final).map((f) => f.text);
       expect(h.ended()).toEqual([{ type: 'turn-end', text: words.join(' ') }]);
       expect(h.replies()[0]).toMatchObject({
-        spoken: 'I found 4 gaps. First: What goes under Goals?',
+        spoken: 'What goes under Goals?',
         asking: true,
         route: 'interview',
       });

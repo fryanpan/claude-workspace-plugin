@@ -14,6 +14,9 @@
  *    one, so the planning voice says nothing and asks its next question at
  *    the next pause.
  */
+import { capWords } from '../voice-status.ts';
+import { sentences } from './reply-shape.ts';
+
 export type InterviewCommand = 'start' | 'skip' | 'later' | 'enough' | 'repeat' | 'unsure';
 
 function normalize(s: string): string {
@@ -96,4 +99,29 @@ export function answerMarkdown(text: string): string {
 
 export function wordCount(text: string): number {
   return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}
+
+/** The most words a planning reply says aloud (Bryan, 6 Oct: replies ran
+ *  long and the owner had to say so). */
+export const PLANNING_MAX_WORDS = 20;
+
+/**
+ * What a planning reply says aloud: ONE sentence of at most
+ * `PLANNING_MAX_WORDS` words — its question when it has one, else its first
+ * sentence. Every other sentence is returned for the page, never dropped.
+ * Every interview reply passes through here, so no lead, model question or
+ * heading can make one run on.
+ */
+export function oneSentence(text: string): { spoken: string; rest: string[] } {
+  const all = sentences(text.replace(/\s+/g, ' ').trim());
+  let i = 0;
+  all.forEach((s, j) => {
+    if (s.endsWith('?')) i = j;
+  });
+  const said = all[i];
+  if (said === undefined) return { spoken: '', rest: [] };
+  return {
+    spoken: capWords(said, PLANNING_MAX_WORDS),
+    rest: all.filter((_, j) => j !== i),
+  };
 }

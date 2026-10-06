@@ -34,31 +34,31 @@ describe('interview mode: each answer lands in its section', () => {
     const f = fx;
     const first = await f.say('Claude, interview me.');
     expect(first).toMatchObject({
-      spoken: 'I found 4 gaps. First: What goes under Goals?',
+      spoken: 'What goes under Goals?',
       asking: true,
       route: 'interview',
     });
     expect(first.detail).toEqual([
+      'I found 4 gaps.',
       '1. Goals — empty',
       '2. Design — placeholder only',
       '3. Requirements — open question',
       '4. Rollout — short',
+      'Say skip, come back to that, or that’s enough.',
     ]);
 
     f.tick(90_000);
-    expect((await f.say(GOALS)).spoken).toBe('Written under Goals. Next: What goes under Design?');
+    expect((await f.say(GOALS)).spoken).toBe('What goes under Design?');
     f.tick(60_000);
     expect((await f.say(DESIGN)).spoken).toBe(
-      'Written under Design. Next: Under Requirements: Who signs off the berth design?',
+      'Under Requirements: Who signs off the berth design?',
     );
     f.tick(120_000);
-    expect((await f.say(REQS)).spoken).toBe(
-      'Written under Requirements. Next: Rollout is short. What else should it say?',
-    );
+    expect((await f.say(REQS)).spoken).toBe('What else goes under Rollout?');
     f.tick(30_000);
     const last = await f.say(ROLLOUT);
     expect(last).toMatchObject({
-      spoken: 'Written under Rollout. That was the last gap. 4 of 4 gaps filled.',
+      spoken: 'Written under Rollout.',
       asking: false,
     });
     expect(f.interview.active).toBe(false);
@@ -112,23 +112,23 @@ describe('interview mode: each answer lands in its section', () => {
   it('an answer that only mentions a command word is written', async () => {
     const f = await started();
     const said = 'We skip the staging deploy and ship from the harbour office.';
-    expect((await f.say(said)).spoken).toStartWith('Written under Goals.');
+    const r = await f.say(said);
+    expect(r.spoken).toBe('What goes under Design?');
+    expect(r.detail[0]).toBe('Written under Goals.');
     expect(f.headingOf(said)).toBe('Goals');
   });
 
   it('a silence after a question offers to skip it once, then asks again', async () => {
     const f = await started();
     expect(await f.say('')).toMatchObject({
-      spoken: 'Still there? Say skip to move on, or answer: What goes under Goals?',
+      spoken: 'What goes under Goals?',
       asking: true,
     });
-    expect((await f.say('')).spoken).toBe('I didn’t catch that. What goes under Goals?');
+    expect((await f.say('')).spoken).toBe('What goes under Goals?');
     expect(f.rows).toEqual([]);
     // The next question gets its own offer.
     await f.say('skip');
-    expect((await f.say('')).spoken).toBe(
-      'Still there? Say skip to move on, or answer: What goes under Design?',
-    );
+    expect((await f.say('')).spoken).toBe('What goes under Design?');
   });
 
   it('a heading deleted mid-interview is reported and the next gap asked', async () => {
@@ -138,7 +138,7 @@ describe('interview mode: each answer lands in its section', () => {
       author: 'fixture',
     });
     const r = await f.say(GOALS);
-    expect(r.spoken).toBe('Goals is gone from the doc. Next: What goes under Design?');
+    expect(r.spoken).toBe('What goes under Design?');
     expect(f.headingOf(GOALS)).toBeNull();
     expect(f.rows[0]).toMatchObject({ outcome: 'gone' });
   });
