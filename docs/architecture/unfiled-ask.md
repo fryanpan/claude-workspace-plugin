@@ -184,6 +184,13 @@ is known to be lower than it is.
 its note to the Activity tab (that message is the one a reader most wants) and
 is never nudged again.
 
+**It does not nudge the coach.** The coach session may not file review items
+(the `coaching` skill); its one way to ask the owner is the coach card. So a
+turn note from the lead seated on the board that holds the learning-goals doc
+is not judged at all (`isCoachSession`, `coach/wiring.ts`). The key is the
+server's own record of that board and its lead seat, never the note's words,
+and the same agent leading any other board is judged as usual.
+
 ## Where the note itself goes, and what a many-row board loses
 
 The judgement runs on every turn note the route accepts, BEFORE the note is

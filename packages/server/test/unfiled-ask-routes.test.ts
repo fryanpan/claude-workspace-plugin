@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localDay } from '../src/chat-audit.ts';
+import { CoachStore } from '../src/coach/store.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 
 const PERSON = { id: 'known-jordan', name: 'Jordan', kind: 'person' };
@@ -184,5 +185,31 @@ describe('the unfiled-ask nudge on the note route', () => {
     expect(await r.json()).not.toHaveProperty('unfiledAsk');
     // Still an ask — it is counted, and counted as a FILED one.
     expect(counted().agents).toMatchObject([{ unfiledAsks: 0, totalAsks: 1, days: 1 }]);
+  });
+
+  it('never nudges the coach session, which may not file review items, and still nudges its lead seat elsewhere', async () => {
+    // The coach board is the one holding the learning-goals doc, and the
+    // coach session is the lead seated on it. Both are the server's own
+    // record, so a session cannot claim the exemption by what it writes.
+    const coachWs = await boardWithLead();
+    await inProgressRow(coachWs, 'Coach the owner');
+    const otherWs = await boardWithLead();
+    await inProgressRow(otherWs, 'Only claim');
+    await handle.stop();
+    const store = new CoachStore(dataDir);
+    store.setGoalsDoc({ workspaceId: coachWs, docId: 'd-goals', createdAt: Date.now() });
+    store.flush();
+    handle = createServer({ port: 0, dataDir });
+    base = `http://127.0.0.1:${handle.port}`;
+    const ask = 'Hi, I’m noticing the post is unfinished. Want me to check again at noon?';
+    WS = coachWs;
+    const coach = await note('cartographer', ask);
+    expect(coach.status).toBe(202);
+    expect(await coach.json()).not.toHaveProperty('unfiledAsk');
+    // Positive control: the same agent, leading a board that is not the
+    // coach's, is still nudged for the same words.
+    WS = otherWs;
+    const elsewhere = await note('cartographer', ask);
+    expect(await elsewhere.json()).toMatchObject({ unfiledAsk: expect.any(String) });
   });
 });

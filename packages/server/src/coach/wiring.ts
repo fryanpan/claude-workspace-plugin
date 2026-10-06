@@ -10,6 +10,7 @@
  *  - the Coach board's lead, and an addressed frame to it: the coach's
  *    Claude Code session, which hears every event (`session-feed.ts`).
  */
+import { agentIdForName } from '@claude-workspaces/core';
 import { type Event, onActivity } from '../activity.ts';
 import { type BoardPrivacy, placeIsOff } from './exclusion.ts';
 import { type GoalsDocReading, readGoalsDoc } from './goals-doc.ts';
@@ -58,6 +59,9 @@ export interface CoachWiring {
   setup: CoachSetupDeps;
   /** The front page's section, for the owner. */
   landing: () => string;
+  /** True when this agent, by name, is the coach session: the lead seated
+   *  on the board that holds the learning-goals doc. */
+  isCoachSession: (workspaceId: string, agentName: string) => boolean;
   stop: () => void;
 }
 
@@ -138,6 +142,11 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
         { online: feed.reachable(), paused: feed.paused(t), boardName: deps.boardName },
         t,
       );
+    },
+    isCoachSession: (workspaceId, agentName) => {
+      if (store.goalsDoc?.workspaceId !== workspaceId) return false;
+      const lead = deps.leadOf(workspaceId);
+      return lead !== undefined && lead === agentIdForName(agentName);
     },
     stop: () => {
       unsubscribe();

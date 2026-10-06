@@ -66,6 +66,9 @@ export interface TaskRoutesContext {
   /** The unfiled-ask counters. The hook route is the only writer of the live
    *  rows; the chat-audit routes read them and take the daily audit's. */
   chatAudit: ChatAudit;
+  /** The coach session, which the coaching skill forbids review items, is
+   *  never nudged to file one (`coach/wiring.ts`). */
+  isCoachSession: (workspaceId: string, agentName: string) => boolean;
   /** Wakes the lead when a row it owns becomes ready. */
   readyNudger: ReadyWorkNudger;
 

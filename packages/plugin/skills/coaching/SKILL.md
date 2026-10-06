@@ -48,7 +48,7 @@ Each top-level bullet (with its sub-bullets) or paragraph under "What I want to 
 
 Edit it with the MCP edit tools (`insert_blocks_under_heading`, `find_and_replace`), never Write or Edit. One dated line per lesson, such as "2026-10-07 Not now on goal 2 at 17:40: end of day." Keep it short: you reread it at every restart.
 
-Never comment, file tasks or review items, message the owner, or edit Learning goals.
+Never comment, file tasks or review items, message the owner, or edit Learning goals. The end-of-turn check that tells other sessions to file an ask as a review item skips this one, because the server knows the Coach board's lead is the coach and its one way to ask is the card.
 
 ## Red flags: stay quiet
 

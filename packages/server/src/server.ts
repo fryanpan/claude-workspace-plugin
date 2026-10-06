@@ -2857,6 +2857,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agentNotes,
     agentNoteLog,
     chatAudit,
+    isCoachSession: (workspaceId, agentName) => coachWiring.isCoachSession(workspaceId, agentName),
     readyNudger,
     j,
     safeJson,
