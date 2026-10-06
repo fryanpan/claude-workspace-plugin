@@ -72,6 +72,12 @@ export interface TaskRoutesContext {
   /** A turn note counted as the owner's Claude Code time in the coach's
    *  digest (`coach/session-minutes.ts`); the note's text is never read. */
   coachSessionTurn: (workspaceId: string, note: AgentNoteInput, cwd: unknown) => void;
+  /** A prompt mark (typed or injected, never its text) for the same digest. */
+  coachSessionPrompt: (
+    workspaceId: string,
+    mark: { agent: string; typed: boolean; at: number; sessionId?: string },
+    cwd: unknown,
+  ) => void;
   /** Wakes the lead when a row it owns becomes ready. */
   readyNudger: ReadyWorkNudger;
 

@@ -58,6 +58,16 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/claude-workspaces-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-mark.ts\""
+          }
+        ]
+      }
     ]
   }
 }

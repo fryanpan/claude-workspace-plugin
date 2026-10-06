@@ -9,8 +9,8 @@
  *  - the activity record's live feed (`onActivity`), for this data dir only;
  *  - the Coach board's lead, and an addressed frame to it: the coach's
  *    Claude Code session, which hears every event (`session-feed.ts`);
- *  - each board's lead, to say whose turn ends count as his Claude Code
- *    time (`session-minutes.ts`).
+ *  - each attached session's prompt marks and turn notes, for his Claude
+ *    Code time (`session-minutes.ts`).
  */
 import { agentIdForName } from '@claude-workspaces/core';
 import { type Event, onActivity } from '../activity.ts';
@@ -69,10 +69,20 @@ export interface CoachWiring {
    *  on the board that holds the learning-goals doc. */
   isCoachSession: (workspaceId: string, agentName: string) => boolean;
   /** A session's turn note on a board, from the notes route. Counted only
-   *  for that board's lead, never the coach, and never on a board the coach
-   *  is off for; true when it joined a digest window. */
+   *  after a prompt he typed, never for the coach, and never on a board the
+   *  coach is off for; true when it joined a digest window. */
   sessionTurn: (workspaceId: string, note: SessionNote, cwd?: unknown) => boolean;
+  /** A session's prompt mark, from the prompts route: typed or injected. */
+  sessionPrompt: (workspaceId: string, mark: PromptMark, cwd?: unknown) => boolean;
   stop: () => void;
+}
+
+/** What the prompts route hands on. The prompt's text never reaches the server. */
+export interface PromptMark {
+  agent: string;
+  typed: boolean;
+  at: number;
+  sessionId?: string;
 }
 
 /** What `sessionTurn` reads off a note. Its text is never read. */
@@ -153,18 +163,32 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     const lead = deps.leadOf(workspaceId);
     return lead !== undefined && lead === agentIdForName(agentName);
   };
-  const sessionTurn = (workspaceId: string, note: SessionNote, cwd?: unknown): boolean => {
-    if (note.kind !== 'turn' || isOff({ workspaceId })) return false;
-    if (isCoachSession(workspaceId, note.agent)) return false;
-    if (deps.leadOf(workspaceId) !== agentIdForName(note.agent)) return false;
+  /** Where a mark came from, or null when it must not reach the coach. */
+  const sessionOf = (
+    workspaceId: string,
+    agent: string,
+    at: number,
+    sessionId?: string,
+    cwd?: unknown,
+  ) => {
+    if (isOff({ workspaceId }) || isCoachSession(workspaceId, agent)) return null;
     const board = deps.boardName(workspaceId);
-    return feed.turn({
-      at: note.at,
+    return {
+      at,
       boardId: workspaceId,
       ...(board ? { board } : {}),
-      session: note.sessionId ?? note.agent,
+      session: sessionId ?? agent,
       repo: repoOfCwd(cwd) ?? 'unknown repo',
-    });
+    };
+  };
+  const sessionTurn = (workspaceId: string, note: SessionNote, cwd?: unknown): boolean => {
+    if (note.kind !== 'turn') return false;
+    const news = sessionOf(workspaceId, note.agent, note.at, note.sessionId, cwd);
+    return news !== null && feed.turn(news);
+  };
+  const sessionPrompt = (workspaceId: string, mark: PromptMark, cwd?: unknown): boolean => {
+    const news = sessionOf(workspaceId, mark.agent, mark.at, mark.sessionId, cwd);
+    return news !== null && feed.prompt(news, mark.typed);
   };
   return {
     store,
@@ -183,6 +207,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     },
     isCoachSession,
     sessionTurn,
+    sessionPrompt,
     stop: () => {
       unsubscribe();
       feed.stop();

@@ -1922,9 +1922,11 @@ wrote, commented or replied keeps its words). Each digest also carries the
 plan board's goals in board order with the day the list was last set, marked
 possibly stale past eight days, or says there is no current week plan
 (`coach/week-plan.ts`). It also lists his Claude Code time per attached session, the repo and its
-active minutes from the Stop hook's turn notes, counting only each board's
-lead and never the coach (`coach/session-minutes.ts`); a counted turn end
-opens a window as a board event does. A quiet stretch sends nothing,
+active minutes, counted from each prompt he typed (the plugin's
+UserPromptSubmit hook posts typed-or-not, never the text, to
+`routes/prompt-marks.ts`) through the Stop hook's turn notes after it, never
+for the coach (`coach/session-minutes.ts`). A typed prompt opens a window as
+a board event does; a turn end never does. A quiet stretch sends nothing,
 and answers and the setting go at once. Past 400 turns in a day it sends
 nothing and the front page says the coach is paused for today. The session raises a moment on `POST /coach/moments`, and
 `coach/judge.ts` refuses one that does not copy three words in order from the

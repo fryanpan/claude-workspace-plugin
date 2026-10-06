@@ -123,8 +123,15 @@ describe('coachLine', () => {
       {
         items: [],
         sessions: [
-          { boardId: 'w-1', board: 'Harborlight', repo: 'harborlight-app', minutes: 9, turns: 3 },
-          { boardId: 'w-2', repo: 'saltmarsh', minutes: 1, turns: 1 },
+          {
+            boardId: 'w-1',
+            board: 'Harborlight',
+            repo: 'harborlight-app',
+            minutes: 10,
+            prompts: 1,
+            turns: 3,
+          },
+          { boardId: 'w-2', repo: 'saltmarsh', minutes: 1, prompts: 1, turns: 0 },
         ],
         sessionsNote: note,
         plan: 'no current week plan',
@@ -133,8 +140,8 @@ describe('coachLine', () => {
     );
     expect(line?.split('\n').slice(1)).toEqual([
       'Claude Code sessions (active minutes):',
-      '- harborlight-app, on board "Harborlight": 9 min over 3 turns',
-      '- saltmarsh, on board "w-2": 1 min over 1 turn',
+      '- harborlight-app, on board "Harborlight": 10 min, 1 typed prompt, 3 turn ends',
+      '- saltmarsh, on board "w-2": 1 min, 1 typed prompt, 0 turn ends',
       note,
       "This week's plan: no current week plan.",
     ]);

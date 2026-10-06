@@ -2867,6 +2867,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     coachSessionTurn: (workspaceId, note, cwd) => {
       coachWiring.sessionTurn(workspaceId, note, cwd);
     },
+    coachSessionPrompt: (workspaceId, mark, cwd) => {
+      coachWiring.sessionPrompt(workspaceId, mark, cwd);
+    },
     readyNudger,
     j,
     safeJson,

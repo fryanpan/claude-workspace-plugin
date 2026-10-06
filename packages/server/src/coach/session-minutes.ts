@@ -2,44 +2,44 @@
  * The owner's time in Claude Code sessions, as the coach's digest counts it.
  *
  * The digest saw only board pages, and most of his lower-priority time goes
- * in terminals. Every attached session already posts one note per turn end
- * (the plugin's Stop hook), with the session's id and working directory. So
- * each digest also lists, per session, the repo and its active minutes.
+ * in terminals. Every attached session posts a mark for each prompt (the
+ * plugin's UserPromptSubmit hook, which says only whether a person typed
+ * it) and a note for each turn end (the Stop hook). So each digest also
+ * lists, per session, the repo and its active minutes.
  *
  * What reaches the coach: the board's id and name, the repo's folder name,
- * the minutes and the turn count. Never the turn's text, the session id or
- * any other part of the path.
+ * the minutes, and how many typed prompts and turn ends it counted. Never
+ * the prompt or the turn's text, the session id or any other part of the
+ * path.
  *
- * Who counts. A note does not say whether a person or a channel woke the
- * turn, so the server cannot tell his turns from an agent's own. The proxy
- * is the seat: only the board's lead counts, the session he talks to on that
- * board, and the coach's own session never does. A lead working alone on
- * channel wakes is counted too; a session he drives that is not a lead is
- * not. The cap below bounds the first error.
+ * Who counts: any attached session he types into. A typed prompt starts a
+ * run, and the turn ends that follow it count until the next prompt the
+ * harness injected (a channel event, a teammate message). Turns that only a
+ * channel woke never count, so a lead working alone all day adds nothing.
  *
- * Active minutes. A turn end counts the time since the same session's
- * previous turn end, at most `TURN_CAP_MS`; a session's first turn counts
- * `FIRST_TURN_MS`. Five minutes is about one read-and-reply; a longer gap is
+ * Active minutes. Each turn end in a run adds the time since the run's
+ * previous mark, its typed prompt or its last turn end, at most
+ * `TURN_CAP_MS`. Five minutes is about one read-and-reply; a longer gap is
  * time the session worked alone or he was elsewhere, and counting it whole
- * is what would overstate.
+ * is what would overstate. A session with a typed prompt and no turn end
+ * yet shows one minute.
  *
- * Pure apart from `SessionClock`'s memory; every time is handed in.
+ * Pure apart from `SessionRuns`'s memory; every time is handed in.
  */
 import { basename } from 'node:path';
 
 /** The most one turn end adds. */
 export const TURN_CAP_MS = 5 * 60_000;
-/** What a session's first known turn adds. */
-export const FIRST_TURN_MS = 60_000;
-/** Sessions whose last turn the clock remembers before it forgets the oldest. */
+/** Sessions whose run is remembered before the oldest is forgotten. */
 const SESSIONS_CAP = 500;
 const REPO_MAX = 100;
 
 export const SESSIONS_NOT_COUNTED =
-  'Claude Code sessions not attached to a board are not counted, and neither are turns from a session that is not the board lead.';
+  'Claude Code sessions not attached to a board are not counted, and neither are turns only a channel or another agent started.';
 
-/** One counted turn end, with the time it adds. */
+/** One counted mark: a typed prompt, or a turn end in its run with the time it adds. */
 export interface SessionTurn {
+  kind: 'prompt' | 'turn';
   at: number;
   boardId: string;
   board?: string;
@@ -55,6 +55,7 @@ export interface SessionMinutes {
   board?: string;
   repo: string;
   minutes: number;
+  prompts: number;
   turns: number;
 }
 
@@ -72,26 +73,32 @@ export function repoOfCwd(cwd: unknown): string | undefined {
   return name === '' || name.length > REPO_MAX ? undefined : name;
 }
 
-/** Remembers each session's last turn end, so a turn knows its gap. */
-export class SessionClock {
+/** Each session's open run: when its last mark was, from a typed prompt on. */
+export class SessionRuns {
   private readonly last = new Map<string, number>();
 
-  /** The time this turn end adds, and it becomes the session's last. */
-  credit(session: string, at: number): number {
-    const prev = this.last.get(session);
+  /** A typed prompt opens a run; an injected one closes it. */
+  prompt(session: string, at: number, typed: boolean): void {
     this.last.delete(session);
-    this.last.set(session, prev === undefined ? at : Math.max(prev, at));
+    if (!typed) return;
+    this.last.set(session, at);
     while (this.last.size > SESSIONS_CAP) {
       const oldest = this.last.keys().next().value;
       if (oldest === undefined) break;
       this.last.delete(oldest);
     }
-    if (prev === undefined) return FIRST_TURN_MS;
+  }
+
+  /** The time this turn end adds, or null outside a run. */
+  turnEnd(session: string, at: number): number | null {
+    const prev = this.last.get(session);
+    if (prev === undefined) return null;
+    this.last.set(session, Math.max(prev, at));
     return Math.min(Math.max(0, at - prev), TURN_CAP_MS);
   }
 }
 
-/** One line per session, in the order each first turned in the window. */
+/** One line per session, in the order each first appears in the window. */
 export function sessionMinutesOf(turns: readonly SessionTurn[]): SessionMinutes[] {
   const bySession = new Map<string, SessionMinutes & { ms: number }>();
   for (const t of turns) {
@@ -101,11 +108,13 @@ export function sessionMinutesOf(turns: readonly SessionTurn[]): SessionMinutes[
       ...(t.board ? { board: t.board } : {}),
       repo: t.repo,
       minutes: 0,
+      prompts: 0,
       turns: 0,
       ms: 0,
     };
     line.repo = t.repo;
-    line.turns += 1;
+    if (t.kind === 'prompt') line.prompts += 1;
+    else line.turns += 1;
     line.ms += t.creditMs;
     bySession.set(key, line);
   }

@@ -14232,9 +14232,9 @@ function sessionLines(p) {
   const lines = p.sessions.flatMap((s) => {
     if (!s.repo || !s.boardId)
       return [];
-    const turns = s.turns ?? 0;
+    const n = (count, one) => `${count ?? 0} ${one}${count === 1 ? "" : "s"}`;
     return [
-      `- ${s.repo}, on board "${s.board ?? s.boardId}": ${s.minutes ?? 0} min over ${turns} turn${turns === 1 ? "" : "s"}`
+      `- ${s.repo}, on board "${s.board ?? s.boardId}": ${s.minutes ?? 0} min, ${n(s.prompts, "typed prompt")}, ${n(s.turns, "turn end")}`
     ];
   });
   const head = lines.length > 0 ? ["Claude Code sessions (active minutes):", ...lines] : ["Claude Code sessions: none counted."];

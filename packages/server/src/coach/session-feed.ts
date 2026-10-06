@@ -20,8 +20,10 @@
  * digest also carries this week's plan goals in plan order
  * (`coach/week-plan.ts`), so the session ranks by the plan, not by titles,
  * and his Claude Code time per attached session (`coach/session-minutes.ts`).
- * A counted turn end opens a window as a board event does: terminal work
- * with no board page open is the case that section exists for.
+ * A prompt he typed opens a window as a board event does, so terminal work
+ * with no board page open still reaches the coach. A turn end never opens
+ * one: it joins a window already open, so agents working alone overnight
+ * wake nobody.
  *
  * A day has a budget of turns (`DAILY_EVENT_LIMIT`): past it nothing is
  * sent until his next local day, and the front page says the coach is
@@ -35,8 +37,8 @@ import { HeldWindow } from '../held-window.ts';
 import { type DigestEvent, type DigestItem, digestOf } from './digest.ts';
 import {
   SESSIONS_NOT_COUNTED,
-  SessionClock,
   type SessionMinutes,
+  SessionRuns,
   type SessionTurn,
   sessionMinutesOf,
 } from './session-minutes.ts';
@@ -116,15 +118,15 @@ export interface SessionFeedDeps {
 /** How long a window stays open before it goes as one digest. */
 export const DIGEST_WINDOW_MS = 15 * 60_000;
 
-/** A counted turn end before its time is credited. */
-export type SessionTurnNews = Omit<SessionTurn, 'creditMs'>;
+/** Where a session's mark came from, before any time is credited. */
+export type SessionTurnNews = Omit<SessionTurn, 'creditMs' | 'kind'>;
 
 type Held = { event: DigestEvent } | { turn: SessionTurn };
 
 export class SessionFeed {
   private readonly window: HeldWindow<Held>;
 
-  private readonly clock = new SessionClock();
+  private readonly runs = new SessionRuns();
 
   constructor(private readonly deps: SessionFeedDeps) {
     this.window = new HeldWindow<Held>({
@@ -156,12 +158,22 @@ export class SessionFeed {
     return true;
   }
 
-  /** A counted turn end joins the open window, or opens one. The session's
-   *  clock moves even when nothing is held, so a later gap is still right. */
+  /** A prompt in an attached session. A typed one opens a run and joins
+   *  the window, opening one; an injected one ends the run. */
+  prompt(news: SessionTurnNews, typed: boolean): boolean {
+    this.runs.prompt(news.session, news.at, typed);
+    if (!typed || this.paused(news.at) || !this.reachable()) return false;
+    this.window.hold({ turn: { ...news, kind: 'prompt', creditMs: 0 } });
+    return true;
+  }
+
+  /** A turn end counts only inside a run, and only joins a window already
+   *  open. The run moves either way, so a later gap is still right. */
   turn(news: SessionTurnNews): boolean {
-    const creditMs = this.clock.credit(news.session, news.at);
+    const creditMs = this.runs.turnEnd(news.session, news.at);
+    if (creditMs === null || !this.window.open()) return false;
     if (this.paused(news.at) || !this.reachable()) return false;
-    this.window.hold({ turn: { ...news, creditMs } });
+    this.window.hold({ turn: { ...news, kind: 'turn', creditMs } });
     return true;
   }
 
