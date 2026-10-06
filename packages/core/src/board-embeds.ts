@@ -11,8 +11,9 @@
  * origin (`origin`, `{origin}`), never both. An origin entry loads that site
  * directly, so its page keeps its own origin and its requests carry its own
  * address as the Referer — what a referrer-restricted key such as a Google
- * Maps one needs. The server stores
- * one only when the origin is on its allowlist (`embedOriginsFrom`).
+ * Maps one needs. The server stores one only when the origin is on its
+ * allowlist (`embedOriginsFrom`), which must never name the board's own
+ * origin: a same-origin frame given `allow-same-origin` can lift its sandbox.
  */
 import { MOCK_FRAME_PARAM } from './page-thread-link.ts';
 
