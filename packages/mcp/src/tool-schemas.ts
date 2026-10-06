@@ -2851,7 +2851,7 @@ export const TOOL_LIST: ListToolsResult = {
     {
       name: 'set_board_embeds',
       description:
-        'Set which doc lines show a live app frame on this board. A doc paragraph whose whole text is `::<name>{block="<block>"}` shows the mapped page beneath it, sandboxed and read-only; the line itself stays plain text in the doc. An entry loads either from an app on this board or from an https origin on the server embed allowlist (CW_EMBED_ORIGINS on the server; none by default); use an origin when the page needs its own origin, e.g. for a referrer-restricted map key. Replaces the whole mapping; pass {} to clear it. Only `block` (lowercase letters, digits, hyphens) reaches the URL.',
+        'Set which doc lines show a live app frame on this board. A doc paragraph whose whole text is `::<name>{block="<block>"}` shows the mapped page beneath it, sandboxed and read-only; the line itself stays plain text in the doc. An entry loads either from an app on this board or from an https origin on the server embed allowlist (an array the owner writes to embed-origins.json in the server data dir; none by default); use an origin when the page needs its own origin, e.g. for a referrer-restricted map key. Replaces the whole mapping; pass {} to clear it. Only `block` (lowercase letters, digits, hyphens) reaches the URL.',
       inputSchema: {
         type: 'object',
         properties: {

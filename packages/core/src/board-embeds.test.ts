@@ -3,6 +3,7 @@ import {
   clampEmbedHeight,
   embedFrameSpec,
   embedOriginsFrom,
+  embedOriginsFromJson,
   embedUrl,
   parseBoardEmbeds,
   parseEmbedDirective,
@@ -79,6 +80,13 @@ describe('embedOriginsFrom', () => {
       ),
     ).toEqual(['https://harborlight.example', 'https://bob.example:8443']);
     expect(embedOriginsFrom('')).toEqual([]);
+  });
+  it('reads the file as an array of origins, and anything else as none', () => {
+    expect(embedOriginsFromJson(['https://harborlight.example', 'http://bob.example', 7])).toEqual([
+      'https://harborlight.example',
+    ]);
+    expect(embedOriginsFromJson({ origins: ['https://harborlight.example'] })).toEqual([]);
+    expect(embedOriginsFromJson(null)).toEqual([]);
   });
 });
 

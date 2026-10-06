@@ -59,15 +59,22 @@ export function isExactHttpsOrigin(s: string): boolean {
 }
 
 /**
- * The allowlist, from the deployment's comma-separated `CW_EMBED_ORIGINS`.
- * It names a deployment's partner sites, so the repo ships none: unset
- * allows none, and an entry that is not an exact https origin is dropped.
+ * The allowlist names a deployment's partner sites, so the repo ships none.
+ * The server reads it from `<dataDir>/embed-origins.json`, a JSON array the
+ * owner writes; `CW_EMBED_ORIGINS`, comma-separated, overrides the file.
+ * An entry that is not an exact https origin is dropped.
  */
 export function embedOriginsFrom(raw: string | undefined): string[] {
   return (raw ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(isExactHttpsOrigin);
+}
+
+/** The allowlist file's parsed JSON; anything but an array of strings allows none. */
+export function embedOriginsFromJson(parsed: unknown): string[] {
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((s): s is string => typeof s === 'string' && isExactHttpsOrigin(s));
 }
 
 export function clampEmbedHeight(h: number): number {
