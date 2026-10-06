@@ -18,7 +18,10 @@
  * window goes as one digest (`coach/digest.ts`). A quiet stretch opens no
  * window and sends nothing. His answers and his setting go at once. Each
  * digest also carries this week's plan goals in plan order
- * (`coach/week-plan.ts`), so the session ranks by the plan, not by titles.
+ * (`coach/week-plan.ts`), so the session ranks by the plan, not by titles,
+ * and his Claude Code time per attached session (`coach/session-minutes.ts`).
+ * A counted turn end opens a window as a board event does: terminal work
+ * with no board page open is the case that section exists for.
  *
  * A day has a budget of turns (`DAILY_EVENT_LIMIT`): past it nothing is
  * sent until his next local day, and the front page says the coach is
@@ -30,6 +33,13 @@
  */
 import { HeldWindow } from '../held-window.ts';
 import { type DigestEvent, type DigestItem, digestOf } from './digest.ts';
+import {
+  SESSIONS_NOT_COUNTED,
+  SessionClock,
+  type SessionMinutes,
+  type SessionTurn,
+  sessionMinutesOf,
+} from './session-minutes.ts';
 import type { CoachEventKind } from './stream.ts';
 import { type CoachReadiness, DAILY_EVENT_LIMIT, type MomentAnswer } from './types.ts';
 import { type PlanBoardReading, type WeekPlan, weekPlanOf } from './week-plan.ts';
@@ -61,7 +71,17 @@ export type SessionFrame = Addressed &
         line: string;
       }
     | { event: 'coach.preference'; readiness: CoachReadiness }
-    | { event: 'coach.digest'; from: number; to: number; items: DigestItem[]; plan: WeekPlan }
+    | {
+        event: 'coach.digest';
+        from: number;
+        to: number;
+        items: DigestItem[];
+        plan: WeekPlan;
+        /** His Claude Code sessions in the window, repo and minutes only. */
+        sessions: SessionMinutes[];
+        /** What the sessions list cannot see, said once per digest. */
+        sessionsNote: string;
+      }
   );
 
 /** A frame before it is addressed. */
@@ -96,11 +116,18 @@ export interface SessionFeedDeps {
 /** How long a window stays open before it goes as one digest. */
 export const DIGEST_WINDOW_MS = 15 * 60_000;
 
+/** A counted turn end before its time is credited. */
+export type SessionTurnNews = Omit<SessionTurn, 'creditMs'>;
+
+type Held = { event: DigestEvent } | { turn: SessionTurn };
+
 export class SessionFeed {
-  private readonly window: HeldWindow<DigestEvent>;
+  private readonly window: HeldWindow<Held>;
+
+  private readonly clock = new SessionClock();
 
   constructor(private readonly deps: SessionFeedDeps) {
-    this.window = new HeldWindow<DigestEvent>({
+    this.window = new HeldWindow<Held>({
       windowMs: DIGEST_WINDOW_MS,
       close: (held, from, to) => this.close(held, from, to),
       ...(deps.now ? { now: deps.now } : {}),
@@ -125,7 +152,16 @@ export class SessionFeed {
     if (news.event !== 'coach.event') return this.deliver(news, at);
     if (this.paused(at) || !this.reachable()) return false;
     const { event: _event, ...e } = news;
-    this.window.hold({ ...e, at });
+    this.window.hold({ event: { ...e, at } });
+    return true;
+  }
+
+  /** A counted turn end joins the open window, or opens one. The session's
+   *  clock moves even when nothing is held, so a later gap is still right. */
+  turn(news: SessionTurnNews): boolean {
+    const creditMs = this.clock.credit(news.session, news.at);
+    if (this.paused(news.at) || !this.reachable()) return false;
+    this.window.hold({ turn: { ...news, creditMs } });
     return true;
   }
 
@@ -134,11 +170,24 @@ export class SessionFeed {
     this.window.stop();
   }
 
-  private close(held: DigestEvent[], from: number, at: number): void {
-    const items = digestOf(held, at);
-    if (items.length === 0) return;
+  private close(held: Held[], from: number, at: number): void {
+    const items = digestOf(
+      held.flatMap((h) => ('event' in h ? [h.event] : [])),
+      at,
+    );
+    const sessions = sessionMinutesOf(held.flatMap((h) => ('turn' in h ? [h.turn] : [])));
+    if (items.length === 0 && sessions.length === 0) return;
     const plan = weekPlanOf(this.deps.planBoard(), at, this.deps.timeZone());
-    if (this.deliver({ event: 'coach.digest', from, to: at, items, plan }, at)) {
+    const digest = {
+      event: 'coach.digest' as const,
+      from,
+      to: at,
+      items,
+      plan,
+      sessions,
+      sessionsNote: SESSIONS_NOT_COUNTED,
+    };
+    if (this.deliver(digest, at)) {
       this.deps.countTurn(at);
     }
   }

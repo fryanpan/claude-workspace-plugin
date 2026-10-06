@@ -116,6 +116,39 @@ describe('coachLine', () => {
     expect(older).not.toContain('plan');
   });
 
+  it('lists his Claude Code time per session before the plan, and says once what is not counted', () => {
+    const note = 'Claude Code sessions not attached to a board are not counted.';
+    const line = coachLine(
+      'coach.digest',
+      {
+        items: [],
+        sessions: [
+          { boardId: 'w-1', board: 'Harborlight', repo: 'harborlight-app', minutes: 9, turns: 3 },
+          { boardId: 'w-2', repo: 'saltmarsh', minutes: 1, turns: 1 },
+        ],
+        sessionsNote: note,
+        plan: 'no current week plan',
+      },
+      'UTC',
+    );
+    expect(line?.split('\n').slice(1)).toEqual([
+      'Claude Code sessions (active minutes):',
+      '- harborlight-app, on board "Harborlight": 9 min over 3 turns',
+      '- saltmarsh, on board "w-2": 1 min over 1 turn',
+      note,
+      "This week's plan: no current week plan.",
+    ]);
+    const none = coachLine(
+      'coach.digest',
+      { items: [{ kind: 'left', boardId: 'w-1' }], sessions: [], sessionsNote: note },
+      'UTC',
+    );
+    expect(none?.split('\n').slice(-2)).toEqual(['Claude Code sessions: none counted.', note]);
+    expect(coachLine('coach.digest', { items: [{ kind: 'left', boardId: 'w-1' }] })).not.toContain(
+      'Claude Code',
+    );
+  });
+
   it('reads an answer and a preference as things to remember', () => {
     expect(
       coachLine('coach.answer', {

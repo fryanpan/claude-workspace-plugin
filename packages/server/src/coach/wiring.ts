@@ -8,7 +8,9 @@
  *  - the task store, to make the coach's board and to name a doc's board;
  *  - the activity record's live feed (`onActivity`), for this data dir only;
  *  - the Coach board's lead, and an addressed frame to it: the coach's
- *    Claude Code session, which hears every event (`session-feed.ts`).
+ *    Claude Code session, which hears every event (`session-feed.ts`);
+ *  - each board's lead, to say whose turn ends count as his Claude Code
+ *    time (`session-minutes.ts`).
  */
 import { agentIdForName } from '@claude-workspaces/core';
 import { type Event, onActivity } from '../activity.ts';
@@ -18,6 +20,7 @@ import { CoachHub } from './hub.ts';
 import { coachSectionFor } from './landing.ts';
 import { type Coach, type DocLabel, createCoach } from './moment.ts';
 import { SessionFeed, type SessionFrame } from './session-feed.ts';
+import { repoOfCwd } from './session-minutes.ts';
 import { type CoachSetupDeps, ensureMemoryDoc } from './setup.ts';
 import { CoachStore } from './store.ts';
 import { CoachStream } from './stream.ts';
@@ -65,7 +68,19 @@ export interface CoachWiring {
   /** True when this agent, by name, is the coach session: the lead seated
    *  on the board that holds the learning-goals doc. */
   isCoachSession: (workspaceId: string, agentName: string) => boolean;
+  /** A session's turn note on a board, from the notes route. Counted only
+   *  for that board's lead, never the coach, and never on a board the coach
+   *  is off for; true when it joined a digest window. */
+  sessionTurn: (workspaceId: string, note: SessionNote, cwd?: unknown) => boolean;
   stop: () => void;
+}
+
+/** What `sessionTurn` reads off a note. Its text is never read. */
+export interface SessionNote {
+  agent: string;
+  kind: string;
+  at: number;
+  sessionId?: string;
 }
 
 export function wireCoach(deps: CoachWiringDeps): CoachWiring {
@@ -133,6 +148,24 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
   void ensureMemoryDoc(store, setup, (deps.now ?? Date.now)()).catch((err) =>
     console.warn(`[coach] memory doc not made: ${String(err)}`),
   );
+  const isCoachSession = (workspaceId: string, agentName: string): boolean => {
+    if (store.goalsDoc?.workspaceId !== workspaceId) return false;
+    const lead = deps.leadOf(workspaceId);
+    return lead !== undefined && lead === agentIdForName(agentName);
+  };
+  const sessionTurn = (workspaceId: string, note: SessionNote, cwd?: unknown): boolean => {
+    if (note.kind !== 'turn' || isOff({ workspaceId })) return false;
+    if (isCoachSession(workspaceId, note.agent)) return false;
+    if (deps.leadOf(workspaceId) !== agentIdForName(note.agent)) return false;
+    const board = deps.boardName(workspaceId);
+    return feed.turn({
+      at: note.at,
+      boardId: workspaceId,
+      ...(board ? { board } : {}),
+      session: note.sessionId ?? note.agent,
+      repo: repoOfCwd(cwd) ?? 'unknown repo',
+    });
+  };
   return {
     store,
     coach,
@@ -148,11 +181,8 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
         t,
       );
     },
-    isCoachSession: (workspaceId, agentName) => {
-      if (store.goalsDoc?.workspaceId !== workspaceId) return false;
-      const lead = deps.leadOf(workspaceId);
-      return lead !== undefined && lead === agentIdForName(agentName);
-    },
+    isCoachSession,
+    sessionTurn,
     stop: () => {
       unsubscribe();
       feed.stop();

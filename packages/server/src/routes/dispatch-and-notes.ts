@@ -29,6 +29,28 @@ import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.
 const FIRST_TURN_WINDOW_MS = 2 * 60 * 60_000;
 
 /**
+ * Hand a turn note's time to the coach's digest. `cwd` is read off the raw
+ * body because `parseAgentNote` drops it: only its repo folder name goes on,
+ * and only from the coach's side. Like the judge below, it cannot fail the
+ * POST it runs inside.
+ */
+function countForCoach(
+  ctx: TaskRoutesContext,
+  workspaceId: string,
+  note: AgentNoteInput,
+  raw: unknown,
+): void {
+  if (note.kind !== 'turn') return;
+  try {
+    const cwd =
+      raw !== null && typeof raw === 'object' ? (raw as { cwd?: unknown }).cwd : undefined;
+    ctx.coachSessionTurn(workspaceId, note, cwd);
+  } catch (err) {
+    console.warn(`[coach] turn note not counted: ${String(err)}`);
+  }
+}
+
+/**
  * Judge a turn note as it arrives, and record the verdict.
  *
  * Runs for `kind: 'turn'` only — a denial or an explicit status is not a
@@ -368,6 +390,7 @@ export async function handleDispatchAndNoteRoutes(
     const parsed = parseAgentNote(raw);
     if (!parsed.ok) return j(400, { error: parsed.error, message: parsed.message });
     const { note } = parsed;
+    countForCoach(ctx, boardId, note, raw);
     if (note.taskId !== undefined) {
       // The caller named its row; a bad address is its error to hear,
       // not a silent ring drop — and a row on some other board is a bad
