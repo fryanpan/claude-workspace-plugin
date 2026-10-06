@@ -849,9 +849,18 @@ export function parseMarkdownSource(
       paraLines.push(nxt.trimStart());
       i++;
     }
-    out.push(mkParagraph(paraLines.join(' ')));
+    // A template placeholder (`{{# map }}` … `{{/ map }}`, `:::name{…}` …
+    // `:::`) is read line by line by the site that renders it, so its line
+    // breaks are content: joining them broke the map on the next write-back.
+    const keepLines = paraLines.some((l) => isPlaceholderFence(l));
+    out.push(mkParagraph(paraLines.join(keepLines ? '\n' : ' ')));
   }
   return { blocks: out, lines, starts };
+}
+
+/** The opening or closing line of a template placeholder block. */
+function isPlaceholderFence(line: string): boolean {
+  return /^(\{\{\s*[#/]|:::)/.test(line);
 }
 
 /** A display equation's block: its source lines verbatim, fences included. */
