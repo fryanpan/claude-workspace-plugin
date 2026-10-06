@@ -14,6 +14,7 @@ import { mountMeetingHeading } from './doc/doc-heading.ts';
 import { mountDocMargin } from './doc/doc-margin.ts';
 import { type DocMeetingMount, mountDocMeeting } from './doc/doc-meeting-mount.ts';
 import { mountPointerPillLayer } from './doc/doc-pointer-pill.ts';
+import { mountDocPreview } from './doc/doc-preview.ts';
 import { wireDocReady } from './doc/doc-ready.ts';
 import { mountDocSaveState } from './doc/doc-save-state.ts';
 import { mountDocSetNav } from './doc/doc-set-nav.ts';
@@ -489,12 +490,11 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
     onFirstSync: revealLinkedThread,
   });
 
-  // The #save-state chip: "All changes saved" / "Unsaved changes" /
-  // "Reconnecting…", and the teardown that blanks it for the next document.
+  // The #save-state chip, and the app preview pane beside the editor.
   mountDocSaveState({ client, ydoc, canWrite, scope });
+  mountDocPreview({ docId, ydoc, scope });
 
-  // Last, because it speaks for the whole surface: the format bar, and
-  // whether this browser may write at all — which is the only thing that
-  // decides whether the document mounts editable.
+  // Last, because it speaks for the whole surface: the format bar, and whether
+  // this browser may write at all, which alone decides if the doc mounts editable.
   wireDocGates({ editor, scope, els: { formatBar, toggleFormat }, canWrite });
 }

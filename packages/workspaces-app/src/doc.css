@@ -70,6 +70,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* The app preview (doc/doc-preview.ts) takes half of the prose's width
+   beside it above the mobile tier; at or below 1100px it covers the editor
+   instead (APP PREVIEW PANE), so no column is reserved there. */
+@media (min-width: 1101px) {
+  body.preview-open #main {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--threads-w, 360px);
+  }
+  body.has-set.set-pane-open.preview-open #main {
+    grid-template-columns:
+      var(--set-w, 320px) minmax(0, 1fr) minmax(0, 1fr)
+      var(--threads-w, 360px);
+  }
+}
 /* Desktop drawer state: `threads-open` historically only mattered in the
    ≤900px overlay mode — above it the grid ALWAYS reserved the comments
    column, so closeDrawer() was a visual no-op on desktop. Zeroing the
@@ -1227,6 +1240,73 @@ body.has-set .doc-switcher-caret {
 }
 #editor > .ProseMirror .board-embed.is-active .board-embed-hint {
   display: none;
+}
+
+/* ========== APP PREVIEW PANE (doc/doc-preview.ts) ========== */
+/* One of the board's apps beside the markdown it renders. Closed, it takes
+   no room at all. The address bar is a fixed height so the frame below it
+   never moves when the note under it comes and goes. */
+#preview-pane {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+body.preview-open #preview-pane {
+  display: flex;
+  flex-direction: column;
+}
+#preview-pane .preview-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  height: 40px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+}
+#preview-pane .preview-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 13px / 1.4 var(--mono, monospace);
+  color: var(--fg);
+  background: var(--bg-subtle, #fafafa);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+}
+#preview-pane .preview-bar button {
+  flex: 0 0 auto;
+  font: 13px / 1 var(--sans);
+}
+#preview-pane .preview-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+}
+#preview-pane .preview-frame[hidden] {
+  display: none;
+}
+#preview-pane .preview-note {
+  margin: 12px;
+  font: 13px / 1.4 var(--sans);
+  color: var(--fg-muted);
+}
+#preview-pane .preview-note:empty {
+  display: none;
+}
+/* The mobile tier has no room for a split: the pane covers the editor, and
+   the toolbar's same button brings the editor back. */
+@media (max-width: 1100px) {
+  body.preview-open #preview-pane {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    border-left: 0;
+  }
 }
 
 /* ========== thread highlights ========== */
