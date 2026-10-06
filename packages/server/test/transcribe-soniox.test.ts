@@ -69,6 +69,8 @@ function harness(
   const turns: EngineTurn[] = [];
   const raw: EngineTurn[] = [];
   const errors: string[] = [];
+  /** Unasked-for closes the engine reported through `onClosed`. */
+  let lost = 0;
   const engine = createSonioxEngine({
     apiKey: 'test-key-not-a-real-credential',
     socketFactory: (args) => {
@@ -89,13 +91,16 @@ function harness(
       turns.push(rest);
     },
     onError: (m) => errors.push(m),
+    onClosed: () => {
+      lost += 1;
+    },
   });
   const fake = (): FakeSocket => {
     const socket = sockets[0];
     if (!socket) throw new Error('socket was never created');
     return socket;
   };
-  return { engine, opening, fake, turns, raw, errors };
+  return { engine, opening, fake, turns, raw, errors, lost: () => lost };
 }
 
 describe('soniox key resolution', () => {
@@ -389,6 +394,8 @@ describe('soniox session', () => {
     const session = await h.opening;
     await session.close();
     expect(h.fake().closed).toBe(true);
+    // A close we asked for is not a lost session.
+    expect(h.lost()).toBe(0);
   });
 
   it('reports an engine error frame without ending the meeting', async () => {
@@ -405,6 +412,8 @@ describe('soniox session', () => {
     await h.opening;
     h.fake().args.onClose();
     expect(h.errors).toEqual(['soniox: session closed unexpectedly']);
+    // And says so as a close, so the relay can end the meeting it served.
+    expect(h.lost()).toBe(1);
   });
 
   it('rejects the open when the socket closes before it ever opened', async () => {

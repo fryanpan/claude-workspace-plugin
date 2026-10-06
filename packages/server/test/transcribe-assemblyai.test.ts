@@ -83,6 +83,8 @@ function harness(
   /** The same turns with nothing stripped. */
   const raw: EngineTurn[] = [];
   const errors: string[] = [];
+  /** Unasked-for closes the engine reported through `onClosed`. */
+  let lost = 0;
   /** Every rollover the engine armed, newest last. */
   const scheduled: Array<{ ms: number; fire: () => void; cancelled: boolean }> = [];
   const { manualSchedule, pro, tuning, ...engineOpts } = opts;
@@ -121,6 +123,9 @@ function harness(
       turns.push(rest);
     },
     onError: (m) => errors.push(m),
+    onClosed: () => {
+      lost += 1;
+    },
   });
   const fake = (index = sockets.length - 1): FakeSocket => {
     const socket = sockets[index];
@@ -134,7 +139,18 @@ function harness(
     if (!last) throw new Error(`no rollover armed (${scheduled.length} armed and cancelled)`);
     return last;
   };
-  return { engine, opening, fake, sockets, turns, raw, errors, scheduled, pending };
+  return {
+    engine,
+    opening,
+    fake,
+    sockets,
+    turns,
+    raw,
+    errors,
+    scheduled,
+    pending,
+    lost: () => lost,
+  };
 }
 
 describe('assemblyai key resolution', () => {
@@ -553,6 +569,8 @@ describe('assemblyai session', () => {
     await h.opening;
     h.fake().args.onClose();
     expect(h.errors).toEqual(['assemblyai: session closed unexpectedly']);
+    // And says so as a close, so the relay can end the meeting it served.
+    expect(h.lost()).toBe(1);
   });
 
   it('gives up when Begin never arrives', async () => {

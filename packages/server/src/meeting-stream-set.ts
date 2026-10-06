@@ -67,6 +67,8 @@ export interface StreamSetOpts {
   onTurn: (turn: StreamTurn) => void;
   /** An engine said something went wrong. Named by stream, since two can. */
   onError: (message: string, stream: MeetingStreamId) => void;
+  /** One stream's engine closed its session on its own. */
+  onLost?: (stream: MeetingStreamId) => void;
 }
 
 /** Every stream of one meeting, behind the shape a single session had. */
@@ -121,6 +123,7 @@ export async function openMeetingStreamSet(opts: StreamSetOpts): Promise<Meeting
           });
         },
         onError: (message) => opts.onError(message, stream),
+        onClosed: () => opts.onLost?.(stream),
       });
       sessions.set(stream, session);
     } catch (err) {

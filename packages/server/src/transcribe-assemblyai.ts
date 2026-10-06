@@ -652,12 +652,11 @@ function buildEngine(opts: AssemblyAiOptions, variant: EngineVariant): Transcrip
                 // A close we did not ask for ends the meeting's words; a close
                 // that follows our Terminate is the normal path and must not be
                 // reported as a failure. A retired leg is never the meeting.
-                if (!leg.done && !leg.terminating && leg === active) {
-                  leg.done = true;
-                  sessionOpts.onError(`${variant.name}: session closed unexpectedly`);
-                }
+                const lost = !leg.done && !leg.terminating && leg === active;
+                if (lost) sessionOpts.onError(`${variant.name}: session closed unexpectedly`);
                 leg.done = true;
                 if (leg === active) finishClose();
+                if (lost) sessionOpts.onClosed?.();
               },
             });
           });
