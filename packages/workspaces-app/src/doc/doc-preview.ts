@@ -117,6 +117,7 @@ export function mountDocPreview(opts: DocPreviewOptions): DocPreview | null {
   scope.listen(form, 'submit', (e) => {
     e.preventDefault();
     writePreviewPref(docId, { path: input.value.trim(), open: true });
+    loaded = ''; // Load on the page already showing reloads it
     load();
   });
 
