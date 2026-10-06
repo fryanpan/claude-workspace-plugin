@@ -282,7 +282,7 @@ describe('GET /coach/stream', () => {
     const h = await ownerHeaders({ 'sec-fetch-site': 'same-origin' });
     const q = (params: Record<string, string>) =>
       req(`/coach/stream?${new URLSearchParams(params)}`, OWNER_HOST, { headers: h });
-    for (const params of [{ workspaceId }, { workspaceId, docId }]) {
+    for (const params of [{ workspaceId }, { workspaceId, docId }] as Record<string, string>[]) {
       const res = await q(params);
       expect(res.status).toBe(200);
       await res.body?.cancel();
@@ -292,7 +292,7 @@ describe('GET /coach/stream', () => {
       { workspaceId: '../etc' },
       { workspaceId, docId: 'd-not-on-it' },
       { docId },
-    ]) {
+    ] as Record<string, string>[]) {
       expect((await q(params)).status).toBe(400);
     }
   });
