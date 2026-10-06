@@ -52,9 +52,21 @@ function media(query: string): boolean {
   return window.matchMedia(query).matches;
 }
 
+/**
+ * Set on `<body>` while the app preview (`doc/doc-preview.ts`) holds half the
+ * width. The prose then has half a window, and a 260px column beside it left
+ * a 233px measure at 1180px, so the cards go into the flow.
+ */
+export const PREVIEW_OPEN_CLASS = 'preview-open';
+
+/** Fired on `window` when something other than the width changes the room. */
+export const ROOM_CHANGE_EVENT = 'cw:room-change';
+
 /** Is there room beside the prose for a margin column? */
 export function roomForMargin(): boolean {
-  return media(BALLOON_ROOM_QUERY);
+  const previewOpen =
+    typeof document !== 'undefined' && document.body?.classList.contains(PREVIEW_OPEN_CLASS);
+  return media(BALLOON_ROOM_QUERY) && !previewOpen;
 }
 
 /** Where the cards go at this width. */
@@ -101,6 +113,8 @@ export function onPlacementChange(
   listen: (target: EventTarget, type: string, fn: () => void) => void,
   handler: () => void,
 ): void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+  if (typeof window === 'undefined') return;
+  listen(window, ROOM_CHANGE_EVENT, handler);
+  if (typeof window.matchMedia !== 'function') return;
   listen(window.matchMedia(BALLOON_ROOM_QUERY), 'change', handler);
 }

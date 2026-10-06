@@ -2,6 +2,7 @@
 import { getProseFragment } from '@claude-workspaces/core/prose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import { applyPlacement, onPlacementChange } from '../src/card-placement.ts';
 import { createReloadScheduler, previewFrameSrc } from '../src/doc/doc-preview-model.ts';
 import { mountDocPreview } from '../src/doc/doc-preview.ts';
 import { MountScope } from '../src/mount-scope.ts';
@@ -146,6 +147,27 @@ describe('mountDocPreview', () => {
     expect(again?.frame.getAttribute('src')).toBe(
       '/workspaces/harborlight/apps/site/?cw-frame=1&cw-embed=1',
     );
+  });
+
+  it('moves the comment cards into the flow while it holds half the window', () => {
+    // A window wide enough for the balloon column.
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: true,
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    applyPlacement();
+    onPlacementChange(
+      (t, type, fn) => scope.listen(t, type, fn),
+      () => applyPlacement(),
+    );
+    expect(document.body.dataset.cards).toBe('balloon');
+    const p = mountDocPreview({ docId: 'd-1', ydoc: new Y.Doc(), scope, workspaceId: WS });
+    p?.toggle.click();
+    expect(document.body.dataset.cards).toBe('inline');
+    p?.toggle.click();
+    expect(document.body.dataset.cards).toBe('balloon');
   });
 
   it('mounts nothing off a board', () => {

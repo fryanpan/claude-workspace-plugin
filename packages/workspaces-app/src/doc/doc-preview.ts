@@ -21,6 +21,7 @@
  */
 import { getProseFragment } from '@claude-workspaces/core/prose';
 import type * as Y from 'yjs';
+import { PREVIEW_OPEN_CLASS, ROOM_CHANGE_EVENT } from '../card-placement.ts';
 import { currentWorkspaceId } from '../doc-path.ts';
 import type { MountScope } from '../mount-scope.ts';
 import {
@@ -106,14 +107,20 @@ export function mountDocPreview(opts: DocPreviewOptions): DocPreview | null {
   }
 
   function setOpen(open: boolean): void {
-    document.body.classList.toggle('preview-open', open);
+    const was = document.body.classList.contains(PREVIEW_OPEN_CLASS);
+    document.body.classList.toggle(PREVIEW_OPEN_CLASS, open);
+    // Half a window leaves no room for the balloon column: hand the cards
+    // to the flow, as a narrow window does (`card-placement.ts`).
+    if (was !== open) window.dispatchEvent(new Event(ROOM_CHANGE_EVENT));
     toggle.setAttribute('aria-pressed', String(open));
     toggle.title = open ? 'Hide app preview' : 'Show app preview';
     writePreviewPref(docId, { path: input.value.trim(), open });
     if (open) load();
   }
 
-  scope.listen(toggle, 'click', () => setOpen(!document.body.classList.contains('preview-open')));
+  scope.listen(toggle, 'click', () =>
+    setOpen(!document.body.classList.contains(PREVIEW_OPEN_CLASS)),
+  );
   scope.listen(form, 'submit', (e) => {
     e.preventDefault();
     writePreviewPref(docId, { path: input.value.trim(), open: true });
@@ -126,7 +133,7 @@ export function mountDocPreview(opts: DocPreviewOptions): DocPreview | null {
     reload: () => {
       // Reassigning the same src reloads a cross-origin frame; its
       // `contentWindow.location` is not ours to touch.
-      if (loaded && document.body.classList.contains('preview-open')) frame.src = loaded;
+      if (loaded && document.body.classList.contains(PREVIEW_OPEN_CLASS)) frame.src = loaded;
     },
   });
   scope.listen(frame, 'load', () => scheduler.frameLoaded());
@@ -141,14 +148,17 @@ export function mountDocPreview(opts: DocPreviewOptions): DocPreview | null {
     void firstEmbedApp(workspaceId).then((app) => {
       if (!app || input.value) return;
       input.value = `${appDoorPrefix(workspaceId)}${app}/`;
-      if (document.body.classList.contains('preview-open')) load();
+      if (document.body.classList.contains(PREVIEW_OPEN_CLASS)) load();
     });
   }
   setOpen(pref.open);
   scope.onCleanup(() => {
     fragment.unobserveDeep(onProse);
     scheduler.dispose();
-    document.body.classList.remove('preview-open');
+    if (document.body.classList.contains(PREVIEW_OPEN_CLASS)) {
+      document.body.classList.remove(PREVIEW_OPEN_CLASS);
+      window.dispatchEvent(new Event(ROOM_CHANGE_EVENT));
+    }
     toggle.remove();
     pane.remove();
   });
