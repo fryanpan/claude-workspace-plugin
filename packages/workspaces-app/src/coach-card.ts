@@ -1,7 +1,7 @@
 /**
- * The coach on a board or a doc: what the owner is looking at and writing, sent
- * to the server, and the coach's "Hi, I'm noticing…" card when it has
- * something to say.
+ * The coach on a board, a doc or the front page: what the owner is looking at
+ * and writing, sent to the server, and the coach's "Hi, I'm noticing…" card
+ * when it has something to say.
  *
  * What he is looking at: one small POST to `/coach/here` when the page
  * opens (and again once a doc's text has arrived), when it is hidden or
@@ -15,11 +15,16 @@
  *
  * Only the owner has a coach. Anyone else's first POST gets an empty 204,
  * and the page then stops: no more beacons, and the stream is never opened.
+ * The front page names no board, so it sends nothing about where he is and
+ * opens the stream at once; the server draws that page's coach section only
+ * for the owner, and it mounts the card only when the section is there.
  *
- * The card: calm by default. It sits in the bottom-left corner, does not
- * move or pulse, and stays until he answers it or the server clears it,
- * which it does when he moves to another doc or board. Drawn in a shadow
- * root so neither page's stylesheet reaches it and it adds no rule to either.
+ * The card: calm by default. It sits in the bottom-left corner of every
+ * page, does not move or pulse, and stays until he answers it: it follows
+ * him from page to page. The stream is told where the page is, and on a
+ * board the coach is off for the server clears the card there instead.
+ * Drawn in a shadow root so no page's stylesheet reaches it and it adds no
+ * rule to any.
  */
 
 const HERE_URL = '/coach/here';
@@ -44,7 +49,8 @@ export interface CoachMomentView {
 type Frame = { type: 'moment'; moment: CoachMomentView } | { type: 'clear'; id: string };
 
 export interface CoachCardOptions {
-  workspaceId: string;
+  /** The board, or none on the front page. */
+  workspaceId?: string;
   docId?: string;
   /** The doc's editor, whose headings say which part he is reading. */
   root?: HTMLElement;
@@ -156,6 +162,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   });
 
   const view = (): Promise<number> => {
+    if (!opts.workspaceId) return Promise.resolve(200);
     const heading = root ? headingInView(root) : undefined;
     const text = root ? passageInView(root) : undefined;
     return post(HERE_URL, {
@@ -171,7 +178,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     clearTimeout(pause);
     const block = writing;
     writing = null;
-    if (stopped || !block || !root || !opts.docId) return;
+    if (stopped || !block || !root || !opts.docId || !opts.workspaceId) return;
     const text = block.textContent?.replace(/\s+/g, ' ').trim();
     if (!text) return;
     const heading = headingBefore(root, block);
@@ -208,7 +215,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     }, SCROLL_SETTLE_MS);
   };
   const onVisibility = () => {
-    if (stopped) return;
+    if (stopped || !opts.workspaceId) return;
     if (document.visibilityState === 'hidden') sendWriting();
     void view();
   };
@@ -228,6 +235,9 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   };
 
   const show = (m: CoachMomentView) => {
+    // Told again (a board turned on, a page off for it reporting in): the
+    // card stays as it is.
+    if (shown?.id === m.id && host) return;
     hide();
     shown = m;
     host = document.createElement('div');
@@ -263,23 +273,27 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
       b.addEventListener('click', () => void answer(m.id, b.dataset.answer ?? '', buttons));
       acts.appendChild(b);
     }
-    const off = document.createElement('button');
-    off.type = 'button';
-    off.className = 'cw-coach-off';
-    off.textContent = 'Coach off for this board';
-    off.addEventListener('click', async () => {
-      off.disabled = true;
-      const status = await post(BOARDS_URL, { workspaceId: opts.workspaceId, off: true });
-      if (status === 200) hide();
-      else off.disabled = false;
-    });
     card.append(
       line('cw-coach-who', m.name),
       line('cw-coach-line', m.line),
       line('cw-coach-goal', `Your goal: ${m.goal}`),
       acts,
-      off,
     );
+    // The front page is on no board, so it has nothing to turn off.
+    const workspaceId = opts.workspaceId;
+    if (workspaceId) {
+      const off = document.createElement('button');
+      off.type = 'button';
+      off.className = 'cw-coach-off';
+      off.textContent = 'Coach off for this board';
+      off.addEventListener('click', async () => {
+        off.disabled = true;
+        const status = await post(BOARDS_URL, { workspaceId, off: true });
+        if (status === 200) hide();
+        else off.disabled = false;
+      });
+      card.append(off);
+    }
     shadow.append(style, card);
     document.body.appendChild(host);
   };
@@ -337,7 +351,12 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     if (stopped) return;
     awaitText();
     if (!opts.openStream && typeof EventSource === 'undefined') return;
-    stream = (opts.openStream ?? ((url) => new EventSource(url)))(STREAM_URL);
+    const place = new URLSearchParams({
+      ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
+      ...(opts.workspaceId && opts.docId ? { docId: opts.docId } : {}),
+    }).toString();
+    const url = place ? `${STREAM_URL}?${place}` : STREAM_URL;
+    stream = (opts.openStream ?? ((u) => new EventSource(u)))(url);
     stream.addEventListener('coach', onFrame as EventListener);
   });
 
