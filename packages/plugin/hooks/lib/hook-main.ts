@@ -13,7 +13,7 @@ import { type NoteKind, blockDecision, runHook } from './agent-notes.ts';
  *  plugin cannot import `@claude-workspaces/core`. */
 const DISCOVERY_DIRS = ['claude-workspaces', 'live-feedback'];
 
-function discoveryPort(): number | undefined {
+export function discoveryPort(): number | undefined {
   for (const dir of DISCOVERY_DIRS) {
     const path = join(homedir(), '.claude', dir, 'server.json');
     if (!existsSync(path)) continue;

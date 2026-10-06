@@ -14226,12 +14226,32 @@ function planLines(plan) {
     ...goals.map((g, i) => `${i + 1}. ${g.title}${g.id ? ` (${g.id})` : ""}`)
   ];
 }
+function sessionLines(p) {
+  if (p.sessions === undefined)
+    return [];
+  const lines = p.sessions.flatMap((s) => {
+    if (!s.repo || !s.boardId)
+      return [];
+    const n = (count, one) => `${count ?? 0} ${one}${count === 1 ? "" : "s"}`;
+    return [
+      `- ${s.repo}, on board "${s.board ?? s.boardId}": ${s.minutes ?? 0} min, ${n(s.prompts, "typed prompt")}, ${n(s.turns, "turn end")}`
+    ];
+  });
+  const head = lines.length > 0 ? ["Claude Code sessions (active minutes):", ...lines] : ["Claude Code sessions: none counted."];
+  return [...head, ...p.sessionsNote ? [p.sessionsNote] : []];
+}
 function digestLine(p, timeZone) {
   const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
-  if (lines.length === 0)
+  const sessions = sessionLines(p);
+  if (lines.length === 0 && !(p.sessions ?? []).some((s) => s.repo && s.boardId))
     return null;
   const span = `${clock2(p.from, timeZone)}–${clock2(p.to, timeZone).trim()}`;
-  return [`[coach.digest${span}] What the owner did:`, ...lines, ...planLines(p.plan)].join(`
+  return [
+    `[coach.digest${span}] What the owner did:`,
+    ...lines,
+    ...sessions,
+    ...planLines(p.plan)
+  ].join(`
 `);
 }
 function eventLine(p, timeZone) {
@@ -21231,7 +21251,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.300";
+var PLUGIN_VERSION = "0.1.301";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -18,6 +18,7 @@ import { recordDispatchRequested } from '../dispatch-request-event.ts';
 import { matchRest, restIs } from '../middleware/workspace-scope.ts';
 import { filingStateFor } from '../unfiled-ask-filing.ts';
 import { judgeTurnNote } from '../unfiled-ask.ts';
+import { handlePromptMarkRoute } from './prompt-marks.ts';
 import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.ts';
 
 /**
@@ -27,6 +28,28 @@ import type { TaskRouteRequest, TaskRoutesContext } from './task-routes-context.
  * yesterday's filing does not excuse today's ask.
  */
 const FIRST_TURN_WINDOW_MS = 2 * 60 * 60_000;
+
+/**
+ * Hand a turn note's time to the coach's digest. `cwd` is read off the raw
+ * body because `parseAgentNote` drops it: only its repo folder name goes on,
+ * and only from the coach's side. Like the judge below, it cannot fail the
+ * POST it runs inside.
+ */
+function countForCoach(
+  ctx: TaskRoutesContext,
+  workspaceId: string,
+  note: AgentNoteInput,
+  raw: unknown,
+): void {
+  if (note.kind !== 'turn') return;
+  try {
+    const cwd =
+      raw !== null && typeof raw === 'object' ? (raw as { cwd?: unknown }).cwd : undefined;
+    ctx.coachSessionTurn(workspaceId, note, cwd);
+  } catch (err) {
+    console.warn(`[coach] turn note not counted: ${String(err)}`);
+  }
+}
 
 /**
  * Judge a turn note as it arrives, and record the verdict.
@@ -97,6 +120,8 @@ export async function handleDispatchAndNoteRoutes(
     proposeAllowRule,
   } = ctx;
   const { req, scope, visitor, authorFor } = rq;
+  const promptMark = await handlePromptMarkRoute(ctx, rq);
+  if (promptMark) return promptMark;
   // --- REST: builder dispatches ---
   // The lead's statement that a builder is working a task in a private
   // worktree, so the stall loop can read worktree churn as the row
@@ -368,6 +393,7 @@ export async function handleDispatchAndNoteRoutes(
     const parsed = parseAgentNote(raw);
     if (!parsed.ok) return j(400, { error: parsed.error, message: parsed.message });
     const { note } = parsed;
+    countForCoach(ctx, boardId, note, raw);
     if (note.taskId !== undefined) {
       // The caller named its row; a bad address is its error to hear,
       // not a silent ring drop — and a row on some other board is a bad

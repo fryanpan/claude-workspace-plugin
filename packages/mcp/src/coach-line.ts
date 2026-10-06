@@ -7,7 +7,8 @@
  * answered a moment (`coach.answer`), and how readily they want the coach to
  * speak up (`coach.preference`). The session stays quiet unless an event
  * plainly matches a goal, and speaks through `coach_moment`; what to do with
- * each line is the `claude-workspaces:coaching` skill. A digest ends with
+ * each line is the `claude-workspaces:coaching` skill. A digest then lists
+ * the owner's Claude Code sessions, repo and active minutes, and ends with
  * this week's plan goals in plan order, or says there is no current plan.
  *
  * Kept out of channel-messages.ts for the reason voice-line.ts is: the
@@ -35,6 +36,20 @@ export interface CoachPayload {
   items?: CoachDigestItem[];
   /** This week's plan goals, or the server's words for there being none. */
   plan?: { set?: string; stale?: boolean; goals?: { id?: string; title?: string }[] } | string;
+  /** His Claude Code time in the window, per attached session. */
+  sessions?: CoachSessionMinutes[];
+  /** The server's words for what the sessions list cannot see. */
+  sessionsNote?: string;
+}
+
+/** One Claude Code session's line in a digest. */
+export interface CoachSessionMinutes {
+  boardId?: string;
+  board?: string;
+  repo?: string;
+  minutes?: number;
+  prompts?: number;
+  turns?: number;
 }
 
 /** One line of a digest: a stay in one place, or one thing done. */
@@ -122,11 +137,36 @@ function planLines(plan: CoachPayload['plan']): string[] {
   ];
 }
 
+/** Repo and minutes per session, then the server's note; nothing from an
+ *  older server. */
+function sessionLines(p: CoachPayload): string[] {
+  if (p.sessions === undefined) return [];
+  const lines = p.sessions.flatMap((s) => {
+    if (!s.repo || !s.boardId) return [];
+    const n = (count: number | undefined, one: string) =>
+      `${count ?? 0} ${one}${count === 1 ? '' : 's'}`;
+    return [
+      `- ${s.repo}, on board "${s.board ?? s.boardId}": ${s.minutes ?? 0} min, ${n(s.prompts, 'typed prompt')}, ${n(s.turns, 'turn end')}`,
+    ];
+  });
+  const head =
+    lines.length > 0
+      ? ['Claude Code sessions (active minutes):', ...lines]
+      : ['Claude Code sessions: none counted.'];
+  return [...head, ...(p.sessionsNote ? [p.sessionsNote] : [])];
+}
+
 function digestLine(p: CoachPayload, timeZone?: string): string | null {
   const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
-  if (lines.length === 0) return null;
+  const sessions = sessionLines(p);
+  if (lines.length === 0 && !(p.sessions ?? []).some((s) => s.repo && s.boardId)) return null;
   const span = `${clock(p.from, timeZone)}–${clock(p.to, timeZone).trim()}`;
-  return [`[coach.digest${span}] What the owner did:`, ...lines, ...planLines(p.plan)].join('\n');
+  return [
+    `[coach.digest${span}] What the owner did:`,
+    ...lines,
+    ...sessions,
+    ...planLines(p.plan),
+  ].join('\n');
 }
 
 function eventLine(p: CoachPayload, timeZone?: string): string | null {

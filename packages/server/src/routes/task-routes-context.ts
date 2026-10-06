@@ -1,7 +1,7 @@
 import type { DocMeta, TaskReviewItem, User } from '@claude-workspaces/core';
 import { classifyActor } from '../actor-identity.ts';
 import type { AgentNoteLog } from '../agent-note-log.ts';
-import type { AgentNoteRing } from '../agent-notes.ts';
+import type { AgentNoteInput, AgentNoteRing } from '../agent-notes.ts';
 import type { AnswerCoverage } from '../answer-coverage.ts';
 import type { ChatAudit } from '../chat-audit.ts';
 import type { DispatchRegistry } from '../dispatch-registry.ts';
@@ -69,6 +69,15 @@ export interface TaskRoutesContext {
   /** The coach session, which the coaching skill forbids review items, is
    *  never nudged to file one (`coach/wiring.ts`). */
   isCoachSession: (workspaceId: string, agentName: string) => boolean;
+  /** A turn note counted as the owner's Claude Code time in the coach's
+   *  digest (`coach/session-minutes.ts`); the note's text is never read. */
+  coachSessionTurn: (workspaceId: string, note: AgentNoteInput, cwd: unknown) => void;
+  /** A prompt mark (typed or injected, never its text) for the same digest. */
+  coachSessionPrompt: (
+    workspaceId: string,
+    mark: { agent: string; typed: boolean; at: number; sessionId?: string },
+    cwd: unknown,
+  ) => void;
   /** Wakes the lead when a row it owns becomes ready. */
   readyNudger: ReadyWorkNudger;
 

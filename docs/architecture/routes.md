@@ -145,6 +145,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/workspaces/:ws/agents` | GET | `routes/workspace-attachments.ts` | share-scope |  |
 | `/workspaces/:ws/agents` | POST | `routes/workspace-attachments.ts` | trusted-local |  |
 | `/workspaces/:ws/agents/:agent/notes` | GET, POST | `routes/dispatch-and-notes.ts` | trusted-local |  |
+| `/workspaces/:ws/agents/:agent/prompts` | POST | `routes/prompt-marks.ts` | trusted-local |  |
 | `/workspaces/:ws/agents/:agentId` | DELETE | `routes/workspace-attachments.ts` | trusted-local |  |
 | `/workspaces/:ws/agents/:agentId/heartbeat` | POST | `routes/workspace-attachments.ts` | trusted-local |  |
 | `/workspaces/:ws/apps` | POST | `routes/apps.ts` | trusted-local |  |
