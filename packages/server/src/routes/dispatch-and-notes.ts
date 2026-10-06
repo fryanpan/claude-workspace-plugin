@@ -50,6 +50,9 @@ function judgeAndRecord(
 ): string | undefined {
   if (note.kind !== 'turn') return undefined;
   try {
+    // The coach may not file review items: its one way to ask the owner is
+    // the card. Keyed on the seat the server records, never on the words.
+    if (ctx.isCoachSession(workspaceId, note.agent)) return undefined;
     // The ring first (it has this board's placed notes too), then the
     // unplaced-note log, then the bounded window. The log is what makes the
     // boundary survive a restart: without it a restarted server measured

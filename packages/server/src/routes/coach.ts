@@ -9,7 +9,9 @@
  *   POST /coach/here                 where he is or what he wrote: `{ kind?:
  *                                    'view' | 'wrote', workspaceId, docId?,
  *                                    visible, heading?, text?, timeZone? }`
- *   GET  /coach/stream               the moments, as server-sent events
+ *   GET  /coach/stream               the moments, as server-sent events;
+ *                                    `?workspaceId=&docId=` says where the
+ *                                    page is, and neither is the front page
  *   POST /coach/moments/:id/answer   `{ answer: 'thanks' | 'not-now' | 'not-this' }`
  *   POST /coach/moments              the coach session raises a moment, from
  *                                    this machine only: `{ goal, matched,
@@ -36,6 +38,7 @@
  * (`coach/session-feed.ts`).
  */
 import type { AgentCallerVerdict } from '../auth/agent-token.ts';
+import type { CoachPagePlace } from '../coach/hub.ts';
 import { ensureGoalsDoc } from '../coach/setup.ts';
 import type { HereSignal } from '../coach/stream.ts';
 import {
@@ -125,6 +128,17 @@ function parseHere(
   };
 }
 
+/** Where the stream's page is: a board, a doc on one, or the front page. */
+function parseStreamPlace(ctx: CoachRoutesContext, q: URLSearchParams): CoachPagePlace | string {
+  const ws = q.get('workspaceId');
+  const doc = q.get('docId');
+  if (ws === null) return doc === null ? null : 'docId needs a workspaceId';
+  if (!ID.test(ws) || !ctx.boardExists(ws)) return 'unknown board';
+  if (doc === null) return { workspaceId: ws };
+  if (!ID.test(doc) || !ctx.docOnBoard(ws, doc)) return 'unknown doc';
+  return { workspaceId: ws, docId: doc };
+}
+
 export async function handleCoachRoutes(
   ctx: CoachRoutesContext,
   rq: CoachRouteRequest,
@@ -139,7 +153,9 @@ export async function handleCoachRoutes(
     if (req.method !== 'GET') return j(405, { error: 'method not allowed' });
     const denied = refuseNonOwner(ctx, rq);
     if (denied) return denied;
-    return hub.open(coach.openFrame());
+    const place = parseStreamPlace(ctx, new URL(req.url).searchParams);
+    if (typeof place === 'string') return j(400, { error: place });
+    return hub.open(coach.openFrame(), place);
   }
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
 

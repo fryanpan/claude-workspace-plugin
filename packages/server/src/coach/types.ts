@@ -28,8 +28,9 @@ export interface CoachDocRef {
 /**
  * `open` shows on the page. `thanks`, `not-now` and `not-this` are his three
  * answers: useful, right goal at the wrong time, and a wrong call.
- * `moved-on` is one he left: it stays until he goes to another doc or board,
- * then closes and counts as unanswered.
+ * `moved-on` is one he left, from before a moment followed him from page to
+ * page; nothing closes one that way now, and old records keep the state and
+ * count as unanswered.
  */
 export type MomentState = 'open' | 'thanks' | 'not-now' | 'not-this' | 'moved-on';
 export type MomentAnswer = 'thanks' | 'not-now' | 'not-this';
@@ -47,7 +48,7 @@ export interface CoachMoment {
   goal: string;
   /** The words of that goal's "act differently when" the model matched. */
   matched: string;
-  /** Where he was when it was raised; leaving it closes the card. */
+  /** Where he was when it was raised. The card follows him from there. */
   workspaceId?: string;
   docId?: string;
   /** What the coach saw, in its words. */

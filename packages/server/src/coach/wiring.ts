@@ -10,6 +10,7 @@
  *  - the Coach board's lead, and an addressed frame to it: the coach's
  *    Claude Code session, which hears every event (`session-feed.ts`).
  */
+import { agentIdForName } from '@claude-workspaces/core';
 import { type Event, onActivity } from '../activity.ts';
 import { type BoardPrivacy, placeIsOff } from './exclusion.ts';
 import { type GoalsDocReading, readGoalsDoc } from './goals-doc.ts';
@@ -58,12 +59,18 @@ export interface CoachWiring {
   setup: CoachSetupDeps;
   /** The front page's section, for the owner. */
   landing: () => string;
+  /** True when this agent, by name, is the coach session: the lead seated
+   *  on the board that holds the learning-goals doc. */
+  isCoachSession: (workspaceId: string, agentName: string) => boolean;
   stop: () => void;
 }
 
 export function wireCoach(deps: CoachWiringDeps): CoachWiring {
   const store = new CoachStore(deps.dataDir);
-  const hub = new CoachHub();
+  // An unreadable state file means the boards he turned off are unknown.
+  const isOff = (place: { workspaceId: string; docId?: string }) =>
+    store.readFailed || placeIsOff(place, deps.privacy, store.offBoards);
+  const hub = new CoachHub({ hiddenAt: isOff });
   const readGoals = (): GoalsDocReading | null => {
     const doc = store.goalsDoc;
     const md = doc ? deps.docStore.readMarkdownBody(doc.docId) : null;
@@ -89,10 +96,10 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     label: deps.label,
     boardName: deps.boardName,
     workspaceOf: deps.workspaceOf,
-    // An unreadable state file means the boards he turned off are unknown.
-    isOff: (place) => store.readFailed || placeIsOff(place, deps.privacy, store.offBoards),
+    isOff,
     tell: (news, at) => feed.send(news, at),
     publish: (frame) => hub.publish(frame),
+    reshow: (frame) => hub.reshow(frame),
     ...(deps.now ? { now: deps.now } : {}),
   });
   const unsubscribe = onActivity((dataDir: string, event: Event) => {
@@ -135,6 +142,11 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
         { online: feed.reachable(), paused: feed.paused(t), boardName: deps.boardName },
         t,
       );
+    },
+    isCoachSession: (workspaceId, agentName) => {
+      if (store.goalsDoc?.workspaceId !== workspaceId) return false;
+      const lead = deps.leadOf(workspaceId);
+      return lead !== undefined && lead === agentIdForName(agentName);
     },
     stop: () => {
       unsubscribe();

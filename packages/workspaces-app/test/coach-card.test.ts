@@ -2,7 +2,8 @@
  * The coach on a page: it says what he is looking at when the page opens and
  * when he stops scrolling, sends a paragraph he wrote when he pauses or moves
  * on, and stops for anyone but the owner; a moment draws one card, escaped,
- * which stays until he answers it or the server clears it.
+ * which stays until he answers it or the server clears it. The same card
+ * shows on a board, a doc and the front page.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SCROLL_SETTLE_MS, WROTE_PAUSE_MS, mountCoachCard } from '../src/coach-card.ts';
@@ -40,8 +41,11 @@ const MOMENT = {
   goal: 'Hard work first',
 };
 
+/** Every card a test mounted, taken down after it so none listens on. */
+let mounted: ReturnType<typeof mountCoachCard>[] = [];
+
 function mount(extra: Partial<Parameters<typeof mountCoachCard>[0]> = {}) {
-  return mountCoachCard({
+  const c = mountCoachCard({
     workspaceId: 'w-harbor',
     post: async (url, body) => {
       posted.push({ url, body: body as Record<string, unknown> });
@@ -50,6 +54,8 @@ function mount(extra: Partial<Parameters<typeof mountCoachCard>[0]> = {}) {
     openStream: (url) => new FakeStream(url) as unknown as EventSource,
     ...extra,
   });
+  mounted.push(c);
+  return c;
 }
 
 beforeEach(() => {
@@ -60,6 +66,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const c of mounted) c.destroy();
+  mounted = [];
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -178,7 +186,7 @@ describe('the card', () => {
   it('draws the moment escaped, and Not now answers it and takes it away', async () => {
     const c = mount();
     await flush();
-    expect(FakeStream.last?.url).toBe('/coach/stream');
+    expect(FakeStream.last?.url).toBe('/coach/stream?workspaceId=w-harbor');
     FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
     expect(card()?.querySelector('.cw-coach-who')?.textContent).toBe('Saltmarsh');
     expect(card()?.querySelector('.cw-coach-line')?.textContent).toBe(MOMENT.line);
@@ -233,5 +241,45 @@ describe('the card', () => {
     card()?.querySelector<HTMLButtonElement>('.cw-coach-off')?.click();
     await flush();
     expect(card()).toBeNull();
+  });
+});
+
+describe('the card follows him', () => {
+  it('a doc page names its board and doc to the stream', async () => {
+    mount({ docId: 'd-post' });
+    await flush();
+    expect(FakeStream.last?.url).toBe('/coach/stream?workspaceId=w-harbor&docId=d-post');
+  });
+
+  it('on the front page it sends no view, opens the stream naming nowhere, and draws the same card without the board switch', async () => {
+    const c = mount({ workspaceId: undefined });
+    await flush();
+    expect(posted).toEqual([]);
+    expect(FakeStream.last?.url).toBe('/coach/stream');
+    FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
+    expect(card()?.querySelector('.cw-coach-line')?.textContent).toBe(MOMENT.line);
+    expect(card()?.querySelectorAll('[data-answer]')).toHaveLength(3);
+    expect(card()?.querySelector('.cw-coach-off')).toBeNull();
+    document.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(SCROLL_SETTLE_MS);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(posted).toEqual([]);
+    card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.click();
+    await flush();
+    expect(posted).toEqual([
+      { url: '/coach/moments/cm-aaaaaaaaaaaa/answer', body: { answer: 'thanks' } },
+    ]);
+    expect(card()).toBeNull();
+    c.destroy();
+  });
+
+  it('the moment told again keeps the card it drew, so nothing on it moves', async () => {
+    mount();
+    await flush();
+    FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
+    const first = document.querySelector('.coach-card-host');
+    FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
+    expect(document.querySelectorAll('.coach-card-host')).toHaveLength(1);
+    expect(document.querySelector('.coach-card-host')).toBe(first);
   });
 });

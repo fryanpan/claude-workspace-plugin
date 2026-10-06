@@ -10,8 +10,10 @@
  *
  * A moment the session raises (`raise`) reaches his pages only when there is
  * a goal to act on, no other moment is open, and its quote checks out
- * (`coach/judge.ts`). It stays on the page until he answers it or moves to
- * another doc or board, which closes it as `moved-on`.
+ * (`coach/judge.ts`). It follows him: every page he opens shows it, and it
+ * stays until he answers it. Moving never closes it. A page on a board the
+ * coach is excluded from (`coach/exclusion.ts`) is not shown it, and the
+ * moment stays open for the next page that may show it (`coach/hub.ts`).
  */
 import type { Event } from '../activity.ts';
 import { type GoalsDocReading, goalTitle } from './goals-doc.ts';
@@ -50,6 +52,9 @@ export interface CoachDeps {
   /** To the coach session; true when it took the frame. */
   tell: (news: SessionNews, at: number) => boolean;
   publish: (frame: CoachFrame) => void;
+  /** Every open page is told again whether it shows the open moment: a
+   *  board just turned off hides it there, one turned back on shows it. */
+  reshow: (frame: CoachFrame | null) => void;
   now?: () => number;
 }
 
@@ -61,7 +66,7 @@ export interface Coach {
   answer(id: string, answer: MomentAnswer): boolean;
   setReadiness(readiness: CoachReadiness): void;
   /** "Coach off for this board", or back on. Turning off the board he is on
-   *  counts as his leaving it. */
+   *  counts as his leaving it; the open moment stays open, hidden there. */
   setBoardOff(workspaceId: string, off: boolean): void;
   /** The open moment as a page shows it, if any. */
   openFrame(): CoachFrame | null;
@@ -76,7 +81,7 @@ export function createCoach(deps: CoachDeps): Coach {
     moment: { id: m.id, at: m.at, name: name(reading), line: m.line, goal: m.goal },
   });
 
-  const close = (m: CoachMoment, answer: MomentAnswer | 'moved-on', t: number): boolean => {
+  const close = (m: CoachMoment, answer: MomentAnswer, t: number): boolean => {
     if (!deps.store.answer(m.id, answer, t)) return false;
     deps.publish({ type: 'clear', id: m.id });
     deps.tell({ event: 'coach.answer', momentId: m.id, answer, goal: m.goal, line: m.line }, t);
@@ -101,20 +106,15 @@ export function createCoach(deps: CoachDeps): Coach {
     );
   };
 
-  /** He moved: a moment raised somewhere else closes, then the events go.
-   *  One raised before any page said where he was closes on his first move,
-   *  and so does every moment when he goes where the coach cannot follow. */
-  const take = (step: StreamStep, t: number) => {
-    const open = deps.store.openMoment();
-    const place = deps.stream.current;
-    if (step.moved && open && !place) close(open, 'moved-on', t);
-    if (step.moved && open && place) {
-      const there = open.docId
-        ? open.docId === place.docId
-        : !place.docId && open.workspaceId === place.workspaceId;
-      if (!there) close(open, 'moved-on', t);
-    }
+  /** The events go to the session. A move closes nothing: the open moment
+   *  goes with him. */
+  const take = (step: StreamStep) => {
     for (const e of step.events) forward(e);
+  };
+
+  const reshow = () => {
+    const m = deps.store.openMoment();
+    if (m) deps.reshow(frameOf(m, deps.readGoals()));
   };
 
   return {
@@ -122,10 +122,14 @@ export function createCoach(deps: CoachDeps): Coach {
       const t = now();
       if (deps.isOff(signal)) {
         // A hidden page off the coach's boards tells it nothing at all.
-        if (signal.visible) take(deps.stream.elsewhere(t), t);
+        // It may have become off while the moment was showing there.
+        if (signal.visible) {
+          take(deps.stream.elsewhere(t));
+          reshow();
+        }
         return;
       }
-      take(deps.stream.here({ ...signal, at: t }), t);
+      take(deps.stream.here({ ...signal, at: t }));
     },
     activity(row) {
       if (!row.isOwner) return;
@@ -137,10 +141,10 @@ export function createCoach(deps: CoachDeps): Coach {
       const docId = row.doc?.docId;
       const workspaceId = docId ? deps.workspaceOf(docId) : undefined;
       if (docId && workspaceId && deps.isOff({ workspaceId, docId })) {
-        if (row.type === 'doc_open') take(deps.stream.elsewhere(t), t);
+        if (row.type === 'doc_open') take(deps.stream.elsewhere(t));
         return;
       }
-      take(deps.stream.activity(row, t, deps.workspaceOf), t);
+      take(deps.stream.activity(row, t, deps.workspaceOf));
     },
     raise(body) {
       const t = now();
@@ -184,10 +188,8 @@ export function createCoach(deps: CoachDeps): Coach {
     setBoardOff(workspaceId, off) {
       deps.store.setBoardOff(workspaceId, off);
       const place = deps.stream.current;
-      if (off && place && deps.isOff(place)) {
-        const t = now();
-        take(deps.stream.elsewhere(t), t);
-      }
+      if (off && place && deps.isOff(place)) take(deps.stream.elsewhere(now()));
+      reshow();
     },
     openFrame() {
       const m = deps.store.openMoment();

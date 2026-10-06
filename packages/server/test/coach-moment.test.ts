@@ -1,8 +1,8 @@
 /**
  * The coach's loop over a whole day: every event reaches the coach session
  * as it happens, with its words; a moment the session raises reaches the
- * page only when it quotes a goal and no other is open; and a moment stays
- * until he answers it or moves on.
+ * page only when it quotes a goal and no other is open; and a moment follows
+ * him from page to page until he answers it.
  *
  * The session here is a stand-in that raises a moment after the drifting
  * day's labelled "speak" points, which proves the plumbing and nothing
@@ -71,6 +71,7 @@ function harness(
   const store = new CoachStore(dir, clock);
   store.noteTimeZone(ZONE);
   const frames: CoachFrame[] = [];
+  const reshown: CoachFrame[] = [];
   const told: SessionNews[] = [];
   const goals = opts.goals === undefined ? GOALS_DOC : opts.goals;
   const coach = createCoach({
@@ -87,6 +88,9 @@ function harness(
       return true;
     },
     publish: (f) => frames.push(f),
+    reshow: (f) => {
+      if (f) reshown.push(f);
+    },
     now: () => clock,
   });
   const step = (s: Signal) => {
@@ -94,7 +98,7 @@ function harness(
     if ('here' in s) coach.here(s.here);
     else coach.activity(s.row);
   };
-  return { store, coach, frames, told, step, setClock: (t: number) => (clock = t) };
+  return { store, coach, frames, reshown, told, step, setClock: (t: number) => (clock = t) };
 }
 
 const events = (told: SessionNews[]) => told.filter((n) => n.event === 'coach.event');
@@ -133,7 +137,7 @@ describe('every event reaches the session', () => {
 });
 
 describe('a moment', () => {
-  it('the drifting day, with a session that speaks at each labelled point, shows three cards, each closed when he moves on', () => {
+  it('the drifting day, with a session that speaks at each labelled point, shows three cards, each open until he answers it', () => {
     const h = harness();
     const speakAfter = new Map(
       LABELLED_POINTS.filter((p) => p.expect === 'speak').map((p) => [p.after, p.goalIndex ?? 0]),
@@ -141,7 +145,12 @@ describe('a moment', () => {
     DRIFTING_DAY.forEach((s, i) => {
       h.step(s);
       const g = speakAfter.get(i);
-      if (g !== undefined) expect(h.coach.raise(MOMENTS[g] ?? null)).toMatchObject({ ok: true });
+      if (g === undefined) return;
+      // The last card is still open, however far he has moved since: he
+      // answers it now, so the next can be raised.
+      const open = h.coach.openFrame();
+      if (open?.type === 'moment') expect(h.coach.answer(open.moment.id, 'not-now')).toBe(true);
+      expect(h.coach.raise(MOMENTS[g] ?? null)).toMatchObject({ ok: true });
     });
     const shown = h.frames.filter((f) => f.type === 'moment');
     expect(shown.map((f) => f.type === 'moment' && f.moment.goal)).toEqual([
@@ -150,15 +159,14 @@ describe('a moment', () => {
       'Say why a thing matters before deciding how to build it.',
     ]);
     expect(h.store.moments().map((m) => [m.docId, m.state])).toEqual([
-      ['d-hover', 'moved-on'],
-      ['d-tokens', 'moved-on'],
-      ['d-booking', 'moved-on'],
+      ['d-hover', 'not-now'],
+      ['d-tokens', 'not-now'],
+      ['d-booking', 'open'],
     ]);
     const answers = h.told.filter((n) => n.event === 'coach.answer');
     expect(answers.map((n) => n.event === 'coach.answer' && n.answer)).toEqual([
-      'moved-on',
-      'moved-on',
-      'moved-on',
+      'not-now',
+      'not-now',
     ]);
   });
 
@@ -195,11 +203,37 @@ describe('a moment', () => {
     });
   });
 
-  it('raised before any page said where he was, it closes on his first move', () => {
-    const h = harness();
+  it('follows him to another board, a doc and a board the coach is off for, and closes only when he answers', () => {
+    const h = harness({ isOff: (p) => p.workspaceId === 'w-records' });
+    h.coach.here({ kind: 'view', workspaceId: WS, docId: 'd-hover', visible: true });
     const raised = h.coach.raise(MOMENTS[0] ?? null);
-    h.coach.here({ kind: 'view', workspaceId: WS, docId: 'd-post', visible: true });
-    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('moved-on');
+    const id = raised.ok ? raised.id : '';
+    const stillOpen = () => {
+      expect(h.coach.openFrame()).toMatchObject({ type: 'moment', moment: { id } });
+      expect(h.frames.filter((f) => f.type === 'clear')).toEqual([]);
+      expect(h.told.some((n) => n.event === 'coach.answer')).toBe(false);
+    };
+    h.setClock(at(9));
+    h.coach.here({ kind: 'view', workspaceId: 'w-riverbend', visible: true });
+    stillOpen();
+    h.coach.here({ kind: 'view', workspaceId: 'w-riverbend', docId: 'd-post', visible: true });
+    stillOpen();
+    // Off for the coach: the page there is told again, so it can hide the
+    // card, and the moment stays open for the next page.
+    h.coach.here({ kind: 'view', workspaceId: 'w-records', docId: 'd-letters', visible: true });
+    stillOpen();
+    expect(h.reshown).toEqual([
+      expect.objectContaining({ type: 'moment', moment: expect.objectContaining({ id }) }),
+    ]);
+    h.coach.setBoardOff(WS, true);
+    stillOpen();
+    h.setClock(at(22));
+    h.coach.here({ kind: 'view', workspaceId: 'w-riverbend', visible: true });
+    stillOpen();
+    expect(h.coach.answer(id, 'not-this')).toBe(true);
+    expect(h.frames.at(-1)).toEqual({ type: 'clear', id });
+    expect(h.store.moments().find((m) => m.id === id)?.state).toBe('not-this');
+    expect(h.coach.openFrame()).toBeNull();
   });
 
   it('stays however long he leaves it on the same page', () => {

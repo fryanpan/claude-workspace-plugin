@@ -10,8 +10,9 @@
  * from the real loop (`createCoach`, the stream's dedupe, and the MCP
  * child's `coachLine`), and a moment the session raises goes through the
  * server's own check (`raise`), so a moment with a bad quote is refused here
- * exactly as it would be on his page. A card it raises stays open until the
- * day moves him on, and the session reads that answer too.
+ * exactly as it would be on his page. A card follows him until he answers
+ * it; here he answers "Not now" on the next page he opens, and the session
+ * reads that answer too.
  *
  * Two days, one session each:
  *
@@ -223,13 +224,22 @@ async function playDay(name: string, day: readonly Signal[]): Promise<DayResult>
         return true;
       },
       publish: () => {},
+      reshow: () => {},
       now: () => clock,
     });
     await s.say(`Learning goals:\n\n${GOALS_DOC}\n\nCoach memory:\n\n${MEMORY_TEMPLATE}`);
+    const placeOf = (h: { workspaceId: string; docId?: string }) => h.docId ?? h.workspaceId;
+    let cardAt: string | undefined;
     for (const [i, signal] of day.entries()) {
       clock = signal.at;
-      if ('here' in signal) coach.here(signal.here);
-      else coach.activity(signal.row);
+      const open = coach.openFrame();
+      if (open?.type === 'moment' && 'here' in signal && signal.here.visible) {
+        if (placeOf(signal.here) !== cardAt) coach.answer(open.moment.id, 'not-now');
+      }
+      if ('here' in signal) {
+        coach.here(signal.here);
+        if (signal.here.visible) cardAt = placeOf(signal.here);
+      } else coach.activity(signal.row);
       const lines = queued;
       queued = [];
       for (const { news, at: t } of lines) {

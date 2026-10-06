@@ -150,7 +150,7 @@ export class CoachStore {
     return this.state.moments;
   }
 
-  /** The moment on the page, if any. It stays until he answers or moves on. */
+  /** The moment on his pages, if any. It stays until he answers it. */
   openMoment(): CoachMoment | null {
     return this.state.moments.find((m) => m.state === 'open') ?? null;
   }
@@ -167,7 +167,7 @@ export class CoachStore {
     return moment;
   }
 
-  /** His answer, or `moved-on` when he left it. False when it is not open. */
+  /** His answer, or `moved-on` (an old record's only). False when it is not open. */
   answer(id: string, answer: MomentAnswer | 'moved-on', now: number): boolean {
     const m = this.state.moments.find((x) => x.id === id);
     if (!m || m.state !== 'open') return false;

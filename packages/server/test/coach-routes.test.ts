@@ -276,6 +276,26 @@ describe('GET /coach/stream', () => {
     expect(cross.status).toBe(403);
     expect((await req('/coach/stream', local())).status).toBe(403);
   });
+
+  it('takes the page’s board and doc, and refuses ones that do not exist', async () => {
+    const { workspaceId, docId } = ids();
+    const h = await ownerHeaders({ 'sec-fetch-site': 'same-origin' });
+    const q = (params: Record<string, string>) =>
+      req(`/coach/stream?${new URLSearchParams(params)}`, OWNER_HOST, { headers: h });
+    for (const params of [{ workspaceId }, { workspaceId, docId }] as Record<string, string>[]) {
+      const res = await q(params);
+      expect(res.status).toBe(200);
+      await res.body?.cancel();
+    }
+    for (const params of [
+      { workspaceId: 'w-nowhere' },
+      { workspaceId: '../etc' },
+      { workspaceId, docId: 'd-not-on-it' },
+      { docId },
+    ] as Record<string, string>[]) {
+      expect((await q(params)).status).toBe(400);
+    }
+  });
 });
 
 describe('POST /coach/moments — the coach session, this machine only', () => {

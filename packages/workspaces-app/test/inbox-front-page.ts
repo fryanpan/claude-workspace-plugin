@@ -101,11 +101,15 @@ export function seed(dataDir: string): void {
   new InboxBodies(dataDir).putAll(posted.ids.map((id, i) => [id, `Message ${i + 1} text.`]));
 }
 
-/** The edge: every request gains the owner host and the Access assertion. */
+/** The edge: every request gains the owner host and the Access assertion.
+ *  The front page holds the coach's event stream open, and Bun's
+ *  `server.stop(true)` never settles while it streams one through, so a stop
+ *  aborts what is still open upstream and does not wait for the listener. */
 export function edge(
   target: string,
   assertion: string,
 ): { origin: string; stop: () => Promise<void> } {
+  const open = new Set<AbortController>();
   const server = Bun.serve({
     port: 0,
     hostname: '127.0.0.1',
@@ -118,9 +122,12 @@ export function edge(
       headers.set('cf-access-jwt-assertion', assertion);
       headers.set('accept-encoding', 'identity');
       if (headers.has('origin')) headers.set('origin', `https://${OWNER_HOST}`);
+      const upstream = new AbortController();
+      open.add(upstream);
       const res = await fetch(`${target}${url.pathname}${url.search}`, {
         method: req.method,
         headers,
+        signal: upstream.signal,
         body: req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.arrayBuffer(),
         redirect: 'manual',
       });
@@ -132,7 +139,12 @@ export function edge(
   });
   return {
     origin: `http://127.0.0.1:${server.port}`,
-    stop: () => server.stop(true) as Promise<void>,
+    stop: () => {
+      for (const upstream of open) upstream.abort();
+      open.clear();
+      void server.stop(true);
+      return Promise.resolve();
+    },
   };
 }
 
