@@ -331,6 +331,8 @@ export type MeetingCloseCause =
   | 'client-stop'
   /** The server ended it — fifteen minutes with nothing said. */
   | 'silence'
+  /** The engine closed its session on its own; the meeting could hear nothing. */
+  | 'engine-lost'
   | 'clean-close'
   | 'tab-closed'
   | 'protocol-error'
@@ -363,6 +365,9 @@ const MEETING_OVER_CAUSES: ReadonlySet<MeetingCloseCause> = new Set<MeetingClose
   'client-stop',
   // The server timed the recording out for silence.
   'silence',
+  // The engine went away. The strip ends on the `error` frame that came first,
+  // and asks for no resume.
+  'engine-lost',
   // The socket closed the way a page leaving closes it.
   'clean-close',
   'tab-closed',
@@ -1197,6 +1202,17 @@ export class MeetingRelay {
             `[meeting] engine error doc=${docId} meeting=${meeting.meetingId} engine=${engine.name}: ${engineErrorForLog(message)}`,
           );
           this.send(ws, { type: 'error', message });
+        },
+        onLost: () => {
+          // ENDED, NOT REOPENED. The usual cause is a phone in the background:
+          // no audio arrives, the engine times the session out, and a new
+          // session would time out the same way and bill for it. Ending frees
+          // the doc, so the next Record press starts rather than being refused
+          // while a silent socket holds it. A late close from a meeting this
+          // connection already finished is not this one's.
+          if (conn.meeting !== meeting) return;
+          conn.endedCause = 'engine-lost';
+          this.track(this.stop(ws, conn, true, undefined, 'engine-lost'));
         },
       });
     } catch (err) {

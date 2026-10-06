@@ -449,11 +449,12 @@ export function createSonioxEngine(opts: SonioxOptions = {}): TranscriptionEngin
             }
             // A close we did not ask for ends the meeting's words; the one
             // that follows our end-of-audio frame is the normal path.
-            if (!closed && !ending) {
-              sessionOpts.onError('soniox: session closed unexpectedly');
-            }
+            const lost = !closed && !ending;
+            if (lost) sessionOpts.onError('soniox: session closed unexpectedly');
             closed = true;
             finishClose();
+            // After `closed`, so the relay's own close() of this session is a no-op.
+            if (lost) sessionOpts.onClosed?.();
           },
         });
 
