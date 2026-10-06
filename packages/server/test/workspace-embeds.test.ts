@@ -57,6 +57,33 @@ describe('/workspaces/<ws>/embeds', () => {
     expect(((await read.json()) as { embeds: unknown }).embeds).toEqual(SFWORKS);
   });
 
+  it('stores an entry at an allowlisted origin, and refuses any other origin', async () => {
+    const atOrigin = {
+      sfworks: { origin: 'https://harborlight.example', pathTemplate: '{origin}/embed/{block}/' },
+    };
+    const other = {
+      sfworks: { origin: 'https://saltmarsh.example', pathTemplate: '{origin}/{block}/' },
+    };
+    // Unset, the allowlist is empty: an origin entry is refused.
+    expect((await put(atOrigin)).status).toBe(400);
+    process.env.CW_EMBED_ORIGINS = 'https://harborlight.example';
+    try {
+      expect((await put(atOrigin)).status).toBe(200);
+      const res = await put(other);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('allowlist');
+      const read = await fetch(`${base}/workspaces/${ws}/embeds`);
+      expect(((await read.json()) as { embeds: unknown }).embeds).toEqual(atOrigin);
+    } finally {
+      Reflect.deleteProperty(process.env, 'CW_EMBED_ORIGINS');
+    }
+  });
+
+  it('leaves a stored origin entry out of a read once the allowlist drops it', async () => {
+    const res = await fetch(`${base}/workspaces/${ws}/embeds`);
+    expect(((await res.json()) as { embeds: unknown }).embeds).toEqual({});
+  });
+
   it('clears with an empty object', async () => {
     expect((await put({})).status).toBe(200);
     const res = await fetch(`${base}/workspaces/${ws}/embeds`);

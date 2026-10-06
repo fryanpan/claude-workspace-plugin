@@ -1,7 +1,7 @@
 import {
   type BoardEmbeds,
   clampEmbedHeight,
-  embedUrl,
+  embedFrameSpec,
   parseEmbedDirective,
 } from '@claude-workspaces/core/board-embeds';
 import { Extension } from '@tiptap/core';
@@ -17,10 +17,16 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
  * paragraph with its own text, and the frame is a widget decoration after it,
  * so the stored doc and its markdown never change.
  *
- * The app door serves on our own origin, so the frame gets `allow-scripts`
- * and never `allow-same-origin`. Its height comes from a
+ * The app door serves on our own origin, so its frame gets `allow-scripts`
+ * and never `allow-same-origin`. An entry at an allowlisted https origin is
+ * cross-origin to the board, so its frame keeps its own origin
+ * (`allow-same-origin` grants it that origin, not ours). Its page then sends
+ * its own address as the Referer on its requests, which a referrer-restricted
+ * map key needs; the frame's own request sends none, so the board's host name
+ * never reaches the site. Its height comes from a
  * `{type:"sfworks:height", block, height}` message, taken only when the
- * message's source is that frame's own window.
+ * message's source is that frame's own window and, for an origin entry, its
+ * `origin` is the entry's.
  *
  * Click to activate: a frame starts inert under a "Tap to interact" hint so
  * the doc scrolls past it; a tap activates it, and a tap outside it or Escape
@@ -45,12 +51,18 @@ async function defaultLoad(workspaceId: string): Promise<BoardEmbeds | null> {
   return body.embeds ?? null;
 }
 
-function frameEl(url: string, block: string): HTMLElement {
+function frameEl(url: string, origin: string | null, block: string): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'board-embed';
   wrap.contentEditable = 'false';
   const frame = document.createElement('iframe');
-  frame.setAttribute('sandbox', 'allow-scripts');
+  if (origin) {
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.dataset.embedOrigin = origin;
+  } else {
+    frame.setAttribute('sandbox', 'allow-scripts');
+  }
   frame.setAttribute('loading', 'lazy');
   frame.setAttribute('title', block);
   frame.dataset.embedBlock = block;
@@ -78,14 +90,15 @@ function build(doc: ProseNode, workspaceId: string, embeds: BoardEmbeds | null):
   doc.descendants((node, pos) => {
     if (node.type.name !== 'paragraph') return true;
     const d = parseEmbedDirective(node.textContent);
-    const url = d ? embedUrl(embeds, workspaceId, d.name, d.block) : null;
-    if (d && url) {
+    const spec = d ? embedFrameSpec(embeds, workspaceId, d.name, d.block) : null;
+    if (d && spec) {
+      const { url, origin } = spec;
       // Keyed on the address and its count, so an edit elsewhere keeps the
       // frame (and its loaded page) rather than reloading it.
       const n = (seen.get(url) ?? 0) + 1;
       seen.set(url, n);
       decos.push(
-        Decoration.widget(pos + node.nodeSize, () => frameEl(url, d.block), {
+        Decoration.widget(pos + node.nodeSize, () => frameEl(url, origin, d.block), {
           key: `embed:${url}#${n}`,
           side: -1,
           ignoreSelection: true,
@@ -159,6 +172,8 @@ export const BoardEmbedFrames = Extension.create<BoardEmbedFramesOptions>({
             )) {
               if (ev.source === null || f.contentWindow !== ev.source) continue;
               if (f.dataset.embedBlock !== data.block) continue;
+              const origin = f.dataset.embedOrigin;
+              if (origin !== undefined && ev.origin !== origin) continue;
               f.style.height = `${clampEmbedHeight(data.height)}px`;
             }
           };

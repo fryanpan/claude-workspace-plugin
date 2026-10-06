@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   clampEmbedHeight,
+  embedFrameSpec,
+  embedOriginsFrom,
   embedUrl,
   parseBoardEmbeds,
   parseEmbedDirective,
 } from './board-embeds.ts';
 
 const EMBEDS = { sfworks: { appDocId: 'd-app1', pathTemplate: '{mount}/embed/bike/{block}/' } };
+const ORIGIN = 'https://harborlight.example';
+const AT_ORIGIN = { sfworks: { origin: ORIGIN, pathTemplate: '{origin}/embed/bike/{block}/' } };
 
 describe('parseEmbedDirective', () => {
   it('reads the block of a whole-paragraph directive', () => {
@@ -34,6 +38,47 @@ describe('embedUrl', () => {
     expect(embedUrl(EMBEDS, 'w-1', 'other', 'a')).toBeNull();
     expect(embedUrl(EMBEDS, 'w-1', 'toString', 'a')).toBeNull();
     expect(embedUrl(EMBEDS, 'w-1', 'sfworks', 'a/b')).toBeNull();
+  });
+});
+
+describe('an origin entry', () => {
+  it('loads from the named origin, with no app-door parameters', () => {
+    expect(embedFrameSpec(AT_ORIGIN, 'w-1', 'sfworks', 'goal-chart')).toEqual({
+      url: 'https://harborlight.example/embed/bike/goal-chart/',
+      origin: ORIGIN,
+    });
+    expect(embedFrameSpec(EMBEDS, 'w-1', 'sfworks', 'goal-chart')?.origin).toBeNull();
+  });
+  it('is stored only when its origin is on the allowlist', () => {
+    expect(parseBoardEmbeds(AT_ORIGIN, [ORIGIN])).toEqual({ ok: true, embeds: AT_ORIGIN });
+    expect(parseBoardEmbeds(AT_ORIGIN).ok).toBe(false);
+    expect(parseBoardEmbeds(AT_ORIGIN, ['https://riverbend.example']).ok).toBe(false);
+  });
+  it('refuses both kinds at once, a path in the origin, and a template off the origin', () => {
+    const allow = [ORIGIN];
+    const bad = [
+      { origin: ORIGIN, appDocId: 'd-app1', pathTemplate: '{origin}/x' },
+      { origin: `${ORIGIN}/x`, pathTemplate: '{origin}/x' },
+      { origin: ORIGIN, pathTemplate: '{mount}/x' },
+      { origin: ORIGIN, pathTemplate: '{origin}@evil/x' },
+      { origin: ORIGIN, pathTemplate: '{origin}/../x' },
+      { appDocId: 'd-app1', pathTemplate: '{origin}/x' },
+    ];
+    for (const t of bad) expect(parseBoardEmbeds({ sfworks: t }, allow).ok).toBe(false);
+  });
+});
+
+describe('embedOriginsFrom', () => {
+  it('allows none when the deployment names none', () => {
+    expect(embedOriginsFrom(undefined)).toEqual([]);
+  });
+  it('takes exact https origins and drops anything else', () => {
+    expect(
+      embedOriginsFrom(
+        'https://harborlight.example, http://riverbend.example,https://*.x.example,https://saltmarsh.example/p,https://bob.example:8443',
+      ),
+    ).toEqual(['https://harborlight.example', 'https://bob.example:8443']);
+    expect(embedOriginsFrom('')).toEqual([]);
   });
 });
 

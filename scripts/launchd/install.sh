@@ -83,6 +83,15 @@ PUBLIC_BASE_URL="${CW_PUBLIC_BASE_URL:-}"
 REQUIRE_EMAIL_AUTH="${CW_REQUIRE_EMAIL_AUTH:-}"
 OWNER_EMAIL="${CW_OWNER_EMAIL:-}"
 
+# The https origins a board embed may load directly, same contract: empty
+# allows none. The server drops any entry that is not an exact https origin;
+# a `|` would break the sed below, so it is refused here.
+EMBED_ORIGINS="${CW_EMBED_ORIGINS:-}"
+if [[ "${EMBED_ORIGINS}" == *"|"* ]]; then
+    echo "[install] CW_EMBED_ORIGINS must not contain '|'" >&2
+    exit 1
+fi
+
 # Link-mode sharing hostname, same contract as the base URL: baked into the
 # plist because launchd inherits no shell environment, and empty (the default)
 # keeps link mode off. Re-running the installer without it reverts sharing —
@@ -224,6 +233,7 @@ sed \
     -e "s|{{PUBLIC_BASE_URL}}|${PUBLIC_BASE_URL}|g" \
     -e "s|{{REQUIRE_EMAIL_AUTH}}|${REQUIRE_EMAIL_AUTH}|g" \
     -e "s|{{OWNER_EMAIL}}|${OWNER_EMAIL}|g" \
+    -e "s|{{EMBED_ORIGINS}}|${EMBED_ORIGINS}|g" \
     -e "s|{{SHARE_PUBLIC_HOSTNAME}}|${SHARE_PUBLIC_HOSTNAME}|g" \
     -e "s|{{ACCESS_TUNNEL_HOSTS}}|${ACCESS_TUNNEL_HOSTS}|g" \
     -e "s|{{PROXIED_TRUSTED_HOSTS}}|${PROXIED_TRUSTED_HOSTS}|g" \

@@ -44,6 +44,11 @@
              CW_PROXIED_TRUSTED_HOSTS below. Empty leaves both unset. -->
         <key>CW_OWNER_EMAIL</key>
         <string>{{OWNER_EMAIL}}</string>
+        <!-- Board embeds: the comma-separated https origins a board's doc
+             frames may load directly (`core/board-embeds.ts`). Empty, the
+             default, allows none; an app-door embed needs no entry. -->
+        <key>CW_EMBED_ORIGINS</key>
+        <string>{{EMBED_ORIGINS}}</string>
         <!-- Link-mode sharing: the single public hostname the Cloudflare
              tunnel serves /s/<token> links on. Empty disables link mode.
              Baked in like the base URL above because the rename reinstall

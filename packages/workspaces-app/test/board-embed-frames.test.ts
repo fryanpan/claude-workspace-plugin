@@ -17,6 +17,10 @@ import { installSheets, styleOf } from './css-harness.ts';
 const MAP: BoardEmbeds = {
   sfworks: { appDocId: 'd-app1', pathTemplate: '{mount}/embed/bike/{block}/' },
 };
+const ORIGIN = 'https://harborlight.example';
+const AT_ORIGIN: BoardEmbeds = {
+  sfworks: { origin: ORIGIN, pathTemplate: '{origin}/embed/bike/{block}/' },
+};
 const LINE = '::sfworks{block="goal-chart"}';
 const DOC = `# Riverbend\n\nAlice wrote this.\n\n${LINE}\n\nBob wrote that.`;
 
@@ -87,6 +91,39 @@ describe('board embed frames', () => {
       }),
     );
     expect(frame.style.height).toBe('2000px');
+    editor.destroy();
+  });
+
+  it('loads an origin entry from that origin, with its own origin kept', async () => {
+    const { editor, el } = await mount(DOC, AT_ORIGIN);
+    const frame = frames(el)[0];
+    expect(frame?.getAttribute('src')).toBe('https://harborlight.example/embed/bike/goal-chart/');
+    expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+    expect(frame?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(frame?.getAttribute('loading')).toBe('lazy');
+    editor.destroy();
+  });
+
+  it("takes an origin frame's height only from a message carrying that origin", async () => {
+    const { editor, el } = await mount(DOC, AT_ORIGIN);
+    const frame = frames(el)[0] as HTMLIFrameElement;
+    const own = { name: 'frame window' } as unknown as Window;
+    Object.defineProperty(frame, 'contentWindow', { value: own });
+    const before = frame.style.height;
+    const send = (origin: string, height: number): void => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'sfworks:height', block: 'goal-chart', height },
+          source: own,
+          origin,
+        }),
+      );
+    };
+    send('https://riverbend.example', 640);
+    send('null', 640);
+    expect(frame.style.height).toBe(before);
+    send(ORIGIN, 640);
+    expect(frame.style.height).toBe('640px');
     editor.destroy();
   });
 

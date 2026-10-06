@@ -6,15 +6,29 @@
  * only names a block. The server checks a mapping's shape before it stores
  * it, and the editor builds the frame's address here, so both read one rule.
  * Only `block` ever reaches a URL, and only after it matches `BLOCK_RE`.
+ *
+ * An entry names either an app door (`appDocId`, `{mount}`) or an https
+ * origin (`origin`, `{origin}`), never both. An origin entry loads that site
+ * directly, so its page keeps its own origin and its requests carry its own
+ * address as the Referer — what a referrer-restricted key such as a Google
+ * Maps one needs. The server stores
+ * one only when the origin is on its allowlist (`embedOriginsFrom`).
  */
 import { MOCK_FRAME_PARAM } from './page-thread-link.ts';
 
-export interface BoardEmbedTarget {
-  /** The app door the frame loads from: `/workspaces/<ws>/apps/<appDocId>`. */
-  appDocId: string;
-  /** The path under it, e.g. `{mount}/embed/bike/{block}/`. */
-  pathTemplate: string;
-}
+export type BoardEmbedTarget =
+  | {
+      /** The app door the frame loads from: `/workspaces/<ws>/apps/<appDocId>`. */
+      appDocId: string;
+      /** The path under it, e.g. `{mount}/embed/bike/{block}/`. */
+      pathTemplate: string;
+    }
+  | {
+      /** An allowlisted https origin, e.g. `https://harborlight.example`. */
+      origin: string;
+      /** The path on it, e.g. `{origin}/embed/bike/{block}/`. */
+      pathTemplate: string;
+    };
 
 export type BoardEmbeds = Record<string, BoardEmbedTarget>;
 
@@ -23,6 +37,8 @@ export const BLOCK_RE = /^[a-z0-9-]{1,64}$/;
 const APP_DOC_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** `{mount}` first, then plain path characters and `{block}`; no `..`. */
 const TEMPLATE_RE = /^\{mount\}(?:\/[A-Za-z0-9_.{}-]*)*$/;
+/** The same rule rooted at `{origin}`, so the host can never change. */
+const ORIGIN_TEMPLATE_RE = /^\{origin\}(?:\/[A-Za-z0-9_.{}-]*)*$/;
 export const MAX_EMBEDS = 16;
 /** Asks the app door to leave the comment widget out of an embed's page. */
 export const EMBED_PARAM = 'cw-embed';
@@ -31,6 +47,28 @@ export const EMBED_PARAM = 'cw-embed';
 export const EMBED_MIN_HEIGHT = 80;
 export const EMBED_MAX_HEIGHT = 2000;
 
+/** An https origin written exactly: no path, no wildcard, no credentials. */
+export function isExactHttpsOrigin(s: string): boolean {
+  if (!/^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/.test(s)) return false;
+  try {
+    return new URL(s).origin === s;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The allowlist, from the deployment's comma-separated `CW_EMBED_ORIGINS`.
+ * It names a deployment's partner sites, so the repo ships none: unset
+ * allows none, and an entry that is not an exact https origin is dropped.
+ */
+export function embedOriginsFrom(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(isExactHttpsOrigin);
+}
+
 export function clampEmbedHeight(h: number): number {
   return Math.min(EMBED_MAX_HEIGHT, Math.max(EMBED_MIN_HEIGHT, Math.round(h)));
 }
@@ -38,6 +76,7 @@ export function clampEmbedHeight(h: number): number {
 /** A mapping the server may store, or the sentence saying why not. */
 export function parseBoardEmbeds(
   raw: unknown,
+  allowedOrigins: readonly string[] = [],
 ): { ok: true; embeds: BoardEmbeds } | { ok: false; error: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, error: 'embeds must be an object of name → {appDocId, pathTemplate}' };
@@ -49,24 +88,58 @@ export function parseBoardEmbeds(
     if (!EMBED_NAME_RE.test(name)) {
       return { ok: false, error: `embed name ${JSON.stringify(name)} must match ${EMBED_NAME_RE}` };
     }
-    const t = v as Partial<BoardEmbedTarget> | null;
-    if (!t || typeof t.appDocId !== 'string' || !APP_DOC_ID_RE.test(t.appDocId)) {
-      return { ok: false, error: `${name}: appDocId must match ${APP_DOC_ID_RE}` };
-    }
-    if (
-      typeof t.pathTemplate !== 'string' ||
-      t.pathTemplate.length > 200 ||
-      !TEMPLATE_RE.test(t.pathTemplate) ||
-      t.pathTemplate.includes('..')
-    ) {
-      return {
-        ok: false,
-        error: `${name}: pathTemplate must start with {mount} and hold only path characters, {mount} and {block}`,
-      };
-    }
-    embeds[name] = { appDocId: t.appDocId, pathTemplate: t.pathTemplate };
+    const target = parseTarget(name, v, allowedOrigins);
+    if (typeof target === 'string') return { ok: false, error: target };
+    embeds[name] = target;
   }
   return { ok: true, embeds };
+}
+
+/** One entry, or the sentence saying why not. */
+function parseTarget(
+  name: string,
+  v: unknown,
+  allowedOrigins: readonly string[],
+): BoardEmbedTarget | string {
+  const t = v as { appDocId?: unknown; origin?: unknown; pathTemplate?: unknown } | null;
+  if (!t || typeof t !== 'object') {
+    return `${name}: must be {appDocId, pathTemplate} or {origin, pathTemplate}`;
+  }
+  if (t.appDocId !== undefined && t.origin !== undefined) {
+    return `${name}: name an appDocId or an origin, not both`;
+  }
+  const tpl = t.pathTemplate;
+  const tplOk = (re: RegExp): tpl is string =>
+    typeof tpl === 'string' && tpl.length <= 200 && re.test(tpl) && !tpl.includes('..');
+  if (t.origin !== undefined) {
+    if (typeof t.origin !== 'string' || !isExactHttpsOrigin(t.origin)) {
+      return `${name}: origin must be an exact https origin, with no path`;
+    }
+    if (!allowedOrigins.includes(t.origin)) {
+      return `${name}: origin ${t.origin} is not on this server's embed allowlist`;
+    }
+    if (!tplOk(ORIGIN_TEMPLATE_RE)) {
+      return `${name}: pathTemplate must start with {origin}/ and hold only path characters and {block}`;
+    }
+    return { origin: t.origin, pathTemplate: tpl };
+  }
+  if (typeof t.appDocId !== 'string' || !APP_DOC_ID_RE.test(t.appDocId)) {
+    return `${name}: appDocId must match ${APP_DOC_ID_RE}`;
+  }
+  if (!tplOk(TEMPLATE_RE)) {
+    return `${name}: pathTemplate must start with {mount} and hold only path characters, {mount} and {block}`;
+  }
+  return { appDocId: t.appDocId, pathTemplate: tpl };
+}
+
+/** Drop the origin entries no longer on the allowlist, so a stored one cannot outlive it. */
+export function allowedEmbeds(embeds: BoardEmbeds, allowedOrigins: readonly string[]): BoardEmbeds {
+  const out: BoardEmbeds = {};
+  for (const [name, t] of Object.entries(embeds)) {
+    if ('origin' in t && !allowedOrigins.includes(t.origin)) continue;
+    out[name] = t;
+  }
+  return out;
 }
 
 /** The directive a paragraph's whole text spells, or null. */
@@ -78,20 +151,42 @@ export function parseEmbedDirective(text: string): { name: string; block: string
   return { name: m[1] ?? '', block };
 }
 
-/** The frame's same-origin path for a directive, or null when unmapped. */
-export function embedUrl(
+/**
+ * The frame's address for a directive, and the origin its height messages
+ * must come from (null for an app door, whose sandboxed page has none), or
+ * null when unmapped.
+ */
+export function embedFrameSpec(
   embeds: BoardEmbeds | null | undefined,
   workspaceId: string,
   name: string,
   block: string,
-): string | null {
+): { url: string; origin: string | null } | null {
   const target = embeds && Object.hasOwn(embeds, name) ? embeds[name] : undefined;
   if (!target || !BLOCK_RE.test(block)) return null;
+  if ('origin' in target) {
+    // Checked again here: the editor builds a cross-origin URL from it.
+    if (!isExactHttpsOrigin(target.origin) || !ORIGIN_TEMPLATE_RE.test(target.pathTemplate)) {
+      return null;
+    }
+    const path = target.pathTemplate.slice('{origin}'.length).split('{block}').join(block);
+    return { url: `${target.origin}${path}`, origin: target.origin };
+  }
   const mount = `/workspaces/${encodeURIComponent(workspaceId)}/apps/${encodeURIComponent(target.appDocId)}`;
   // `?cw-frame=1` asks the app door for the app's own page rather than the
   // host page that frames it, so the page's height message reaches this
   // editor as its parent (`mockup-frame.ts` on the server); `cw-embed=1`
   // leaves the comment widget off it.
   const path = target.pathTemplate.split('{mount}').join(mount).split('{block}').join(block);
-  return `${path}?${MOCK_FRAME_PARAM}=1&${EMBED_PARAM}=1`;
+  return { url: `${path}?${MOCK_FRAME_PARAM}=1&${EMBED_PARAM}=1`, origin: null };
+}
+
+/** The frame's address for a directive, or null when unmapped. */
+export function embedUrl(
+  embeds: BoardEmbeds | null | undefined,
+  workspaceId: string,
+  name: string,
+  block: string,
+): string | null {
+  return embedFrameSpec(embeds, workspaceId, name, block)?.url ?? null;
 }
