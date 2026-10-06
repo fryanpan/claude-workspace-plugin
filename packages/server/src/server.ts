@@ -212,6 +212,7 @@ import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
 import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
 import { createStallWiring } from './stall-wiring.ts';
+import { isReservedGoalId } from './task-goals.ts';
 import { TaskProjection, taskBodyDocId } from './task-projection.ts';
 import { type RunOutputSource, observeRunOutput } from './task-run-output.ts';
 import { DEFAULT_SPAWNER_AGENT_ID, observeScheduledWake } from './task-scheduled-wake.ts';
@@ -1489,16 +1490,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
   });
   /** The plan lead's per-item ranks and its batched feed of new asks
-   *  (lead-rank-wiring.ts). A board the coach may not hear from is excluded
-   *  from both, by the same check. */
+   *  (lead-rank-wiring.ts). The feed skips every board the coach may not hear
+   *  from; a rank or tag skips the same boards except shared ones. */
   const isOffForLead = (place: { workspaceId: string; docId?: string }): boolean =>
     coachWiring.store.readFailed || placeIsOff(place, boardPrivacy, coachWiring.store.offBoards);
+  const isOffForRank = (place: { workspaceId: string; docId?: string }): boolean =>
+    coachWiring.store.readFailed ||
+    placeIsOff(place, boardPrivacy, coachWiring.store.offBoards, { allowShared: true });
   const leadRanks = wireLeadRanks({
     dataDir,
     planBoard: () => crossReview.projects().planWorkspaceId,
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     boardName: (workspaceId) => taskStore.getWorkspace(workspaceId)?.name,
     isOff: isOffForLead,
+    rankIsOff: isOffForRank,
     taskWorkspace: (taskId) => taskStore.getTask(taskId)?.workspaceId,
     goalWorkspace: (rowId) => taskStore.getGoalRow(rowId)?.workspaceId,
     boardsForDoc: (docId) => boardsForDoc(docId),
@@ -1527,8 +1532,15 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     lastActivityOf: (w) => boardLastActivity(docStore, taskStore, w),
     spawnerAgentId: spawnerAgentId ?? null,
     leadRank: leadRanks.leadRank,
+    leadGoal: leadRanks.leadGoal,
     onError: (err) => captureServerError(err, { where: 'cross-review answer ledger' }),
   });
+  /** The plan board's goals in band order: what a goal tag names, and the
+   *  order Home's goal sections follow. The server-owned bucket is no goal. */
+  const planGoals = (workspaceId: string | undefined) =>
+    (workspaceId ? (taskStore.getWorkspace(workspaceId)?.goals ?? []) : []).filter(
+      (g) => !isReservedGoalId(g.id),
+    );
   const boardSummaries = createBoardSummaries({
     dataDir,
     summarizer,
@@ -2241,6 +2253,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         items: q.items,
         rankOf: new Map(q.projects.map((p) => [p.workspaceId, p.rank])),
         summaryOf: (id) => boardSummaries.read(id),
+        goals: planGoals(q.planWorkspaceId).map((g) => ({ id: g.id, title: g.title })),
       };
     },
     defaultBoardWorkspaceName: DEFAULT_BOARD_WORKSPACE_NAME,
@@ -2342,6 +2355,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     ranks: leadRanks.ranks,
     refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
+    planGoalIds: (workspaceId) => planGoals(workspaceId).map((g) => g.id),
     // The rank is held to the lead's token always, like an inbox post.
     authorizeAgent: (req, agentId) =>
       authorizeAgentCaller({
@@ -2351,7 +2365,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         key: agentTokenKeyFor(),
         requireToken: true,
       }),
-    isOff: isOffForLead,
+    isOff: isOffForRank,
     sessionIdentityId: (req) => sessionIdentityFor(req)?.id ?? null,
     renderPage: () => renderReviewsShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,

@@ -58,6 +58,10 @@ export type CrossReviewItem = SizedReviewItemRow & {
   key: string;
   /** The task's due date, when the row is about a task that has one. */
   dueAt?: number;
+  /** The plan lead's rank this item rides at, when one counts. */
+  leadRank?: number;
+  /** The plan lead's goal tag (`review-ranks.ts`), when one counts. */
+  goalTag?: string;
 };
 
 export interface CrossReviewQueue {
@@ -245,7 +249,8 @@ export function crossReviewQueue(boards: BoardQueueInput[]): CrossReviewQueue {
  * Items on one task still keep their filing order (see the header): an item
  * rides at the best rank of itself and every item filed after it on the same
  * task, so ranking a task's second ask brings its first along ahead of it.
- * Ties keep the existing order.
+ * Ties keep the existing order. Each item that rides at a rank carries it as
+ * `leadRank`, which is how Home picks its Top 10.
  */
 export function applyLeadRanks(
   items: CrossReviewItem[],
@@ -269,7 +274,7 @@ export function applyLeadRanks(
   return items
     .map((item, index) => ({ item, index, rank: effective[index] ?? Number.POSITIVE_INFINITY }))
     .sort((a, b) => (a.rank === b.rank ? a.index - b.index : a.rank - b.rank))
-    .map((r) => r.item);
+    .map((r) => (Number.isFinite(r.rank) ? { ...r.item, leadRank: r.rank } : r.item));
 }
 
 /** How many of `items` are at or under each size — the per-level count a

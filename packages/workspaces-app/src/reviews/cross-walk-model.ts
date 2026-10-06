@@ -84,13 +84,19 @@ export function crossEntry(row: CrossReviewRow, now: number): CrossEntry | null 
 }
 
 /**
- * The card the walk opens on: the first item of the project Home's group
- * named (`/review?from=<workspaceId>`), or the top of the queue when no
- * project was named or it has nothing waiting any more.
+ * The card the walk opens on: the ask a goal-grouped row of Home named
+ * (`/review?item=<key>`), else the first item of the project Home's group
+ * named (`/review?from=<workspaceId>`), else the top of the queue when
+ * neither was named or it has nothing waiting any more.
  */
-export function startKey(entries: readonly CrossEntry[], from: string | null): string | null {
+export function startKey(
+  entries: readonly CrossEntry[],
+  from: string | null,
+  itemKey: string | null = null,
+): string | null {
+  const named = itemKey ? entries.find((e) => e.item.key === itemKey) : undefined;
   const first = from ? entries.find((e) => e.workspaceId === from) : undefined;
-  return (first ?? entries[0])?.item.key ?? null;
+  return (named ?? first ?? entries[0])?.item.key ?? null;
 }
 
 /** Choose-difficulty as the walk sees it: whether it is on, and when it is,

@@ -18,14 +18,23 @@
  * `board-summary.ts`.
  */
 import { escapeHtml } from '@claude-workspaces/core';
+import {
+  type GoalReviewItem,
+  LANDING_GOALS_CSS,
+  type PlanGoal,
+  hasGoalTags,
+  renderGoalReview,
+} from './landing-goals.ts';
 
 export interface LandingReview {
-  /** Every open item's board, in queue order. */
-  items: ReadonlyArray<{ workspaceId: string; project: string }>;
+  /** Every open item, in queue order. */
+  items: ReadonlyArray<GoalReviewItem>;
   /** Board id → 1-based project rank. */
   rankOf: ReadonlyMap<string, number>;
   /** Board id → the last hour in one sentence, when there is one. */
   summaryOf: (workspaceId: string) => string | undefined;
+  /** The plan board's goals in order, which the lead's goal tags name. */
+  goals?: readonly PlanGoal[];
 }
 
 export const REVIEW_HREF = '/review';
@@ -97,9 +106,13 @@ function renderGroup(g: WaitingGroup): string {
   return `<a class="qgrp" href="${escapeHtml(reviewHrefFor(g.workspaceId))}" style="--c:${boardColour(g.workspaceId)}" aria-label="${name}, ${g.count} waiting"><span class="qname">${name}<span class="qn">${g.count}</span></span><span class="qrun" aria-hidden="true">${blocks}</span></a>`;
 }
 
-/** The review bar, or nothing when no item waits anywhere. */
-export function renderReviewBar(review: LandingReview): string {
+/** The review bar, or nothing when no item waits anywhere. Once the plan
+ *  lead has tagged an ask with a goal, the asks grouped by goal instead
+ *  (`landing-goals.ts`). */
+export function renderReviewBar(review: LandingReview, now = Date.now()): string {
   if (review.items.length === 0) return '';
+  const goals = review.goals ?? [];
+  if (hasGoalTags(review.items, goals)) return renderGoalReview(review.items, goals, now);
   const groups = waitingGroups(review.items).map(renderGroup).join('');
   return `<div class="allbar"><h2 class="alltitle">Review Items for You</h2><div class="allline"><div class="qblocks">${groups}</div><a class="allgo" href="${REVIEW_HREF}">Start review ›</a></div></div>`;
 }
@@ -114,7 +127,7 @@ export function agoText(ts: number, now: number): string {
   return days === 1 ? '1 day ago' : `${days} days ago`;
 }
 
-export const LANDING_REVIEW_CSS = `
+export const LANDING_REVIEW_CSS = `${LANDING_GOALS_CSS}
 .allbar{display:block;background:#fff8f2;border:1px solid #f5d9c2;border-radius:10px;padding:12px 14px;margin:10px 0 18px}
 .alltitle{font-size:15px;font-weight:600;color:#1b1f23;margin:0 0 2px;text-transform:none;letter-spacing:0;display:block}
 /* The groups and Start review share one line; on a narrow screen the button wraps below. */

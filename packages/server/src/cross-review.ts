@@ -61,6 +61,8 @@ export interface CrossReviewContext {
   /** The plan lead's rank for one item, when one counts (`review-ranks.ts`).
    *  Absent, or undefined for every item, leaves the order unchanged. */
   leadRank?: (item: CrossReviewItem) => number | undefined;
+  /** The plan lead's goal tag for one item, when one counts. */
+  leadGoal?: (item: CrossReviewItem) => string | undefined;
   /** Where a failed measurement is reported. Never thrown. */
   onError?: (err: unknown) => void;
 }
@@ -186,8 +188,14 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
       inputs.push({ project, rows: reviewItemsFor(w), ...boardInput(w) });
     }
     const q = crossReviewQueue(inputs);
-    const { leadRank } = ctx;
-    const items = leadRank ? applyLeadRanks(q.items, leadRank) : q.items;
+    const { leadRank, leadGoal } = ctx;
+    const ranked = leadRank ? applyLeadRanks(q.items, leadRank) : q.items;
+    const items = leadGoal
+      ? ranked.map((item) => {
+          const goalTag = leadGoal(item);
+          return goalTag ? { ...item, goalTag } : item;
+        })
+      : ranked;
     return { ...q, items, ...(planWorkspaceId ? { planWorkspaceId } : {}) };
   };
 

@@ -9,9 +9,12 @@
  *    the task store's `review_item.added` and on a doc thread through the
  *    live-doc event hook (`onDocEvent`), and sends them to the lead in
  *    batches.
- *  - `isOff` is the one exclusion both use: the coach's
- *    (`coach/exclusion.ts`), including the boards the owner turned the coach
- *    off for, and every board while the coach's state cannot be read.
+ *  - `isOff` is the feed's exclusion: the coach's (`coach/exclusion.ts`),
+ *    including the boards the owner turned the coach off for, and every board
+ *    while the coach's state cannot be read.
+ *  - `rankIsOff` is the same check with shared boards allowed. A rank or tag
+ *    sends nothing anywhere: the lead names a key it already holds, and the
+ *    value is read only on the owner's Home.
  */
 import type { WebhookPayload } from '@claude-workspaces/core';
 import {
@@ -32,6 +35,8 @@ export interface LeadRankWiringDeps {
   leadOf: (workspaceId: string) => string | undefined;
   boardName: (workspaceId: string) => string | undefined;
   isOff: (place: { workspaceId: string; docId?: string }) => boolean;
+  /** `isOff`, except that a shared board counts as on. */
+  rankIsOff: (place: { workspaceId: string; docId?: string }) => boolean;
   /** Where a doc's threads sit (`threadHomes`). */
   taskWorkspace: (taskId: string) => string | undefined;
   goalWorkspace: (rowId: string) => string | undefined;
@@ -47,6 +52,7 @@ export interface LeadRankWiring {
   ranks: ReviewRanks;
   feed: AskFeed;
   leadRank: (item: CrossReviewItem) => number | undefined;
+  leadGoal: (item: CrossReviewItem) => string | undefined;
   onDocEvent: (docId: string, payload: WebhookPayload) => void;
   stop: () => void;
 }
@@ -109,20 +115,24 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
     }
   });
 
+  /** Whether an item may carry the lead's opinion at all. Only an item with
+   *  something stored pays for the privacy check. */
+  const counts = (item: CrossReviewItem): boolean => {
+    if (!ranks.has(item.key)) return false;
+    try {
+      return !deps.rankIsOff(placeOfItem(item));
+    } catch {
+      return false;
+    }
+  };
+
   return {
     ranks,
     feed,
-    leadRank: (item) => {
-      // Only an item with a rank stored pays for the privacy check.
-      if (!ranks.get(item.key)) return undefined;
-      let off: boolean;
-      try {
-        off = deps.isOff(placeOfItem(item));
-      } catch {
-        off = true;
-      }
-      return off ? undefined : ranks.rankOf(item.key, item.workspaceId, taskOfItem(item));
-    },
+    leadRank: (item) =>
+      counts(item) ? ranks.rankOf(item.key, item.workspaceId, taskOfItem(item)) : undefined,
+    leadGoal: (item) =>
+      counts(item) ? ranks.goalOf(item.key, item.workspaceId, taskOfItem(item)) : undefined,
     onDocEvent: (docId, payload) => {
       if (payload.event !== 'thread.created' && payload.event !== 'thread.replied') return;
       guarded('ask feed', () => {

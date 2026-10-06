@@ -14126,7 +14126,7 @@ function asksLine(p, timeZone) {
     return null;
   const more = p.more ? `
 (${p.more} more in this window, not listed.)` : "";
-  const head = `[workspace.new_asks ${clock(p.from, timeZone)}–${clock(p.to, timeZone)}] ${lines.length} new ask${lines.length === 1 ? "" : "s"} on other boards. Rank any that this week's goals put ahead of the plan order with rank_review_item(key, rank):`;
+  const head = `[workspace.new_asks ${clock(p.from, timeZone)}–${clock(p.to, timeZone)}] ${lines.length} new ask${lines.length === 1 ? "" : "s"} on other boards. Rank any that this week's goals put ahead of the plan order, and file each under its goal, with rank_review_item(key, rank, goal):`;
   return `${head}
 ${lines.join(`
 `)}${more}`;
@@ -16050,7 +16050,7 @@ var TOOL_LIST = {
     },
     {
       name: "rank_review_item",
-      description: "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, so Bryan's Home queue shows it in that order. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. rank null clears it. A rank stops counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
+      description: "Only for the lead of the plan board (Team Lead): rank one open review item on any board against this week's goals, and file it under the goal it serves, so Bryan's Home shows your Top 10 and then his asks by goal. Ranked items come first, lowest rank first; unranked items keep the plan order. key is the queue key a workspace.new_asks line names. Send rank, goal or both; a field left out is left as it was, and null clears it. goal is a plan-board goal id, urgent, not-this-week or drop. Both stop counting when Bryan moves that task himself afterwards. Any other caller is refused (ranked:false).",
       inputSchema: {
         type: "object",
         properties: {
@@ -16061,9 +16061,13 @@ var TOOL_LIST = {
           rank: {
             type: ["number", "null"],
             description: "A whole number from 1 (first) to 10000, or null to clear the rank."
+          },
+          goal: {
+            type: ["string", "null"],
+            description: "A goal id from the plan board's goal list, or urgent, not-this-week or drop; null clears the tag."
           }
         },
-        required: ["key", "rank"]
+        required: ["key"]
       }
     },
     {
@@ -20681,26 +20685,37 @@ async function handleWorkspaceTool(name, a, ctx) {
       }
     }
     case "rank_review_item": {
-      const { key, rank } = a;
+      const { key, rank, goal } = a;
       if (typeof key !== "string" || key === "")
         return err2("key is required");
-      if (rank !== null && typeof rank !== "number") {
+      if (rank === undefined && goal === undefined)
+        return err2("send a rank, a goal, or both");
+      if (rank !== undefined && rank !== null && typeof rank !== "number") {
         return err2("rank is a whole number from 1, or null to clear it");
       }
+      if (goal !== undefined && goal !== null && typeof goal !== "string") {
+        return err2("goal is a plan goal id, urgent, not-this-week or drop, or null");
+      }
+      const body = {
+        agentId: AUTHOR.id,
+        key,
+        ...rank !== undefined ? { rank } : {},
+        ...goal !== undefined ? { goal } : {}
+      };
       try {
-        return ok2(await http("POST", "/api/review-queue/rank", { agentId: AUTHOR.id, key, rank }));
+        return ok2(await http("POST", "/api/review-queue/rank", body));
       } catch (e) {
         const m = String(e).match(/→ (400|403|404): (.*)$/s);
         if (!m)
           throw e;
-        const body = (() => {
+        const body2 = (() => {
           try {
             return JSON.parse(m[2] ?? "");
           } catch {
             return {};
           }
         })();
-        return ok2({ ranked: false, reason: body.error ?? "refused", message: body.message });
+        return ok2({ ranked: false, reason: body2.error ?? "refused", message: body2.message });
       }
     }
     case "request_plugin_refresh": {
@@ -21192,7 +21207,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.295";
+var PLUGIN_VERSION = "0.1.296";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
