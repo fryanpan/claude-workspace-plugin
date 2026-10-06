@@ -16,7 +16,9 @@
  * 9.7M tokens in five hours with nothing said. So what he does is held: the
  * first event opens a window, and when it closes 15 minutes later the
  * window goes as one digest (`coach/digest.ts`). A quiet stretch opens no
- * window and sends nothing. His answers and his setting go at once.
+ * window and sends nothing. His answers and his setting go at once. Each
+ * digest also carries this week's plan goals in plan order
+ * (`coach/week-plan.ts`), so the session ranks by the plan, not by titles.
  *
  * A day has a budget of turns (`DAILY_EVENT_LIMIT`): past it nothing is
  * sent until his next local day, and the front page says the coach is
@@ -30,6 +32,7 @@ import { HeldWindow } from '../held-window.ts';
 import { type DigestEvent, type DigestItem, digestOf } from './digest.ts';
 import type { CoachEventKind } from './stream.ts';
 import { type CoachReadiness, DAILY_EVENT_LIMIT, type MomentAnswer } from './types.ts';
+import { type PlanBoardReading, type WeekPlan, weekPlanOf } from './week-plan.ts';
 
 interface Addressed {
   /** The Coach board, which the frame is addressed on. */
@@ -58,7 +61,7 @@ export type SessionFrame = Addressed &
         line: string;
       }
     | { event: 'coach.preference'; readiness: CoachReadiness }
-    | { event: 'coach.digest'; from: number; to: number; items: DigestItem[] }
+    | { event: 'coach.digest'; from: number; to: number; items: DigestItem[]; plan: WeekPlan }
   );
 
 /** A frame before it is addressed. */
@@ -81,6 +84,10 @@ export interface SessionFeedDeps {
   dailyLimit?: number;
   /** A digest reached the session: one turn spent. */
   countTurn: (at: number) => void;
+  /** Team Lead's plan board (`review-plan.ts`), read as each digest goes. */
+  planBoard: () => PlanBoardReading | undefined;
+  /** The owner's zone, which decides the day a week starts on. */
+  timeZone: () => string;
   now?: () => number;
   /** Runs `fn` after `ms`; answers a cancel. Defaults to an unref'd timer. */
   schedule?: (fn: () => void, ms: number) => () => void;
@@ -130,7 +137,8 @@ export class SessionFeed {
   private close(held: DigestEvent[], from: number, at: number): void {
     const items = digestOf(held, at);
     if (items.length === 0) return;
-    if (this.deliver({ event: 'coach.digest', from, to: at, items }, at)) {
+    const plan = weekPlanOf(this.deps.planBoard(), at, this.deps.timeZone());
+    if (this.deliver({ event: 'coach.digest', from, to: at, items, plan }, at)) {
       this.deps.countTurn(at);
     }
   }

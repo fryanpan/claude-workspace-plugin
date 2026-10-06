@@ -132,6 +132,7 @@ describe('wireCoach', () => {
       leadOf: () => undefined,
       sendToAgent: () => 0,
       agentConnected: () => false,
+      planBoard: () => undefined,
       ...session,
       now: () => at(9),
       schedule: (fn) => {

@@ -7,7 +7,8 @@
  * answered a moment (`coach.answer`), and how readily they want the coach to
  * speak up (`coach.preference`). The session stays quiet unless an event
  * plainly matches a goal, and speaks through `coach_moment`; what to do with
- * each line is the `claude-workspaces:coaching` skill.
+ * each line is the `claude-workspaces:coaching` skill. A digest ends with
+ * this week's plan goals in plan order, or says there is no current plan.
  *
  * Kept out of channel-messages.ts for the reason voice-line.ts is: the
  * wording is a decision, and this is where a test can read it.
@@ -32,6 +33,8 @@ export interface CoachPayload {
   from?: number;
   to?: number;
   items?: CoachDigestItem[];
+  /** This week's plan goals, or the server's words for there being none. */
+  plan?: { set?: string; stale?: boolean; goals?: { id?: string; title?: string }[] } | string;
 }
 
 /** One line of a digest: a stay in one place, or one thing done. */
@@ -103,11 +106,27 @@ function digestItemLine(i: CoachDigestItem, timeZone?: string): string | null {
   return i.text ? `${head}\n  ${i.text.replace(/\n/g, '\n  ')}` : head;
 }
 
+/** The plan's goals, numbered first to last; nothing from an older server. */
+function planLines(plan: CoachPayload['plan']): string[] {
+  if (plan === undefined) return [];
+  if (typeof plan === 'string') return [`This week's plan: ${plan}.`];
+  const goals = (plan.goals ?? []).filter((g) => g.title);
+  const notes = [
+    ...(plan.set ? [`set ${plan.set}`] : []),
+    ...(plan.stale ? ['plan may be stale'] : []),
+  ];
+  const note = notes.length > 0 ? ` (${notes.join('; ')})` : '';
+  return [
+    `This week's plan${note}, first to last:`,
+    ...goals.map((g, i) => `${i + 1}. ${g.title}${g.id ? ` (${g.id})` : ''}`),
+  ];
+}
+
 function digestLine(p: CoachPayload, timeZone?: string): string | null {
   const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
   if (lines.length === 0) return null;
   const span = `${clock(p.from, timeZone)}–${clock(p.to, timeZone).trim()}`;
-  return `[coach.digest${span}] What the owner did:\n${lines.join('\n')}`;
+  return [`[coach.digest${span}] What the owner did:`, ...lines, ...planLines(p.plan)].join('\n');
 }
 
 function eventLine(p: CoachPayload, timeZone?: string): string | null {

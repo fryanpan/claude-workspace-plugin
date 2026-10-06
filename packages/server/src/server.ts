@@ -44,6 +44,7 @@ import { createBoardSummaries } from './board-summary.ts';
 import { type BrowserSentryConfig } from './browser-sentry.ts';
 import { ChatAudit } from './chat-audit.ts';
 import { boardPrivacyFrom, placeIsOff } from './coach/exclusion.ts';
+import { planBoardReading } from './coach/week-plan.ts';
 import { wireCoach } from './coach/wiring.ts';
 import { maybeCompress, maybeNotModified } from './compress.ts';
 import { type ConnectorHost, createConnectorHost } from './connector/host.ts';
@@ -1488,6 +1489,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     sendToAgent: (workspaceId, agentId, frame) =>
       sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
     agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
+    planBoard: () => {
+      const id = crossReview.projects().planWorkspaceId;
+      const board = id ? taskStore.getWorkspace(id) : undefined;
+      return board ? planBoardReading(board.goals, taskStore.listGoalRows(board.id)) : undefined;
+    },
   });
   /** The plan lead's per-item ranks and its batched feed of new asks
    *  (lead-rank-wiring.ts). The feed skips every board the coach may not hear
