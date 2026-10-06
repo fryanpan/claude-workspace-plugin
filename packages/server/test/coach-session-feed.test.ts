@@ -60,6 +60,8 @@ function feed(
       return opts.took ?? 1;
     },
     eventsOn: () => opts.today ?? 0,
+    planBoard: () => undefined,
+    timeZone: () => 'UTC',
     ...(opts.limit === undefined ? {} : { dailyLimit: opts.limit }),
   });
   return { f, sent, turns, time };
@@ -208,6 +210,8 @@ describe('the digest', () => {
         return 1;
       },
       eventsOn: () => 0,
+      planBoard: () => undefined,
+      timeZone: () => 'UTC',
     });
     f.send(viewNews('d-post'), time.now());
     connected = false;

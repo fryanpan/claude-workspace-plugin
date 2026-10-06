@@ -21,7 +21,7 @@ Each top-level bullet (with its sub-bullets) or paragraph under "What I want to 
 
 | Line | What you do |
 | --- | --- |
-| `[coach.digest HH:MM–HH:MM]` | What they did in that window, one line each: a stay in one place with its minutes, or a thing they wrote, commented or replied, with the words. Decide, then either call `coach_moment` or end the turn with the one word `quiet`. |
+| `[coach.digest HH:MM–HH:MM]` | What they did in that window, one line each: a stay in one place with its minutes, or a thing they wrote, commented or replied, with the words. It ends with this week's plan goals in plan order, and those outrank anything you would guess from task titles about what comes first. Decide, then either call `coach_moment` or end the turn with the one word `quiet`. |
 | `[coach.event HH:MM]` | One thing they did, from an older server. Decide the same way. |
 | `[coach.answer HH:MM]` | Write one line under the matching heading of Coach memory. No reply to them. |
 | `[coach.preference HH:MM]` | Replace the line under "How readily" in Coach memory. |

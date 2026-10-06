@@ -77,6 +77,33 @@ describe('coachLine', () => {
     expect(coachLine('coach.digest', { items: [{ kind: 'danced', boardId: 'w-1' }] })).toBeNull();
   });
 
+  it("ends a digest with this week's plan goals in plan order, or says there is none", () => {
+    const items = [{ kind: 'left', at: Date.UTC(2026, 9, 7, 17, 0), boardId: 'w-1' }];
+    const line = coachLine(
+      'coach.digest',
+      {
+        items,
+        plan: {
+          week: '2026-10-05',
+          goals: [
+            { id: 'g-harbor', title: 'Harborlight ships the berth map' },
+            { id: 'g-river', title: 'Riverbend answers every ask' },
+          ],
+        },
+      },
+      'UTC',
+    );
+    expect(line?.split('\n').slice(-3)).toEqual([
+      "This week's plan (week of 2026-10-05), first to last:",
+      '1. Harborlight ships the berth map (g-harbor)',
+      '2. Riverbend answers every ask (g-river)',
+    ]);
+    const none = coachLine('coach.digest', { items, plan: 'no current week plan' }, 'UTC');
+    expect(none?.split('\n').at(-1)).toBe("This week's plan: no current week plan.");
+    const older = coachLine('coach.digest', { items }, 'UTC');
+    expect(older).not.toContain('plan');
+  });
+
   it('reads an answer and a preference as things to remember', () => {
     expect(
       coachLine('coach.answer', {

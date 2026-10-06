@@ -21,6 +21,7 @@ import { SessionFeed, type SessionFrame } from './session-feed.ts';
 import { type CoachSetupDeps, ensureMemoryDoc } from './setup.ts';
 import { CoachStore } from './store.ts';
 import { CoachStream } from './stream.ts';
+import type { PlanBoardReading } from './week-plan.ts';
 
 export interface CoachWiringDeps {
   dataDir: string;
@@ -46,6 +47,8 @@ export interface CoachWiringDeps {
   sendToAgent: (workspaceId: string, agentId: string, frame: SessionFrame) => number;
   /** Whether that agent holds a stream on the board right now. */
   agentConnected: (workspaceId: string, agentId: string) => boolean;
+  /** Team Lead's plan board, its name and goals in order (`review-plan.ts`). */
+  planBoard: () => PlanBoardReading | undefined;
   now?: () => number;
   /** The digest window's timer (`SessionFeedDeps.schedule`). */
   schedule?: (fn: () => void, ms: number) => () => void;
@@ -86,6 +89,8 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     connected: deps.agentConnected,
     eventsOn: (at) => store.eventsOn(at),
     countTurn: (at) => store.countEvent(at),
+    planBoard: deps.planBoard,
+    timeZone: () => store.timeZone,
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.schedule ? { schedule: deps.schedule } : {}),
   });

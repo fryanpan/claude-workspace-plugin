@@ -1488,6 +1488,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     sendToAgent: (workspaceId, agentId, frame) =>
       sse.sendToAgent(`ws~${workspaceId}`, agentId, { ...frame }),
     agentConnected: (workspaceId, agentId) => sse.agentsOn(`ws~${workspaceId}`).has(agentId),
+    planBoard: () => {
+      const id = crossReview.projects().planWorkspaceId;
+      const board = id ? taskStore.getWorkspace(id) : undefined;
+      return board ? { name: board.name, goals: board.goals } : undefined;
+    },
   });
   /** The plan lead's per-item ranks and its batched feed of new asks
    *  (lead-rank-wiring.ts). The feed skips every board the coach may not hear

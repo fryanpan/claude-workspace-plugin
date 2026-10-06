@@ -14210,14 +14210,25 @@ function digestItemLine(i, timeZone) {
   ${i.text.replace(/\n/g, `
   `)}` : head;
 }
+function planLines(plan) {
+  if (plan === undefined)
+    return [];
+  if (typeof plan === "string")
+    return [`This week's plan: ${plan}.`];
+  const goals = (plan.goals ?? []).filter((g) => g.title);
+  const week = plan.week ? ` (week of ${plan.week})` : "";
+  return [
+    `This week's plan${week}, first to last:`,
+    ...goals.map((g, i) => `${i + 1}. ${g.title}${g.id ? ` (${g.id})` : ""}`)
+  ];
+}
 function digestLine(p, timeZone) {
   const lines = (p.items ?? []).flatMap((i) => digestItemLine(i, timeZone) ?? []);
   if (lines.length === 0)
     return null;
   const span = `${clock2(p.from, timeZone)}–${clock2(p.to, timeZone).trim()}`;
-  return `[coach.digest${span}] What the owner did:
-${lines.join(`
-`)}`;
+  return [`[coach.digest${span}] What the owner did:`, ...lines, ...planLines(p.plan)].join(`
+`);
 }
 function eventLine(p, timeZone) {
   const verb = p.kind ? VERB[p.kind] : undefined;
@@ -21216,7 +21227,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.299";
+var PLUGIN_VERSION = "0.1.300";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
