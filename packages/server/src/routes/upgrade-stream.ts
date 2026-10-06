@@ -347,6 +347,10 @@ export function createUpgradeStream(ctx: UpgradeStreamContext): UpgradeStream {
             ...(visitorShareId ? { shareId: visitorShareId } : {}),
             ...(visitorMemberKey ? { shareMember: visitorMemberKey } : {}),
             ...(audioReadOnly ? { readOnly: true } : {}),
+            // Who this socket PROVED it is, so the same person can take their
+            // own meeting back from an older socket (`meeting-takeover.ts`).
+            // Proof only: Access, the session cookie, the widget token.
+            author: provenAuthor(),
           },
         });
         if (!upgraded) return new Response('upgrade required', { status: 426 });

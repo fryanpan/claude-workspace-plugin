@@ -42,6 +42,7 @@ import {
   type MeetingStreamId,
   type MeetingTimingMark,
   type NotesMethod,
+  type User,
   detectsSpeakers,
   maxSpeakersFor,
   maxSpeakersFromTuning,
@@ -59,6 +60,7 @@ import {
 } from './meeting-notes.ts';
 import { SILENCE_TIMEOUT_MS } from './meeting-silence.ts';
 import { type MeetingStreamSet, openMeetingStreamSet } from './meeting-stream-set.ts';
+import { TAKEN_OVER_MESSAGE, TAKEOVER_CLOSE_CODE, samePerson } from './meeting-takeover.ts';
 import type { ActiveMeeting, MeetingStore } from './meetings.ts';
 import { raceDeadline } from './race-deadline.ts';
 import type { MeetingEars } from './spoken-reply/meeting-ears.ts';
@@ -83,8 +85,16 @@ export interface MeetingClient {
      * refused an upgrade reaches the page as a bare error event with no body.
      */
     readOnly?: boolean;
+    /**
+     * The person this socket's upgrade PROVED, or nothing. What lets the same
+     * person take their own meeting back from an older socket; see
+     * `meeting-takeover.ts`. Never read from a frame.
+     */
+    author?: User | null;
   };
   send(payload: string): void;
+  /** Close this socket from the server's side — a takeover. */
+  close?(code?: number, reason?: string): void;
 }
 
 export interface MeetingRelayDeps {
@@ -331,6 +341,8 @@ export type MeetingCloseCause =
   | 'client-stop'
   /** The server ended it — fifteen minutes with nothing said. */
   | 'silence'
+  /** The same person started or resumed this meeting on a newer socket. */
+  | 'taken-over'
   /** The engine closed its session on its own; the meeting could hear nothing. */
   | 'engine-lost'
   | 'clean-close'
@@ -499,6 +511,13 @@ export class MeetingRelay {
    * on `clearSilence` for why nothing deletes from it on purpose.
    */
   private readonly silenceSince = new Map<string, number>();
+
+  /**
+   * Which socket holds each doc's meeting, from the claim to the teardown.
+   * The connections themselves sit in a WeakMap, so this is the only way a
+   * takeover can find the socket it has to close.
+   */
+  private readonly holders = new Map<string, { ws: MeetingClient; conn: Conn }>();
 
   constructor(private readonly deps: MeetingRelayDeps) {}
 
@@ -1017,18 +1036,48 @@ export class MeetingRelay {
     // resume did not happen, which is what the strip turns into a sentence.
     // Silently starting a new meeting under the old id's name is the one
     // thing this must never do: the transcript is append-only.
+    // THE SAME PERSON TAKES THEIR OWN MEETING BACK. A socket that went quiet
+    // (a phone in the background) still holds the doc, so a press or a resume
+    // from the person it proved closes it and resumes ITS meeting — whatever
+    // id this frame named, because the frame is a claim. Anyone else, and any
+    // socket that proved nobody, falls through to the refusal below.
+    const holder = this.holders.get(docId);
+    const takenId =
+      holder &&
+      holder.ws !== ws &&
+      holder.conn.state === 'live' &&
+      samePerson(holder.ws.data.author, ws.data.author)
+        ? holder.conn.meeting?.meetingId
+        : undefined;
+    if (holder && takenId !== undefined) {
+      // Held in `opening` across the await, so a second start on this socket
+      // is ignored, audio buffers, and a close here is honoured once open.
+      conn.state = 'opening';
+      await this.takeOver(holder.ws, holder.conn);
+      conn.state = 'idle';
+    }
+    const resumeId = takenId ?? resume?.meetingId;
     const resumed =
-      resume !== undefined
+      resumeId !== undefined
         ? this.deps.store.resume({
             ...opening,
-            meetingId: resume.meetingId,
+            meetingId: resumeId,
             // Shortens the gap this resume writes by the audio about to be
             // replayed on this very socket. See `appendReconnectGap`.
-            ...(resume.heldMs !== undefined ? { heldMs: resume.heldMs } : {}),
+            ...(resume?.meetingId === resumeId && resume.heldMs !== undefined
+              ? { heldMs: resume.heldMs }
+              : {}),
           })
         : null;
-    const meeting = resumed ?? this.deps.store.start(opening);
+    // A taken-over meeting is resumed or nothing: starting a new one in its
+    // place would be a second meeting the person never asked for.
+    const meeting = resumed ?? (takenId !== undefined ? null : this.deps.store.start(opening));
     if (!meeting) {
+      // Whatever arrived during a takeover that then failed belongs to no
+      // meeting, and a close that arrived during it has nothing to stop.
+      conn.pending = [];
+      conn.pendingRecv = [];
+      conn.pendingStop = null;
       this.send(ws, {
         type: 'unavailable',
         reason: 'already_recording',
@@ -1041,6 +1090,7 @@ export class MeetingRelay {
     conn.reportedNoAudio = false;
     conn.resumed = resumed !== null;
     conn.meeting = meeting;
+    this.holders.set(docId, { ws, conn });
     conn.engineName = engine.name;
     conn.tagged = streams.length > 1;
     // The notes pipeline exists for exactly the meeting's lifetime. Created
@@ -1219,6 +1269,7 @@ export class MeetingRelay {
       // The doc must not be left marked as recording by a session that never
       // opened, or the next attempt answers `already_recording` forever.
       meeting.stop();
+      this.release(docId, ws);
       conn.state = 'idle';
       conn.meeting = null;
       conn.engineName = null;
@@ -1304,6 +1355,33 @@ export class MeetingRelay {
     });
   }
 
+  /** Forget this socket as the doc's holder, if it still is. */
+  private release(docId: string, ws: MeetingClient): void {
+    if (this.holders.get(docId)?.ws === ws) this.holders.delete(docId);
+  }
+
+  /**
+   * End the older socket's leg of a meeting the same person is taking back.
+   *
+   * Told first, in a frame the strip renders as an end, and then closed: a
+   * page that is still awake must not reconnect and take the meeting back
+   * again. The leg ends as a resumable one, so the notes treat it as a drop
+   * rather than the end of the conversation, and the caller resumes the same
+   * meeting id on the new socket — the transcript is appended to, never
+   * restarted.
+   */
+  private async takeOver(oldWs: MeetingClient, oldConn: Conn): Promise<void> {
+    this.send(oldWs, { type: 'error', message: TAKEN_OVER_MESSAGE });
+    oldConn.endedCause = 'taken-over';
+    const ending = this.stop(oldWs, oldConn, false, undefined, 'taken-over', Date.now());
+    try {
+      oldWs.close?.(TAKEOVER_CLOSE_CODE, 'taken over');
+    } catch {
+      // Already gone, which is the state being asked for.
+    }
+    await ending;
+  }
+
   /**
    * `reply` is false when the socket is already gone. `reason` is set only
    * when the SERVER ended the meeting — today, the silence deadline — and
@@ -1336,6 +1414,7 @@ export class MeetingRelay {
     const meeting = conn.meeting;
     const streams = conn.streams;
     const notes = conn.notes;
+    this.release(ws.data.docId, ws);
     conn.streams = null;
     conn.meeting = null;
     conn.notes = null;
