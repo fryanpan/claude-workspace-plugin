@@ -63,7 +63,10 @@ export interface CoachWiring {
 
 export function wireCoach(deps: CoachWiringDeps): CoachWiring {
   const store = new CoachStore(deps.dataDir);
-  const hub = new CoachHub();
+  // An unreadable state file means the boards he turned off are unknown.
+  const isOff = (place: { workspaceId: string; docId?: string }) =>
+    store.readFailed || placeIsOff(place, deps.privacy, store.offBoards);
+  const hub = new CoachHub({ hiddenAt: isOff });
   const readGoals = (): GoalsDocReading | null => {
     const doc = store.goalsDoc;
     const md = doc ? deps.docStore.readMarkdownBody(doc.docId) : null;
@@ -89,10 +92,10 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
     label: deps.label,
     boardName: deps.boardName,
     workspaceOf: deps.workspaceOf,
-    // An unreadable state file means the boards he turned off are unknown.
-    isOff: (place) => store.readFailed || placeIsOff(place, deps.privacy, store.offBoards),
+    isOff,
     tell: (news, at) => feed.send(news, at),
     publish: (frame) => hub.publish(frame),
+    reshow: (frame) => hub.reshow(frame),
     ...(deps.now ? { now: deps.now } : {}),
   });
   const unsubscribe = onActivity((dataDir: string, event: Event) => {

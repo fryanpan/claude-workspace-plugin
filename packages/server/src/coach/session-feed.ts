@@ -53,7 +53,7 @@ export type SessionFrame = Addressed &
     | {
         event: 'coach.answer';
         momentId: string;
-        answer: MomentAnswer | 'moved-on';
+        answer: MomentAnswer;
         goal: string;
         line: string;
       }

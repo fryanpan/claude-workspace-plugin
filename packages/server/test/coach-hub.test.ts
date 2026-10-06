@@ -1,7 +1,8 @@
 /**
  * The coach's stream: a page that connects while a moment is open gets it
  * at once, every open page gets the next one and its clearing, and a page
- * that goes away is dropped.
+ * that goes away is dropped. Wherever he is, the front page included, the
+ * moment shows, except on a board the coach is off for.
  */
 import { describe, expect, it } from 'bun:test';
 import { CoachHub } from '../src/coach/hub.ts';
@@ -49,5 +50,65 @@ describe('CoachHub', () => {
     await waitFor(() => hub.size === 1);
     hub.close();
     expect(hub.size).toBe(0);
+  });
+});
+
+const ev = (f: CoachFrame) => `event: coach\ndata: ${JSON.stringify(f)}\n\n`;
+const CLEAR: CoachFrame = { type: 'clear', id: 'cm-aaaaaaaaaaaa' };
+
+describe('CoachHub, where his pages are', () => {
+  it('shows the open moment on a board, a doc and the front page, and never on a board the coach is off for', async () => {
+    const off = new Set(['w-records']);
+    const hub = new CoachHub({ hiddenAt: (p) => off.has(p.workspaceId) });
+    const board = reader(hub.open(MOMENT, { workspaceId: 'w-harbor' }));
+    const doc = reader(hub.open(MOMENT, { workspaceId: 'w-river', docId: 'd-post' }));
+    const front = reader(hub.open(MOMENT, null));
+    const records = reader(hub.open(MOMENT, { workspaceId: 'w-records', docId: 'd-letters' }));
+    for (const page of [board, doc, front]) {
+      await waitFor(() => page.text().includes('event: coach'));
+      expect(page.text()).toBe(`:ok\n\n${ev(MOMENT)}`);
+    }
+    await waitFor(() => records.text().includes(':ok'));
+    // A new moment skips the page that may not show it. A clearing goes to
+    // every page: one that never showed the moment ignores it.
+    hub.publish(MOMENT);
+    hub.publish(CLEAR);
+    await waitFor(() => front.text().includes('"clear"'));
+    expect(front.text()).toBe(`:ok\n\n${ev(MOMENT)}${ev(MOMENT)}${ev(CLEAR)}`);
+    await waitFor(() => records.text().includes('"clear"'));
+    expect(records.text()).toBe(`:ok\n\n${ev(CLEAR)}`);
+    hub.close();
+  });
+
+  it('reshow hides it on a board just turned off and shows it on one turned back on', async () => {
+    const off = new Set<string>();
+    const hub = new CoachHub({ hiddenAt: (p) => off.has(p.workspaceId) });
+    const harbor = reader(hub.open(MOMENT, { workspaceId: 'w-harbor' }));
+    const front = reader(hub.open(MOMENT, null));
+    await waitFor(() => harbor.text().includes('event: coach'));
+    off.add('w-harbor');
+    hub.reshow(MOMENT);
+    await waitFor(() => harbor.text().includes('"clear"'));
+    expect(harbor.text()).toBe(`:ok\n\n${ev(MOMENT)}${ev(CLEAR)}`);
+    off.delete('w-harbor');
+    hub.reshow(MOMENT);
+    await waitFor(() => harbor.text().split('event: coach').length === 4);
+    expect(harbor.text()).toBe(`:ok\n\n${ev(MOMENT)}${ev(CLEAR)}${ev(MOMENT)}`);
+    expect(front.text()).toBe(`:ok\n\n${ev(MOMENT)}${ev(MOMENT)}${ev(MOMENT)}`);
+    hub.reshow(null);
+    hub.close();
+  });
+
+  it('counts a check that throws as off', async () => {
+    const hub = new CoachHub({
+      hiddenAt: () => {
+        throw new Error('privacy store unreadable');
+      },
+    });
+    const page = reader(hub.open(MOMENT, { workspaceId: 'w-harbor' }));
+    await waitFor(() => page.text().includes(':ok'));
+    hub.publish(MOMENT);
+    expect(page.text()).toBe(':ok\n\n');
+    hub.close();
   });
 });

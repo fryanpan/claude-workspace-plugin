@@ -1916,8 +1916,9 @@ and answers and the setting go at once. Past 400 turns in a day it sends
 nothing and the front page says the coach is paused for today. The session raises a moment on `POST /coach/moments`, and
 `coach/judge.ts` refuses one that does not copy three words in order from the
 goal it names, or arrives while another is open. A moment goes to his pages over
-`/coach/stream` (`coach/hub.ts`) and stays until he answers or moves to
-another page. In the session, `mcp/src/coach-line.ts` renders each frame and
+`/coach/stream` (`coach/hub.ts`) and follows him: every board, doc and the
+front page shows it until he answers, except a page on a board that is off
+for the coach, which hides it there and leaves it open. In the session, `mcp/src/coach-line.ts` renders each frame and
 `coach_moment` raises a moment; the persona is the plugin's `coaching` skill.
 With no session holding a stream nothing is sent and the front page says it
 is offline. `coach/store.ts` keeps it all in `coach/state.json`, mode 600;

@@ -131,6 +131,7 @@ function coachWithRecords() {
       return true;
     },
     publish: () => {},
+    reshow: () => {},
     now: () => clock,
   });
   return { coach, store, told, tick: () => (clock += 60_000) };
@@ -153,7 +154,7 @@ const MOMENT = {
 };
 
 describe('a local-only board, through the whole coach', () => {
-  it('sends nothing from it, not its name, id, title or words, and closes the open moment', () => {
+  it('sends nothing from it, not its name, id, title or words, and leaves the open moment open', () => {
     const h = coachWithRecords();
     h.coach.here(POST);
     const raised = h.coach.raise(MOMENT);
@@ -173,10 +174,9 @@ describe('a local-only board, through the whole coach', () => {
       payload: { text: 'Ask about the dosage' },
     } as never);
     const after = h.told.slice(before);
-    // The moment closes as moved-on, and the post's own "left" goes: he
-    // moved, and the coach is not told where.
+    // The post's own "left" goes: he moved, and the coach is not told
+    // where. The moment is not answered: it waits for his next page.
     expect(after).toEqual([
-      expect.objectContaining({ event: 'coach.answer', answer: 'moved-on' }),
       expect.objectContaining({ event: 'coach.event', kind: 'left', boardId: WS, docId: 'd-post' }),
     ]);
     const wire = JSON.stringify(h.told);
@@ -190,7 +190,7 @@ describe('a local-only board, through the whole coach', () => {
     ]) {
       expect(wire).not.toContain(secret);
     }
-    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('moved-on');
+    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('open');
   });
 
   it('a hidden tab on it tells the coach nothing, not even that he left', () => {
@@ -203,13 +203,13 @@ describe('a local-only board, through the whole coach', () => {
 });
 
 describe('Coach off for this board', () => {
-  it('turning it off where he is closes the moment and stops the events; on again resumes them', () => {
+  it('turning it off where he is stops the events and keeps the moment open; on again resumes them', () => {
     const h = coachWithRecords();
     h.coach.here(POST);
     const raised = h.coach.raise(MOMENT);
     h.coach.setBoardOff(WS, true);
     expect(h.store.offBoards.has(WS)).toBe(true);
-    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('moved-on');
+    expect(h.store.moments().find((m) => raised.ok && m.id === raised.id)?.state).toBe('open');
     const before = h.told.length;
     h.tick();
     h.coach.here({ ...POST, heading: 'Why', text: 'The paper books get wet.' });
