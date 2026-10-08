@@ -180,6 +180,17 @@ describe('the Connect an app control', () => {
     expect(q('.voice-connect-url-note')?.textContent).toContain('Could not copy');
   });
 
+  it('takes focus on open so Escape closes it, and hands focus back', async () => {
+    await mountVoiceConnect(slot(), deps(server().fetch));
+    click('.voice-connect-open');
+    expect(document.activeElement).toBe(q('.voice-connect'));
+    q('.voice-connect')?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(q('.voice-connect')?.hidden).toBe(true);
+    expect(document.activeElement).toBe(q('.voice-connect-open'));
+  });
+
   it('says when this address is one a phone cannot reach', async () => {
     await mountVoiceConnect(slot(), deps(server().fetch, 'http://127.0.0.1:8788'));
     click('.voice-connect-open');

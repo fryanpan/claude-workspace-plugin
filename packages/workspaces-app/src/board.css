@@ -2662,6 +2662,10 @@ html:has(.board-walk-cred-form) {
 .voice-connect[hidden] {
   display: none;
 }
+/* It takes focus only so Escape reaches it; its controls show their own. */
+.voice-connect:focus {
+  outline: none;
+}
 /* Only the list gives up height when the tokens outgrow the panel; every
    other part keeps its own. */
 .voice-connect > * {

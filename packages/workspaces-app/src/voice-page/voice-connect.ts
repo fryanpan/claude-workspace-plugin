@@ -101,6 +101,10 @@ export async function mountVoiceConnect(
   const panel = el('div', 'voice-connect');
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', 'Connect an app');
+  panel.setAttribute('aria-modal', 'true');
+  // Focus lands on the panel itself, not the name field, so opening it on
+  // an iPad does not raise the keyboard.
+  panel.tabIndex = -1;
   panel.hidden = true;
 
   const head = el('div', 'voice-connect-head');
@@ -199,6 +203,7 @@ export async function mountVoiceConnect(
 
   const open = (): void => {
     panel.hidden = false;
+    panel.focus();
     renderToken();
     renderList();
     void refresh();
@@ -206,6 +211,7 @@ export async function mountVoiceConnect(
   const shut = (): void => {
     opening++;
     panel.hidden = true;
+    opener.focus();
     confirming = null;
     forget();
   };
