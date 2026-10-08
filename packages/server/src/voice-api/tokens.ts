@@ -24,6 +24,7 @@ import { type TokenFormat, mintToken, tokenClaims, tokenKey } from '../auth/sign
 
 const VERSION = 'vk1';
 const ID = /^[A-Za-z0-9_-]{16,64}$/;
+const LAST_USED_SAVE_MS = 60_000;
 
 export const voiceApiToken: TokenFormat<{ id: string }> = {
   keyDomain: 'cw-voice-api-token-v1',
@@ -125,7 +126,11 @@ export class VoiceApiTokens {
     if (!claims) return null;
     const r = this.load().find((x) => x.id === claims.id);
     if (!r || r.revokedAt !== undefined) return null;
-    r.lastUsedAt = this.now();
+    const now = this.now();
+    const stale = r.lastUsedAt === undefined || now - r.lastUsedAt >= LAST_USED_SAVE_MS;
+    r.lastUsedAt = now;
+    // Written at most once a minute per token, not on every turn.
+    if (stale) this.save();
     return { ...r };
   }
 }

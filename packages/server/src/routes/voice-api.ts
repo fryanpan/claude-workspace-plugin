@@ -11,8 +11,8 @@
  * no cookie, no Access identity, no agent or widget token counts, so a page
  * on another site cannot ride the owner's sign-in into them. The token
  * routes are the owner's alone, gated as the voice page's list is
- * (`voice-page.ts`), and a browser's POST must come from this server's own
- * origin. A native sign-in would mint through the same `mint` call.
+ * (`voice-page.ts`), and, through the tunnel, only for a proven owner; a
+ * browser's POST must come from this server's own origin. A native sign-in would mint through the same `mint` call.
  *
  * The wire format is `voice-api/protocol.ts`; the contract is
  * `docs/architecture/voice-conversation-api.md`.
@@ -39,6 +39,8 @@ export interface VoiceApiRoutesContext {
 export type VoiceApiRouteRequest = VoicePageRouteRequest & {
   /** This server's own origin, or undefined when it cannot say. */
   requestOrigin: () => string | undefined;
+  /** A loopback peer that did not come through the tunnel. */
+  onThisMachine: () => boolean;
 };
 
 const MAX_BODY = 512 * 1024;
@@ -86,6 +88,12 @@ async function handleTokens(
   const { j, tokens } = ctx;
   const denied = refuseNonOwner(ctx, rq);
   if (denied) return denied;
+  // Through the tunnel, proving nobody is not enough to mint: an Access
+  // service token names no person, and a phone holding one must not be able
+  // to mint itself more voice tokens.
+  if (!rq.ownerProven() && !rq.onThisMachine()) {
+    return j(403, { error: 'owner-only', message: 'Sign in as the owner to manage voice tokens.' });
+  }
   if (rq.req.method !== 'GET') {
     // A browser's write comes from this server's own pages or not at all.
     const origin = rq.req.headers.get('origin');

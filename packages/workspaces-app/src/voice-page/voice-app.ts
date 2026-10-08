@@ -151,8 +151,15 @@ async function boot(): Promise<void> {
       timings?: SpokenTimingSummary;
     }>(`${base}/timings`);
     if (mine !== generation) return;
-    const setups = r?.setups ?? [];
-    const held = r?.held ?? {};
+    if (r === null) {
+      // Not this board's verdict: let the next pick ask again.
+      spokenBoard = null;
+      talk.setAttribute('disabled', '');
+      say('Could not load this board’s voice settings. Pick the agent again to retry.');
+      return;
+    }
+    const setups = r.setups ?? [];
+    const held = r.held ?? {};
     if (setups.length === 0 && Object.keys(held).length === 0) {
       talk.setAttribute('disabled', '');
       say('Spoken replies are not set up on this server.');

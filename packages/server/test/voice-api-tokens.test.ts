@@ -61,6 +61,17 @@ describe('VoiceApiTokens', () => {
     expect(tokens.verify(null)).toBeNull();
   });
 
+  it('keeps when a token was last used across a restart', () => {
+    const { make } = store();
+    const { record, token } = make().mint('Phone', 'known-alice');
+    make().verify(token);
+    expect(
+      make()
+        .list()
+        .find((r) => r.id === record.id)?.lastUsedAt,
+    ).toBe(1_000);
+  });
+
   it('revokes one token and keeps its record, marked', () => {
     const { make } = store();
     const tokens = make();
