@@ -85,6 +85,24 @@ describe('what a frame may fetch through the host', () => {
     );
   });
 
+  it("answers a thread's review item on this doc only, never another doc's", () => {
+    // The thread's popover answers through the doc's own thread route. The
+    // doc in that path is the server's scope, so a frame naming another doc,
+    // another board, or a walk out of this one is refused before any request.
+    const answer = (doc: string) => `${doc}/threads/th-ask/answer`;
+    expect(ok('fetch', 'POST', answer(DOC))).toBe(true);
+    expect(ok('fetch', 'POST', answer('http://board.test/workspaces/w-stand/docs/d-menu'))).toBe(
+      false,
+    );
+    expect(ok('fetch', 'POST', answer('http://board.test/workspaces/w-other/docs/d-price'))).toBe(
+      false,
+    );
+    expect(ok('fetch', 'POST', `${DOC}/threads/th-ask/../../../d-menu/threads/th-ask/answer`)).toBe(
+      false,
+    );
+    expect(ok('fetch', 'POST', `${DOC}/threads/th-ask/answer/undo`)).toBe(false);
+  });
+
   it('judges the path the URL really names, on this host only', () => {
     // A dot segment, plain or encoded, is resolved before the list is read.
     expect(ok('fetch', 'POST', `${DOC}/../d-menu/threads`)).toBe(false);

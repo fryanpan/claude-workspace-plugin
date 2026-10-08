@@ -43,6 +43,7 @@
     "./related-work": "./src/related-work.ts",
     "./review-dock": "./src/review-dock.ts",
     "./review-dock-styles": "./src/review-dock-styles.ts",
+    "./ui-shared": "./src/ui-shared.ts",
     "./review-item-id": "./src/review-item-id.ts",
     "./secret-line": "./src/secret-line.ts",
     "./secret-name": "./src/secret-name.ts",

@@ -14,9 +14,10 @@
  */
 import { mountEditLoader } from './edit/edit-button.ts';
 import { EMBED_LABELS, mountVoiceLoader } from './voice/voice-loader.ts';
+import { mountAsks } from './widget-ask.ts';
 import type { FeedbackWidgetEl } from './widget.ts';
 
-/** Put the mic and the pencil on this document's widget. Exported for the test; the call is
+/** Put the mic, the pencil and the asks on this document's widget. Exported for the test; the call is
  *  below, because a fetched script's job is to run. */
 export function mountEmbedMic(doc: Document): void {
   const el = doc.querySelector('claude-feedback-widget') as FeedbackWidgetEl | null;
@@ -29,6 +30,8 @@ export function mountEmbedMic(doc: Document): void {
   // The pencil, above the mic: the page's words, edited in place and sent to
   // the agent (`edit/edit-button.ts`).
   mountEditLoader(doc, `${base}/widget/edit.js`);
+  // A thread's review item, answerable in its popover (`widget-ask.ts`).
+  mountAsks(el);
 }
 
 mountEmbedMic(document);
