@@ -649,6 +649,8 @@ export class FeedbackWidgetEl extends HTMLElement {
       `.cfw-pin:before{content:"";position:absolute;left:12px;top:9px;width:20px;height:20px;box-sizing:border-box;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 4px #0006;background:${STATUS_COLORS.open};border:2px solid #fff}` +
       `.cfw-pin[data-state=resolved]:before{background:#fff;border:2.5px solid ${STATUS_COLORS.resolved}}` +
       `.cfw-pin[data-state=review]:before{background:radial-gradient(#fff 3.5px,${STATUS_COLORS.open} 4px)}` +
+      // Dimmed: made on this page with other controls set.
+      '.cfw-pin[data-dim]{opacity:.5}' +
       `body.cfw-feedback-mode,body.cfw-feedback-mode *{cursor:${bubbleCursor},crosshair!important}` +
       'body.cfw-feedback-mode [data-cw-mock-versions],body.cfw-feedback-mode [data-cw-mock-versions] *{pointer-events:none!important}';
     document.head.appendChild(s);

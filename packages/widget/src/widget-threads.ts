@@ -11,9 +11,10 @@ import {
 // anchors, their validator and the yjs position code they reach — about 1.8 KB
 // gzipped that no element pin reads. The build refuses a bundle holding them
 // (`scripts/bundle-guard.ts`).
-import { contextMatches } from '@claude-workspaces/core/anchor/context';
+import { contextMatches, samePage } from '@claude-workspaces/core/anchor/context';
 import { resolve as resolveElement } from '@claude-workspaces/core/anchor/element';
 import { clipAudio, composerNote } from './widget-auth.ts';
+import { goTo } from './widget-goto.ts';
 import { IGNORE_ATTR } from './widget-picker.ts';
 import { receipt, threadSnippet } from './widget-thread-text.ts';
 import type { FeedbackWidgetEl } from './widget.ts';
@@ -69,17 +70,21 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
       annotated.push({ thread: t, status: 'orphan', el: null });
       continue;
     }
-    // Pin only when the anchor's captured context matches the current
-    // page / view. Legacy anchors with no context show everywhere
-    // (back-compat). Off-context threads still flow into the side
-    // panel via listThreads — they're just not overlaid on the doc.
-    if (!contextMatches(t.anchor.context, el.currentContext)) {
+    // Pinned when the anchor's captured context matches the current page /
+    // view, and dimmed when it was made on this page with other controls set
+    // (`samePage`): a tap on that pin puts the page back in that state.
+    // Legacy anchors with no context show everywhere (back-compat). Threads
+    // on other pages still reach the panel's list — just not the page.
+    const exact = contextMatches(t.anchor.context, el.currentContext);
+    if (!exact && !samePage(t.anchor.context, el.currentContext)) {
       annotated.push({ thread: t, status: statusBase, el: null });
       continue;
     }
     const res = resolveElement(t.anchor, { root: document });
     if (!res.ok) {
-      annotated.push({ thread: t, status: 'orphan', el: null });
+      // Only a thread made in this very state has lost its spot; one made in
+      // another may simply not be drawn in this one.
+      annotated.push({ thread: t, status: exact ? 'orphan' : statusBase, el: null });
       continue;
     }
     annotated.push({ thread: t, status: statusBase, el: res.element });
@@ -94,8 +99,11 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
     pin.dataset.state =
       statusBase === 'resolved' ? statusBase : pendingDeclaration(t) ? 'review' : statusBase;
     pin.title = t.comments[0]?.text ?? 'open thread';
+    const url = t.anchor.context?.url;
+    if (!exact && url) pin.dataset.dim = '';
     pin.addEventListener('click', (ev) => {
-      showThreadPopover(el, t, ev.clientX, ev.clientY);
+      if (!exact && url) goTo(url, t.id);
+      else showThreadPopover(el, t, ev.clientX, ev.clientY);
     });
     pinLayer.appendChild(pin);
     el.threadPositions.set(t.id, { el: res.element, status: statusBase, at: t.anchor.at });
