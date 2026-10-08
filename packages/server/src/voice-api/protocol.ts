@@ -32,7 +32,11 @@ export const KEEPALIVE_MS = 15_000;
 export const TURN_MAX = 4000;
 export const HISTORY_KEEP = 12;
 export const HISTORY_TURN_MAX = 1000;
-const MESSAGES_MAX = 200;
+/** The context each model advertises, in tokens. Conduit assumes 4,096
+ *  without one and, past 70% of it, trims the chat's head or asks the model
+ *  for a summary: either would start a new conversation. 70% of this, at
+ *  Conduit's four characters a token, is still under the 512 KB body cap. */
+export const CONTEXT_TOKENS = 100_000;
 
 const MODEL_ID = /^[^\s/\\]{1,200}$/;
 const CONVERSATION_ID = /^[A-Za-z0-9_-]{1,100}$/;
@@ -106,8 +110,9 @@ export function parseChatRequest(
   if (typeof b.model !== 'string' || !MODEL_ID.test(b.model)) {
     return apiError(400, 'invalid_model', 'model names the agent: an id from GET /v1/models.');
   }
-  if (!Array.isArray(b.messages) || b.messages.length === 0 || b.messages.length > MESSAGES_MAX) {
-    return apiError(400, 'invalid_messages', `messages is an array of 1 to ${MESSAGES_MAX}.`);
+  // No upper count: a long chat is bounded by the body cap, not refused.
+  if (!Array.isArray(b.messages) || b.messages.length === 0) {
+    return apiError(400, 'invalid_messages', 'messages is a non-empty array.');
   }
   const messages = b.messages.map((m) => {
     const o = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
@@ -147,7 +152,8 @@ export interface ModelEntry {
 }
 
 /** `GET /v1/models`. `name` and `description` are read by clients that show
- *  more than the id; plain OpenAI clients ignore them. */
+ *  more than the id; plain OpenAI clients ignore them. `context_length` and
+ *  `architecture` are Conduit's: text only, and room enough never to trim. */
 export function modelList(models: ModelEntry[]) {
   return {
     object: 'list' as const,
@@ -158,6 +164,8 @@ export function modelList(models: ModelEntry[]) {
       owned_by: 'workspaces',
       name: m.name,
       description: m.description,
+      context_length: CONTEXT_TOKENS,
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     })),
   };
 }

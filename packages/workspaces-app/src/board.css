@@ -2617,6 +2617,157 @@ html:has(.board-walk-cred-form) {
   font-size: 13px;
   text-align: right;
 }
+/* "Connect an app" (`voice-page/voice-connect.ts`): the opener sits in the
+   top bar's cluster; the panel is one fixed size whatever it shows. The
+   token box keeps two lines' height empty or full, the list scrolls inside
+   the room left, and Revoke is as wide as its "Confirm". */
+.voice-connect-slot {
+  grid-area: cluster;
+  padding-right: 12px;
+}
+.voice-connect-open,
+.voice-connect-close,
+.voice-connect-copy-url,
+.voice-connect-copy-token,
+.voice-connect-mint,
+.voice-connect-revoke {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.voice-connect {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(480px, calc(100vw - 32px));
+  height: min(560px, calc(100dvh - 32px));
+  margin: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  /* The second shadow dims the page behind, so the panel reads as on top. */
+  box-shadow: var(--shadow-lg), 0 0 0 100vmax rgba(0, 0, 0, 0.25);
+}
+.voice-connect[hidden] {
+  display: none;
+}
+/* Only the list gives up height when the tokens outgrow the panel; every
+   other part keeps its own. */
+.voice-connect > * {
+  flex: none;
+}
+.voice-connect-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.voice-connect-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+.voice-connect-name {
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.voice-connect-field,
+.voice-connect-form,
+.voice-connect-token {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.voice-connect-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.voice-connect-url,
+.voice-connect-token-value {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-connect-url-note,
+.voice-connect-token-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.voice-connect-url-note {
+  min-height: 1.45em;
+}
+.voice-connect-label {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+}
+.voice-connect-token {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 32px auto;
+  height: calc(32px + 8px + 2 * 1.45em);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+.voice-connect-copy-token[hidden] {
+  display: inline-block;
+  visibility: hidden;
+}
+.voice-connect-token-note {
+  grid-column: 1 / -1;
+  line-height: 1.45;
+}
+.voice-connect-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+.voice-connect-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 88px;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+}
+.voice-connect-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-connect-row-used {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.voice-connect-revoke {
+  width: 88px;
+}
+.voice-connect-empty {
+  color: var(--fg-muted);
+  font-size: 14px;
+}
 /* ################# BOARD · HOME BRIEF + REVIEW QUEUE #################
    The since-last-read brief and the ranked For Your Review list, on a
    reading column. */

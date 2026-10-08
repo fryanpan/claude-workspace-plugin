@@ -533,6 +533,7 @@ export function renderVoiceShell(
     <header class="board-topbar">
       <a class="back-link" href="/" title="All workspaces" aria-label="All workspaces">←</a>
       <span class="board-ws-name"><span class="board-ws-name-text">Voice</span></span>
+      <span id="voice-connect-slot" class="voice-connect-slot"></span>
     </header>
     <main class="voice-main">
       <p id="voice-line" class="voice-line" aria-live="polite">Loading your agents…</p>

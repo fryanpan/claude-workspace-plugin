@@ -3,7 +3,7 @@
  * anywhere; a caller proving nobody, only when it did not come through
  * the tunnel.
  */
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,12 +16,12 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function ctx() {
+function ctx(now: () => number = Date.now) {
   const dir = mkdtempSync(join(tmpdir(), 'cw-voice-routes-'));
   dirs.push(dir);
   return {
     chat: new VoiceChat({ list: () => [], send: () => ({ kind: 'unknown' }) }),
-    tokens: new VoiceApiTokens(voiceTokensPath(dir), () => voiceApiTokenKey('c'.repeat(64))),
+    tokens: new VoiceApiTokens(voiceTokensPath(dir), () => voiceApiTokenKey('c'.repeat(64)), now),
     speakerName: () => 'Alice',
     mintSubject: () => 'known-alice',
     j: (status: number, body: unknown) => Response.json(body, { status }),
@@ -68,5 +68,60 @@ describe('the voice token routes', () => {
 
   it('claims no other path', async () => {
     expect(await handleVoiceApiRoutes(ctx(), mint({ pathname: '/api/voice/agents' }))).toBeNull();
+  });
+
+  it('answer a minted value once: never in the list, and never logged', async () => {
+    const said: string[] = [];
+    const spies = (['log', 'info', 'warn', 'error'] as const).map((k) =>
+      spyOn(console, k).mockImplementation((...a: unknown[]) => {
+        said.push(a.map(String).join(' '));
+      }),
+    );
+    try {
+      const c = ctx();
+      const minted = (await (await handleVoiceApiRoutes(c, mint({})))?.json()) as {
+        token: string;
+      };
+      const mac = minted.token.split('.').at(-1) ?? '?';
+      const list = await handleVoiceApiRoutes(
+        c,
+        mint({ req: new Request('http://h/api/voice/tokens') }),
+      );
+      expect(await list?.text()).not.toContain(mac);
+      expect(said.join('\n')).not.toContain(mac);
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+  });
+
+  it('refuse a revoked token on the very next request', async () => {
+    let t = 5_000;
+    const c = ctx(() => t);
+    const minted = (await (await handleVoiceApiRoutes(c, mint({})))?.json()) as {
+      id: string;
+      token: string;
+    };
+    const models = () =>
+      handleVoiceApiRoutes(
+        c,
+        mint({
+          req: new Request('http://h/v1/models', {
+            headers: { authorization: `Bearer ${minted.token}` },
+          }),
+          pathname: '/v1/models',
+        }),
+      );
+    expect((await models())?.status).toBe(200);
+    // Inside the minute its last use is cached for: revocation still bites.
+    t += 1_000;
+    const revoked = await handleVoiceApiRoutes(
+      c,
+      mint({
+        req: new Request(`http://h/api/voice/tokens/${minted.id}/revoke`, { method: 'POST' }),
+        pathname: `/api/voice/tokens/${minted.id}/revoke`,
+      }),
+    );
+    expect(revoked?.status).toBe(200);
+    expect((await models())?.status).toBe(401);
   });
 });

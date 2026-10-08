@@ -20,6 +20,7 @@ import type {
 import { fetchJson } from '../board/board-actions.ts';
 import { type SpokenReply, createSpokenReply } from '../board/spoken-reply-client.ts';
 import { ensureUserIdentity } from '../identity-prompt.ts';
+import { mountVoiceConnect } from './voice-connect.ts';
 import {
   type VoiceBoardRow,
   type VoicePick,
@@ -100,6 +101,15 @@ async function boot(): Promise<void> {
   const talk = document.getElementById('voice-talk');
   const list = document.getElementById('voice-agents');
   if (!line || !talk || !list) return;
+  const connectSlot = document.getElementById('voice-connect-slot');
+  if (connectSlot) {
+    void mountVoiceConnect(connectSlot, {
+      fetch: (input, init) => fetch(input, init),
+      now: Date.now,
+      origin: location.origin,
+      copy: (text) => navigator.clipboard.writeText(text),
+    });
+  }
   // The page is the owner's alone, and the server names the speaker from
   // the sign-in, so it never asks for a name.
   const user = await ensureUserIdentity(
