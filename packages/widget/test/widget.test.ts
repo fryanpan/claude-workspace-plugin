@@ -324,6 +324,8 @@ describe('widget', () => {
     const mod = await importWidget();
     const core = await import('@claude-workspaces/core');
     const el = mod.FeedbackWidget.init({ workspaceId: 'w-1', docId: 't-subject', user: 'bryan' });
+    // The panel's rows are the page list's, which mic.js mounts on every embed.
+    (await import('../src/widget-page-list.ts')).mountPageList(el);
     const inner = el as unknown as {
       client: { ydoc: import('yjs').Doc } | null;
       renderThreads: () => void;

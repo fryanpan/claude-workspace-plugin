@@ -20,6 +20,7 @@
  */
 import { FeedbackWidgetEl } from '@claude-workspaces/widget';
 import { addMic } from '@claude-workspaces/widget/mic';
+import { mountPageList } from '@claude-workspaces/widget/page-list';
 import {
   type VoiceMode,
   type VoiceModeOpts,
@@ -51,5 +52,8 @@ export function mountFeedbackMic(widget: FeedbackWidgetEl, opts: VoiceModeOpts =
  *  rendered, which builds its buttons, so the mic has a slot to take. */
 export function mountFeedbackWidget(doc: Document): void {
   const el = doc.querySelector('claude-feedback-widget');
-  if (el instanceof FeedbackWidgetEl) mountFeedbackMic(el);
+  if (!(el instanceof FeedbackWidgetEl)) return;
+  mountFeedbackMic(el);
+  // The panel's thread list, which the widget's own bundle leaves to a chunk.
+  mountPageList(el);
 }

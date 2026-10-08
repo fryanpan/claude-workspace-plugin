@@ -3,6 +3,7 @@ import {
   type AnchorContext,
   type FeedbackClient,
   STATUS_COLORS,
+  type Thread,
   type User,
   connect,
   resolveUser,
@@ -29,7 +30,12 @@ import {
   toggleFeedbackMode,
 } from './widget-picker.ts';
 import { restoreDraft } from './widget-restore.ts';
-import { type PinPosition, positionPins, renderThreadsInto } from './widget-threads.ts';
+import {
+  type PinPosition,
+  type ThreadRow,
+  positionPins,
+  renderThreadsInto,
+} from './widget-threads.ts';
 
 /**
  * <claude-feedback-widget> web component
@@ -170,6 +176,9 @@ export class FeedbackWidgetEl extends HTMLElement {
   private panelOpen = false;
   activeThread: string | null = null;
   threadPositions = new Map<string, PinPosition>();
+  /** The panel's thread list, once `mic.js` has mounted it
+   *  (`widget-page-list.ts`); each render hands it what it read. */
+  listHook: ((rows: ThreadRow[], open: (t: Thread) => void) => void) | null = null;
   private observer: MutationObserver | null = null;
   private statusEl: HTMLElement | null = null;
   private rafId: number | null = null;

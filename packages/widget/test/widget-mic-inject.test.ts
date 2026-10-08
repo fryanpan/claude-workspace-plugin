@@ -38,6 +38,7 @@ function embed(opts: { serverUrl?: string; withMic?: boolean } = {}): FeedbackWi
   return Object.assign(host, {
     shadow,
     opts: { serverUrl: opts.serverUrl ?? SERVER, workspaceId: 'w-riverbend', docId: 'page-1' },
+    scheduleRender: () => {},
   }) as unknown as FeedbackWidgetEl;
 }
 
