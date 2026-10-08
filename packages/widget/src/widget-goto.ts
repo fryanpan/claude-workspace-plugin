@@ -18,6 +18,10 @@
  * longer be the one the thread was made at.
  */
 export function goTo(url: string, threadId: string): void {
+  // The address is a commenter's, stored on the thread: only a path on this
+  // page's own origin is loaded. `javascript:` would run in the host page,
+  // and `//` or `/\` would leave it.
+  if (!/^\/(?![/\\])/.test(url)) return;
   const [path = '', hash] = url.split(/#(.*)/s);
   const sep = path.includes('?') ? '&' : '?';
   location.assign(
