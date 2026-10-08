@@ -10,6 +10,7 @@ import {
   TURN_MAX,
   bearerOf,
   conversationIdFor,
+  modelList,
   parseChatRequest,
 } from '../src/voice-api/protocol.ts';
 
@@ -74,6 +75,19 @@ describe('parseChatRequest', () => {
     expect(ok({ model: 'a', messages }).history).toHaveLength(HISTORY_KEEP);
   });
 
+  // Conduit's chats grow without bound and it sends every message it still
+  // holds; refusing past a count would end a long call mid-sentence.
+  it('reads a long chat, keeping its first message as the conversation id', () => {
+    const messages = Array.from({ length: 401 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `turn ${i}`,
+    }));
+    const t = ok({ model: 'a', messages });
+    expect(t.text).toBe('turn 400');
+    expect(t.history.at(-1)).toEqual({ from: 'agent', text: 'turn 399' });
+    expect(t.conversationId).toBe(conversationIdFor('a', 'turn 0', null));
+  });
+
   it('refuses a body no agent should hear', () => {
     expect(err(null)).toBe('invalid_body');
     expect(err({ messages: [{ role: 'user', content: 'hi' }] })).toBe('invalid_model');
@@ -90,6 +104,20 @@ describe('parseChatRequest', () => {
     expect(
       err({ model: 'a', messages: [{ role: 'user', content: 'x'.repeat(TURN_MAX + 1) }] }),
     ).toBe('turn_too_long');
+  });
+});
+
+describe('modelList', () => {
+  // Conduit reads `context_length` from each model and assumes 4,096 tokens
+  // without one. Past 70% of that it trims the chat's head, which changes
+  // the first message the conversation id is derived from, or sends a
+  // summary request that would reach the agent as a turn.
+  it('advertises a context long enough that Conduit never trims a voice chat', () => {
+    const [m] = modelList([
+      { id: 'harborlight-lead', name: 'Harborlight Lead', description: '' },
+    ]).data;
+    expect(m?.context_length).toBeGreaterThanOrEqual(100_000);
+    expect(m?.architecture).toEqual({ input_modalities: ['text'], output_modalities: ['text'] });
   });
 });
 

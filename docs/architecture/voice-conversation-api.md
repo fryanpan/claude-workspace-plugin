@@ -25,6 +25,12 @@ the agent's id, the value to put in `model`. Two extra fields, `name` and
 `description` (for example "On Harborlight, listening now"), are for clients
 that show more than an id; plain OpenAI clients ignore them.
 
+Each entry also carries `context_length` (100,000) and text-only
+`architecture` modalities. Conduit reads both: without a context length it
+assumes 4,096 tokens and, past 70% of that, trims the start of the chat or
+asks the model for a summary, and either one would start a new conversation
+here.
+
 A turn is the OpenAI request body. The server reads `model`, `messages` and
 `stream`, and ignores everything else (`temperature`, `tools` and so on).
 
@@ -33,7 +39,8 @@ A turn is the OpenAI request body. The server reads `model`, `messages` and
   conversation so far, newest 12 kept. `system` messages are dropped.
 - Content may be a string or an array of `{type: "text", text}` parts.
   Other parts are ignored.
-- A turn is at most 4,000 characters, and a request at most 512 KB.
+- A turn is at most 4,000 characters, and a request at most 512 KB. There
+  is no cap on how many messages a request carries; the byte cap bounds it.
 
 The conversation id is the `x-conversation-id` header when the client sends
 one (1 to 100 of `A-Za-z0-9_-`). Otherwise it is derived from the token, the
@@ -97,12 +104,16 @@ A voice token is `vk1.<id>.<mac>`, signed through
 (`cw-voice-api-token-v1`), derived from the server's cookie key. No other
 signed value verifies as one, and it verifies as nothing else.
 
-- **Minted by the owner:** `POST /api/voice/tokens` with `{label}` answers
-  the token once. The server keeps only the record (id, label, who it speaks
+- **Minted by the owner:** on the voice page, **Connect an app**
+  (`voice-page/voice-connect.ts`), or `POST /api/voice/tokens` with `{label}`.
+  Either answers the token once: the page shows it until the panel closes,
+  and the server never returns it again. The server keeps only the record (id, label, who it speaks
   for, when made, last used, when revoked) in `voice-api-tokens.json` under
   the data dir, mode 600.
-- **Listed:** `GET /api/voice/tokens`, without values.
-- **Revoked:** `POST /api/voice/tokens/<id>/revoke`. The record stays,
+- **Listed:** `GET /api/voice/tokens`, without values. The page lists the
+  standing ones by label and last use.
+- **Revoked:** `POST /api/voice/tokens/<id>/revoke`, or Revoke then Confirm
+  on the page. The record stays,
   marked, and the token stops working on its next call.
 - **Grants only this API.** `/v1/models` and `/v1/chat/completions` read
   this token and nothing else: no cookie, no Access identity, no agent or
@@ -133,6 +144,56 @@ connection") is not supported. These routes add no CORS rule of their own, so
 a browser is let through only from an origin the server already allows for
 the widget (`middleware/browser-origin.ts`).
 
+## Setting up Conduit on an iPhone
+
+[Conduit](https://github.com/cogwheel0/conduit) is an iOS and Android app
+that talks to any OpenAI-compatible server. These steps are read from its
+source (commit `8ba852a`), not yet walked on a phone.
+
+1. **Make a token.** On the iPad or Mac, open `/voice` at the address the
+   phone will use, tap **Connect an app**, name the token (for example
+   "iPhone") and tap **Make a token**. Copy the token now; it is shown once.
+   Copy the **Server URL** too: this page's address plus `/v1`.
+2. **Add the connection.** In Conduit, add a **Direct** connection, type
+   OpenAI-compatible, API mode Chat Completions. Paste the server URL as the
+   base URL and the token as the API key, with authentication left on
+   Bearer. Conduit asks the base URL for `models` and `chat/completions`, so
+   the URL must end in `/v1`.
+3. **Get past Cloudflare Access.** Through the tunnel, add two custom
+   headers on the same connection: `CF-Access-Client-Id` and
+   `CF-Access-Client-Secret`, from an Access service token that a Service
+   Auth policy on the owner's application admits. Conduit's cookie capture
+   for Cloudflare Tunnel is for Open WebUI sign-in only; a Direct
+   connection sends its API key and custom headers and nothing else, and
+   follows no redirect, so an Access login page fails the request.
+4. **Choose the agent.** Conduit lists one model per agent from
+   `GET /v1/models`, named by agent with its board in the description. Set
+   Octoturtle's as Conduit's default model in Settings. A voice call starts
+   on the selected model, and a new chat selects the default.
+5. **Bind the Action Button.** In iOS Settings, Action Button, choose
+   Shortcut, then Conduit's **Start Voice Call**. It opens Conduit and starts
+   a new voice call on the default model. **Ask Conduit** is the typed
+   alternative.
+
+To switch agent mid-call, pick another model in Conduit; the next turn goes
+to that agent. To cut a phone off, Revoke its token on the page.
+
+### What does not fit yet
+
+- **Not walked on a phone.** No step above has been tried on an iPhone, and
+  the service-token route through Access has not been tried live.
+- **A very long chat restarts.** Past about 280 KB of text, 70% of the
+  advertised context, Conduit sends the agent a request to summarise the
+  chat, which arrives as an ordinary turn, and the shortened chat then
+  derives a new conversation id. Conduit sends no conversation header.
+- **"Working on it." is spoken.** It is part of the streamed answer, so a
+  voice call says it before the agent's words.
+- **Images are dropped.** The model list says text only, so Conduit should
+  not offer attachments; if it sends one, the server reads only the text
+  parts.
+- **One model per agent.** Conduit's per-chat model is the only way to
+  switch agent; there is no spoken "talk to Riverbend".
+
 ## Where it is written
 
 | Part | File |
@@ -142,6 +203,7 @@ the widget (`middleware/browser-origin.ts`).
 | The token | `packages/server/src/voice-api/tokens.ts` |
 | Workspaces' side: what a model is, how a turn reaches it | `packages/server/src/voice-api/backend.ts` |
 | Routes | `packages/server/src/routes/voice-api.ts` |
+| The page's token control | `packages/workspaces-app/src/voice-page/voice-connect.ts` |
 
 `protocol.ts` and `chat.ts` know nothing about boards. `chat.ts` asks a
 `VoiceAgents` for the list and to send a turn; `backend.ts` is the only
