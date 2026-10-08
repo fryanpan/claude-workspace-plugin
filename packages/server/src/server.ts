@@ -14,7 +14,7 @@ import {
 } from '@claude-workspaces/core';
 import { createAccessDeps } from './access-deps.ts';
 import { releaseActivityLock } from './activity-lock.ts';
-import { isOwnerActor, ownerIdentityIds } from './actor-identity.ts';
+import { isOwnerActor, ownerDisplayNames, ownerIdentityIds } from './actor-identity.ts';
 import { AgentNoteLog } from './agent-note-log.ts';
 import { AgentNoteRing } from './agent-notes.ts';
 import { AgentWatches } from './agent-watches.ts';
@@ -177,6 +177,7 @@ import {
   type VoiceAgentLlmRoutesContext,
   handleVoiceAgentLlmRoute,
 } from './routes/voice-agent-llm.ts';
+import { type VoiceApiRoutesContext, handleVoiceApiRoutes } from './routes/voice-api.ts';
 import { type VoicePageRoutesContext, handleVoicePageRoutes } from './routes/voice-page.ts';
 import {
   type LibraryRoutesContext,
@@ -215,6 +216,7 @@ import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
 import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
 import { createStallWiring } from './stall-wiring.ts';
+import { cryptoId } from './task-fields.ts';
 import { isReservedGoalId } from './task-goals.ts';
 import { TaskProjection, taskBodyDocId } from './task-projection.ts';
 import { type RunOutputSource, observeRunOutput } from './task-run-output.ts';
@@ -231,6 +233,9 @@ import { ThreadRequestDedup } from './thread-request-dedup.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
 import { voiceAgentList } from './voice-agent-list.ts';
+import { workspacesVoiceAgents } from './voice-api/backend.ts';
+import { VoiceChat } from './voice-api/chat.ts';
+import { VoiceApiTokens, voiceApiTokenKey, voiceTokensPath } from './voice-api/tokens.ts';
 import { routerClassifier } from './voice-choice.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { meetingContext } from './voice-meeting-context.ts';
@@ -1737,18 +1742,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     },
     ...(opts.voiceComplete ? { explain: opts.voiceComplete } : {}),
   };
+  // A turn for one named agent: its own row and its own streams, never a
+  // broadcast (`spoken-reply/agent-conversation.ts`). The converse socket
+  // and the voice API (`voice-api/`) both speak through it.
+  const voiceAgentLine = agentLine({
+    listAttachments: (workspaceId) => taskStore.listAttachments(workspaceId),
+    displayName: (agentId) => identities.displayNameFor(agentId) ?? undefined,
+    queueComment: (workspaceId, item) => taskStore.queueComment(workspaceId, item),
+    markCommentEmitted: (workspaceId, id) => taskStore.markCommentEmitted(workspaceId, id),
+    sendToAgent: (workspaceId, agentId, frame) =>
+      sse.sendToAgent(`ws~${workspaceId}`, agentId, frame),
+  });
   const spokenRelay = new SpokenReplyRelay({
     leads: leadAnswers,
-    // A turn for one named agent: its own row and its own streams, never a
-    // broadcast (`spoken-reply/agent-conversation.ts`).
-    agentLine: agentLine({
-      listAttachments: (workspaceId) => taskStore.listAttachments(workspaceId),
-      displayName: (agentId) => identities.displayNameFor(agentId) ?? undefined,
-      queueComment: (workspaceId, item) => taskStore.queueComment(workspaceId, item),
-      markCommentEmitted: (workspaceId, id) => taskStore.markCommentEmitted(workspaceId, id),
-      sendToAgent: (workspaceId, agentId, frame) =>
-        sse.sendToAgent(`ws~${workspaceId}`, agentId, frame),
-    }),
+    agentLine: voiceAgentLine,
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
     board: spokenBoard,
     timings: spokenTimings,
@@ -2394,23 +2401,40 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   };
 
   /** The voice page and its agent list — the owner's alone (routes/voice-page.ts). */
+  const ownerVoiceAgents = () =>
+    voiceAgentList({
+      boards: () =>
+        taskStore
+          .listWorkspaces()
+          .filter((w) => !isRetired(w))
+          .map((w) => ({
+            id: w.id,
+            name: w.name,
+            ...(w.leadAgentId ? { leadAgentId: w.leadAgentId } : {}),
+          })),
+      attachments: (ws) => taskStore.listAttachments(ws),
+      displayName: (id) => identities.displayNameFor(id) ?? undefined,
+    });
   const voicePageRoutesCtx: VoicePageRoutesContext = {
-    agents: () =>
-      voiceAgentList({
-        boards: () =>
-          taskStore
-            .listWorkspaces()
-            .filter((w) => !isRetired(w))
-            .map((w) => ({
-              id: w.id,
-              name: w.name,
-              ...(w.leadAgentId ? { leadAgentId: w.leadAgentId } : {}),
-            })),
-        attachments: (ws) => taskStore.listAttachments(ws),
-        displayName: (id) => identities.displayNameFor(id) ?? undefined,
-      }),
+    agents: ownerVoiceAgents,
     renderPage: () => renderVoiceShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,
+    j,
+  };
+  /** The voice conversation API: OpenAI chat over a voice token (routes/voice-api.ts). */
+  const voiceApiRoutesCtx: VoiceApiRoutesContext = {
+    chat: new VoiceChat(
+      workspacesVoiceAgents({
+        boards: ownerVoiceAgents,
+        line: voiceAgentLine,
+        leads: leadAnswers,
+        newId: () => cryptoId('vt'),
+      }),
+    ),
+    tokens: new VoiceApiTokens(voiceTokensPath(dataDir), () => voiceApiTokenKey(cookieKey())),
+    speakerName: (subject) =>
+      identities.displayNameFor(subject) ?? ownerDisplayNames()[0] ?? 'The owner',
+    mintSubject: () => ownerIdentityIds()[0] ?? 'owner',
     j,
   };
 
@@ -3728,6 +3752,22 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           ownerProven: () => ownerProven(),
           anyoneProven: () => provenIdentityFor() !== null,
           mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
+        });
+        if (handled) return handled;
+      }
+
+      // --- REST: the voice conversation API --- see ./routes/voice-api.ts.
+      // Claims `/v1/models`, `/v1/chat/completions` and `/api/voice/tokens`
+      // alone; nothing above answers them.
+      {
+        const handled = await handleVoiceApiRoutes(voiceApiRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          anyoneProven: () => provenIdentityFor() !== null,
+          mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
+          requestOrigin: () => policyFor(req).requestOrigin,
         });
         if (handled) return handled;
       }

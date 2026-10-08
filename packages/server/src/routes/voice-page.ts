@@ -43,7 +43,7 @@ const LIST = '/api/voice/agents';
 
 /** Null when the caller is the owner, else the refusal. */
 export function refuseNonOwner(
-  ctx: VoicePageRoutesContext,
+  ctx: Pick<VoicePageRoutesContext, 'j'>,
   rq: VoicePageRouteRequest,
 ): Response | null {
   if (rq.visitor) return ctx.j(403, { error: 'not available to share visitors' });

@@ -166,6 +166,16 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/voice', 'GET'],
     ['trusted-local', '/api/voice/agents', 'GET'],
   ]),
+  // The voice conversation API. `/v1/` takes a voice API bearer and nothing
+  // else, checked in the handler; the token routes are the owner's, gated
+  // as the voice page's list is, and a browser's POST must be same-origin.
+  ...family('routes/voice-api.ts', [
+    ['trusted-local', '/v1/models', 'GET'],
+    ['trusted-local', '/v1/chat/completions', 'POST'],
+    ['trusted-local', '/api/voice/tokens', 'GET'],
+    ['trusted-local', '/api/voice/tokens', 'POST'],
+    ['trusted-local', '/api/voice/tokens/:id/revoke', 'POST'],
+  ]),
 
   // The coach session's moment is refused through the edge, from off this
   // machine and from a page (`refuseNonLocalAgentCaller`); it carries no
