@@ -111,7 +111,8 @@ signed value verifies as one, and it verifies as nothing else.
 The token routes are the owner's alone, gated as the voice page's agent
 list is: a share or collaboration visitor and a signed-in person who is not
 the owner are refused, and a browser's write must come from this server's
-own origin.
+own origin. Through the tunnel they also need a proof that names the owner,
+so a phone holding only an Access service token cannot mint itself more.
 
 ### Reaching it from a phone
 
