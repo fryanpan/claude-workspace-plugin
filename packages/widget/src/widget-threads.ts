@@ -305,6 +305,8 @@ function renderThreadRow(
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = `thread status-${status}`;
+  // Which thread, for what the page's scripts add to a row (`widget-ask.ts`).
+  row.dataset.threadId = t.id;
   if (el.activeThread === t.id) row.classList.add('active');
 
   const snippet = threadSnippet(t.anchor);

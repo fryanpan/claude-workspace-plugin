@@ -30,6 +30,8 @@
 import { mountEditLoader } from './edit/edit-button.ts';
 import { insertScript } from './mockup-live-scripts.ts';
 import { mountVoiceLoader } from './voice/voice-loader.ts';
+import { mountAsks } from './widget-ask.ts';
+import type { FeedbackWidgetEl } from './widget.ts';
 
 interface Config {
   docId: string;
@@ -394,6 +396,9 @@ if (parsed) {
     mountVoiceLoader(document, voiceSrc);
     // The pencil above the mic; edit mode is fetched beside voice.js.
     mountEditLoader(document, editSrc);
+    // A thread's review item, answerable in its popover.
+    const widget = document.querySelector('claude-feedback-widget') as FeedbackWidgetEl | null;
+    if (widget?.shadow) mountAsks(widget);
   };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
