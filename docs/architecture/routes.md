@@ -93,6 +93,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/tasks/*` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/api/threads` | GET, POST, PUT, DELETE | `routes/wrong-prefix.ts` | trusted-local |  |
 | `/api/threads/*` | GET, POST, PUT, DELETE | `routes/wrong-prefix.ts` | trusted-local |  |
+| `/api/voice/agents` | GET | `routes/voice-page.ts` | trusted-local |  |
 | `/api/webhooks/log` | GET, POST | `routes/ops.ts` | trusted-local |  |
 | `/api/workspaces` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
 | `/api/workspaces/*` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
@@ -132,6 +133,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/signin` | GET | `routes/shell-static.ts` | trusted-local |  |
 | `/sw.js` | GET | `routes/shell-static.ts` | trusted-local |  |
 | `/sw.js.map` | GET | `routes/shell-static.ts` | trusted-local |  |
+| `/voice` | GET | `routes/voice-page.ts` | trusted-local |  |
 | `/voice-agent/v1/chat/completions` | POST | `routes/voice-agent-llm.ts` | recall-callback |  |
 | `/widget-auth` | GET | `routes/auth-share.ts` | trusted-local |  |
 | `/widget.esm.js` | GET | `routes/shell-static.ts` | share-scope |  |

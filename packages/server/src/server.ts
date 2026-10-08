@@ -177,6 +177,7 @@ import {
   type VoiceAgentLlmRoutesContext,
   handleVoiceAgentLlmRoute,
 } from './routes/voice-agent-llm.ts';
+import { type VoicePageRoutesContext, handleVoicePageRoutes } from './routes/voice-page.ts';
 import {
   type LibraryRoutesContext,
   handleLibraryRoutes,
@@ -229,6 +230,7 @@ import {
 import { ThreadRequestDedup } from './thread-request-dedup.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
+import { voiceAgentList } from './voice-agent-list.ts';
 import { routerClassifier } from './voice-choice.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { meetingContext } from './voice-meeting-context.ts';
@@ -260,6 +262,7 @@ import {
   renderBoardShell,
   renderReviewsShell,
   renderSigninShell,
+  renderVoiceShell,
   serveStaticUnder,
 } from './shells.ts';
 import { taskIdOfBodyDoc } from './task-row.ts';
@@ -2390,6 +2393,27 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     safeJson,
   };
 
+  /** The voice page and its agent list — the owner's alone (routes/voice-page.ts). */
+  const voicePageRoutesCtx: VoicePageRoutesContext = {
+    agents: () =>
+      voiceAgentList({
+        boards: () =>
+          taskStore
+            .listWorkspaces()
+            .filter((w) => !isRetired(w))
+            .map((w) => ({
+              id: w.id,
+              name: w.name,
+              ...(w.leadAgentId ? { leadAgentId: w.leadAgentId } : {}),
+            })),
+        attachments: (ws) => taskStore.listAttachments(ws),
+        displayName: (id) => identities.displayNameFor(id) ?? undefined,
+      }),
+    renderPage: () => renderVoiceShell(browserSentry, readAppAssetManifest(markdownAppDist)),
+    pageHeaders: HTML_SHELL_HEADERS,
+    j,
+  };
+
   /**
    * Incoming Messages — the reader's post and Bryan's taps. The reader is
    * held to its token always, whatever `requireAgentToken` says: the post
@@ -3689,6 +3713,21 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           pathname,
           url,
           visitor,
+        });
+        if (handled) return handled;
+      }
+
+      // --- Page + REST: the voice page --- see ./routes/voice-page.ts.
+      // Top-level for the review queue's reason; claims `/voice` and
+      // `/api/voice/agents` alone, which nothing above answers.
+      {
+        const handled = handleVoicePageRoutes(voicePageRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          anyoneProven: () => provenIdentityFor() !== null,
+          mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
         });
         if (handled) return handled;
       }

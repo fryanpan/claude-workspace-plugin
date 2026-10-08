@@ -52,6 +52,24 @@ describe('spoken reply', () => {
     expect(h.label()).toBe('Heard you');
   });
 
+  it('names the page’s agent in each start, read at the press; the board names none', async () => {
+    let who = 'harborlight-lead';
+    const h = harness({ agent: () => who });
+    who = 'riverbend';
+    h.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(0);
+    h.frame(true);
+    h.socket.open();
+    expect(h.socket.json()[0]).toMatchObject({ type: 'start', agent: 'riverbend' });
+    document.body.replaceChildren();
+    const board = harness();
+    board.mic.dispatchEvent(new Event('pointerdown'));
+    await vi.advanceTimersByTimeAsync(0);
+    board.frame(true);
+    board.socket.open();
+    expect('agent' in (board.socket.json()[0] ?? {})).toBe(false);
+  });
+
   it('Space toggles the same way: one tap listens, the next ends it, and a held key repeats nothing', async () => {
     const h = harness();
     const key = (type: 'keydown' | 'keyup', repeat = false) =>

@@ -2509,6 +2509,114 @@ html:has(.board-walk-cred-form) {
   min-width: 4ch;
   text-align: right;
 }
+/* ################# BOARD · VOICE PAGE #################
+   `/voice` (`voice-page/voice-app.ts`): one talk button, the line naming who
+   hears it, and the agents to pick from. Calm, and nothing moves when the
+   pick changes: the line keeps two lines' height, every agent row keeps one
+   height and reserves its check mark, and the list scrolls inside the page
+   rather than pushing the button. */
+.voice-body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+.voice-main {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 16px 16px calc(16px + var(--safe-bottom, 0px));
+}
+.voice-line {
+  height: calc(2 * 1.45em);
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 15px;
+  line-height: 1.45;
+  text-align: center;
+}
+.voice-talk {
+  flex: none;
+  align-self: center;
+  width: 144px;
+  height: 144px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-talk.voice-active {
+  border-color: var(--red-strong);
+}
+.voice-talk:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.voice-agents {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+.voice-board-name {
+  padding: 12px 12px 4px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.voice-agent {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.voice-agent:hover {
+  background: var(--bg-hover);
+}
+.voice-agent[aria-checked="true"] {
+  border-color: var(--accent);
+}
+.voice-agent-mark {
+  color: var(--accent);
+  visibility: hidden;
+}
+.voice-agent[aria-checked="true"] .voice-agent-mark {
+  visibility: visible;
+}
+.voice-agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-agent-state {
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: right;
+}
 /* ################# BOARD · HOME BRIEF + REVIEW QUEUE #################
    The since-last-read brief and the ranked For Your Review list, on a
    reading column. */

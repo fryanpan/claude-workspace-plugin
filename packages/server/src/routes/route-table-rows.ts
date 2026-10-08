@@ -160,6 +160,12 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/api/review-size', 'GET PUT'],
     ['trusted-local', '/review', 'GET'],
   ]),
+  // The owner's alone: a share visitor and a proven non-owner are refused,
+  // and a browser that proved nobody is sent to sign in where sign-in is on.
+  ...family('routes/voice-page.ts', [
+    ['trusted-local', '/voice', 'GET'],
+    ['trusted-local', '/api/voice/agents', 'GET'],
+  ]),
 
   // The coach session's moment is refused through the edge, from off this
   // machine and from a page (`refuseNonLocalAgentCaller`); it carries no
