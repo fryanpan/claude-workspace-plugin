@@ -159,6 +159,27 @@ describe('the Connect an app control', () => {
     ]);
   });
 
+  it('says so when the clipboard refuses, so the value is copied by hand', async () => {
+    const api = server();
+    const refused = {
+      ...deps(api.fetch),
+      copy: () => {
+        throw new Error('clipboard unavailable');
+      },
+    };
+    await mountVoiceConnect(slot(), refused);
+    click('.voice-connect-open');
+    click('.voice-connect-mint');
+    await flush();
+    click('.voice-connect-copy-token');
+    await flush();
+    expect(q('.voice-connect-token-note')?.textContent).toContain('Could not copy');
+    expect(q('.voice-connect-token-value')?.textContent).toBe(VALUE);
+    click('.voice-connect-copy-url');
+    await flush();
+    expect(q('.voice-connect-url-note')?.textContent).toContain('Could not copy');
+  });
+
   it('says when this address is one a phone cannot reach', async () => {
     await mountVoiceConnect(slot(), deps(server().fetch, 'http://127.0.0.1:8788'));
     click('.voice-connect-open');

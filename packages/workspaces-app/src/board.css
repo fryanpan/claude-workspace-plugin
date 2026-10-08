@@ -2696,6 +2696,7 @@ html:has(.board-walk-cred-form) {
 .voice-connect-url,
 .voice-connect-token-value {
   overflow: hidden;
+  user-select: all;
   font-family: var(--mono);
   font-size: 13px;
   text-overflow: ellipsis;

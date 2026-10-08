@@ -215,9 +215,24 @@ export async function mountVoiceConnect(
   panel.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') shut();
   });
-  copyUrl.addEventListener('click', () => void deps.copy(url).catch(() => {}));
+  // The clipboard is missing off a secure origin and can refuse anywhere;
+  // say which, in the line under the value, so nobody closes the panel
+  // believing a one-time value was copied.
+  const copyInto = (text: string, note: HTMLElement): void => {
+    void Promise.resolve()
+      .then(() => deps.copy(text))
+      .then(
+        () => {
+          note.textContent = 'Copied.';
+        },
+        () => {
+          note.textContent = 'Could not copy. Select it and copy it by hand.';
+        },
+      );
+  };
+  copyUrl.addEventListener('click', () => copyInto(url, urlNote));
   copyToken.addEventListener('click', () => {
-    if (shown) void deps.copy(shown).catch(() => {});
+    if (shown) copyInto(shown, tokenNote);
   });
 
   form.addEventListener('submit', (ev) => {
