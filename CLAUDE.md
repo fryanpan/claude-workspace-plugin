@@ -82,6 +82,14 @@ that way and add new subsystem docs to the list here.
   control for its widest option and keep the part of its label that does not
   change in the same place, so nothing beside it moves and the reader's target
   stays where they aimed.
+- **Every surface is live** (the owner, 2026-10-08): the whole product is
+  real-time multiplayer. Any page open on the board, Home, the workspaces
+  list, a doc, a task, a goal, a mock, a diff or a folder shows a change made
+  anywhere else, by a person or an agent, within 1s and without a reload. New
+  functionality ships with its live path (a stream or Yjs subscription that
+  updates the view in place) and a test that a change made elsewhere reaches
+  an already-open page. A page rendered once on the server and never updated
+  is a bug.
 - **Verify UI at 1180x820 (iPad landscape — the owner's main device) AND 430px**
   per [docs/product/design-mobile.md](docs/product/design-mobile.md). Tiers:
   mobile ≤1100, tablet/laptop 1101–1920 (iPad and MacBook alike — the scarce
