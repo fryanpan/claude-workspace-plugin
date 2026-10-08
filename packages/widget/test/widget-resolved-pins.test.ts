@@ -2,6 +2,7 @@ import { createThread, setStatus } from '@claude-workspaces/core';
 import { createAnchor } from '@claude-workspaces/core/anchor/element';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
+import { mountPageList } from '../src/widget-page-list.ts';
 import { renderThreadsInto } from '../src/widget-threads.ts';
 import type { FeedbackWidgetEl } from '../src/widget.ts';
 
@@ -22,7 +23,7 @@ function widgetOn(ydoc: Y.Doc, showResolved: boolean): FeedbackWidgetEl {
   document.body.append(host);
   const pinLayer = document.createElement('div');
   document.body.append(pinLayer);
-  return Object.assign(host, {
+  const el = Object.assign(host, {
     shadow,
     user: null,
     pinLayer,
@@ -31,8 +32,12 @@ function widgetOn(ydoc: Y.Doc, showResolved: boolean): FeedbackWidgetEl {
     showResolved,
     activeThread: null,
     client: { ydoc },
+    listHook: null,
     scheduleRender: () => {},
   }) as unknown as FeedbackWidgetEl;
+  // The panel is drawn by the page list, which mic.js mounts on every embed.
+  mountPageList(el);
+  return el;
 }
 
 function page(): Y.Doc {

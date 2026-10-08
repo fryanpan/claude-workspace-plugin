@@ -47,6 +47,13 @@ export interface VoiceRequestPayload {
    *  minutes, as the server capped them. Anyone in the room wrote or said
    *  them. */
   meeting?: { notes?: string; heard?: string };
+  /** Set on a turn the speaker addressed to one agent by name: only that
+   *  agent receives the row. Its route is the router's `agent` /
+   *  `agent-queued`, so an older bundle still renders it as an ask. */
+  to?: string;
+  conversationId?: string;
+  /** The turns before this one in that conversation, oldest first. */
+  conversation?: Array<{ from?: string; text?: string }>;
 }
 
 /** Mirrors mcp.ts's helper of the same name. Duplicated rather than shared
@@ -97,12 +104,28 @@ export function voiceRequestLine(p: VoiceRequestPayload): string | null {
     );
   }
 
+  if (typeof p.to === 'string' && p.to) return addressedLine(p, said);
+
   // The speaker heard only "On it." The answer they are waiting for is the
   // lead's, said aloud on their page when it comes back through answer_voice.
   const answer = p.queueId
     ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ''}", queueId="${p.queueId}", text) as the shortest spoken answer that works ("No." beats a sentence).`
     : '';
   return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}${meetingBlock(p)}`;
+}
+
+/** A turn in a voice conversation the speaker holds with this agent alone:
+ *  how to answer so it is said aloud, then the turns before it. */
+function addressedLine(p: VoiceRequestPayload, said: string): string {
+  const who = p.actor?.name ?? 'Speaker';
+  const earlier = (p.conversation ?? [])
+    .filter((t) => typeof t.text === 'string' && t.text.trim())
+    .map((t) => `${t.from === 'agent' ? 'You' : who}: ${truncate(t.text ?? '', 300)}`);
+  const history = earlier.length ? `\nEarlier in this conversation:\n${earlier.join('\n')}` : '';
+  const answer = p.queueId
+    ? ` Answer with answer_voice(workspaceId="${p.workspaceId ?? ''}", queueId="${p.queueId}", text): it is said aloud on their page, so keep it short and spoken.`
+    : '';
+  return `${said} — said to you by voice, in a conversation with you alone.${answer}${history}`;
 }
 
 /** No line that could pass for the fence's own markers. */

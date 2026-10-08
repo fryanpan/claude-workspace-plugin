@@ -31,6 +31,7 @@ const HASHED = [
   'signin.js',
   'settings.js',
   'reviews.js',
+  'voice-page.js',
   'landing.js',
   'sentry.js',
   'sw.js',
@@ -182,6 +183,26 @@ async function emit(buildId: string): Promise<boolean> {
   if (!reviewsResult.success) {
     console.error('reviews build failed:');
     for (const m of reviewsResult.logs) console.error(m);
+    if (!isWatch) process.exit(1);
+    return false;
+  }
+
+  // The voice page (/voice): the board's spoken reply aimed at one agent.
+  // No splitting: one small entry, no editor.
+  const voiceResult = await Bun.build({
+    entrypoints: [join(pkgRoot, 'src', 'voice-page', 'voice-app.ts')],
+    outdir: dist,
+    target: 'browser',
+    format: 'esm',
+    splitting: false,
+    sourcemap: 'external',
+    define,
+    naming: { entry: 'voice-page.js', chunk: '[name]-[hash].js', asset: '[name].[ext]' },
+    minify: process.env.NODE_ENV !== 'dev' && !isWatch,
+  });
+  if (!voiceResult.success) {
+    console.error('voice build failed:');
+    for (const m of voiceResult.logs) console.error(m);
     if (!isWatch) process.exit(1);
     return false;
   }

@@ -303,6 +303,7 @@ export class SpokenSession {
     this.pauseTiming = msg.pause ?? SPOKEN_PAUSE_DEFAULT;
     this.context = this.deps.parseContext(msg.context);
     this.actor = this.deps.provenActor ?? msg.author ?? NOBODY;
+    this.deps.answerer.address(msg.agent);
     if (msg.setup === 4) this.agentTurns?.start();
     else if (msg.setup === 3) this.startGemini();
     else this.startListening();

@@ -138,6 +138,9 @@ export type SpokenClientMessage =
       ears?: 'meeting';
       /** The page's pause setting; absent, the server's defaults. */
       pause?: SpokenPause;
+      /** Talk to this agent rather than the board's router: an agent id on
+       *  the socket's board, checked there (`agent-conversation.ts`). */
+      agent?: string;
     }
   | { type: 'end' }
   | { type: 'stop' }
@@ -227,6 +230,8 @@ export type SpokenServerMessage =
 const MAX_TIMING_MS = 120_000;
 const MAX_AUTHOR_FIELD = 200;
 const MAX_SAY_CHARS = 200;
+/** The server's own agent-id rule (`isValidAgentId`): no space, no slash. */
+const AGENT_ID = /^[^\s/\\]{1,200}$/;
 
 function isSetup(v: unknown): v is SpokenSetup {
   return v === 1 || v === 2 || v === 3 || v === 4;
@@ -284,6 +289,7 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
       const mode: SpokenMode = m.mode === 'tap' ? 'tap' : 'hold';
       const author = authorOf(m.author);
       const pause = parseSpokenPause(m.pause);
+      const agent = typeof m.agent === 'string' && AGENT_ID.test(m.agent) ? m.agent : undefined;
       return {
         type: 'start',
         setup: m.setup,
@@ -292,6 +298,7 @@ export function parseSpokenClientMessage(text: string): SpokenClientMessage | nu
         ...(author ? { author } : {}),
         ...(m.ears === 'meeting' ? { ears: 'meeting' as const } : {}),
         ...(pause ? { pause } : {}),
+        ...(agent ? { agent } : {}),
       };
     }
     case 'end':

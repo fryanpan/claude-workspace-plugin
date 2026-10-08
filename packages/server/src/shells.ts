@@ -507,6 +507,46 @@ export function renderReviewsShell(
 }
 
 /**
+ * The voice page (`/voice?agent=<id>`): one talk button and the agents it can
+ * reach. The board's stylesheets in the board's order, because the reply
+ * panel and the mic are the board's; the behaviour is `/app/voice-page.js`.
+ */
+export function renderVoiceShell(
+  sentry: BrowserSentryConfig | null,
+  assets: AssetManifest = {},
+): string {
+  const sentryTags = sentryHeadTags(sentry, 'board', assets);
+  const sentryMeta = sentryTags ? `\n    ${sentryTags}` : '';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <title>Voice · Workspaces</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#2e7dd7" />${sentryMeta}
+    <link rel="stylesheet" href="${assetHref(assets, 'board.css')}" />
+    <link rel="stylesheet" href="${assetHref(assets, 'styles.css')}" />
+    <link rel="stylesheet" href="${assetHref(assets, 'tokens.css')}" />
+  </head>
+  <body class="board-body voice-body">
+    <header class="board-topbar">
+      <a class="back-link" href="/" title="All workspaces" aria-label="All workspaces">←</a>
+      <span class="board-ws-name"><span class="board-ws-name-text">Voice</span></span>
+      <span id="voice-connect-slot" class="voice-connect-slot"></span>
+    </header>
+    <main class="voice-main">
+      <p id="voice-line" class="voice-line" aria-live="polite">Loading your agents…</p>
+      <button id="voice-talk" class="voice-talk" type="button" disabled>Talk</button>
+      <div id="voice-agents" class="voice-agents" role="radiogroup" aria-label="Agent"></div>
+    </main>
+    <div id="board-toast" class="board-toast hidden"></div>
+    <script type="module" src="${assetHref(assets, 'voice-page.js')}"></script>
+  </body>
+</html>`;
+}
+
+/**
  * The page shell every not-found page in this file renders into.
  *
  * ONE shell rather than four near-copies, because the four are one message:

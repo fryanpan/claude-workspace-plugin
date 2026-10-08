@@ -180,6 +180,10 @@ If the clone is on a volume other than the boot disk, give the launchd copy of `
 
 HTTPS on a tailnet, which the microphone needs on any device other than the host, is in [tailnet-https.md](docs/process/tailnet-https.md). Also untested from a fresh clone.
 
+## Talk to an agent from the iPhone Action Button
+
+`/voice?agent=<agent id>` on the server's HTTPS address opens a page that talks to that agent: tap Talk, ask, and its answer is spoken back. Every question goes to the same agent until you tap another one in the list. The list shows the agents attached to your boards, and the ids are the ones `list_agents` prints. To put it on the Action Button, make a Shortcut with one Open URLs action holding that address, then choose it under Settings, Action Button, Shortcut. The page asks for the sign-in your board uses. If the Shortcut opens the page in Safari rather than the home-screen app, sign in there once. The page needs one tap on Talk after it opens, because a browser starts the microphone only after a tap. The Shortcut has not yet been tried on a device.
+
 ## How it works
 
 - **Push, not polling.** Comments, review answers and new tasks reach the agent as `<channel source="claude-workspaces" ...>` events through [Claude Code channels](https://code.claude.com/docs/en/channels).

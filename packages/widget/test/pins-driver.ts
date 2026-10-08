@@ -120,7 +120,10 @@ function buildWidget(dir: string): string {
     `import ${src('../src/widget.ts')};\n` +
       `import { createThread, setStatus } from ${src('../../core/src/schema.ts')};\n` +
       `import { createAnchor } from ${src('../../core/src/anchor/element.ts')};\n` +
-      'Object.assign(window, { __core: { createThread, setStatus, createAnchor } });\n',
+      'Object.assign(window, { __core: { createThread, setStatus, createAnchor } });\n' +
+      // The panel's list, as `mic.js` mounts it on every embed.
+      `import { mountPageList } from ${src('../src/widget-page-list.ts')};\n` +
+      `mountPageList(document.querySelector('${TAG}'));\n`,
   );
   const built = spawnSync('bun', ['build', entry, '--target=browser'], {
     encoding: 'utf8',

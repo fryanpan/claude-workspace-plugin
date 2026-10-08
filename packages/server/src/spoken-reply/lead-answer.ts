@@ -28,10 +28,11 @@ export const LEAD_MINUTE_MAX = 300;
 /** The route name a lead's answer carries on the page. */
 export const LEAD_ANSWER_ROUTE = 'lead-answer';
 
-type Say = (answer: SpokenAnswer) => void;
+/** `text` is the answer whole, before it was shaped for speech. */
+type Say = (answer: SpokenAnswer, text: string) => void;
 
 export class LeadAnswers {
-  private waiting = new Map<string, { say: Say; at: number; owner: object }>();
+  private waiting = new Map<string, { say: Say; at: number; owner: object; from?: string }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -39,10 +40,17 @@ export class LeadAnswers {
     return `${workspaceId}\0${queueId}`;
   }
 
-  /** `owner` waits for the answer to `queueId`; `say` is how it says it. */
-  wait(workspaceId: string, queueId: string, owner: object, say: Say): void {
+  /** `owner` waits for the answer to `queueId`; `say` is how it says it.
+   *  `from` names the one agent whose answer counts, for a turn addressed to
+   *  it (`agent-conversation.ts`); absent, any agent on the board may answer. */
+  wait(workspaceId: string, queueId: string, owner: object, say: Say, from?: string): void {
     this.prune();
-    this.waiting.set(this.key(workspaceId, queueId), { say, at: this.now(), owner });
+    this.waiting.set(this.key(workspaceId, queueId), {
+      say,
+      at: this.now(),
+      owner,
+      ...(from !== undefined ? { from } : {}),
+    });
   }
 
   /** The socket went: nothing it waited for can be said any more. */
@@ -53,18 +61,25 @@ export class LeadAnswers {
   /**
    * Say the lead's answer on the socket that asked, with its `minute` for a
    * meeting's notes when it gave one. False when no open socket
-   * is waiting for it — closed, expired, never asked from a spoken socket, or
-   * an id from another board.
+   * is waiting for it — closed, expired, never asked from a spoken socket, an
+   * id from another board, or a turn addressed to an agent other than `by`.
    */
-  answer(workspaceId: string, queueId: string, text: string, minute?: string): boolean {
+  answer(
+    workspaceId: string,
+    queueId: string,
+    text: string,
+    minute?: string,
+    by?: string,
+  ): boolean {
     this.prune();
     const key = this.key(workspaceId, queueId);
     const w = this.waiting.get(key);
     const words = text.trim().slice(0, LEAD_ANSWER_MAX);
     if (!w || !words) return false;
+    if (w.from !== undefined && w.from !== by) return false;
     this.waiting.delete(key);
     const kept = minute?.trim();
-    w.say({ ...shapedAnswer(words, LEAD_ANSWER_ROUTE), ...(kept ? { minute: kept } : {}) });
+    w.say({ ...shapedAnswer(words, LEAD_ANSWER_ROUTE), ...(kept ? { minute: kept } : {}) }, words);
     return true;
   }
 

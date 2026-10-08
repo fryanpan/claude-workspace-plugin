@@ -1,6 +1,4 @@
 import {
-  type Comment,
-  type ElementAnchor,
   type Thread,
   cssColor,
   escapeHtml as escape,
@@ -13,59 +11,35 @@ import {
 // anchors, their validator and the yjs position code they reach — about 1.8 KB
 // gzipped that no element pin reads. The build refuses a bundle holding them
 // (`scripts/bundle-guard.ts`).
-import { contextMatches } from '@claude-workspaces/core/anchor/context';
+import { contextMatches, samePage } from '@claude-workspaces/core/anchor/context';
 import { resolve as resolveElement } from '@claude-workspaces/core/anchor/element';
-// The receipt decision and the glyph, from the leaf module that holds them
-// rather than from the app's renderer: the widget is a guest bundle with a
-// gzip ceiling and cannot import `comment-view.ts`, but a second copy of
-// "what does a tick mean" is how two surfaces come to disagree. Deep path,
-// not the barrel — `comment-receipt.ts` imports nothing, so this drags in
-// nothing behind it.
-import { receiptHtml, receiptState } from '@claude-workspaces/core/comment-receipt';
 import { clipAudio, composerNote } from './widget-auth.ts';
+import { goTo } from './widget-goto.ts';
 import { IGNORE_ATTR } from './widget-picker.ts';
+import { receipt, threadSnippet } from './widget-thread-text.ts';
 import type { FeedbackWidgetEl } from './widget.ts';
 
 /**
  * Threads, pins and the popover — everything that renders a comment back onto
- * the page and into the panel.
+ * the page.
  *
- * Third and last of B7's extractions. `renderThreads` is the one entry point
- * the element's render loop calls; `positionPins` is the cheap
+ * Third and last of B7's extractions. `renderThreadsInto` is the one entry
+ * point the element's render loop calls; `positionPins` is the cheap
  * position-only path the scroll, resize and rAF handlers call. The rest is
  * reached from inside this file.
  *
- * `threadSnippet` and `capitalize` come along because nothing outside these
- * six functions ever read them.
+ * The panel's list of threads is not drawn here: it is `widget-page-list.ts`,
+ * in `mic.js`, which this render hands every thread it read through
+ * `listHook`. It moved out when it learned to sort by page and to take the
+ * reader to a thread, which the budgeted bundle had no bytes left to carry.
  */
 
-/**
- * The line a thread row shows above its latest comment.
- *
- * A subject anchor points at the PAGE rather than into it — `create_thread`
- * with no `find` makes one on any doc — so it names that instead of quoting
- * something. Without this the row would read a snippet that isn't there.
- */
-function threadSnippet(anchor: Thread['anchor']): string {
-  if (anchor.kind === 'orphan') return anchor.original.snippet.text;
-  if (anchor.kind === 'subject') return 'About this page';
-  return (anchor as ElementAnchor).snippet.text;
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/**
- * The delivery mark for a comment the reader wrote, as markup, or nothing.
- *
- * Both places the widget draws a comment call this, so neither can be given a
- * mark the other lacks — the failure the shared decision exists to stop. The
- * DECISION is core's; all that is here is where the markup goes.
- */
-function receipt(c: Comment | undefined, t: Thread, el: FeedbackWidgetEl): string {
-  const state = c ? receiptState(c, t.comments, el.user) : null;
-  return state ? receiptHtml(state) : '';
+/** One thread as the render read it, for the page list: whether it has a
+ *  spot (`orphan` when it has none on this page) and the element it is on. */
+export interface ThreadRow {
+  thread: Thread;
+  status: 'open' | 'resolved' | 'orphan';
+  el: HTMLElement | null;
 }
 
 export function renderThreadsInto(el: FeedbackWidgetEl): void {
@@ -76,11 +50,7 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
   const pinLayer = el.pinLayer;
   if (!pinLayer) return; // disconnectedCallback fired between schedule and render
   pinLayer.innerHTML = '';
-  const annotated: {
-    thread: Thread;
-    status: 'open' | 'resolved' | 'orphan';
-    el: HTMLElement | null;
-  }[] = [];
+  const annotated: ThreadRow[] = [];
   for (const t of threads) {
     // A subject thread has nothing on the page to pin, but the panel is the
     // one place it can ever appear — dropping it here is how a comment ends
@@ -100,17 +70,21 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
       annotated.push({ thread: t, status: 'orphan', el: null });
       continue;
     }
-    // Pin only when the anchor's captured context matches the current
-    // page / view. Legacy anchors with no context show everywhere
-    // (back-compat). Off-context threads still flow into the side
-    // panel via listThreads — they're just not overlaid on the doc.
-    if (!contextMatches(t.anchor.context, el.currentContext)) {
+    // Pinned when the anchor's captured context matches the current page /
+    // view, and dimmed when it was made on this page with other controls set
+    // (`samePage`): a tap on that pin puts the page back in that state.
+    // Legacy anchors with no context show everywhere (back-compat). Threads
+    // on other pages still reach the panel's list — just not the page.
+    const exact = contextMatches(t.anchor.context, el.currentContext);
+    if (!exact && !samePage(t.anchor.context, el.currentContext)) {
       annotated.push({ thread: t, status: statusBase, el: null });
       continue;
     }
     const res = resolveElement(t.anchor, { root: document });
     if (!res.ok) {
-      annotated.push({ thread: t, status: 'orphan', el: null });
+      // Only a thread made in this very state has lost its spot; one made in
+      // another may simply not be drawn in this one.
+      annotated.push({ thread: t, status: exact ? 'orphan' : statusBase, el: null });
       continue;
     }
     annotated.push({ thread: t, status: statusBase, el: res.element });
@@ -125,14 +99,17 @@ export function renderThreadsInto(el: FeedbackWidgetEl): void {
     pin.dataset.state =
       statusBase === 'resolved' ? statusBase : pendingDeclaration(t) ? 'review' : statusBase;
     pin.title = t.comments[0]?.text ?? 'open thread';
+    const url = t.anchor.context?.url;
+    if (!exact && url) pin.dataset.dim = '';
     pin.addEventListener('click', (ev) => {
-      showThreadPopover(el, t, ev.clientX, ev.clientY);
+      if (!exact && url) goTo(url, t.id);
+      else showThreadPopover(el, t, ev.clientX, ev.clientY);
     });
     pinLayer.appendChild(pin);
     el.threadPositions.set(t.id, { el: res.element, status: statusBase, at: t.anchor.at });
   }
   positionPins(el);
-  renderPanelList(el, annotated);
+  el.listHook?.(annotated, (t) => showThreadPopoverForThread(el, t));
 }
 
 /** Where a thread's pin goes, kept between frames while its element's size
@@ -219,9 +196,31 @@ export function positionPins(el: FeedbackWidgetEl): void {
       // The tapped point only on an element with words: words are what the
       // check keeps a pin off, and nothing tells it where an icon is drawn —
       // a pin at the tap on an icon button covered the icon.
+      // A canvas draws what was tapped — a map's spot — so its tap is the
+      // spot too, and pins put on one spot stand around it rather than at
+      // the canvas's corner, under the map's own controls.
       const at = pos.at;
-      if (pos.el.textContent?.trim() && at && at.x >= 0 && at.x <= 1 && at.y >= 0 && at.y <= 1) {
-        spots.unshift([at.x * r.width, at.y * r.height]);
+      const drawn = pos.el.tagName === 'CANVAS';
+      if (
+        (drawn || pos.el.textContent?.trim()) &&
+        at &&
+        at.x >= 0 &&
+        at.x <= 1 &&
+        at.y >= 0 &&
+        at.y <= 1
+      ) {
+        const [x, y] = [at.x * r.width, at.y * r.height];
+        spots.unshift(
+          [x, y],
+          ...(drawn
+            ? [
+                [x + 24, y],
+                [x - 24, y],
+                [x, y - 28],
+                [x, y + 28],
+              ]
+            : []),
+        );
       }
       let c = spots.find(([x, y]) => clear(r.left + x, r.top + y, placed));
       // More threads on it than spots: a row along its top, then rows under
@@ -247,87 +246,16 @@ export function positionPins(el: FeedbackWidgetEl): void {
   }
 }
 
-function renderPanelList(
-  el: FeedbackWidgetEl,
-  entries: { thread: Thread; status: 'open' | 'resolved' | 'orphan' }[],
-): void {
-  const list = el.shadow.querySelector('.panel-threads') as HTMLElement | null;
-  if (!list) return;
-  list.innerHTML = '';
-  const groups: Record<'open' | 'orphan' | 'resolved', typeof entries> = {
-    open: entries.filter((e) => e.status === 'open'),
-    orphan: entries.filter((e) => e.status === 'orphan'),
-    resolved: entries.filter((e) => e.status === 'resolved'),
-  };
-  if (entries.length === 0) {
-    const e = document.createElement('div');
-    e.className = 'empty';
-    e.textContent = 'No comments yet. Tap the bubble, then click anything on the page.';
-    list.appendChild(e);
+function showThreadPopoverForThread(el: FeedbackWidgetEl, t: Thread): void {
+  // Beside its pin, where it has one: a pin on a canvas stands at the spot
+  // tapped, and the canvas's corner can be the width of the page away.
+  const pos = el.threadPositions.get(t.id);
+  const s = pos?.spot;
+  if (pos && s) {
+    const r = pos.el.getBoundingClientRect();
+    showThreadPopover(el, t, r.left + (s[0] ?? 0), r.top + (s[1] ?? 0));
     return;
   }
-  for (const key of ['open', 'orphan'] as const) {
-    const group = groups[key];
-    if (!group.length) continue;
-    const h = document.createElement('div');
-    h.className = 'section-heading';
-    h.textContent = `${capitalize(key)} (${group.length})`;
-    list.appendChild(h);
-    for (const { thread, status } of group) {
-      list.appendChild(renderThreadRow(el, thread, status));
-    }
-  }
-  if (groups.resolved.length) {
-    const toggle = document.createElement('button');
-    toggle.className = 'resolved-toggle';
-    toggle.textContent = el.showResolved
-      ? `Hide resolved (${groups.resolved.length})`
-      : `Show resolved (${groups.resolved.length})`;
-    toggle.addEventListener('click', () => {
-      el.showResolved = !el.showResolved;
-      localStorage.setItem('cfw:showResolved', el.showResolved ? '1' : '0');
-      // Rerender to show or hide the resolved group and its pins
-      el.scheduleRender();
-    });
-    list.appendChild(toggle);
-    if (el.showResolved) {
-      for (const { thread, status } of groups.resolved) {
-        list.appendChild(renderThreadRow(el, thread, status));
-      }
-    }
-  }
-}
-
-function renderThreadRow(
-  el: FeedbackWidgetEl,
-  t: Thread,
-  status: 'open' | 'resolved' | 'orphan',
-): HTMLElement {
-  const row = document.createElement('div');
-  row.className = `thread status-${status}`;
-  if (el.activeThread === t.id) row.classList.add('active');
-
-  const snippet = threadSnippet(t.anchor);
-  const last = t.comments[t.comments.length - 1];
-  row.innerHTML =
-    '<div class="meta">' +
-    '<span class="dot"></span>' +
-    `<span class="author-name">${escape(t.createdBy.name)}</span>` +
-    `<span class="time">${formatTime(last?.ts ?? 0)}</span>` +
-    receipt(last, t, el) +
-    '</div>' +
-    `<div class="snippet">${escape(snippet)}</div>` +
-    `<div class="last">${escape(last?.text ?? '')}</div>`;
-  row.addEventListener('click', () => {
-    const pos = el.threadPositions.get(t.id);
-    if (pos?.el) pos.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.activeThread = t.id;
-    showThreadPopoverForThread(el, t);
-  });
-  return row;
-}
-
-function showThreadPopoverForThread(el: FeedbackWidgetEl, t: Thread): void {
   if (t.anchor.kind === 'element') {
     const res = resolveElement(t.anchor, { root: document });
     if (res.ok) {

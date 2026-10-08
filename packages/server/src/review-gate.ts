@@ -163,6 +163,7 @@ export interface ReviewGateContext {
     askedBy: string;
     url: string | undefined;
     key: string;
+    stops?: string;
   }) => void;
 }
 
@@ -226,6 +227,7 @@ export function createReviewGate(ctx: ReviewGateContext) {
       askedBy: author.name,
       url: reviewThreadLink(docId, threadId),
       key: `${docId}:${threadId}`,
+      ...(review.blocks ? { stops: review.blocks.what } : {}),
     });
   }
 
@@ -329,6 +331,7 @@ export function createReviewGate(ctx: ReviewGateContext) {
       askedBy: author.name,
       url: `${externalBaseUrl()}${taskDeepLink(task.workspaceId, task.id)}`,
       key: `${task.id}:${item.id}`,
+      ...(item.review.blocks ? { stops: item.review.blocks.what } : {}),
     });
   }
 

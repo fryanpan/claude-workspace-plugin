@@ -98,6 +98,7 @@ function makeHost(
   const host: LiveDocFanoutHost = {
     residentDocs: () => resident,
     editSessions: () => editSessions,
+    threadsOrphaned: () => {},
     sse: () => sse,
     webhooks: () => ({
       send: async (url, payload) => {

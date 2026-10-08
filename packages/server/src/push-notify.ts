@@ -14,6 +14,7 @@
  * lose the actual work to protect the announcement of it.
  */
 
+import { BLOCKS_LINE_PREFIX } from '@claude-workspaces/core/review-blocks';
 import { b64urlDecode, encryptPushPayload, vapidAuthorization } from './push-crypto.ts';
 import type { VapidKeys } from './push-crypto.ts';
 import type { PushStore, StoredSubscription } from './push-store.ts';
@@ -54,6 +55,8 @@ export interface ReviewNotificationInput {
   url: string;
   /** Stable per item, so a resend replaces. `taskId:reviewItemId` or `docId:threadId`. */
   key: string;
+  /** What work the ask stops, when its asker is idle until the answer. */
+  stops?: string;
   now?: number;
 }
 
@@ -70,6 +73,19 @@ export function reviewItemNotification(input: ReviewNotificationInput): ReviewNo
   const ask = clip(input.ask, TITLE_MAX);
   const context = clip(input.context, BODY_MAX);
   const by = clip(input.askedBy, 60);
+  // An ask that stops work leads with what is stopped: that is the reason to
+  // look now rather than later, and the question moves into the body.
+  if (input.stops !== undefined && input.stops.trim() !== '') {
+    const what = clip(`${BLOCKS_LINE_PREFIX}${input.stops}`, TITLE_MAX);
+    const about = clip(ask ? `${ask} · ${context}` : context, BODY_MAX);
+    return {
+      title: what,
+      body: by ? `${about} — from ${by}` : about,
+      url: input.url,
+      tag: input.key,
+      timestamp: input.now ?? Date.now(),
+    };
+  }
   return {
     // An empty ask is possible (a declaration whose headline did not survive
     // a projection); a notification titled "" is unreadable, so say something.

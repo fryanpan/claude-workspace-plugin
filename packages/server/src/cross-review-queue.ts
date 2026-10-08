@@ -27,7 +27,12 @@
  * there is no projection, and the row's answer route already delegates to
  * the decision path, so it stays and ranks where Home ranks the decision.
  */
-import { REVIEW_SIZES, type ReviewSize } from '@claude-workspaces/core';
+import {
+  REVIEW_SIZES,
+  type ReviewPayload,
+  type ReviewSize,
+  isBlockingAsk,
+} from '@claude-workspaces/core';
 import type { RankedProject } from './review-plan.ts';
 import type { SizedReviewItemRow } from './review-sizing.ts';
 import { LEGACY_REVIEW_ITEM_ID } from './tasks.ts';
@@ -275,6 +280,18 @@ export function applyLeadRanks(
     .map((item, index) => ({ item, index, rank: effective[index] ?? Number.POSITIVE_INFINITY }))
     .sort((a, b) => (a.rank === b.rank ? a.index - b.index : a.rank - b.rank))
     .map((r) => (Number.isFinite(r.rank) ? { ...r.item, leadRank: r.rank } : r.item));
+}
+
+/**
+ * Every item that STOPS work first, in the order it already had, then the
+ * rest — after the plan lead's ranks, so a ranked item never outranks an ask
+ * somebody is idle on (`review-blocks.ts`).
+ */
+export function blockingFirst<T extends { review?: ReviewPayload }>(items: T[]): T[] {
+  return [
+    ...items.filter((i) => isBlockingAsk(i.review)),
+    ...items.filter((i) => !isBlockingAsk(i.review)),
+  ];
 }
 
 /** How many of `items` are at or under each size — the per-level count a

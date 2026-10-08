@@ -18,6 +18,7 @@
  * every live board, and on a 5,722-doc corpus the first one after a boot
  * loaded 1,561 docs inside it, holding the loop for over half a second.
  */
+import { isBlockingAsk } from '@claude-workspaces/core/review-blocks';
 import { classifyActor } from './actor-identity.ts';
 import {
   type AskShape,
@@ -26,6 +27,7 @@ import {
   type CrossReviewQueue,
   applyLeadRanks,
   askShapeOf,
+  blockingFirst,
   crossReviewQueue,
 } from './cross-review-queue.ts';
 import type { DocStore } from './doc-store.ts';
@@ -94,6 +96,8 @@ export interface CrossReview {
     visibleAt: number;
     answeredAt: number;
     size: { minutes: number; size: AnswerRecord['size'] };
+    /** The item carried `blocks`. */
+    blocking?: boolean;
   }): Promise<AnswerRecord | null>;
   dispose(): void;
 }
@@ -189,7 +193,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     }
     const q = crossReviewQueue(inputs);
     const { leadRank, leadGoal } = ctx;
-    const ranked = leadRank ? applyLeadRanks(q.items, leadRank) : q.items;
+    const ranked = blockingFirst(leadRank ? applyLeadRanks(q.items, leadRank) : q.items);
     const items = leadGoal
       ? ranked.map((item) => {
           const goalTag = leadGoal(item);
@@ -240,6 +244,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
       minutes: args.size.minutes,
       ...measured,
       ...(q.planWorkspaceId ? { planWorkspaceId: q.planWorkspaceId } : {}),
+      ...(args.blocking ? { blocking: true as const } : {}),
     };
     ledger.append(record);
     return record;
@@ -281,6 +286,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
         visibleAt: visibleAtOf(item.createdAt, item.judge, item.revisions?.[0]?.at),
         answeredAt: event.ts,
         size: ctx.sizer.one({ review: item.review, ask: item.review.headline }),
+        blocking: isBlockingAsk(item.review),
       });
     });
   });
@@ -329,6 +335,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
         visibleAt: visibleAtOf(comment.ts, review.judge, review.revisions?.[0]?.at),
         answeredAt: event.ts,
         size: ctx.sizer.one({ review, ask: review.headline }),
+        blocking: isBlockingAsk(review),
       });
     });
   });

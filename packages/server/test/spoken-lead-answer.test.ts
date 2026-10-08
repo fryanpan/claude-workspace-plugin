@@ -61,6 +61,16 @@ describe('LeadAnswers', () => {
     expect(leads.answer('w1', 'q3', 'Too late.')).toBe(false);
     expect(said).toHaveLength(0);
   });
+
+  it('a turn addressed to one agent takes only that agent’s answer', () => {
+    const leads = new LeadAnswers();
+    const said: SpokenAnswer[] = [];
+    leads.wait('w1', 'q1', {}, (x) => said.push(x), 'riverbend');
+    expect(leads.answer('w1', 'q1', 'Not mine.', undefined, 'harborlight')).toBe(false);
+    expect(leads.answer('w1', 'q1', 'Not signed.')).toBe(false);
+    expect(leads.answer('w1', 'q1', 'Mine.', undefined, 'riverbend')).toBe(true);
+    expect(said.map((s) => s.spoken)).toEqual(['Mine.']);
+  });
 });
 
 const PERSON = { id: 'known-alice', name: 'Alice', kind: 'known', color: '#2e7dd7' };

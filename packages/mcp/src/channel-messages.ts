@@ -33,6 +33,7 @@ import {
   readsThisReviewItemEvent,
   reviewItemTaskLine,
 } from './review-item-line.ts';
+import { type ReviewItemStalePayload, reviewItemStaleLine } from './review-stale-line.ts';
 import { scheduledRunLine, spawnRequestedLine } from './scheduled-line.ts';
 import { isSelfAuthoredEvent } from './self-authored.ts';
 import { voiceRequestLine } from './voice-line.ts';
@@ -396,6 +397,11 @@ async function emitBoardChannelMessage(
     // the one who says it is ready, so the line names the call that does.
     case 'workspace.done_when_ready':
       body = doneWhenReadyLine(p);
+      break;
+    // One of THIS agent's open asks stopped applying — sent once, at the
+    // moment it did, with the call that retires it.
+    case 'workspace.review_item_stale':
+      body = reviewItemStaleLine(rawPayload as ReviewItemStalePayload);
       break;
     // An attached app's dev server stopped answering, once per outage and
     // addressed to whoever can start it again.

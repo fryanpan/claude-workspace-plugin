@@ -44,6 +44,7 @@ import type { FeedbackWs, LiveDoc, ShareAuthorizedSocket } from './doc-store.ts'
 import { type EditSessionTracker, noteEditTransaction } from './edit-sessions.ts';
 import { newEventId } from './event-id.ts';
 import { isPrivateMetaKey } from './private-meta.ts';
+import { newlyOrphaned, orphanedThreadIds } from './review-stale-notify.ts';
 import type { SseBus } from './sse.ts';
 import type { ThreadSummarizer } from './summarize.ts';
 import type { WebhookDispatcher } from './webhooks.ts';
@@ -224,6 +225,8 @@ export interface LiveDocFanoutHost {
   maybeRebindHome(doc: LiveDoc): void;
   /** Where a body edit is folded into its author's edit session. */
   editSessions(): EditSessionTracker;
+  /** Threads an edit's re-anchor sweep has just orphaned. */
+  threadsOrphaned(docId: string, threadIds: string[]): void;
 }
 
 /**
@@ -238,6 +241,12 @@ export class LiveDocFanout {
   private awarenessTicker: ReturnType<typeof setInterval> | null = null;
 
   constructor(private host: LiveDocFanoutHost) {}
+
+  /** Name the threads an edit's sweep newly orphaned (`review-stale-notify.ts`). */
+  private reportOrphaned(doc: LiveDoc, before: Set<string>): void {
+    const fresh = newlyOrphaned(before, orphanedThreadIds(doc.ydoc));
+    if (fresh.length > 0) this.host.threadsOrphaned(doc.docId, fresh);
+  }
 
   /** DocStore holding presence, and the ticker count `DocStore.stats` folds in. */
   stats(): { awareness: number; timers: number } {
@@ -736,7 +745,9 @@ export class LiveDocFanout {
         if (tr.origin === 'agent-reanchor') return;
         if (codeReanchorTimer) clearTimeout(codeReanchorTimer);
         codeReanchorTimer = setTimeout(() => {
+          const before = orphanedThreadIds(doc.ydoc);
           const res = prose.autoReanchorCodeDoc(doc.ydoc);
+          this.reportOrphaned(doc, before);
           if (res.reanchored > 0 || res.stillOrphan > 0) {
             console.log(
               `[doc-store] ${doc.docId}: code re-anchor — ${res.reanchored} fixed, ${res.stillOrphan} orphaned`,
@@ -779,7 +790,9 @@ export class LiveDocFanout {
       if (tr.origin === 'agent-reanchor') return;
       if (reanchorTimer) clearTimeout(reanchorTimer);
       reanchorTimer = setTimeout(() => {
+        const before = orphanedThreadIds(doc.ydoc);
         const res = prose.autoReanchorDoc(doc.ydoc);
+        this.reportOrphaned(doc, before);
         if (res.reanchored > 0) {
           console.log(`[doc-store] ${doc.docId}: auto-reanchored ${res.reanchored} thread(s)`);
         }

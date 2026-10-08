@@ -1,3 +1,4 @@
+import { readReviewBlocks } from './review-blocks.ts';
 import { applySecretShape } from './review-item-secret-wire.ts';
 import type {
   ReviewAnswerUndone,
@@ -193,6 +194,8 @@ export function readReviewPayload(value: unknown): ReviewPayload | undefined {
   // nothing by them. Anything else reads as absent, which is the open state —
   // safe because the flag's absence is what every item filed before it had.
   if (value.ownerOnly === true) out.ownerOnly = true;
+  const blocks = readReviewBlocks(value.blocks);
+  if (blocks) out.blocks = blocks;
   if (typeof value.answeredWith === 'string') out.answeredWith = value.answeredWith;
   // Read back defensively like the rest: a peer could sync anything here, and
   // an item whose answer stamp arrived as a string must not read as answered

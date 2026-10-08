@@ -184,3 +184,38 @@ describe('voiceRequestLine', () => {
     });
   });
 });
+
+describe('a turn addressed to this agent alone (to: set)', () => {
+  const turn = {
+    route: 'agent',
+    to: 'harborlight-lead',
+    transcript: 'and the return trip',
+    ack: 'Sent to Harborlight Lead.',
+    actor: { id: 'owner', name: 'Alice' },
+    workspaceId: 'w-1',
+    queueId: 'vt-2',
+    conversationId: 'vt-0',
+    conversation: [
+      { from: 'owner', text: 'how far is Saltmarsh' },
+      { from: 'agent', text: 'Twelve miles.' },
+    ],
+  };
+
+  it('names the answer_voice call that is said aloud on the asking page', () => {
+    expect(voiceRequestLine(turn)).toContain(
+      'answer_voice(workspaceId="w-1", queueId="vt-2", text)',
+    );
+  });
+
+  it('carries the turns before it, the agent’s own as "You"', () => {
+    const line = voiceRequestLine(turn) as string;
+    expect(line).toContain('Alice: how far is Saltmarsh\nYou: Twelve miles.');
+    expect(line).not.toContain('act on it through');
+  });
+
+  it('a queued turn reads the same, and a first turn has no history', () => {
+    const line = voiceRequestLine({ ...turn, route: 'agent-queued', conversation: [] }) as string;
+    expect(line).toContain('said to you by voice');
+    expect(line).not.toContain('Earlier in this conversation');
+  });
+});

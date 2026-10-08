@@ -452,3 +452,23 @@ describe('no face of the card names its kind — not even the open one', () => {
     expect(item?.querySelector('.thread-item-meta')?.textContent).toMatch(/Asked/);
   });
 });
+
+describe('an ask its asker settled reads as no longer asked', () => {
+  it('keeps the ask readable, says why, and offers no answer field', () => {
+    const ask = comment('Keep the Riverbend button?', question());
+    const settled = comment('I removed the Riverbend button, so this is no longer needed.');
+    const { card } = renderVia(thread([ask, settled]));
+    expect(card.querySelector('.thread-no-longer-asked')?.textContent).toBe(
+      'No longer asked: its asker said this was settled.',
+    );
+    expect(foldedText(card)).toContain('Should the strip stay after the meeting ends?');
+    expect(card.querySelector('.thread-answer-field')).toBe(null);
+  });
+
+  it('is still a live ask when somebody else says the words (positive control)', () => {
+    const ask = comment('Keep the Riverbend button?', question());
+    const other = comment('I removed the Riverbend button.', undefined, bryan);
+    const { card } = renderVia(thread([ask, other]));
+    expect(card.querySelector('.thread-no-longer-asked')).toBe(null);
+  });
+});

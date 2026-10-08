@@ -69,6 +69,12 @@ export interface ReviewOption {
   /** Up to 50 words of markdown — what picking this one costs. */
   detail?: string;
 }
+
+/** What an unanswered item is holding up — see `ReviewPayload.blocks`. */
+export interface ReviewBlocks {
+  what: string;
+  hours?: number;
+}
 /**
  * The payload an agent attaches to a comment.
  *
@@ -130,6 +136,14 @@ export interface ReviewPayload {
    * route refuses it, and ownerOnly is forced true on read.
    */
   allowRules?: string[];
+  /**
+   * The work that is STOPPED until this is answered — set by an asker that
+   * sits idle until the reply. Such an open item sorts above every other on
+   * Home, under the one line "Stopped until you answer: <what>", and its push
+   * says so. `hours` is how long the asker expects to stay stopped, when it
+   * can say. Read by `review-blocks.ts`, which drops a malformed value.
+   */
+  blocks?: ReviewBlocks;
   /**
    * Only the BOARD'S OWNER may answer this one. Absent — which is every item
    * filed so far — means anybody on the board may.

@@ -62,6 +62,7 @@ export {
 export type {
   DecisionTaskLike,
   ReviewAnswerUndone,
+  ReviewBlocks,
   ReviewInfoRequest,
   ReviewItemAnswer,
   ReviewItemJudgement,

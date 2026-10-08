@@ -14,7 +14,7 @@ import {
 } from '@claude-workspaces/core';
 import { createAccessDeps } from './access-deps.ts';
 import { releaseActivityLock } from './activity-lock.ts';
-import { isOwnerActor, ownerIdentityIds } from './actor-identity.ts';
+import { isOwnerActor, ownerDisplayNames, ownerIdentityIds } from './actor-identity.ts';
 import { AgentNoteLog } from './agent-note-log.ts';
 import { AgentNoteRing } from './agent-notes.ts';
 import { AgentWatches } from './agent-watches.ts';
@@ -112,6 +112,7 @@ import { unreachableCallbackReason } from './recall.ts';
 import { scanSettledDocRefs } from './refs-backfill.ts';
 import { createOriginPolicy, createRequestAdmission } from './request-admission.ts';
 import { createRequestAttribution } from './request-attribution.ts';
+import { BLOCKING_WAIT_WINDOW_MS, blockingWait } from './review-answer-ledger.ts';
 import {
   listArchivedReviews,
   readArchiveManifest,
@@ -123,6 +124,7 @@ import { gateOwnerItems } from './review-items/done-when-owner.ts';
 import type { ReviewThreadItem } from './review-queue.ts';
 import { ReviewSizePrefs } from './review-size-prefs.ts';
 import type { SizedReviewItemRow } from './review-sizing.ts';
+import { createStaleAskNotifier } from './review-stale-notify.ts';
 import {
   type AgentIdentityRoutesContext,
   handleAgentIdentityRoutes,
@@ -177,6 +179,8 @@ import {
   type VoiceAgentLlmRoutesContext,
   handleVoiceAgentLlmRoute,
 } from './routes/voice-agent-llm.ts';
+import { type VoiceApiRoutesContext, handleVoiceApiRoutes } from './routes/voice-api.ts';
+import { type VoicePageRoutesContext, handleVoicePageRoutes } from './routes/voice-page.ts';
 import {
   type LibraryRoutesContext,
   handleLibraryRoutes,
@@ -200,6 +204,7 @@ import { SharingGate } from './share/sharing-gate.ts';
 import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './sharing-notice.ts';
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
+import { agentLine } from './spoken-reply/agent-conversation.ts';
 import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import type { SpokenBoard } from './spoken-reply/answer.ts';
 import { interviewDocs } from './spoken-reply/interview-docs.ts';
@@ -213,6 +218,7 @@ import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
 import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
 import { createStallWiring } from './stall-wiring.ts';
+import { cryptoId } from './task-fields.ts';
 import { isReservedGoalId } from './task-goals.ts';
 import { TaskProjection, taskBodyDocId } from './task-projection.ts';
 import { type RunOutputSource, observeRunOutput } from './task-run-output.ts';
@@ -228,6 +234,10 @@ import {
 import { ThreadRequestDedup } from './thread-request-dedup.ts';
 import type { TranscriptionEngine } from './transcribe.ts';
 import { UptimeMonitor } from './uptime.ts';
+import { voiceAgentList } from './voice-agent-list.ts';
+import { workspacesVoiceAgents } from './voice-api/backend.ts';
+import { VoiceChat } from './voice-api/chat.ts';
+import { VoiceApiTokens, voiceApiTokenKey, voiceTokensPath } from './voice-api/tokens.ts';
 import { routerClassifier } from './voice-choice.ts';
 import { VoiceFeedbackRelay } from './voice-feedback-relay.ts';
 import { meetingContext } from './voice-meeting-context.ts';
@@ -259,6 +269,7 @@ import {
   renderBoardShell,
   renderReviewsShell,
   renderSigninShell,
+  renderVoiceShell,
   serveStaticUnder,
 } from './shells.ts';
 import { taskIdOfBodyDoc } from './task-row.ts';
@@ -1733,8 +1744,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     },
     ...(opts.voiceComplete ? { explain: opts.voiceComplete } : {}),
   };
+  // A turn for one named agent: its own row and its own streams, never a
+  // broadcast (`spoken-reply/agent-conversation.ts`). The converse socket
+  // and the voice API (`voice-api/`) both speak through it.
+  const voiceAgentLine = agentLine({
+    listAttachments: (workspaceId) => taskStore.listAttachments(workspaceId),
+    displayName: (agentId) => identities.displayNameFor(agentId) ?? undefined,
+    queueComment: (workspaceId, item) => taskStore.queueComment(workspaceId, item),
+    markCommentEmitted: (workspaceId, id) => taskStore.markCommentEmitted(workspaceId, id),
+    sendToAgent: (workspaceId, agentId, frame) =>
+      sse.sendToAgent(`ws~${workspaceId}`, agentId, frame),
+  });
   const spokenRelay = new SpokenReplyRelay({
     leads: leadAnswers,
+    agentLine: voiceAgentLine,
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
     board: spokenBoard,
     timings: spokenTimings,
@@ -2048,6 +2071,25 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     announceReviewItem,
   });
 
+  // An open ask that stopped applying is dropped from the queue by reading
+  // its thread; its asker is told once, at the moment it stopped. See
+  // review-stale-notify.ts.
+  const staleAsks = createStaleAskNotifier({
+    thread: (docId, threadId) => docStore.getThread(docId, threadId),
+    workspaceOf: resolveWorkspaceForDoc,
+    titleOf: (docId) => {
+      const task = docId.startsWith('task:')
+        ? taskStore.getTask(docId.slice('task:'.length))
+        : undefined;
+      return task?.title ?? docStore.peekMeta(docId)?.title;
+    },
+    sendToAgent: (channel, agentId, frame) => {
+      sse.sendToAgent(channel, agentId, { ...frame });
+    },
+  });
+  const offStaleComment = docStore.onCommentPosted(staleAsks.onCommentPosted);
+  const offStaleOrphan = docStore.onThreadsOrphaned(staleAsks.onThreadsOrphaned);
+
   /**
    * File every attachment set that predates `fileUnderBoardWorkspace` onto a
    * workspace, once per boot and never twice. See attachment-backfill.ts for
@@ -2334,6 +2376,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // at the same claim.
     notesQualityRollup: () =>
       rollupNotesQuality(dataDir, { now: Date.now(), windowMs: NOTES_QUALITY_WINDOW_MS }),
+    // A week of blocking answers off the ledger, per request like the above.
+    blockingWait: () => {
+      const now = Date.now();
+      return blockingWait(crossReview.ledger.read(now - BLOCKING_WAIT_WINDOW_MS), now);
+    },
     // The OTHER claim `GET /api/deploy` answers: not "did the last deploy
     // come up" but "is this process bound and discoverable, now". Both halves
     // are read per request — `Bun.serve` has not returned when this object is
@@ -2377,6 +2424,44 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     pageHeaders: HTML_SHELL_HEADERS,
     j,
     safeJson,
+  };
+
+  /** The voice page and its agent list — the owner's alone (routes/voice-page.ts). */
+  const ownerVoiceAgents = () =>
+    voiceAgentList({
+      boards: () =>
+        taskStore
+          .listWorkspaces()
+          .filter((w) => !isRetired(w))
+          .map((w) => ({
+            id: w.id,
+            name: w.name,
+            ...(w.leadAgentId ? { leadAgentId: w.leadAgentId } : {}),
+          })),
+      attachments: (ws) => taskStore.listAttachments(ws),
+      displayName: (id) => identities.displayNameFor(id) ?? undefined,
+    });
+  const voicePageRoutesCtx: VoicePageRoutesContext = {
+    agents: ownerVoiceAgents,
+    renderPage: () => renderVoiceShell(browserSentry, readAppAssetManifest(markdownAppDist)),
+    pageHeaders: HTML_SHELL_HEADERS,
+    j,
+  };
+  /** The voice conversation API: OpenAI chat over a voice token (routes/voice-api.ts). */
+  const voiceApiRoutesCtx: VoiceApiRoutesContext = {
+    chat: new VoiceChat(
+      workspacesVoiceAgents({
+        boards: ownerVoiceAgents,
+        line: voiceAgentLine,
+        leads: leadAnswers,
+        newId: () => cryptoId('vt'),
+      }),
+    ),
+    tokens: new VoiceApiTokens(voiceTokensPath(dataDir), () => voiceApiTokenKey(cookieKey())),
+    speakerName: (subject) =>
+      identities.displayNameFor(subject) ?? ownerDisplayNames()[0] ?? 'The owner',
+    mintSubject: () => ownerIdentityIds()[0] ?? 'owner',
+    j,
   };
 
   /**
@@ -3682,6 +3767,38 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         if (handled) return handled;
       }
 
+      // --- Page + REST: the voice page --- see ./routes/voice-page.ts.
+      // Top-level for the review queue's reason; claims `/voice` and
+      // `/api/voice/agents` alone, which nothing above answers.
+      {
+        const handled = handleVoicePageRoutes(voicePageRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          anyoneProven: () => provenIdentityFor() !== null,
+          mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
+        });
+        if (handled) return handled;
+      }
+
+      // --- REST: the voice conversation API --- see ./routes/voice-api.ts.
+      // Claims `/v1/models`, `/v1/chat/completions` and `/api/voice/tokens`
+      // alone; nothing above answers them.
+      {
+        const handled = await handleVoiceApiRoutes(voiceApiRoutesCtx, {
+          req,
+          pathname,
+          visitor,
+          ownerProven: () => ownerProven(),
+          anyoneProven: () => provenIdentityFor() !== null,
+          mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
+          requestOrigin: () => policyFor(req).requestOrigin,
+          viaTunnel: () => req.headers.has('cf-ray'),
+        });
+        if (handled) return handled;
+      }
+
       // --- REST: Incoming Messages --- see ./routes/inbox.ts. Top-level
       // for the review queue's reason: messages are the owner's, not a
       // board's. Claims `/inbox/` alone, which nothing above answers.
@@ -4183,6 +4300,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // because the close handlers above start their teardowns async, and
       // their notes belong in the docs this flushes next.
       crossReview.dispose();
+      offStaleComment();
+      offStaleOrphan();
       leadRanks.stop();
       await meetingRelay.dispose();
       await voiceRelay.dispose();

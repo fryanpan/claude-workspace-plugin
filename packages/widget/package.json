@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/widget.ts",
     "./mic": "./src/widget-mic.ts",
+    "./page-list": "./src/widget-page-list.ts",
     "./voice": "./src/voice/voice-mode.ts",
     "./voice-session": "./src/voice/voice-session.ts",
     "./voice-audio": "./src/voice/voice-audio.ts",

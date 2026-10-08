@@ -577,6 +577,33 @@ items ride the doc record the page already reads — `linkedItems` on
 adds no fetch. The bar's measured height is `--doc-dock-h`, which `doc.css`
 takes out of `#shell` and adds to the composer, toast and phone comment sheet.
 
+**A thread's ask is answerable in that thread's popover.** When an agent
+answers a reader's comment with a review item, the popover the reader opens
+shows the item: its latest round, the detail with its links, a button per
+option or a question's answer box, and how it was answered once it was.
+`widget-ask.ts` is a top-level widget module, but it ships in `mic.js` and
+`mockup-live.js`, not in the budgeted bundle. Its source of truth is core's
+`threadAsk`, which `dockItems` now also calls, and it reuses core's
+`wireAnswer`, so the two places that answer an item cannot disagree. It reads
+the raw thread map, as `edit/edit-suggest.ts` does, so the chunk carries no
+Yjs. The budgeted bundle's only addition is a `data-thread-id` on each panel
+row, which the module uses to mark rows that have an open ask. No new route:
+the answer goes to `…/threads/:id/answer`, which a mock frame's relay already
+allows for this doc alone.
+
+**The widget's panel lists the threads on the page the reader is on.**
+`widget-page-list.ts` draws the list, this page's threads newest first, then
+the ones with no spot left, then other pages. A tap on a row takes the reader
+to the thread's page state and shows its spot. Like `widget-ask.ts`, it ships
+in `mic.js` and `mockup-live.js`, and the board mounts it beside its mic. The
+budgeted bundle no longer draws a list. Each render hands the threads it read
+to the element's `listHook`. A pin now matches on the path
+(`samePage` in `core/anchor/context.ts`), and a thread made with other query
+controls set gets a dimmed pin. Tapping it loads that address through
+`widget-goto.ts`, which leaves the thread's id in session storage for the next
+render to show. `widget-thread-text.ts` holds the snippet and receipt markup
+that the popover and the list share. No new route and no new fetch.
+
 **A comment that never reached the server says so, on the comment.** Every
 composer on every surface already handed the words back when a post was
 refused; none of them left anything standing to say why, so a box holding your
@@ -758,6 +785,22 @@ Undo already use. The request is built in `core/spoken-review.ts` (a new
 top-level core module), so the card and the voice queue share one builder. A
 ticket's review item gained the undo it lacked:
 `routes/task-review-answer-undo.ts` over `review-items/undo-answer.ts`.
+
+**Talking to one agent by name.** A `start` that names an agent id sends
+every turn to that agent instead of the router: `spoken-reply/agent-conversation.ts`
+checks the id against the socket's board, writes a row on that agent's
+addressed comment queue (so an absent agent hears it at its next attach) and
+sends the frame on that agent's streams alone, and `lead-answer.ts` says only
+that agent's `answer_voice` aloud. Each turn carries the conversation so far
+until the page names another agent. The page for it is `/voice?agent=<id>`
+(`routes/voice-page.ts`, the owner's alone): `voice-agent-list.ts` (a new
+top-level server module) lists the agents on every live board, and
+`workspaces-app/src/voice-page/` mounts the board's spoken reply aimed at the
+chosen one. Every other client talks through `voice-api/` (a new top-level
+server directory, routed by `routes/voice-api.ts`): the OpenAI chat format,
+one model per agent, a voice token of its own, and the same addressed row
+and `answer_voice` wait underneath. Its contract is
+[voice-conversation-api](voice-conversation-api.md).
 
 **The planning voice** rides the same socket, and is always on in a doc:
 nobody says "interview me" any more (it still works). The doc's Talk button
@@ -1638,15 +1681,31 @@ not state — is checked on the server before the hold is sent, while the
 derived note a card draws from a stored verdict is read in the browser. One
 definition, two readers, no boundary moved.
 
-`review-refusal.ts` sits beside it: the four fleet rules that answer an ask
+`review-refusal.ts` sits beside it: the five fleet rules that answer an ask
 outright (spend of $50 or less, a push or merge the ship method already
-consents to, a reversible implementation choice, a fact the agent can read),
+consents to, a reversible implementation choice, a fact the agent can read,
+a decision whose options only re-ask whether to do work the reader already
+requested),
 the block of the judge's prompt that teaches them, and the one fixed sentence
 per rule a refused filer is told. The judge's prompt reads it, the gate
 records a refusal under its rule name, and the stored verdict is read back on
 both sides. `review-judge-sentence.ts` is the judge reason's one-sentence clip,
 moved out of `review-judge-prompt.ts` to keep that file under the line limit.
 Neither moves a boundary.
+
+`review-blocks.ts` and `review-stale.ts` (core) join the same contract, and
+`review-stale-notify.ts` joins the server's Board group; none moves a
+boundary. `review-blocks.ts` reads a payload's `blocks` field — the asker
+is idle until the answer — which sorts the item first on Home, gives its
+row and its one push the "Stopped until you answer" line, and marks its
+answer `blocking` in the answer ledger, whose week `GET /api/metrics`
+reports as `blockingWait`. `review-stale.ts` decides from the thread alone
+that an open ask stopped applying (its anchor orphaned, or the asker's own
+later reply settled it), so `review-queue.ts` drops it and the thread card
+marks it, with nothing written. `review-stale-notify.ts` is the one half that
+cannot be a read: it listens for the posted comment and the edit-triggered
+re-anchor sweep that make an ask stale, and sends its asker one addressed
+`workspace.review_item_stale` frame carrying the withdraw call.
 
 `secret-name.ts` joins that third tier for the same reason, with the two
 readers furthest apart in this repo: the server's writer spells the stored

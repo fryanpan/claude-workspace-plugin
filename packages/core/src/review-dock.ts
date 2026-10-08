@@ -89,6 +89,33 @@ export interface DockRound {
 }
 
 /**
+ * A thread's ask as an item, or null when it has none a reader can act on or
+ * read as settled: a resolved thread, a HELD item (filed, and off the reader's
+ * queue until its filer revises it), a WITHDRAWN one. The standing ask is the
+ * newest declaration nobody took back; once answered it is still returned, so
+ * the answer shows where it was given. Owner-only asks are returned too — each
+ * caller decides whether its reader may see one.
+ */
+export function threadAsk(t: Thread): DockItem | null {
+  if (t.status !== 'open') return null;
+  const declaring =
+    pendingDeclaration(t) ??
+    [...(t.comments ?? [])]
+      .sort((a, b) => a.ts - b.ts)
+      .reverse()
+      .find((c) => c.review !== undefined && !reviewWithdrawn(c.review));
+  if (!declaring?.review || isReviewPayloadGated(declaring.review)) return null;
+  return {
+    threadId: t.id,
+    commentId: declaring.id,
+    review: declaring.review,
+    by: declaring.author.name,
+    ts: declaring.ts,
+    answered: reviewAnswered(declaring.review),
+  };
+}
+
+/**
  * The asks a page can dock, newest declaration first, open ones before
  * answered ones.
  *
@@ -108,18 +135,7 @@ export function dockItems(threads: Thread[], linked: DockItem[] = []): DockItem[
   // the server; the owner-only rule below is still the dock's own to apply.
   const items = linked.filter((i) => !i.review.ownerOnly);
   for (const t of threads) {
-    if (t.status !== 'open') continue;
-    // The standing ask, if there is one — the newest non-withdrawn
-    // declaration, and null once it is answered.
-    const open = pendingDeclaration(t);
-    const declaring =
-      open ??
-      [...(t.comments ?? [])]
-        .sort((a, b) => a.ts - b.ts)
-        .reverse()
-        .find((c) => c.review !== undefined && !reviewWithdrawn(c.review));
-    if (!declaring?.review) continue;
-    if (isReviewPayloadGated(declaring.review)) continue;
+    const item = threadAsk(t);
     // An OWNER-ONLY ask never docks. The widget is a guest on somebody else's
     // page: whoever can open that page sees this bar, and an owner-only item
     // is one the board itself will not show a member and will not let anyone
@@ -128,15 +144,7 @@ export function dockItems(threads: Thread[], linked: DockItem[] = []): DockItem[
     // and the refusal would arrive as a failed POST rather than as a door
     // that was never there. The board's own queue makes the same call from
     // the same flag, so the two surfaces cannot disagree about who is asked.
-    if (declaring.review.ownerOnly) continue;
-    items.push({
-      threadId: t.id,
-      commentId: declaring.id,
-      review: declaring.review,
-      by: declaring.author.name,
-      ts: declaring.ts,
-      answered: reviewAnswered(declaring.review),
-    });
+    if (item && !item.review.ownerOnly) items.push(item);
   }
   return items.sort(
     (a, b) =>
@@ -184,7 +192,7 @@ function roundsHtml(rounds: DockRound[]): string {
   return `${history}<div class="cw-round cw-round-now">${one(now)}</div>`;
 }
 
-function answerHtml(item: DockItem): string {
+export function answerHtml(item: DockItem): string {
   if (item.answered) {
     const said = item.review.answerText ?? '';
     return `<div class="cw-modal-answered"><b>Answered</b>${
@@ -258,7 +266,7 @@ export function dockLinkHref(url: string): string | null {
  * opens at the top level (the widget's page may be framed); an outside one in
  * a new tab.
  */
-function linkInto(el: Element): void {
+export function linkInto(el: Element): void {
   const text = el.textContent ?? '';
   const doc = el.ownerDocument;
   const parts: Node[] = [];
@@ -293,12 +301,27 @@ export function wireDockSheet(
   scrim: HTMLElement,
   opts: { send: (text: string, optionId?: string) => Promise<boolean>; onAnswered: () => void },
 ): void {
-  for (const body of Array.from(scrim.querySelectorAll('.cw-round-body'))) linkInto(body);
   const close = (): void => scrim.remove();
   scrim.addEventListener('click', (ev) => {
     if (ev.target === scrim) close();
   });
   scrim.querySelector('.cw-modal-close')?.addEventListener('click', close);
+  wireAnswer(scrim, opts, close);
+}
+
+/**
+ * The answering half of an ask's markup, wherever it is drawn — the dock's
+ * sheet above, or a thread's popover (`widget/src/widget-ask.ts`): its inline
+ * links, its options and its send button, one answer at a time, and the
+ * refusal said in place. `close`, then `onAnswered`, run only once `send`
+ * says it landed.
+ */
+export function wireAnswer(
+  scrim: HTMLElement,
+  opts: { send: (text: string, optionId?: string) => Promise<boolean>; onAnswered: () => void },
+  close?: () => void,
+): void {
+  for (const body of Array.from(scrim.querySelectorAll('.cw-round-body'))) linkInto(body);
   const err = scrim.querySelector('.cw-answer-err') as HTMLElement | null;
   const reason = (): string =>
     (scrim.querySelector('.cw-answer-text') as HTMLTextAreaElement | null)?.value.trim() ?? '';
@@ -318,7 +341,7 @@ export function wireDockSheet(
       }
       return;
     }
-    close();
+    close?.();
     opts.onAnswered();
   };
   for (const b of Array.from(scrim.querySelectorAll('.cw-answer-opt'))) {
