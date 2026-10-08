@@ -90,6 +90,8 @@ export async function mountVoiceConnect(
   let rows = first;
   let shown: string | null = null;
   let confirming: string | null = null;
+  /** Bumped on every close, so a mint that lands after one is not shown. */
+  let opening = 0;
   const url = `${deps.origin}/v1`;
 
   const opener = el('button', 'voice-connect-open', 'Connect an app');
@@ -202,6 +204,7 @@ export async function mountVoiceConnect(
     void refresh();
   };
   const shut = (): void => {
+    opening++;
     panel.hidden = true;
     confirming = null;
     forget();
@@ -221,13 +224,21 @@ export async function mountVoiceConnect(
     ev.preventDefault();
     forget();
     mintBtn.disabled = true;
+    const mine = opening;
     void post('/api/voice/tokens', { label: label.value.trim() }).then(async (res) => {
       mintBtn.disabled = false;
       if (!res || res.status !== 201) {
         tokenNote.textContent = 'The token could not be made. Try again.';
         return;
       }
-      shown = ((await res.json()) as { token?: string }).token ?? null;
+      const minted = (await res.json()) as { id?: string; token?: string };
+      if (mine !== opening) {
+        // Closed before it landed: nobody saw the value, so nobody can use
+        // it. Revoke it rather than leave a token standing that no app holds.
+        if (minted.id) void post(`/api/voice/tokens/${encodeURIComponent(minted.id)}/revoke`, {});
+        return;
+      }
+      shown = minted.token ?? null;
       label.value = '';
       renderToken();
       await refresh();

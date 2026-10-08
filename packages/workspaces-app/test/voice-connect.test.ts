@@ -135,6 +135,30 @@ describe('the Connect an app control', () => {
     expect(q('.voice-connect-row[data-id="saltmarsh-tablet-id"]')).toBeNull();
   });
 
+  it('never shows a token minted after the panel closed, and revokes it', async () => {
+    const api = server();
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const slow: VoiceConnectDeps['fetch'] = async (input, init) => {
+      if (init?.method === 'POST' && String(input) === '/api/voice/tokens') await gate;
+      return api.fetch(input, init);
+    };
+    await mountVoiceConnect(slot(), deps(slow));
+    click('.voice-connect-open');
+    click('.voice-connect-mint');
+    click('.voice-connect-close');
+    release();
+    await flush();
+    await flush();
+    expect(document.body.innerHTML).not.toContain('secret-mac');
+    expect(api.calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
+      '/api/voice/tokens',
+      '/api/voice/tokens/harborlight-phone-id/revoke',
+    ]);
+  });
+
   it('says when this address is one a phone cannot reach', async () => {
     await mountVoiceConnect(slot(), deps(server().fetch, 'http://127.0.0.1:8788'));
     click('.voice-connect-open');
