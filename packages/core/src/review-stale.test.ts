@@ -51,6 +51,32 @@ describe('settlesAsk', () => {
   });
 });
 
+describe('settlesAsk, when the removal names its subject by a pronoun', () => {
+  // The thread that prompted the rule, in fixture words: the asker removed
+  // the option, said why, and offered to redo it only if asked.
+  const HEADLINE = 'Should the tool keep a Riverbend option, and if so, what should it do?';
+
+  it.each([
+    "I removed it, since it didn't stand for any real route change. If we want Riverbend back as an option, it should model actual added harbour trips, and I'll do that only if you want it.",
+    'I removed the option.',
+    'We have deleted this; it was never wired up.',
+    'It was removed in the last round.',
+  ])('settles: %s', (text) => {
+    expect(settlesAsk(text, HEADLINE)).toBe(true);
+  });
+
+  it.each([
+    // A question still blocks, however the removal is worded.
+    'I removed it from the Saltmarsh export. Should the tool keep the option?',
+    'I removed it from the log; still want your call on the option.',
+    // Keeping it, or a pronoun with no removal, settles nothing.
+    'I kept it, since it stands for a real route change.',
+    "I'll remove it only if you want it.",
+  ])('does not settle: %s', (text) => {
+    expect(settlesAsk(text, HEADLINE)).toBe(false);
+  });
+});
+
 describe('staleAsk', () => {
   it('is orphaned when the anchor is', () => {
     expect(staleAsk({ anchor: { kind: 'orphan', lastSeenAt: 150 }, comments: [ask] }, ask)).toEqual(

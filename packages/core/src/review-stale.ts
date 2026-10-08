@@ -13,7 +13,8 @@
  *  - **settled** — a LATER comment by the asker itself, carrying no
  *    declaration of its own, says the ask is moot ("this is no longer
  *    needed", "never mind"), or says something was removed in a sentence
- *    that names a word of the ask's headline (`settlesAsk`). Only the
+ *    that names a word of the ask's headline or names it by a pronoun ("I
+ *    removed it") (`settlesAsk`). Only the
  *    asker's own words count: a person replying is answering, which is a
  *    different exit.
  *
@@ -24,13 +25,17 @@
  * `settlesAsk` is a narrow phrase rule, not a model, so it can be tested and
  * costs nothing per reply. Progress on something else ("the retry error is
  * now fixed") never matches: a moot phrase must name the ask, and a removal
- * must share a word with its headline. What it misses: a paraphrase outside
+ * must share a word with its headline or name its object by a pronoun ("I
+ * removed it") — on the asker's own thread the pronoun is the ask's subject.
+ * An offer to redo the work later ("I'll do that only if you want it") does
+ * not block; a question mark does. What it misses: a paraphrase outside
  * its phrases ("the button's gone", "all sorted"), a bare "done", work done
  * rather than removed, a settling reply from a different agent, and an
  * anchor the server never marks orphaned (an element removed from a mock is
  * found missing by the widget, not the server). What it can wrongly catch: a
- * removal of something else that happens to share a headline word, in a
- * reply with no question mark and no "still need".
+ * removal of something else that happens to share a headline word, or that
+ * the asker names only as "it", in a reply with no question mark and no
+ * "still need".
  */
 
 /** Why an ask stopped applying. */
@@ -75,6 +80,11 @@ const MOOT_RE = [
  *  about (`sharesSubject`). */
 const REMOVED_RE =
   /\b(?:(?:i|we)(?:\s+have|'ve)?\s+(?:removed|deleted|dropped)|(?:is|was|are|were|has been|have been)\s+(?:removed|deleted))\b/i;
+/** A removal whose object is a pronoun or "the option": on the ask's own
+ *  thread, by its own asker, the pronoun can only mean what was asked about,
+ *  so it settles without a shared headline word. */
+const REMOVED_PRONOUN_RE =
+  /\b(?:(?:i|we)(?:\s+have|'ve)?\s+(?:removed|deleted|dropped)\s+(?:it|this|that|them|the (?:option|choice))|(?:it|this|that|they)(?:'s| is| was| are| were| has been| have been)\s+(?:now\s+)?(?:removed|deleted|dropped))\b/i;
 /** A reply that still asks is not a settlement, whatever else it says. */
 const STILL_ASKING_RE = /\?|\bstill (?:need|needs|want|wants|waiting|open|asking)\b/i;
 
@@ -104,7 +114,11 @@ export function settlesAsk(text: string, headline: string): boolean {
   if (MOOT_RE.some((re) => re.test(text))) return true;
   return text
     .split(/(?<=[.!;])\s+/)
-    .some((sentence) => REMOVED_RE.test(sentence) && sharesSubject(sentence, headline));
+    .some(
+      (sentence) =>
+        REMOVED_PRONOUN_RE.test(sentence) ||
+        (REMOVED_RE.test(sentence) && sharesSubject(sentence, headline)),
+    );
 }
 
 const sameAuthor = (a: CommentLike['author'], b: CommentLike['author']): boolean =>
