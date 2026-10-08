@@ -71,6 +71,10 @@ export interface AnswerRecord {
   /** The board's project rank, and the plan board it was read from. */
   projectRank: number;
   planWorkspaceId?: string;
+  /** The item carried `blocks`: its asker said it was idle until this
+   *  answer. Absent on every other answer, and on records written before
+   *  2026-10-08. */
+  blocking?: true;
 }
 
 /** When a held item first reached the queue. See the header. */
@@ -216,4 +220,33 @@ export function reviewWait(records: AnswerRecord[], nameOf: (id: string) => stri
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The blocking-wait line's window: a week, like the note-taker's. */
+export const BLOCKING_WAIT_WINDOW_MS = 7 * 24 * 3_600_000;
+
+/** How long blocking asks waited, over the window — one line of the daily
+ *  health check, read off `/api/metrics`. */
+export interface BlockingWait {
+  windowMs: number;
+  answered: number;
+  medianWaitMs: number;
+  p90WaitMs: number;
+  maxWaitMs: number;
+}
+
+/** The blocking answers in the window ending at `now`, and their waits. */
+export function blockingWait(records: AnswerRecord[], now: number): BlockingWait {
+  const since = now - BLOCKING_WAIT_WINDOW_MS;
+  const waits = records
+    .filter((r) => r.blocking === true && r.answeredAt >= since && r.answeredAt <= now)
+    .map((r) => Math.max(0, r.answeredAt - r.visibleAt))
+    .sort((a, b) => a - b);
+  return {
+    windowMs: BLOCKING_WAIT_WINDOW_MS,
+    answered: waits.length,
+    medianWaitMs: percentile(waits, 0.5),
+    p90WaitMs: percentile(waits, 0.9),
+    maxWaitMs: waits[waits.length - 1] ?? 0,
+  };
 }

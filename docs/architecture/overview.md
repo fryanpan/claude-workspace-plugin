@@ -1669,15 +1669,31 @@ not state — is checked on the server before the hold is sent, while the
 derived note a card draws from a stored verdict is read in the browser. One
 definition, two readers, no boundary moved.
 
-`review-refusal.ts` sits beside it: the four fleet rules that answer an ask
+`review-refusal.ts` sits beside it: the five fleet rules that answer an ask
 outright (spend of $50 or less, a push or merge the ship method already
-consents to, a reversible implementation choice, a fact the agent can read),
+consents to, a reversible implementation choice, a fact the agent can read,
+a decision whose options only re-ask whether to do work the reader already
+requested),
 the block of the judge's prompt that teaches them, and the one fixed sentence
 per rule a refused filer is told. The judge's prompt reads it, the gate
 records a refusal under its rule name, and the stored verdict is read back on
 both sides. `review-judge-sentence.ts` is the judge reason's one-sentence clip,
 moved out of `review-judge-prompt.ts` to keep that file under the line limit.
 Neither moves a boundary.
+
+`review-blocks.ts` and `review-stale.ts` (core) join the same contract, and
+`review-stale-notify.ts` joins the server's Board group; none moves a
+boundary. `review-blocks.ts` reads a payload's `blocks` field — the asker
+is idle until the answer — which sorts the item first on Home, gives its
+row and its one push the "Stopped until you answer" line, and marks its
+answer `blocking` in the answer ledger, whose week `GET /api/metrics`
+reports as `blockingWait`. `review-stale.ts` decides from the thread alone
+that an open ask stopped applying (its anchor orphaned, or the asker's own
+later reply settled it), so `review-queue.ts` drops it and the thread card
+marks it, with nothing written. `review-stale-notify.ts` is the one half that
+cannot be a read: it listens for the posted comment and the edit-triggered
+re-anchor sweep that make an ask stale, and sends its asker one addressed
+`workspace.review_item_stale` frame carrying the withdraw call.
 
 `secret-name.ts` joins that third tier for the same reason, with the two
 readers furthest apart in this repo: the server's writer spells the stored

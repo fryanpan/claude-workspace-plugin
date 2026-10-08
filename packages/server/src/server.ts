@@ -112,6 +112,7 @@ import { unreachableCallbackReason } from './recall.ts';
 import { scanSettledDocRefs } from './refs-backfill.ts';
 import { createOriginPolicy, createRequestAdmission } from './request-admission.ts';
 import { createRequestAttribution } from './request-attribution.ts';
+import { BLOCKING_WAIT_WINDOW_MS, blockingWait } from './review-answer-ledger.ts';
 import {
   listArchivedReviews,
   readArchiveManifest,
@@ -2375,6 +2376,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // at the same claim.
     notesQualityRollup: () =>
       rollupNotesQuality(dataDir, { now: Date.now(), windowMs: NOTES_QUALITY_WINDOW_MS }),
+    // A week of blocking answers off the ledger, per request like the above.
+    blockingWait: () => {
+      const now = Date.now();
+      return blockingWait(crossReview.ledger.read(now - BLOCKING_WAIT_WINDOW_MS), now);
+    },
     // The OTHER claim `GET /api/deploy` answers: not "did the last deploy
     // come up" but "is this process bound and discoverable, now". Both halves
     // are read per request — `Bun.serve` has not returned when this object is

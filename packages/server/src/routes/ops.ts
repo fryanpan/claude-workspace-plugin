@@ -38,6 +38,7 @@ import { type NotesQualityRollup, notesQualityCounts } from '../notes-quality-st
 import type { PluginRefresher } from '../plugin-refresh.ts';
 import type { PushNotifier } from '../push-notify.ts';
 import type { PushStore } from '../push-store.ts';
+import type { BlockingWait } from '../review-answer-ledger.ts';
 import { selfTestServerSentry, serverSentryTelemetry } from '../sentry.ts';
 import type { WebhookLogEntry } from '../webhooks.ts';
 
@@ -68,6 +69,9 @@ export interface OpsRoutesContext {
    * meetings — the two are different claims.
    */
   notesQualityRollup: () => NotesQualityRollup | null;
+  /** How long blocking asks waited for an answer over the last week, read
+   *  off the answer ledger per request for the same reason. */
+  blockingWait: () => BlockingWait;
 
   /**
    * Whether THIS server is bound and discoverable, right now — the second,
@@ -120,6 +124,7 @@ export function handleOpsMetricsRoute(
       ...stats,
       uptimeSec: Math.round(process.uptime()),
       ...(notesQuality !== null ? { notesQuality: notesQualityCounts(notesQuality) } : {}),
+      blockingWait: ctx.blockingWait(),
     });
   }
   return undefined;
