@@ -20,6 +20,7 @@ export * from './related-work.ts';
 export * from './attachment.ts';
 export * from './review-item.ts';
 export * from './review-blocks.ts';
+export * from './review-stale.ts';
 export * from './review-item-id.ts';
 export * from './review-judge-prompt.ts';
 export * from './notes-cleanup-report.ts';

@@ -527,6 +527,9 @@ export class DocStore {
       scheduleRevisionBump: (doc) => this.scheduleRevisionBump(doc),
       maybeRebindHome: (doc) => this.bindings.maybeRebindHome(doc),
       editSessions: () => this.editSessions,
+      threadsOrphaned: (docId, threadIds) => {
+        for (const listener of this.threadsOrphanedListeners) listener(docId, threadIds);
+      },
     };
   }
 
@@ -600,6 +603,9 @@ export class DocStore {
       ts: number;
       openParts?: string[];
     }) => void
+  >();
+  private readonly threadsOrphanedListeners = new Set<
+    (docId: string, threadIds: string[]) => void
   >();
   private readonly commentPostedListeners = new Set<
     (event: {
@@ -2734,6 +2740,13 @@ export class DocStore {
   ): () => void {
     this.commentPostedListeners.add(listener);
     return () => this.commentPostedListeners.delete(listener);
+  }
+
+  /** Threads an edit's re-anchor sweep has just orphaned — not the sweep a
+   *  doc runs when it loads. Returns the unsubscribe. */
+  onThreadsOrphaned(listener: (docId: string, threadIds: string[]) => void): () => void {
+    this.threadsOrphanedListeners.add(listener);
+    return () => this.threadsOrphanedListeners.delete(listener);
   }
 
   async answerReviewItem(

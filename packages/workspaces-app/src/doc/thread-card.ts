@@ -28,6 +28,7 @@ import {
   threadReviewItemId,
   threadSummary,
 } from '@claude-workspaces/core';
+import { STALE_ASK_NOTE, type StaleAsk, staleAsk } from '@claude-workspaces/core/review-stale';
 import { askedMetaLine, decidedMetaLine } from '../board/board-review-model.ts';
 import { renderCommentMarkdown, renderCommentMarkdownInline } from '../comment-markdown.ts';
 import { commentHead, receiptMark } from '../comment-view.ts';
@@ -124,8 +125,12 @@ export function renderThreadCard(
   // both slots, because it is what tells the rest of the card not to state
   // the same question a second time: the card already says the kind, the
   // headline and the why in full.
-  const pending = pendingDeclaration(t);
-  const itemComment = pending ?? latestDeclaredComment(t.comments);
+  const declared = pendingDeclaration(t);
+  // An ask that no longer applies (`review-stale.ts`) stays readable in the
+  // card but is no longer offered for an answer — the queue dropped it too.
+  const stale = declared ? staleAsk(t, declared) : undefined;
+  const pending = stale ? null : declared;
+  const itemComment = declared ?? latestDeclaredComment(t.comments);
   // An ask its own asker took back. `latestDeclaredComment` steps over a
   // withdrawn declaration on purpose — a retracted ask is not a record to put
   // in the item card — so a thread whose every declaration was withdrawn
@@ -153,7 +158,7 @@ export function renderThreadCard(
     : undefined;
   el.appendChild(slotA(t, topic, itemComment?.id, voice));
   el.appendChild(
-    slotB(host, t, summary, status, { pending, itemComment, withdrawn, pendingReply }),
+    slotB(host, t, summary, status, { pending, itemComment, withdrawn, stale, pendingReply }),
   );
   syncFaceVisibility(el, host.activeId() === t.id && !shownElsewhere);
 
@@ -331,10 +336,12 @@ function slotB(
     itemComment: Comment | undefined;
     /** The retracted declaration, when nothing live replaced it. */
     withdrawn?: Comment | undefined;
+    /** Why the outstanding ask stopped applying, when it did. */
+    stale?: StaleAsk | undefined;
     pendingReply?: string;
   },
 ): HTMLElement {
-  const { pending, itemComment, withdrawn, pendingReply } = item;
+  const { pending, itemComment, withdrawn, stale, pendingReply } = item;
   const summaryFace: HTMLElement[] = [];
   // Both rows come and go now. With nobody but the author in the thread there
   // is nobody to list — and with no replies there is no discussion to
@@ -358,6 +365,11 @@ function slotB(
   if (itemComment?.review) {
     const compact = compactItemLine(host, t, itemComment, itemComment.review, pending !== null);
     if (compact) summaryFace.push(compact);
+    if (stale) {
+      const gone = div('thread-gone thread-no-longer-asked');
+      gone.textContent = STALE_ASK_NOTE[stale.rule];
+      summaryFace.push(gone);
+    }
   } else if (withdrawn?.review) {
     // The card is already saying it was withdrawn — dimmed, with the ask
     // struck through. This line is the one thing the strike cannot say: why.
