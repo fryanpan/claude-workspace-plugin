@@ -231,6 +231,9 @@ describe('a mockup round and the widget watching it', () => {
       docId: 'd-mock',
       user: 'bryan',
     });
+    // The panel's rows are the page list's, which this script mounts once the
+    // page has loaded — after this test's widget, so it is mounted here.
+    (await import('../src/widget-page-list.ts')).mountPageList(el);
     const inner = el as unknown as {
       client: { ydoc: import('yjs').Doc } | null;
       renderThreads: () => void;
