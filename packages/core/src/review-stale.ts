@@ -28,9 +28,11 @@
  * must share a word with its headline or name its object by a pronoun ("I
  * removed it") — on the asker's own thread the pronoun is the ask's subject.
  * An offer to redo the work later ("I'll do that only if you want it") does
- * not block; a question mark does. What it misses: a paraphrase outside
- * its phrases ("the button's gone", "all sorted"), a bare "done", work done
- * rather than removed, a settling reply from a different agent, and an
+ * not block; a question mark does, and so does a negation ahead of the
+ * removal words in their sentence ("I don't think I deleted it"). What it
+ * misses: a paraphrase outside its phrases ("the button's gone", "all
+ * sorted"), a removal that a negation happens to precede ("No, I removed
+ * it"), a bare "done", work done rather than removed, a settling reply from a different agent, and an
  * anchor the server never marks orphaned (an element removed from a mock is
  * found missing by the widget, not the server). What it can wrongly catch: a
  * removal of something else that happens to share a headline word, or that
@@ -85,6 +87,17 @@ const REMOVED_RE =
  *  so it settles without a shared headline word. */
 const REMOVED_PRONOUN_RE =
   /\b(?:(?:i|we)(?:\s+have|'ve)?\s+(?:removed|deleted|dropped)\s+(?:it|this|that|them|the (?:option|choice))|(?:it|this|that|they)(?:'s| is| was| are| were| has been| have been)\s+(?:now\s+)?(?:removed|deleted|dropped))\b/i;
+/** A denial ("I don't think I deleted it", "nobody said we removed it") holds
+ *  the removal words without the removal, so a sentence carrying one before
+ *  them settles nothing. */
+const NEGATION_RE = /\b(?:not|never|no|nobody|nothing|none)\b|n't\b/i;
+
+/** Did `sentence` say something was removed, with no denial ahead of it? */
+function removedIn(sentence: string, re: RegExp): boolean {
+  const m = re.exec(sentence);
+  return m !== null && !NEGATION_RE.test(sentence.slice(0, m.index));
+}
+
 /** A reply that still asks is not a settlement, whatever else it says. */
 const STILL_ASKING_RE = /\?|\bstill (?:need|needs|want|wants|waiting|open|asking)\b/i;
 
@@ -116,8 +129,8 @@ export function settlesAsk(text: string, headline: string): boolean {
     .split(/(?<=[.!;])\s+/)
     .some(
       (sentence) =>
-        REMOVED_PRONOUN_RE.test(sentence) ||
-        (REMOVED_RE.test(sentence) && sharesSubject(sentence, headline)),
+        removedIn(sentence, REMOVED_PRONOUN_RE) ||
+        (removedIn(sentence, REMOVED_RE) && sharesSubject(sentence, headline)),
     );
 }
 

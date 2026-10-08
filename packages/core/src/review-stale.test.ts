@@ -72,6 +72,10 @@ describe('settlesAsk, when the removal names its subject by a pronoun', () => {
     // Keeping it, or a pronoun with no removal, settles nothing.
     'I kept it, since it stands for a real route change.',
     "I'll remove it only if you want it.",
+    // A denial is not a removal (Codex review).
+    "I don't think I deleted it.",
+    'I never removed it.',
+    'Nobody has said we removed the option, so it stays.',
   ])('does not settle: %s', (text) => {
     expect(settlesAsk(text, HEADLINE)).toBe(false);
   });
