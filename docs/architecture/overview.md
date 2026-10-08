@@ -577,6 +577,20 @@ items ride the doc record the page already reads — `linkedItems` on
 adds no fetch. The bar's measured height is `--doc-dock-h`, which `doc.css`
 takes out of `#shell` and adds to the composer, toast and phone comment sheet.
 
+**A thread's ask is answerable in that thread's popover.** When an agent
+answers a reader's comment with a review item, the popover the reader opens
+shows the item: its latest round, the detail with its links, a button per
+option or a question's answer box, and how it was answered once it was.
+`widget-ask.ts` is a top-level widget module, but it ships in `mic.js` and
+`mockup-live.js`, not in the budgeted bundle. Its source of truth is core's
+`threadAsk`, which `dockItems` now also calls, and it reuses core's
+`wireAnswer`, so the two places that answer an item cannot disagree. It reads
+the raw thread map, as `edit/edit-suggest.ts` does, so the chunk carries no
+Yjs. The budgeted bundle's only addition is a `data-thread-id` on each panel
+row, which the module uses to mark rows that have an open ask. No new route:
+the answer goes to `…/threads/:id/answer`, which a mock frame's relay already
+allows for this doc alone.
+
 **A comment that never reached the server says so, on the comment.** Every
 composer on every surface already handed the words back when a post was
 refused; none of them left anything standing to say why, so a box holding your
