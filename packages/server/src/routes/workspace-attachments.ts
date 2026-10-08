@@ -376,7 +376,7 @@ export async function handleWorkspaceAttachments(
     }
     return j(200, {
       ok: true,
-      delivered: spokenRelay.answerRequest(workspaceId, entryId, text, minute),
+      delivered: spokenRelay.answerRequest(workspaceId, entryId, text, minute, agentId),
     });
   }
   const wsAgentDetachMatch = pathname.match(/^\/workspaces\/([^/]+)\/agents\/([^/]+)$/);

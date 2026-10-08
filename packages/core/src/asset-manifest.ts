@@ -45,6 +45,7 @@ export const SHELL_ASSETS = [
   'signin.js',
   'settings.js',
   'reviews.js',
+  'voice-page.js',
   'sentry.js',
   'styles.css',
   'doc.css',

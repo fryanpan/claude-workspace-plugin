@@ -74,6 +74,9 @@ export interface SpokenReplyOpts {
   timings: SpokenTimingSummary;
   author: { id: string; name: string; kind?: string };
   getContext(): unknown;
+  /** The agent every question goes to, by id, rather than the board's
+   *  router (`/voice`). Read at each press, so a switch needs no new socket. */
+  agent?: () => string | undefined;
   onNavigate(url: string): void;
   /** Write a review decision the server read back and heard confirmed, and
    *  say whether it landed (`spoken-review-decide.ts`). */
@@ -268,12 +271,14 @@ export function createSpokenReply(opts: SpokenReplyOpts): SpokenReply {
   function commit(mode: SpokenMode): void {
     if (turn.mode) return;
     turn.mode = mode;
+    const agentNow = opts.agent?.();
     sendMsg({
       type: 'start',
       setup,
       mode,
       context: opts.getContext(),
       author: opts.author,
+      ...(agentNow ? { agent: agentNow } : {}),
     });
     for (const f of held) sendRaw(f);
     held = [];

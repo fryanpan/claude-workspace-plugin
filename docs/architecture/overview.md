@@ -786,6 +786,22 @@ top-level core module), so the card and the voice queue share one builder. A
 ticket's review item gained the undo it lacked:
 `routes/task-review-answer-undo.ts` over `review-items/undo-answer.ts`.
 
+**Talking to one agent by name.** A `start` that names an agent id sends
+every turn to that agent instead of the router: `spoken-reply/agent-conversation.ts`
+checks the id against the socket's board, writes a row on that agent's
+addressed comment queue (so an absent agent hears it at its next attach) and
+sends the frame on that agent's streams alone, and `lead-answer.ts` says only
+that agent's `answer_voice` aloud. Each turn carries the conversation so far
+until the page names another agent. The page for it is `/voice?agent=<id>`
+(`routes/voice-page.ts`, the owner's alone): `voice-agent-list.ts` (a new
+top-level server module) lists the agents on every live board, and
+`workspaces-app/src/voice-page/` mounts the board's spoken reply aimed at the
+chosen one. Every other client talks through `voice-api/` (a new top-level
+server directory, routed by `routes/voice-api.ts`): the OpenAI chat format,
+one model per agent, a voice token of its own, and the same addressed row
+and `answer_voice` wait underneath. Its contract is
+[voice-conversation-api](voice-conversation-api.md).
+
 **The planning voice** rides the same socket, and is always on in a doc:
 nobody says "interview me" any more (it still works). The doc's Talk button
 (`doc/doc-interview.ts`, its markup in `doc-interview-view.ts`; mounted with

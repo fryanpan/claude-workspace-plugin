@@ -14854,8 +14854,20 @@ function voiceRequestLine(p) {
   if (p.route === "fast-path-action") {
     return `${said} — the fast path ALREADY applied this to the board on the speaker's behalf; ` + `they were told: "${told}". Do NOT redo it — reconcile your own picture of the board ` + "with what changed, and pick up only whatever the utterance asked for beyond it.";
   }
+  if (typeof p.to === "string" && p.to)
+    return addressedLine(p, said);
   const answer = p.queueId ? `. When you have the answer or the result, tell them with answer_voice(workspaceId="${p.workspaceId ?? ""}", queueId="${p.queueId}", text) as the shortest spoken answer that works ("No." beats a sentence).` : "";
   return `${said} — act on it through the task/edit tools; the speaker was told: "${told}"${answer}${meetingBlock(p)}`;
+}
+function addressedLine(p, said) {
+  const who = p.actor?.name ?? "Speaker";
+  const earlier = (p.conversation ?? []).filter((t) => typeof t.text === "string" && t.text.trim()).map((t) => `${t.from === "agent" ? "You" : who}: ${truncate6(t.text ?? "", 300)}`);
+  const history = earlier.length ? `
+Earlier in this conversation:
+${earlier.join(`
+`)}` : "";
+  const answer = p.queueId ? ` Answer with answer_voice(workspaceId="${p.workspaceId ?? ""}", queueId="${p.queueId}", text): it is said aloud on their page, so keep it short and spoken.` : "";
+  return `${said} — said to you by voice, in a conversation with you alone.${answer}${history}`;
 }
 function defused(s) {
   return s.replace(/-{3,}\s*(BEGIN|END)/gi, "— $1");
@@ -21251,7 +21263,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.301";
+var PLUGIN_VERSION = "0.1.303";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
