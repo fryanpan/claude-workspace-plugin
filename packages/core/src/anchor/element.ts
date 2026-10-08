@@ -112,8 +112,14 @@ export function resolve(anchor: ElementAnchor, env: ElementResolveEnv): ElementR
     if (!best || s > best.score) best = { el: c, score: s };
   }
   if (!best) return { ok: false, reason: 'not-found', score: 0 };
-  if (best.score < SCORE_THRESHOLD)
+  if (best.score < SCORE_THRESHOLD) {
+    // An element with no words — a chart's bar, a map's canvas — has little
+    // else to be scored on, and a chart builds its bars afresh on each render.
+    // Such an element is found by where it sits: the same path, exactly.
+    const at = !fp.text && fp.path && candidates.find((c) => computePath(c) === fp.path);
+    if (at) return { ok: true, element: at, score: SCORE_THRESHOLD };
     return { ok: false, reason: 'low-confidence', score: best.score };
+  }
   return { ok: true, element: best.el, score: best.score };
 }
 

@@ -196,9 +196,31 @@ export function positionPins(el: FeedbackWidgetEl): void {
       // The tapped point only on an element with words: words are what the
       // check keeps a pin off, and nothing tells it where an icon is drawn —
       // a pin at the tap on an icon button covered the icon.
+      // A canvas draws what was tapped — a map's spot — so its tap is the
+      // spot too, and pins put on one spot stand around it rather than at
+      // the canvas's corner, under the map's own controls.
       const at = pos.at;
-      if (pos.el.textContent?.trim() && at && at.x >= 0 && at.x <= 1 && at.y >= 0 && at.y <= 1) {
-        spots.unshift([at.x * r.width, at.y * r.height]);
+      const drawn = pos.el.tagName === 'CANVAS';
+      if (
+        (drawn || pos.el.textContent?.trim()) &&
+        at &&
+        at.x >= 0 &&
+        at.x <= 1 &&
+        at.y >= 0 &&
+        at.y <= 1
+      ) {
+        const [x, y] = [at.x * r.width, at.y * r.height];
+        spots.unshift(
+          [x, y],
+          ...(drawn
+            ? [
+                [x + 24, y],
+                [x - 24, y],
+                [x, y - 28],
+                [x, y + 28],
+              ]
+            : []),
+        );
       }
       let c = spots.find(([x, y]) => clear(r.left + x, r.top + y, placed));
       // More threads on it than spots: a row along its top, then rows under
@@ -225,6 +247,15 @@ export function positionPins(el: FeedbackWidgetEl): void {
 }
 
 function showThreadPopoverForThread(el: FeedbackWidgetEl, t: Thread): void {
+  // Beside its pin, where it has one: a pin on a canvas stands at the spot
+  // tapped, and the canvas's corner can be the width of the page away.
+  const pos = el.threadPositions.get(t.id);
+  const s = pos?.spot;
+  if (pos && s) {
+    const r = pos.el.getBoundingClientRect();
+    showThreadPopover(el, t, r.left + (s[0] ?? 0), r.top + (s[1] ?? 0));
+    return;
+  }
   if (t.anchor.kind === 'element') {
     const res = resolveElement(t.anchor, { root: document });
     if (res.ok) {
