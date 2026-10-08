@@ -1,6 +1,7 @@
 /**
  * Who may manage voice tokens, judged by the route alone: the owner, from
- * anywhere; a caller proving nobody, only from this machine.
+ * anywhere; a caller proving nobody, only when it did not come through
+ * the tunnel.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -36,7 +37,7 @@ function mint(over: Partial<VoiceApiRouteRequest>): VoiceApiRouteRequest {
     anyoneProven: () => false,
     mustSignIn: () => false,
     requestOrigin: () => 'http://h',
-    onThisMachine: () => true,
+    viaTunnel: () => false,
     ...over,
   };
 }
@@ -44,17 +45,17 @@ function mint(over: Partial<VoiceApiRouteRequest>): VoiceApiRouteRequest {
 const status = async (rq: VoiceApiRouteRequest) => (await handleVoiceApiRoutes(ctx(), rq))?.status;
 
 describe('the voice token routes', () => {
-  it('mint for the owner from anywhere, and for an unproven caller on this machine', async () => {
+  it('mint for the owner from anywhere, and for an unproven caller off the tunnel', async () => {
     expect(
       await status(
-        mint({ ownerProven: () => true, anyoneProven: () => true, onThisMachine: () => false }),
+        mint({ ownerProven: () => true, anyoneProven: () => true, viaTunnel: () => true }),
       ),
     ).toBe(201);
     expect(await status(mint({}))).toBe(201);
   });
 
   it('refuse an unproven caller through the tunnel, a non-owner, a visitor, and another origin', async () => {
-    expect(await status(mint({ onThisMachine: () => false }))).toBe(403);
+    expect(await status(mint({ viaTunnel: () => true }))).toBe(403);
     expect(await status(mint({ anyoneProven: () => true }))).toBe(403);
     expect(await status(mint({ visitor: { scope: 'share' } }))).toBe(403);
     const cross = new Request('http://h/api/voice/tokens', {

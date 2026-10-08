@@ -3768,9 +3768,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           anyoneProven: () => provenIdentityFor() !== null,
           mustSignIn: () => requireSignInToWrite && browserProvedNobody(),
           requestOrigin: () => policyFor(req).requestOrigin,
-          onThisMachine: () =>
-            !req.headers.has('cf-ray') &&
-            isLoopbackAddress(server.requestIP(req)?.address ?? undefined),
+          viaTunnel: () => req.headers.has('cf-ray'),
         });
         if (handled) return handled;
       }

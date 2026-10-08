@@ -8,7 +8,7 @@
  * The client does speech-to-text and text-to-speech. Continuity is the
  * messages array the client already keeps, plus a conversation id: the
  * `x-conversation-id` header when the client sends one, else derived from the
- * model and the first user message. The full contract is
+ * caller's token, the model and the first user message. The full contract is
  * `docs/architecture/voice-conversation-api.md`.
  *
  * Pure, and free of anything Workspaces means by a board or an attachment:
@@ -81,9 +81,16 @@ function spoken(text: string): string {
   return t.startsWith(INTERIM_LINE) ? t.slice(INTERIM_LINE.length).trim() : t;
 }
 
-export function conversationIdFor(model: string, firstUser: string, header: string | null): string {
+/** `caller` is whatever tells two clients apart (the token's id), so two
+ *  people's chats that open with the same words never share an id. */
+export function conversationIdFor(
+  model: string,
+  firstUser: string,
+  header: string | null,
+  caller = '',
+): string {
   if (header && CONVERSATION_ID.test(header)) return header;
-  const h = createHash('sha256').update(`${model}\0${firstUser}`).digest('hex');
+  const h = createHash('sha256').update(`${caller}\0${model}\0${firstUser}`).digest('hex');
   return `vc-${h.slice(0, 20)}`;
 }
 
@@ -91,6 +98,7 @@ export function conversationIdFor(model: string, firstUser: string, header: stri
 export function parseChatRequest(
   body: unknown,
   conversationHeader: string | null,
+  caller = '',
 ): ChatTurn | ApiError {
   if (!body || typeof body !== 'object')
     return apiError(400, 'invalid_body', 'Send a JSON object.');
@@ -127,7 +135,7 @@ export function parseChatRequest(
     model: b.model,
     text,
     history,
-    conversationId: conversationIdFor(b.model, firstUser, conversationHeader),
+    conversationId: conversationIdFor(b.model, firstUser, conversationHeader, caller),
     stream: b.stream === true,
   };
 }

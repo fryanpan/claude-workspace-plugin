@@ -167,8 +167,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
     ['trusted-local', '/api/voice/agents', 'GET'],
   ]),
   // The voice conversation API. `/v1/` takes a voice API bearer and nothing
-  // else, checked in the handler; the token routes are the owner's, gated
-  // as the voice page's list is, and a browser's POST must be same-origin.
+  // else, checked in the handler. The token routes are the owner's: through
+  // the tunnel only on a proof naming the owner; a browser's POST same-origin.
   ...family('routes/voice-api.ts', [
     ['trusted-local', '/v1/models', 'GET'],
     ['trusted-local', '/v1/chat/completions', 'POST'],

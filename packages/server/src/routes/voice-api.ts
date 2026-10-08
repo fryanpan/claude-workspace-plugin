@@ -39,8 +39,8 @@ export interface VoiceApiRoutesContext {
 export type VoiceApiRouteRequest = VoicePageRouteRequest & {
   /** This server's own origin, or undefined when it cannot say. */
   requestOrigin: () => string | undefined;
-  /** A loopback peer that did not come through the tunnel. */
-  onThisMachine: () => boolean;
+  /** The request came through the Cloudflare tunnel. */
+  viaTunnel: () => boolean;
 };
 
 const MAX_BODY = 512 * 1024;
@@ -72,7 +72,7 @@ async function handleApi(ctx: VoiceApiRoutesContext, rq: VoiceApiRouteRequest): 
   if (rq.req.method !== 'POST') return fail(apiError(405, 'method_not_allowed', 'POST only.'));
   const body = await readJson(rq.req);
   if (body === 'too-large') return fail(apiError(413, 'too_large', 'The body is too large.'));
-  const turn = parseChatRequest(body, rq.req.headers.get('x-conversation-id'));
+  const turn = parseChatRequest(body, rq.req.headers.get('x-conversation-id'), token.id);
   if ('status' in turn) return fail(turn);
   const answered = await ctx.chat.turn(turn, {
     id: token.subject,
@@ -91,7 +91,7 @@ async function handleTokens(
   // Through the tunnel, proving nobody is not enough to mint: an Access
   // service token names no person, and a phone holding one must not be able
   // to mint itself more voice tokens.
-  if (!rq.ownerProven() && !rq.onThisMachine()) {
+  if (rq.viaTunnel() && !rq.ownerProven()) {
     return j(403, { error: 'owner-only', message: 'Sign in as the owner to manage voice tokens.' });
   }
   if (rq.req.method !== 'GET') {

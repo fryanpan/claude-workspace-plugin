@@ -61,6 +61,8 @@ describe('parseChatRequest', () => {
       ok({ model: 'a', messages: [{ role: 'user', content: 'hi' }] }, 'phone-7').conversationId,
     ).toBe('phone-7');
     expect(conversationIdFor('a', 'hi', 'not ok!')).toBe(one.conversationId);
+    // Another caller's chat that opens with the same words is another conversation.
+    expect(conversationIdFor('a', 'hi', null, 'token-bob')).not.toBe(one.conversationId);
   });
 
   it('keeps only the newest history turns', () => {

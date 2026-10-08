@@ -36,11 +36,11 @@ A turn is the OpenAI request body. The server reads `model`, `messages` and
 - A turn is at most 4,000 characters, and a request at most 512 KB.
 
 The conversation id is the `x-conversation-id` header when the client sends
-one (1 to 100 of `A-Za-z0-9_-`). Otherwise it is derived from the model and
-the first user message. So a client that keeps its messages array keeps its
-conversation, and one that starts a new chat starts a new one. Two chats
-that open with the same words to the same agent share an id; a client that
-cares sends the header.
+one (1 to 100 of `A-Za-z0-9_-`). Otherwise it is derived from the token, the
+model and the first user message. So a client that keeps its messages array
+keeps its conversation, and one that starts a new chat starts a new one. Two
+chats on one token that open with the same words to the same agent share an
+id; a client that cares sends the header.
 
 ### The reply
 
