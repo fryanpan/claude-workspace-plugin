@@ -783,7 +783,11 @@ until the page names another agent. The page for it is `/voice?agent=<id>`
 (`routes/voice-page.ts`, the owner's alone): `voice-agent-list.ts` (a new
 top-level server module) lists the agents on every live board, and
 `workspaces-app/src/voice-page/` mounts the board's spoken reply aimed at the
-chosen one.
+chosen one. Every other client talks through `voice-api/` (a new top-level
+server directory, routed by `routes/voice-api.ts`): the OpenAI chat format,
+one model per agent, a voice token of its own, and the same addressed row
+and `answer_voice` wait underneath. Its contract is
+[voice-conversation-api](voice-conversation-api.md).
 
 **The planning voice** rides the same socket, and is always on in a doc:
 nobody says "interview me" any more (it still works). The doc's Talk button
