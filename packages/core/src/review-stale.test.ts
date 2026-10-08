@@ -14,30 +14,40 @@ const ask = {
   ts: 100,
   text: 'Alice, keep the Riverbend button?',
   author: AGENT,
-  review: {},
+  review: { headline: 'Keep the Riverbend button?' },
 };
 const reply = (id: string, ts: number, text: string, author = AGENT) => ({ id, ts, text, author });
 
 describe('settlesAsk', () => {
+  const HEADLINE = 'Keep the Riverbend button?';
+
   it.each([
-    'I removed the Riverbend button, so this is no longer needed.',
-    'The button was removed in the last round.',
-    'This is moot now: the Saltmarsh page is gone.',
-    'Already done: the benchmark ran overnight.',
+    // Moot phrases that name the ask itself.
+    'I removed the Riverbend button in this round, so this is no longer needed.',
+    'This is moot now.',
     'Never mind, I went ahead with the default.',
+    'Please disregard this question.',
+    // A removal whose sentence names what the ask was about.
+    'I removed the Riverbend button.',
+    'The button was removed in the last round.',
   ])('settles: %s', (text) => {
-    expect(settlesAsk(text)).toBe(true);
+    expect(settlesAsk(text, HEADLINE)).toBe(true);
   });
 
   it.each([
     'I removed the button. Should the link go too?',
     'I removed the old log line; still need your answer on the button.',
     'Here is the Riverbend chart for you to look at.',
+    // Progress on something else is not a settlement (Codex review, PR 1251).
+    'The retry error is now fixed; I am evaluating the two options.',
+    'Already done: the benchmark ran overnight.',
+    'I removed the stale log line from the Saltmarsh job.',
+    'The old cache is no longer needed.',
     // Named misses: paraphrase and a bare "done".
     "The button's gone.",
     'Done.',
   ])('does not settle: %s', (text) => {
-    expect(settlesAsk(text)).toBe(false);
+    expect(settlesAsk(text, HEADLINE)).toBe(false);
   });
 });
 
@@ -70,7 +80,10 @@ describe('staleAsk', () => {
 
   it('is not settled by a later declaration of the asker (a re-file is its own ask)', () => {
     const t = {
-      comments: [ask, { ...reply('c2', 200, 'I removed the button, so it is moot.'), review: {} }],
+      comments: [
+        ask,
+        { ...reply('c2', 200, 'I removed the button, so this is moot.'), review: {} },
+      ],
     };
     expect(staleAsk(t, ask)).toBeUndefined();
   });

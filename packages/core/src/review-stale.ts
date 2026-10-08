@@ -11,22 +11,26 @@
  *  - **orphaned** — the thread's anchor is orphaned: the words or element it
  *    was about are gone from the doc. A re-anchor brings the ask back.
  *  - **settled** — a LATER comment by the asker itself, carrying no
- *    declaration of its own, says the subject was removed or the work was
- *    done (`settlesAsk`). Only the asker's own words count: a person
- *    replying is answering, which is a different exit.
+ *    declaration of its own, says the ask is moot ("this is no longer
+ *    needed", "never mind"), or says something was removed in a sentence
+ *    that names a word of the ask's headline (`settlesAsk`). Only the
+ *    asker's own words count: a person replying is answering, which is a
+ *    different exit.
  *
  * The item is not destroyed. Its words stay on the thread, marked as no
  * longer asked, and the queue stops carrying it. The asker is told once, so it
  * can withdraw the item or file a fresh one.
  *
  * `settlesAsk` is a narrow phrase rule, not a model, so it can be tested and
- * costs nothing per reply. What it misses: a paraphrase outside its phrases
- * ("the button's gone", "all sorted"), a bare "done", a settling reply from a
- * different agent, and an anchor the server never marks orphaned (an element
- * removed from a mock is found missing by the widget, not the server). What
- * it can wrongly catch: an asker's reply that reports removing something
- * unrelated while the question still stands, without a question mark or a
- * "still need".
+ * costs nothing per reply. Progress on something else ("the retry error is
+ * now fixed") never matches: a moot phrase must name the ask, and a removal
+ * must share a word with its headline. What it misses: a paraphrase outside
+ * its phrases ("the button's gone", "all sorted"), a bare "done", work done
+ * rather than removed, a settling reply from a different agent, and an
+ * anchor the server never marks orphaned (an element removed from a mock is
+ * found missing by the widget, not the server). What it can wrongly catch: a
+ * removal of something else that happens to share a headline word, in a
+ * reply with no question mark and no "still need".
  */
 
 /** Why an ask stopped applying. */
@@ -60,23 +64,47 @@ interface ThreadLike {
   comments?: ReadonlyArray<CommentLike>;
 }
 
-/** Phrases that say the subject is gone or the question is moot. */
-const SETTLED_RE = [
-  /\bno longer (?:needed|necessary|applies|apply|relevant|an issue|a question|asked)\b/i,
-  /\b(?:is|was|are|were|has been|have been|now)\s+(?:removed|deleted|gone)\b/i,
-  /\b(?:i|we)(?:\s+have|'ve)?\s+(?:removed|deleted|dropped)\b/i,
-  /\bmoot\b/i,
-  /\b(?:never ?mind|disregard (?:this|that|the question|my question))\b/i,
-  /\b(?:already|now)\s+(?:done|fixed|shipped|merged)\b/i,
-  /\b(?:i|we)\s+(?:went ahead|did it|ran it)\b/i,
+/** Phrases that say THE ASK itself is moot: each names it ("this", "the
+ *  question"), so progress on something else never matches. */
+const MOOT_RE = [
+  /\b(?:this|that|it|the (?:question|ask|decision))(?:'s| is| was| has become)\s+(?:now\s+)?(?:no longer (?:needed|necessary|relevant|a question|an issue)|moot)\b/i,
+  /\bnever ?mind\b/i,
+  /\b(?:disregard|ignore) (?:this|that|the|my) (?:question|ask|decision)\b/i,
 ];
+/** A removal: counts only when its own sentence names what the ask was
+ *  about (`sharesSubject`). */
+const REMOVED_RE =
+  /\b(?:(?:i|we)(?:\s+have|'ve)?\s+(?:removed|deleted|dropped)|(?:is|was|are|were|has been|have been)\s+(?:removed|deleted))\b/i;
 /** A reply that still asks is not a settlement, whatever else it says. */
 const STILL_ASKING_RE = /\?|\bstill (?:need|needs|want|wants|waiting|open|asking)\b/i;
 
-/** Does this text, from the asker, settle its own earlier ask? */
-export function settlesAsk(text: string): boolean {
+const STOPWORDS = new Set(
+  'this that with from have your there their which what when where should would could about keep into them then than these those does they been were will'.split(
+    ' ',
+  ),
+);
+const subjectWords = (text: string): Set<string> =>
+  new Set(
+    (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+      (w) => w.length >= 4 && !STOPWORDS.has(w),
+    ),
+  );
+
+/** Does `sentence` name a word the ask's headline is about? */
+function sharesSubject(sentence: string, headline: string): boolean {
+  const about = subjectWords(headline);
+  for (const w of subjectWords(sentence)) if (about.has(w)) return true;
+  return false;
+}
+
+/** Does this text, from the asker, settle its own earlier ask whose headline
+ *  is `headline`? */
+export function settlesAsk(text: string, headline: string): boolean {
   if (STILL_ASKING_RE.test(text)) return false;
-  return SETTLED_RE.some((re) => re.test(text));
+  if (MOOT_RE.some((re) => re.test(text))) return true;
+  return text
+    .split(/(?<=[.!;])\s+/)
+    .some((sentence) => REMOVED_RE.test(sentence) && sharesSubject(sentence, headline));
 }
 
 const sameAuthor = (a: CommentLike['author'], b: CommentLike['author']): boolean =>
@@ -91,13 +119,15 @@ export function staleAsk(thread: ThreadLike, declaring: CommentLike): StaleAsk |
   if (thread.anchor?.kind === 'orphan') {
     return { rule: 'orphaned', at: thread.anchor.lastSeenAt ?? declaring.ts };
   }
+  const headline = (declaring.review as { headline?: unknown } | undefined)?.headline;
+  if (typeof headline !== 'string') return undefined;
   const later = [...(thread.comments ?? [])]
     .filter((c) => c.ts > declaring.ts && c.id !== declaring.id)
     .sort((a, b) => a.ts - b.ts);
   for (const c of later) {
     if (c.review !== undefined) continue;
     if (!sameAuthor(c.author, declaring.author)) continue;
-    if (settlesAsk(c.text)) return { rule: 'settled', at: c.ts, commentId: c.id };
+    if (settlesAsk(c.text, headline)) return { rule: 'settled', at: c.ts, commentId: c.id };
   }
   return undefined;
 }
