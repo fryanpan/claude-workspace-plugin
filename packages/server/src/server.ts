@@ -200,6 +200,7 @@ import { SharingGate } from './share/sharing-gate.ts';
 import { SHARING_NOTICE_ACTOR, SharingNotice, rankFallbackBoards } from './sharing-notice.ts';
 import { SlowLoadAlarm } from './slow-load-alarm.ts';
 import { type UpgradeData, createSocketHandlers } from './socket-handlers.ts';
+import { agentLine } from './spoken-reply/agent-conversation.ts';
 import { AgentCallbacks } from './spoken-reply/agent-llm.ts';
 import type { SpokenBoard } from './spoken-reply/answer.ts';
 import { interviewDocs } from './spoken-reply/interview-docs.ts';
@@ -1735,6 +1736,16 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   };
   const spokenRelay = new SpokenReplyRelay({
     leads: leadAnswers,
+    // A turn for one named agent: its own row and its own streams, never a
+    // broadcast (`spoken-reply/agent-conversation.ts`).
+    agentLine: agentLine({
+      listAttachments: (workspaceId) => taskStore.listAttachments(workspaceId),
+      displayName: (agentId) => identities.displayNameFor(agentId) ?? undefined,
+      queueComment: (workspaceId, item) => taskStore.queueComment(workspaceId, item),
+      markCommentEmitted: (workspaceId, id) => taskStore.markCommentEmitted(workspaceId, id),
+      sendToAgent: (workspaceId, agentId, frame) =>
+        sse.sendToAgent(`ws~${workspaceId}`, agentId, frame),
+    }),
     engines: opts.spokenReply ?? { listener: null, voices: { 1: null, 2: null }, gemini: null },
     board: spokenBoard,
     timings: spokenTimings,

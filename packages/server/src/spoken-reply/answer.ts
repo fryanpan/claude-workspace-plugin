@@ -26,6 +26,7 @@ import { capWords } from '../voice-status.ts';
  */
 import type { VoiceHandleResult, VoiceResult } from '../voice.ts';
 import { parseOrdinal, pickByLabel } from '../voice.ts';
+import { type AgentConversation, awayAck, sentAck } from './agent-conversation.ts';
 import type { SpokenInterview } from './interview.ts';
 import { withNotes } from './notes.ts';
 import { shapeReply, stripWake } from './reply-shape.ts';
@@ -155,8 +156,11 @@ export class SpokenAnswerer {
     private readonly workspaceId: string,
     /** Interview mode (`interview.ts`), asked before anything else. */
     private readonly interview?: SpokenInterview,
-    /** Told the queue row of every request the router gave the lead. */
-    private readonly onAwaiting?: (queueId: string) => void,
+    /** Told the queue row of every request the router gave the lead, and
+     *  the agent whose answer counts for a turn addressed to one. */
+    private readonly onAwaiting?: (queueId: string, from?: string) => void,
+    /** A talk with one named agent; absent, this socket may not name one. */
+    private readonly conversation?: AgentConversation,
   ) {
     const queue = board.reviewQueue?.bind(board);
     this.walk = queue
@@ -165,6 +169,15 @@ export class SpokenAnswerer {
           ...(board.explain ? { explain: board.explain } : {}),
         })
       : null;
+  }
+
+  /** The agent the page named in its latest `start`, if any. */
+  private addressed: string | undefined;
+
+  /** Talk to `agentId` from the next turn on, or to the board when absent. */
+  address(agentId: string | undefined): void {
+    this.addressed = agentId;
+    this.conversation?.address(agentId);
   }
 
   /** The page's report on a decision it wrote; something to say, or null. */
@@ -208,6 +221,7 @@ export class SpokenAnswerer {
     meeting = false,
   ): Promise<SpokenAnswer> {
     const transcript = stripWake(heard);
+    if (this.addressed !== undefined && !meeting) return this.toAgent(transcript, actor);
     const interviewed = await this.interview?.answer(transcript, context, meeting);
     if (interviewed) {
       const points = interviewed.spoken ? [{ say: interviewed.spoken }] : [];
@@ -287,6 +301,21 @@ export class SpokenAnswerer {
       ...shapedAnswer(r.ack, r.route, r.detail),
       ...(r.navigate ? { navigate: r.navigate } : {}),
       ...(r.queueId ? { awaiting: r.queueId } : {}),
+    };
+  }
+
+  /** A turn for the named agent alone (`agent-conversation.ts`). */
+  private toAgent(transcript: string, actor: VoiceActor): SpokenAnswer {
+    if (!transcript) return plain('');
+    if (!this.conversation) return plain('Only the owner can talk to an agent here.');
+    const r = this.conversation.turn(transcript, actor);
+    if (r.kind === 'not-attached') return plain('That agent isn’t on this board.');
+    if (r.kind === 'failed') return plain('I couldn’t pass that on. Say it again.');
+    this.onAwaiting?.(r.queueId, r.agentId);
+    const live = r.kind === 'sent';
+    return {
+      ...plain(live ? sentAck(r.name) : awayAck(r.name), live ? 'agent' : 'agent-queued'),
+      awaiting: r.queueId,
     };
   }
 

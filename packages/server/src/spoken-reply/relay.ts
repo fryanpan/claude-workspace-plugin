@@ -7,9 +7,11 @@
  * and the page keeps the plain mic).
  */
 import type { SpokenHeldSetups, SpokenServerMessage } from '@claude-workspaces/core/spoken-reply';
+import { cryptoId } from '../task-fields.ts';
 import { isCategoryAuthor } from '../task-owner.ts';
 import type { VoiceActor } from '../voice-action.ts';
 import type { VoiceContext } from '../voice-prompt.ts';
+import { AgentConversation, type AgentLine } from './agent-conversation.ts';
 import type { AgentCallbacks } from './agent-llm.ts';
 import { SpokenAnswerer, type SpokenBoard } from './answer.ts';
 import { SpokenInterview, type SpokenInterviewDeps } from './interview.ts';
@@ -46,6 +48,11 @@ export interface SpokenReplyRelayDeps {
   /** Which socket or bot meeting waits for which lead answer; shared with
    *  `meeting-claude.ts` so one answer route reaches either. */
   leads?: LeadAnswers;
+  /** Where a turn addressed to one agent goes (`agent-conversation.ts`);
+   *  absent, a page that names an agent is told it cannot. */
+  agentLine?: AgentLine;
+  /** A fresh id for a conversation or a turn. */
+  newId?: () => string;
 }
 
 export class SpokenReplyRelay {
@@ -81,14 +88,36 @@ export class SpokenReplyRelay {
         // The page went; the close handler tidies up.
       }
     };
+    // Only the owner talks to an agent by name: a person proof naming the
+    // owner, or a local page that proved nobody on a server that lets such a
+    // page write. Share and collab visitors never reach this socket.
+    const owner = ws.data.ownerProven === true || (!proven && ws.data.readOnly !== true);
+    const conversation =
+      owner && this.deps.agentLine
+        ? new AgentConversation(
+            this.deps.agentLine,
+            workspaceId,
+            this.deps.newId ?? (() => cryptoId('vt')),
+          )
+        : undefined;
     const session: SpokenSession = new SpokenSession({
       engines: this.deps.engines,
       answerer: new SpokenAnswerer(
         this.deps.board,
         workspaceId,
         this.deps.interview ? new SpokenInterview(this.deps.interview, workspaceId) : undefined,
-        (queueId) =>
-          this.leads.wait(workspaceId, queueId, session, (a) => session.sayLead(queueId, a)),
+        (queueId, from) =>
+          this.leads.wait(
+            workspaceId,
+            queueId,
+            session,
+            (a, text) => {
+              conversation?.replied(queueId, text);
+              session.sayLead(queueId, a);
+            },
+            from,
+          ),
+        conversation,
       ),
       timings: this.deps.timings,
       ...(this.deps.agentCallbacks ? { agentCallbacks: this.deps.agentCallbacks } : {}),
@@ -126,8 +155,15 @@ export class SpokenReplyRelay {
   }
 
   /** The lead's answer to a spoken request: said on the socket or into the
-   *  bot meeting that asked, or false when none is waiting for it. */
-  answerRequest(workspaceId: string, queueId: string, text: string, minute?: string): boolean {
-    return this.leads.answer(workspaceId, queueId, text, minute);
+   *  bot meeting that asked, or false when none is waiting for it. `by` is the
+   *  answering agent: a turn addressed to one agent takes only its answer. */
+  answerRequest(
+    workspaceId: string,
+    queueId: string,
+    text: string,
+    minute?: string,
+    by?: string,
+  ): boolean {
+    return this.leads.answer(workspaceId, queueId, text, minute, by);
   }
 }
