@@ -2989,6 +2989,16 @@ html:has(.board-walk-cred-form) {
   line-height: 1.4;
   color: var(--fg-muted);
 }
+/* An ask that STOPS work: one steady line above the title, saying what is
+   stopped. No badge and no motion (calm by default); the row's place at the
+   top of the queue is the rest of the signal. */
+.board-review-row-stops {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--warn-fg);
+  overflow-wrap: anywhere;
+}
 .board-review-row-current {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   border-radius: var(--radius-lg);

@@ -23,6 +23,7 @@
  * which is the property this migration exists for (focus survives, and later
  * panes can hold anchors and editor mounts through a repaint).
  */
+import { blocksLine } from '@claude-workspaces/core/review-blocks';
 import { signal } from '@preact/signals';
 import { Fragment, render } from 'preact';
 import {
@@ -114,6 +115,9 @@ function ReviewRow(props: {
    * a chip on every row and tell the reader nothing they act on.
    */
   const mark = item.review?.shape === 'secret' ? reviewShapeBadge('secret') : undefined;
+  /** What this ask is holding up, when the asker said it is idle until the
+   *  answer — the queue already put it first (`review-blocks.ts`). */
+  const stops = blocksLine(item.review);
   const className = `board-review-row board-review-${item.kind}${index === 0 ? ' board-review-row-current' : ''}${rev ? ' board-review-row-revised' : ''}`;
   const title = `${REVIEW_KIND_LABEL[item.kind]}: ${item.title}${item.ask ? ` — ${item.ask}` : ''}${item.why ? ` · ${item.why}` : ''}`;
   // Into the queue's own card at this row, not out to the task or the doc.
@@ -131,6 +135,7 @@ function ReviewRow(props: {
           {mark.label}
         </span>
       )}
+      {stops !== undefined && <span class="board-review-row-stops">{stops}</span>}
       <span class="board-review-row-title">{reviewRowTitle(item)}</span>
       {rev?.question !== undefined && (
         <span class="board-review-row-quote">{`You asked: “${rev.question}”`}</span>

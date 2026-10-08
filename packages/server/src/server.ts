@@ -112,6 +112,7 @@ import { unreachableCallbackReason } from './recall.ts';
 import { scanSettledDocRefs } from './refs-backfill.ts';
 import { createOriginPolicy, createRequestAdmission } from './request-admission.ts';
 import { createRequestAttribution } from './request-attribution.ts';
+import { BLOCKING_WAIT_WINDOW_MS, blockingWait } from './review-answer-ledger.ts';
 import {
   listArchivedReviews,
   readArchiveManifest,
@@ -123,6 +124,7 @@ import { gateOwnerItems } from './review-items/done-when-owner.ts';
 import type { ReviewThreadItem } from './review-queue.ts';
 import { ReviewSizePrefs } from './review-size-prefs.ts';
 import type { SizedReviewItemRow } from './review-sizing.ts';
+import { createStaleAskNotifier } from './review-stale-notify.ts';
 import {
   type AgentIdentityRoutesContext,
   handleAgentIdentityRoutes,
@@ -2069,6 +2071,25 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     announceReviewItem,
   });
 
+  // An open ask that stopped applying is dropped from the queue by reading
+  // its thread; its asker is told once, at the moment it stopped. See
+  // review-stale-notify.ts.
+  const staleAsks = createStaleAskNotifier({
+    thread: (docId, threadId) => docStore.getThread(docId, threadId),
+    workspaceOf: resolveWorkspaceForDoc,
+    titleOf: (docId) => {
+      const task = docId.startsWith('task:')
+        ? taskStore.getTask(docId.slice('task:'.length))
+        : undefined;
+      return task?.title ?? docStore.peekMeta(docId)?.title;
+    },
+    sendToAgent: (channel, agentId, frame) => {
+      sse.sendToAgent(channel, agentId, { ...frame });
+    },
+  });
+  const offStaleComment = docStore.onCommentPosted(staleAsks.onCommentPosted);
+  const offStaleOrphan = docStore.onThreadsOrphaned(staleAsks.onThreadsOrphaned);
+
   /**
    * File every attachment set that predates `fileUnderBoardWorkspace` onto a
    * workspace, once per boot and never twice. See attachment-backfill.ts for
@@ -2355,6 +2376,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     // at the same claim.
     notesQualityRollup: () =>
       rollupNotesQuality(dataDir, { now: Date.now(), windowMs: NOTES_QUALITY_WINDOW_MS }),
+    // A week of blocking answers off the ledger, per request like the above.
+    blockingWait: () => {
+      const now = Date.now();
+      return blockingWait(crossReview.ledger.read(now - BLOCKING_WAIT_WINDOW_MS), now);
+    },
     // The OTHER claim `GET /api/deploy` answers: not "did the last deploy
     // come up" but "is this process bound and discoverable, now". Both halves
     // are read per request — `Bun.serve` has not returned when this object is
@@ -4274,6 +4300,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // because the close handlers above start their teardowns async, and
       // their notes belong in the docs this flushes next.
       crossReview.dispose();
+      offStaleComment();
+      offStaleOrphan();
       leadRanks.stop();
       await meetingRelay.dispose();
       await voiceRelay.dispose();

@@ -1,5 +1,5 @@
 /**
- * What the judge is told about the four fleet rules, and how its answer is
+ * What the judge is told about the five fleet rules, and how its answer is
  * read. The prompt text is the only half testable without a live call, so
  * each rule's exceptions — the asks that must still reach the reader — are
  * asserted present by name.
@@ -10,7 +10,7 @@ import { REVIEW_REFUSAL_KINDS, REVIEW_REFUSAL_RULES } from './review-refusal.ts'
 
 const ITEM = { headline: 'Spend about $9 re-running the Harborlight eval?' };
 
-describe('the judge is taught the four rules', () => {
+describe('the judge is taught the five rules', () => {
   const { system, user } = buildReviewJudgePrompt('Criteria text.', ITEM);
 
   it('names every rule, before the criteria', () => {
@@ -37,6 +37,7 @@ describe('the judge is taught the four rules', () => {
       'a product or taste judgement only the reader can make',
       'deletes or loses data',
       'a device, account or place only the reader has',
+      'NOT refused when the options offer a real trade-off',
       'refused permission',
       'When you are unsure whether a rule answers the ask, do not refuse it',
     ]) {

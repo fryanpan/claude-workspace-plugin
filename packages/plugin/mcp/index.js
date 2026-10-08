@@ -14772,6 +14772,18 @@ function reviewItemTaskLine(event, p) {
   return `[review item withdrawn] ${where}${by}${why}`;
 }
 
+// packages/mcp/src/review-stale-line.ts
+function truncate6(s, n) {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+function reviewItemStaleLine(p) {
+  const ask = p.headline ? `"${truncate6(p.headline, 60)}"` : "a review item you filed";
+  const on = p.title ? ` on "${truncate6(p.title, 40)}"` : "";
+  const why = p.rule === "orphaned" ? "what it was about is gone from the page" : "your own later reply on its thread settled it";
+  const call = p.withdraw ?? "withdraw_review_item with its docId, threadId and commentId";
+  return `[workspace.review_item_stale] your review item ${ask}${on} is off the reader's Home because ${why}. Call ${call}, or file a new item if the question still stands.`;
+}
+
 // packages/mcp/src/scheduled-line.ts
 var quoted = (title, id) => title ? `"${title}" (${id ?? "?"})` : id ?? "a scheduled run";
 function scheduledRunLine(p) {
@@ -14836,7 +14848,7 @@ function isSelfAuthoredEvent(event, payload, selfId) {
 }
 
 // packages/mcp/src/voice-line.ts
-function truncate6(s, n) {
+function truncate7(s, n) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 function where(p) {
@@ -14850,7 +14862,7 @@ function voiceRequestLine(p) {
     return null;
   const by = p.actor?.name ? ` by ${p.actor.name}` : "";
   const said = `[voice.request]${by}${where(p)}: "${p.transcript ?? ""}"`;
-  const told = truncate6(p.ack ?? "", 120);
+  const told = truncate7(p.ack ?? "", 120);
   if (p.route === "fast-path-action") {
     return `${said} — the fast path ALREADY applied this to the board on the speaker's behalf; ` + `they were told: "${told}". Do NOT redo it — reconcile your own picture of the board ` + "with what changed, and pick up only whatever the utterance asked for beyond it.";
   }
@@ -14861,7 +14873,7 @@ function voiceRequestLine(p) {
 }
 function addressedLine(p, said) {
   const who = p.actor?.name ?? "Speaker";
-  const earlier = (p.conversation ?? []).filter((t) => typeof t.text === "string" && t.text.trim()).map((t) => `${t.from === "agent" ? "You" : who}: ${truncate6(t.text ?? "", 300)}`);
+  const earlier = (p.conversation ?? []).filter((t) => typeof t.text === "string" && t.text.trim()).map((t) => `${t.from === "agent" ? "You" : who}: ${truncate7(t.text ?? "", 300)}`);
   const history = earlier.length ? `
 Earlier in this conversation:
 ${earlier.join(`
@@ -14928,10 +14940,10 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
   let body;
   switch (event) {
     case "task.created":
-      body = `[task.created] "${truncate7(p.task?.title ?? p.taskId ?? "", 60)}" → ${p.goal ?? "?"}${p.assignee ? ` (assignee ${p.assignee})` : ""}`;
+      body = `[task.created] "${truncate8(p.task?.title ?? p.taskId ?? "", 60)}" → ${p.goal ?? "?"}${p.assignee ? ` (assignee ${p.assignee})` : ""}`;
       break;
     case "task.transitioned":
-      body = `[task.transitioned] ${p.taskId}: ${p.from} → ${p.to}${by}${p.note ? ` — ${truncate7(p.note, 80)}` : ""}`;
+      body = `[task.transitioned] ${p.taskId}: ${p.from} → ${p.to}${by}${p.note ? ` — ${truncate8(p.note, 80)}` : ""}`;
       break;
     case "task.assigned":
       body = `[task.assigned] ${p.taskId}: ${p.from} → ${p.to}${by}`;
@@ -14940,10 +14952,10 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       body = `[task.regrouped] ${p.taskId}: ${p.fromGoal} → ${p.toGoal}${by}`;
       break;
     case "task.retitled":
-      body = `[task.retitled] "${truncate7(p.titleFrom ?? "", 60)}" → "${truncate7(p.titleTo ?? "", 60)}"${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}`;
+      body = `[task.retitled] "${truncate8(p.titleFrom ?? "", 60)}" → "${truncate8(p.titleTo ?? "", 60)}"${by}${p.reason ? ` — ${truncate8(p.reason, 80)}` : ""}`;
       break;
     case "task.body_edited":
-      body = p.titleFrom && p.titleTo ? `[task.body_edited] reshaped "${truncate7(p.titleFrom, 60)}" → "${truncate7(p.titleTo, 60)}"${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}` : `[task.body_edited] ${p.taskId}${by}${p.reason ? ` — ${truncate7(p.reason, 80)}` : ""}`;
+      body = p.titleFrom && p.titleTo ? `[task.body_edited] reshaped "${truncate8(p.titleFrom, 60)}" → "${truncate8(p.titleTo, 60)}"${by}${p.reason ? ` — ${truncate8(p.reason, 80)}` : ""}` : `[task.body_edited] ${p.taskId}${by}${p.reason ? ` — ${truncate8(p.reason, 80)}` : ""}`;
       break;
     case "task.scheduled_run":
       body = scheduledRunLine(p);
@@ -14979,6 +14991,9 @@ async function emitBoardChannelMessage(deps, event, rawPayload) {
       break;
     case "workspace.done_when_ready":
       body = doneWhenReadyLine(p);
+      break;
+    case "workspace.review_item_stale":
+      body = reviewItemStaleLine(rawPayload);
       break;
     case "workspace.app_unreachable":
       body = appUnreachableLine(rawPayload);
@@ -15096,7 +15111,7 @@ async function emitChannelMessage(deps, event, rawPayload) {
     const author2 = p.suggestion?.author?.name ?? "";
     const snippet2 = p.suggestion?.snippet ?? "";
     const kind = p.suggestion?.kind ?? "";
-    const header2 = snippet2 ? `"${truncate7(snippet2, 60)}"` : sid;
+    const header2 = snippet2 ? `"${truncate8(snippet2, 60)}"` : sid;
     const body2 = `[suggestion ${action2}] ${author2 ? `${author2}: ` : ""}${kind} ${header2}`.trim();
     await deps.notify({
       method: "notifications/claude/channel",
@@ -15131,11 +15146,11 @@ async function emitChannelMessage(deps, event, rawPayload) {
   const editHint = pageEdits?.length ? `
 (Apply each edit to the page source, then resolve_thread. page_edits holds each edit whole; its after is markdown: a blank line between paragraphs, **bold**, *italic*, [text](url).)` : "";
   const action = event.startsWith("thread.") ? event.slice("thread.".length) : event;
-  const header = snippet ? `on "${truncate7(snippet, 60)}"` : "";
-  const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate7(snippet, 60)}"` : ""} —` : "";
-  const onDoc = text && p.docTitle ? ` on "${truncate7(p.docTitle, 60)}"` : "";
+  const header = snippet ? `on "${truncate8(snippet, 60)}"` : "";
+  const onItem = reviewItemId ? ` on review item ${reviewItemId}${snippet ? ` "${truncate8(snippet, 60)}"` : ""} —` : "";
+  const onDoc = text && p.docTitle ? ` on "${truncate8(p.docTitle, 60)}"` : "";
   const parentText = event === "thread.replied" ? oneLine(p.inReplyTo?.text ?? "") : "";
-  const toParent = parentText ? ` — to "${truncate7(parentText, 100)}"` : "";
+  const toParent = parentText ? ` — to "${truncate8(parentText, 100)}"` : "";
   const who = `${author ? `${author}${fromMock}` : fromMock.trim()}${onDoc}${toParent}`.trim();
   const body = text ? `[${action}]${onItem} ${who ? `${who}: ` : ""}${text}${openPartsClause(p.openParts)}${editHint}` : `[${action}]${onItem}${author ? ` by ${author}${fromMock} —` : fromMock} thread ${threadId} ${header}`.trim();
   await deps.notify({
@@ -15162,7 +15177,7 @@ async function emitChannelMessage(deps, event, rawPayload) {
 function oneLine(s) {
   return s.replace(/\s+/g, " ").trim();
 }
-function truncate7(s, n) {
+function truncate8(s, n) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
@@ -15860,6 +15875,21 @@ var REVIEW_ITEM_SCHEMA = {
         },
         required: ["id", "label"]
       }
+    },
+    blocks: {
+      type: "object",
+      description: "Set this when you are idle until the reader answers: name the work that is stopped. The item then sorts above every other on the reader's Home with the line 'Stopped until you answer: <what>', and its push leads with it. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
+      properties: {
+        what: {
+          type: "string",
+          description: "The stopped work, in a short phrase. 120 characters or fewer."
+        },
+        hours: {
+          type: "number",
+          description: "How many hours the work stays stopped if nobody answers, when you can say."
+        }
+      },
+      required: ["what"]
     }
   },
   required: ["headline"]
@@ -21263,7 +21293,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.303";
+var PLUGIN_VERSION = "0.1.304";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

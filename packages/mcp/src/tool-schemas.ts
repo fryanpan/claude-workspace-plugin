@@ -82,6 +82,22 @@ const REVIEW_ITEM_SCHEMA = {
         required: ['id', 'label'],
       },
     },
+    blocks: {
+      type: 'object',
+      description:
+        "Set this when you are idle until the reader answers: name the work that is stopped. The item then sorts above every other on the reader's Home with the line 'Stopped until you answer: <what>', and its push leads with it. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
+      properties: {
+        what: {
+          type: 'string',
+          description: 'The stopped work, in a short phrase. 120 characters or fewer.',
+        },
+        hours: {
+          type: 'number',
+          description: 'How many hours the work stays stopped if nobody answers, when you can say.',
+        },
+      },
+      required: ['what'],
+    },
   },
   required: ['headline'],
 } as const;

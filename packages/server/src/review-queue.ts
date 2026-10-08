@@ -30,6 +30,7 @@ import type {
 } from '@claude-workspaces/core';
 import {
   decodeEntities,
+  isBlockingAsk,
   isReviewItemGated,
   isReviewPayloadGated,
   latestThreadedQuestion,
@@ -42,6 +43,7 @@ import {
 import { withPartialNote } from '@claude-workspaces/core/answer-coverage-prompt';
 import { pageUrlOf } from '@claude-workspaces/core/page-thread-link';
 import { type ReviewGateNote, gateNoteOf } from '@claude-workspaces/core/review-hold';
+import { staleAsk } from '@claude-workspaces/core/review-stale';
 import { classifyActor } from './actor-identity.ts';
 import { asksPerson, extractAsk } from './ask-detection.ts';
 
@@ -422,7 +424,11 @@ export function reviewThreadItems(args: {
       // THROUGH rather than `continue`-ing is deliberate: the run underneath
       // may still hold an ordinary unanswered question, and a held
       // declaration is not a reason to stop reading the thread.
-      if (declaring?.review && !isReviewPayloadGated(declaring.review)) {
+      // NO LONGER ASKED — its anchor is orphaned, or its asker's own later
+      // reply settled it (`review-stale.ts`). Off the queue like a held one,
+      // and for the same reason its prose must not come back as `unreplied`.
+      const stale = declaring?.review ? staleAsk(thread, declaring) : undefined;
+      if (declaring?.review && !isReviewPayloadGated(declaring.review) && stale === undefined) {
         // A correction to the words, if there has been one. `since` is
         // deliberately NOT reset by it: the reader has been waiting on this
         // question since it was asked, and a revision is the asker getting
@@ -491,7 +497,12 @@ export function reviewThreadItems(args: {
       // the same thread is nobody's hold.
       const asked = [...run]
         .reverse()
-        .find((c) => !(c.review && isReviewPayloadGated(c.review)) && asksPerson(c.text, people));
+        .find(
+          (c) =>
+            !(c.review && isReviewPayloadGated(c.review)) &&
+            !(stale !== undefined && c.id === declaring?.id) &&
+            asksPerson(c.text, people),
+        );
       if (asked === undefined) continue;
       items.push({
         kind,
@@ -630,7 +641,13 @@ export function reviewItemRows(args: {
   source: ThreadSource;
 }): ReviewItemRow[] {
   const rows: ReviewItemRow[] = [...reviewThreadItems(args), ...taskReviewItems(args.tasks)];
-  return rows.sort((a, b) => a.since - b.since || rowKey(a).localeCompare(rowKey(b)));
+  // An ask that STOPS work leads, whatever its age (`review-blocks.ts`).
+  return rows.sort(
+    (a, b) =>
+      Number(isBlockingAsk(b.review)) - Number(isBlockingAsk(a.review)) ||
+      a.since - b.since ||
+      rowKey(a).localeCompare(rowKey(b)),
+  );
 }
 
 function rowKey(row: ReviewItemRow): string {

@@ -9,6 +9,7 @@ import type { ReviewGateNote, ReviewPayload, ReviewShape } from '@claude-workspa
  * and `board-presence-model.ts` for the two duration labels a queue row prints.
  * Nothing imports back: the queue is a reader of the board, not a peer of it.
  */
+import { isBlockingAsk } from '@claude-workspaces/core/review-blocks';
 import { type SpokenReviewTarget, reviewAnswerRequest } from '@claude-workspaces/core/spoken-reply';
 import { api } from '../doc-path.ts';
 import { type BoardGoal, type BoardTask, goalRank, ownedByPerson } from './board-model.ts';
@@ -765,7 +766,13 @@ export function reviewQueue(
     ranked.push(entry);
   }
 
-  ranked.sort((a, b) => compareAsk(a.rank, b.rank));
+  // An ask that STOPS work leads the whole queue, whatever its task's rank
+  // (`review-blocks.ts`); the board's order applies within each half.
+  ranked.sort(
+    (a, b) =>
+      Number(isBlockingAsk(b.item.review)) - Number(isBlockingAsk(a.item.review)) ||
+      compareAsk(a.rank, b.rank),
+  );
   const items = ranked.map((r) => r.item);
 
   // Only decisions with dependents count as blocking. A thread blocks nothing
