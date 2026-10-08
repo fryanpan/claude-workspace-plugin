@@ -1,6 +1,6 @@
 /**
  * The gate REFUSES an ask a fleet rule already answers, through the real
- * routes: the four kinds never reach the board's Home rows or the cross-board
+ * routes: the five kinds never reach the board's Home rows or the cross-board
  * queue, a refusal is not admitted by the two-hold cap or the one-hour
  * release, an appeal is judged again, and an ask reporting a permission
  * denial is never refused.
@@ -45,6 +45,10 @@ const REFUSABLE: Record<ReviewRefusalKind, { headline: string; detail: string }>
   'self-check': {
     headline: 'Did last night’s Saltmarsh import log any errors?',
     detail: 'The import writes its own log on this machine.',
+  },
+  requested: {
+    headline: 'Re-run the Harborlight benchmark you asked for anyway, or skip it?',
+    detail: 'The re-run may finish after Friday.',
   },
 };
 
