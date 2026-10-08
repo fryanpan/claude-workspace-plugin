@@ -163,7 +163,7 @@ export function questionFor(gap: PlanGap): string {
     case 'placeholder':
       return `What goes under ${h}?`;
     case 'thin':
-      return `${h} is short. What else should it say?`;
+      return `What else goes under ${h}?`;
     case 'question': {
       const asked = capWords(
         (gap.asks ?? '').replace(/^(?:open question|tbd|todo)\s*[:-]\s*/i, ''),

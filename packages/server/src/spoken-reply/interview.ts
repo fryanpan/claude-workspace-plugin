@@ -43,9 +43,7 @@ import type { prose } from '@claude-workspaces/core';
  * same membership check the router makes, because the page's context is
  * only clamped, never trusted, before it gets here.
  */
-import { SPOKEN_MAX_WORDS } from '@claude-workspaces/core/spoken-reply';
 import type { VoiceContext } from '../voice-prompt.ts';
-import { capWords } from '../voice-status.ts';
 import { answerPart } from './interview-answer.ts';
 import {
   type PlanGap,
@@ -54,62 +52,35 @@ import {
   questionFor,
   spokenHeading,
 } from './interview-gaps.ts';
-import type { AfterAnswer, GapOutcome, InterviewLog } from './interview-log.ts';
+import { GoalsInterview } from './interview-goals.ts';
+import type { AfterAnswer, GapOutcome } from './interview-log.ts';
 import {
   answerMarkdown,
   asksForQuestions,
   bareAnswer,
   interviewCommand,
+  oneSentence,
   wordCount,
 } from './interview-phrases.ts';
-import { type PlanComplete, readPlan } from './interview-reader.ts';
+import { readPlan } from './interview-reader.ts';
 import { InterviewRecord, OUTCOME, type Running } from './interview-record.ts';
 import { InterviewSlots, MeetingWarmup, type SlotTransition } from './interview-state.ts';
+import {
+  INTERVIEW_ROUTE,
+  type InterviewReply,
+  type SpokenInterviewDeps,
+} from './interview-types.ts';
 
-/** The route word an interview's replies carry. */
-export const INTERVIEW_ROUTE = 'interview';
-export type InterviewWrite = 'written' | 'gone' | 'failed';
+export {
+  INTERVIEW_ROUTE,
+  type InterviewDocs,
+  type InterviewReply,
+  type InterviewWrite,
+  type SpokenInterviewDeps,
+} from './interview-types.ts';
+
 /** The most of what was said since the last question a reading is given. */
 const HEARD_KEPT = 2_000;
-
-/** The doc store as an interview needs it. */
-export interface InterviewDocs {
-  /** Whether `docId` is a doc on `workspaceId`. */
-  onBoard(workspaceId: string, docId: string): boolean;
-  outline(docId: string): readonly prose.OutlineEntry[] | null;
-  /** Append `markdown` to the end of the section `headingId` heads. */
-  writeUnder(docId: string, headingId: string, markdown: string): InterviewWrite;
-  /** Put the agent's cursor on `quote` in block `blockId` in every open view
-   *  of the doc, or take it off (null). */
-  focus(docId: string, at: { blockId: string; quote: string } | null): void;
-  /** A question is out on `docId`: hold the meeting notes' copy of what is
-   *  said next (`MeetingEars.hold`). The three are absent off a meeting. */
-  hold?(docId: string): void;
-  /** `written` went into the plan: the notes never get the turns it holds. */
-  placed?(docId: string, written: string): void;
-  /** No answer was written: the notes get what was held. */
-  release?(docId: string): void;
-}
-
-export interface SpokenInterviewDeps {
-  docs: InterviewDocs;
-  log: InterviewLog;
-  /** One model call, to choose a question by reading the plan. Absent: the
-   *  gap list only. */
-  complete?: PlanComplete;
-  now?: () => number;
-  newId?: () => string;
-  /** A meeting's quiet opening (`MEETING_WARMUP_MS`); tests pass 0. */
-  warmupMs?: number;
-}
-
-/** What an interview says back — the shape `SpokenAnswerer` returns. */
-export interface InterviewReply {
-  spoken: string;
-  detail: string[];
-  asking: boolean;
-  route: string;
-}
 
 function docOf(context: VoiceContext | undefined): string | undefined {
   return context?.surface === 'doc' ? context.docId : undefined;
@@ -139,6 +110,8 @@ export class SpokenInterview {
   private readonly warmup: MeetingWarmup;
   private readonly newId: () => string;
   private readonly record: InterviewRecord;
+  /** A learning-goals doc's own, looser interview (`interview-goals.ts`). */
+  private readonly goals: GoalsInterview;
 
   constructor(
     private readonly deps: SpokenInterviewDeps,
@@ -148,10 +121,11 @@ export class SpokenInterview {
     this.warmup = new MeetingWarmup(this.now, deps.warmupMs);
     this.newId = deps.newId ?? (() => `iv-${Date.now().toString(36)}`);
     this.record = new InterviewRecord(deps.log, this.now);
+    this.goals = new GoalsInterview(deps.docs, deps.complete);
   }
 
   get active(): boolean {
-    return this.run !== null;
+    return this.run !== null || this.goals.engaged;
   }
 
   /** Whether what is said in `context` is the planning voice's to hear. */
@@ -164,6 +138,7 @@ export class SpokenInterview {
    *  ends with it. */
   close(): void {
     this.unfocus();
+    this.goals.close();
     this.record.close();
   }
 
@@ -174,6 +149,7 @@ export class SpokenInterview {
    * again with everything said; a gap's is asked again at the next pause.
    */
   withdraw(): void {
+    this.goals.withdraw();
     const run = this.run;
     if (!run) return;
     const asked = questionFor(this.slot(run));
@@ -202,6 +178,13 @@ export class SpokenInterview {
     invited = false,
   ): Promise<InterviewReply | null> {
     this.meeting = meeting;
+    const on = docOf(context);
+    if (on && this.listensOn(context) && this.goals.claims(on)) {
+      const said = invited ? 'repeat' : interviewCommand(transcript);
+      return this.goals.turn(on, transcript, said, { invited, meeting });
+    }
+    // Off a goals doc, what is heard is not written into one.
+    this.goals.close();
     const cmd = invited && this.run ? 'repeat' : interviewCommand(transcript);
     const run = this.run;
     if (!run) {
@@ -225,7 +208,7 @@ export class SpokenInterview {
     }
     if (!text) {
       return run.slots.silence() === 'offer-skip'
-        ? this.question(run, 'Still there? Say skip to move on, or answer:')
+        ? this.question(run, 'Still there? Say skip to move on.')
         : this.question(run, 'I didn’t catch that.');
     }
     switch (cmd) {
@@ -284,9 +267,14 @@ export class SpokenInterview {
     }
     this.over.delete(docId);
     const run = this.open(docId, gaps, false);
+    const asked = this.question(run, '');
     return {
-      ...this.question(run, `I found ${plural(gaps.length, 'gap')}. First:`),
-      detail: gaps.map((g, i) => `${i + 1}. ${gapLine(g)}`),
+      ...asked,
+      detail: [
+        `I found ${plural(gaps.length, 'gap')}.`,
+        ...gaps.map((g, i) => `${i + 1}. ${gapLine(g)}`),
+        ...asked.detail,
+      ],
     };
   }
 
@@ -340,7 +328,7 @@ export class SpokenInterview {
       ? await this.read(docId, outline, findPlanGaps(outline), heard, false)
       : { none: '' };
     if (!('ask' in read)) return { ...this.say(lead), asking: true };
-    return this.question(this.open(docId, [read.ask], true), `${lead} Next:`);
+    return this.question(this.open(docId, [read.ask], true), lead);
   }
 
   private async write(run: Running, text: string): Promise<InterviewReply> {
@@ -418,16 +406,17 @@ export class SpokenInterview {
     }
     if (!next) return this.ended(run, `${lead} That was the last gap.`);
     run.askedAt = this.now();
-    return this.question(run, again ? `${lead} It’s the only one left:` : `${lead} Next:`);
+    return this.question(run, again ? `${lead} It’s the only one left.` : lead);
   }
 
   private ended(run: Running, lead: string): InterviewReply {
     this.finish(run, true);
     if (run.reading) return this.say(lead);
     const { slots } = run;
+    const said = this.say(`${lead} ${slots.placed} of ${plural(slots.total, 'gap')} filled.`);
     return {
-      ...this.say(`${lead} ${slots.placed} of ${plural(slots.total, 'gap')} filled.`),
-      detail: slots.unasked.map((g) => `Not asked: ${gapLine(g)}`),
+      ...said,
+      detail: [...said.detail, ...slots.unasked.map((g) => `Not asked: ${gapLine(g)}`)],
     };
   }
 
@@ -461,11 +450,15 @@ export class SpokenInterview {
     const asked = questionFor(gap);
     const before = this.asked.get(run.docId) ?? [];
     if (!before.includes(asked)) this.asked.set(run.docId, [...before, asked]);
-    const spoken = capWords(`${lead} ${asked}`.trim(), SPOKEN_MAX_WORDS);
+    // One short sentence aloud: the question. The lead is only written.
+    // A lead that is itself a question ("Can you say more?") is the one said.
+    const own = lead.trim().endsWith('?');
+    const { spoken, rest } = oneSentence(own ? lead : asked);
+    const lines = lead.trim() && !own ? [lead.trim(), ...rest] : rest;
     return {
       spoken,
       // A meeting has no interview commands to offer (the page shows none).
-      detail: this.meeting ? [] : ['Say skip, come back to that, or that’s enough.'],
+      detail: this.meeting ? lines : [...lines, 'Say skip, come back to that, or that’s enough.'],
       asking: true,
       route: INTERVIEW_ROUTE,
     };
@@ -479,8 +472,9 @@ export class SpokenInterview {
     this.focused = null;
   }
 
-  private say(spoken: string): InterviewReply {
-    return { spoken, detail: [], asking: false, route: INTERVIEW_ROUTE };
+  private say(text: string): InterviewReply {
+    const { spoken, rest } = oneSentence(text);
+    return { spoken, detail: rest, asking: false, route: INTERVIEW_ROUTE };
   }
 
   /** Nothing said. `listening`: the page keeps listening for the next pause. */

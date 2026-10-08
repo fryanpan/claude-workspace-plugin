@@ -2,13 +2,11 @@
  * The learning-goals doc: the template the coach starts it from, and the
  * reading of it the coach judges against.
  *
- * The doc is filled in by the planning interview (`spoken-reply/
- * interview.ts`): tap Talk on the doc and it asks about each empty section
- * and writes the spoken answer under its heading. So the template is only
- * headings. The interview asks the most important empty section first,
- * scoring heading words like "goals" and "why" above the rest, so every
- * heading here avoids those words: with equal scores it asks in the doc's
- * order, and the coach's name comes first.
+ * The doc is filled in by the planning voice's goals interview
+ * (`spoken-reply/interview-goals.ts`): tap Talk on the doc and it asks the
+ * coach's name and what the owner wants to do better, then writes whatever
+ * is said about any goal where it belongs. So the template is only headings, and
+ * the goals heading's exact words are what mark a doc as a goals doc.
  *
  * The goals live in one section, "What I want to do better". Each top-level
  * bullet (with its sub-bullets) or paragraph there is one goal, and carries

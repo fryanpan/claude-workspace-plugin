@@ -32,7 +32,7 @@ describe('skip', () => {
       const f = await started();
       const r = await f.say(said);
       expect(r).toMatchObject({
-        spoken: 'Skipped. Next: What goes under Design?',
+        spoken: 'What goes under Design?',
         asking: true,
       });
       expect(f.headingOf(said)).toBeNull();
@@ -46,7 +46,7 @@ describe('skip', () => {
     await f.say('A drive-through deck.');
     await f.say('The harbour board.');
     const last = await f.say('Weekdays first.');
-    expect(last.spoken).toBe('Written under Rollout. That was the last gap. 3 of 4 gaps filled.');
+    expect(last.spoken).toBe('Written under Rollout.');
     expect(f.rows.at(-1)).toMatchObject({ type: 'end', filled: 3, skipped: 1 });
   });
 });
@@ -61,16 +61,12 @@ describe('come back to that', () => {
   ]) {
     it(`"${said}" moves on and asks that gap again after the others`, async () => {
       const f = await started();
-      expect((await f.say(said)).spoken).toBe(
-        'I’ll come back to that. Next: What goes under Design?',
-      );
+      expect((await f.say(said)).spoken).toBe('What goes under Design?');
       await f.say('A drive-through deck.');
       await f.say('The harbour board.');
-      expect((await f.say('Weekdays first.')).spoken).toBe(
-        'Written under Rollout. Next: What goes under Goals?',
-      );
+      expect((await f.say('Weekdays first.')).spoken).toBe('What goes under Goals?');
       const done = await f.say('Twenty-minute crossings.');
-      expect(done.spoken).toBe('Written under Goals. That was the last gap. 4 of 4 gaps filled.');
+      expect(done.spoken).toBe('Written under Goals.');
       expect(f.headingOf('Twenty-minute crossings.')).toBe('Goals');
       expect(f.rows[0]).toMatchObject({ section: 1, outcome: 'deferred' });
     });
@@ -82,9 +78,7 @@ describe('come back to that', () => {
         '# Plan\n\n## Goals\n\n## Notes\n\nThe crossing runs between Riverbend and the Saltmarsh quay all year.\n',
     });
     await fx.say('interview me');
-    expect((await fx.say('come back to that')).spoken).toBe(
-      'I’ll come back to that. It’s the only one left: What goes under Goals?',
-    );
+    expect((await fx.say('come back to that')).spoken).toBe('What goes under Goals?');
   });
 });
 
@@ -102,11 +96,12 @@ describe("that's enough", () => {
       await f.say('Twenty-minute crossings.');
       const r = await f.say(said);
       expect(r).toMatchObject({
-        spoken: 'Stopping here. 1 of 4 gaps filled.',
+        spoken: 'Stopping here.',
         asking: false,
         route: 'interview',
       });
       expect(r.detail).toEqual([
+        '1 of 4 gaps filled.',
         'Not asked: Requirements — open question',
         'Not asked: Rollout — short',
       ]);

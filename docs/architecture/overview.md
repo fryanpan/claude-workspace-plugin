@@ -827,7 +827,19 @@ to that" and "that's enough" are `interview-phrases.ts`. `interview-log.ts`
 records each section's question-to-answer time and each answer's
 `after-answer` outcome as log lines and rows in
 `<dataDir>/interview-timings.jsonl`, with no doc text. The doc must be on the
-socket's board, checked as the router checks it.
+socket's board, checked as the router checks it. Every reply it speaks is one
+sentence of at most 20 words (`oneSentence`, `interview-phrases.ts`); the
+rest of what it has to say is written on the page.
+
+A learning-goals doc, one with a "What I want to do better" heading, gets a
+looser interview instead (`interview-goals.ts`). It asks at most the coach's
+name and "what do you want to do better?", each once, and then follows the
+speaker: one model call per spoken pause (`interview-goals-place.ts`, with a
+rule when there is no model) names every change, so several goals said at
+once each become a bullet in the goals section, and "change the first one
+to …" replaces that goal's block. A goal the owner typed becomes a proposal
+instead, so the owner's words are never deleted. The four-part `###` sections of
+older goals docs are never asked.
 
 The same answerer speaks in a bot meeting. `meeting-claude.ts` (a top-level
 server module) reads each final turn `recall-meeting.ts` records and acts only

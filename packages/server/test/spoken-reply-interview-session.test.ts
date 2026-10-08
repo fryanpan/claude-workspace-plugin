@@ -67,14 +67,14 @@ describe('interview over the spoken-reply socket', () => {
     await waitFor(() => opened.length === 1, { describe: 'listener opened' });
     opened[0]?.onTurn({ turn: 0, text: 'Claude, interview me.', final: true });
     await waitFor(() => said.length === 1, { describe: 'question spoken' });
-    expect(said[0]).toBe('I found 4 gaps. First: What goes under Goals?');
+    expect(said[0]).toBe('What goes under Goals?');
     expect(h.replies()[0]).toMatchObject({ asking: true, route: 'interview' });
 
     h.send({ ...START, setup: 1 });
     await waitFor(() => opened.length === 2, { describe: 'second listener' });
     opened[1]?.onTurn({ turn: 0, text: 'Twenty-minute crossings.', final: true });
     await waitFor(() => said.length === 2, { describe: 'next question spoken' });
-    expect(said[1]).toBe('Written under Goals. Next: What goes under Design?');
+    expect(said[1]).toBe('What goes under Design?');
     expect(f.headingOf('Twenty-minute crossings.')).toBe('Goals');
   });
 

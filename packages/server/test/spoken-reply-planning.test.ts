@@ -39,7 +39,7 @@ describe('voice on in a plan', () => {
     const said = 'So the ferry plan starts at Harborlight and then Riverbend in May.';
     const r = await fx.say(said);
     expect(r).toMatchObject({
-      spoken: 'I found 4 gaps. First: What goes under Goals?',
+      spoken: 'What goes under Goals?',
       asking: true,
       route: 'interview',
     });
@@ -48,7 +48,7 @@ describe('voice on in a plan', () => {
 
   it('a silence on opening is a pause too', async () => {
     fx = await planFixture();
-    expect((await fx.say('')).spoken).toBe('I found 4 gaps. First: What goes under Goals?');
+    expect((await fx.say('')).spoken).toBe('What goes under Goals?');
   });
 
   it('a plan with nothing open says nothing and keeps listening', async () => {
@@ -100,7 +100,7 @@ describe('after an answer', () => {
     fx = await planFixture();
     await fx.say('');
     const r = await fx.say(GOALS);
-    expect(r.spoken).toBe('Written under Goals. Next: What goes under Design?');
+    expect(r.spoken).toBe('What goes under Design?');
     expect(fx.headingOf(GOALS)).toBe('Goals');
     expect(fx.lines).toContain('[interview] doc=d-plan section=1 after-answer=edit');
   });
@@ -110,14 +110,14 @@ describe('after an answer', () => {
     await fx.say('');
     const r = await fx.say('Maybe.');
     expect(r).toMatchObject({
-      spoken: 'Can you say more? What goes under Goals?',
+      spoken: 'Can you say more?',
       asking: true,
     });
     expect(fx.headingOf('Maybe.')).toBeNull();
     expect(fx.lines).toContain('[interview] doc=d-plan section=1 after-answer=follow-up');
     expect(focus(fx)).toMatchObject({ quote: 'Goals' });
 
-    expect((await fx.say(GOALS)).spoken).toStartWith('Written under Goals.');
+    expect((await fx.say(GOALS)).detail[0]).toBe('Written under Goals.');
     expect(fx.headingOf(GOALS)).toBe('Goals');
   });
 
@@ -155,9 +155,7 @@ describe('after an answer', () => {
     await fx.say('');
     await fx.say('A drive-through deck.');
     await fx.say('The harbour board.');
-    expect((await fx.say('Weekdays first.')).spoken).toBe(
-      'Written under Rollout. Next: What goes under Goals?',
-    );
+    expect((await fx.say('Weekdays first.')).spoken).toBe('What goes under Goals?');
   });
 });
 
@@ -174,8 +172,6 @@ describe('once it is over', () => {
     fx = await planFixture();
     await fx.say('');
     await fx.say("that's enough");
-    expect((await fx.say('interview me')).spoken).toBe(
-      'I found 4 gaps. First: What goes under Goals?',
-    );
+    expect((await fx.say('interview me')).spoken).toBe('What goes under Goals?');
   });
 });
