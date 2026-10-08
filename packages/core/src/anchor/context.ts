@@ -30,3 +30,24 @@ export function contextMatches(
   if (anchor.view && anchor.view !== current.view) return false;
   return true;
 }
+
+/**
+ * Was the anchor made on this page, in another state of it?
+ *
+ * The address's path is the page; its query and hash are the state a site
+ * keeps its controls in (`?o=ss`, `?all=1`). A thread made with other
+ * controls set is still on this page, so the widget pins it, dimmed, rather
+ * than dropping it the moment a control moves the address. A `view` the app
+ * declared still has to match: the widget cannot put an app back in one.
+ */
+export function samePage(
+  anchor: AnchorContext | undefined | null,
+  current: AnchorContext | undefined | null,
+): boolean {
+  const path = (u?: string) => u?.split(/[?#]/)[0];
+  return (
+    !!anchor?.url &&
+    (!anchor.view || anchor.view === current?.view) &&
+    path(anchor.url) === path(current?.url)
+  );
+}

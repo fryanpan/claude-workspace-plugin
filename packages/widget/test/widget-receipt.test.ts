@@ -3,6 +3,7 @@ import { createThread, postReply, setCommentDelivered } from '@claude-workspaces
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { widgetStyles } from '../src/styles.ts';
+import { mountPageList } from '../src/widget-page-list.ts';
 import { renderThreadsInto, showThreadPopover } from '../src/widget-threads.ts';
 import type { FeedbackWidgetEl } from '../src/widget.ts';
 
@@ -128,7 +129,7 @@ function panelWidget(ydoc: Y.Doc, user: User | null = reader): FeedbackWidgetEl 
   document.body.append(host);
   const pinLayer = document.createElement('div');
   document.body.append(pinLayer);
-  return Object.assign(host, {
+  const el = Object.assign(host, {
     shadow,
     user,
     pinLayer,
@@ -136,9 +137,13 @@ function panelWidget(ydoc: Y.Doc, user: User | null = reader): FeedbackWidgetEl 
     currentContext: undefined,
     showResolved: false,
     activeThread: null,
+    listHook: null,
     client: { ydoc },
     scheduleRender: () => {},
   }) as unknown as FeedbackWidgetEl;
+  // The row is drawn by the page list, which mic.js mounts on every embed.
+  mountPageList(el);
+  return el;
 }
 
 /** A doc holding one subject thread, and the id of its first comment. */

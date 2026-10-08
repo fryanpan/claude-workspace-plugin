@@ -3,6 +3,7 @@ import { createThread, postReply } from '@claude-workspaces/core';
 import { createAnchor } from '@claude-workspaces/core/anchor/element';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountAsks } from '../src/widget-ask.ts';
+import { mountPageList } from '../src/widget-page-list.ts';
 import type { FeedbackWidgetEl } from '../src/widget.ts';
 
 /**
@@ -64,6 +65,8 @@ async function mountWidget(docId: string): Promise<Mounted> {
   const mod = await import('../src/widget.ts');
   const el = mod.FeedbackWidget.init({ workspaceId: 'w-1', docId, user: 'alice' });
   mountAsks(el);
+  // The panel's rows are the page list's, mounted beside the asks in mic.js.
+  mountPageList(el);
   return { el, posts };
 }
 

@@ -591,6 +591,19 @@ row, which the module uses to mark rows that have an open ask. No new route:
 the answer goes to `…/threads/:id/answer`, which a mock frame's relay already
 allows for this doc alone.
 
+**The widget's panel lists the threads on the page the reader is on.**
+`widget-page-list.ts` draws the list, this page's threads newest first, then
+the ones with no spot left, then other pages. A tap on a row takes the reader
+to the thread's page state and shows its spot. Like `widget-ask.ts`, it ships
+in `mic.js` and `mockup-live.js`, and the board mounts it beside its mic. The
+budgeted bundle no longer draws a list. Each render hands the threads it read
+to the element's `listHook`. A pin now matches on the path
+(`samePage` in `core/anchor/context.ts`), and a thread made with other query
+controls set gets a dimmed pin. Tapping it loads that address through
+`widget-goto.ts`, which leaves the thread's id in session storage for the next
+render to show. `widget-thread-text.ts` holds the snippet and receipt markup
+that the popover and the list share. No new route and no new fetch.
+
 **A comment that never reached the server says so, on the comment.** Every
 composer on every surface already handed the words back when a post was
 refused; none of them left anything standing to say why, so a box holding your
