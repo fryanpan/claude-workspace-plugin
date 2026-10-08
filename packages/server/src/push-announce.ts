@@ -41,6 +41,7 @@ export function createPushAnnounce(ctx: PushAnnounceContext): {
     askedBy: string;
     url: string | undefined;
     key: string;
+    stops?: string;
   }) => void;
 } {
   const { dataDir, externalBaseUrl, opts } = ctx;
@@ -112,6 +113,7 @@ export function createPushAnnounce(ctx: PushAnnounceContext): {
     askedBy: string;
     url: string | undefined;
     key: string;
+    stops?: string;
   }): void {
     // No link, nothing to click. Criterion 2 of this feature is the click
     // landing on the item, so a notification without one is not worth sending.

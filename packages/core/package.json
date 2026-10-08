@@ -31,6 +31,7 @@
     "./types": "./src/types.ts",
     "./summary-prompt": "./src/summary-prompt.ts",
     "./review-judge-prompt": "./src/review-judge-prompt.ts",
+    "./review-blocks": "./src/review-blocks.ts",
     "./review-hold": "./src/review-hold.ts",
     "./review-refusal": "./src/review-refusal.ts",
     "./answer-coverage-prompt": "./src/answer-coverage-prompt.ts",

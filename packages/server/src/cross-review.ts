@@ -26,6 +26,7 @@ import {
   type CrossReviewQueue,
   applyLeadRanks,
   askShapeOf,
+  blockingFirst,
   crossReviewQueue,
 } from './cross-review-queue.ts';
 import type { DocStore } from './doc-store.ts';
@@ -189,7 +190,7 @@ export function createCrossReview(ctx: CrossReviewContext): CrossReview {
     }
     const q = crossReviewQueue(inputs);
     const { leadRank, leadGoal } = ctx;
-    const ranked = leadRank ? applyLeadRanks(q.items, leadRank) : q.items;
+    const ranked = blockingFirst(leadRank ? applyLeadRanks(q.items, leadRank) : q.items);
     const items = leadGoal
       ? ranked.map((item) => {
           const goalTag = leadGoal(item);

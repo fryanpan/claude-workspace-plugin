@@ -30,6 +30,7 @@ import type {
 } from '@claude-workspaces/core';
 import {
   decodeEntities,
+  isBlockingAsk,
   isReviewItemGated,
   isReviewPayloadGated,
   latestThreadedQuestion,
@@ -630,7 +631,13 @@ export function reviewItemRows(args: {
   source: ThreadSource;
 }): ReviewItemRow[] {
   const rows: ReviewItemRow[] = [...reviewThreadItems(args), ...taskReviewItems(args.tasks)];
-  return rows.sort((a, b) => a.since - b.since || rowKey(a).localeCompare(rowKey(b)));
+  // An ask that STOPS work leads, whatever its age (`review-blocks.ts`).
+  return rows.sort(
+    (a, b) =>
+      Number(isBlockingAsk(b.review)) - Number(isBlockingAsk(a.review)) ||
+      a.since - b.since ||
+      rowKey(a).localeCompare(rowKey(b)),
+  );
 }
 
 function rowKey(row: ReviewItemRow): string {
