@@ -10,10 +10,10 @@
  *
  * A moment the session raises (`raise`) reaches his pages only when there is
  * a goal to act on, no other moment is open, and its quote checks out
- * (`coach/judge.ts`). It follows him: every page he opens shows it, and it
- * stays until he answers it. Moving never closes it. A page on a board the
- * coach is excluded from (`coach/exclusion.ts`) is not shown it, and the
- * moment stays open for the next page that may show it (`coach/hub.ts`).
+ * (`coach/judge.ts`). It follows him: every page he has open shows it, a
+ * board the coach is excluded from (`coach/exclusion.ts`) included, and it
+ * stays until he answers it in any of them (`coach/hub.ts`). Moving never
+ * closes it. Showing it there tells the session nothing about that board.
  */
 import type { Event } from '../activity.ts';
 import { type GoalsDocReading, goalTitle } from './goals-doc.ts';
@@ -32,8 +32,16 @@ export interface DocLabel {
 
 /** What a page is told. */
 export type CoachFrame =
-  | { type: 'moment'; moment: { id: string; at: number; name: string; line: string; goal: string } }
-  | { type: 'clear'; id: string };
+  | {
+      type: 'moment';
+      moment: { id: string; at: number; name: string; line: string; goal: string };
+      /** The coach hears nothing from the page this is sent to
+       *  (`coach/exclusion.ts`); it shows the moment all the same. */
+      off?: true;
+    }
+  | { type: 'clear'; id: string }
+  /** Nothing is open: a page that reconnects after he answered elsewhere. */
+  | { type: 'idle' };
 
 export type RaiseResult =
   | { ok: true; id: string }
@@ -52,8 +60,8 @@ export interface CoachDeps {
   /** To the coach session; true when it took the frame. */
   tell: (news: SessionNews, at: number) => boolean;
   publish: (frame: CoachFrame) => void;
-  /** Every open page is told again whether it shows the open moment: a
-   *  board just turned off hides it there, one turned back on shows it. */
+  /** Every open page is told the open moment again, with whether the coach
+   *  hears from where that page is: a board just turned off, or back on. */
   reshow: (frame: CoachFrame | null) => void;
   now?: () => number;
 }
@@ -63,7 +71,8 @@ export interface Coach {
   activity(row: Event): void;
   /** The session raises a moment. */
   raise(body: Record<string, unknown> | null): RaiseResult;
-  answer(id: string, answer: MomentAnswer): boolean;
+  /** `text` is what he wrote with a thumbs down. */
+  answer(id: string, answer: MomentAnswer, text?: string): boolean;
   setReadiness(readiness: CoachReadiness): void;
   /** "Coach off for this board", or back on. Turning off the board he is on
    *  counts as his leaving it; the open moment stays open, hidden there. */
@@ -81,10 +90,20 @@ export function createCoach(deps: CoachDeps): Coach {
     moment: { id: m.id, at: m.at, name: name(reading), line: m.line, goal: m.goal },
   });
 
-  const close = (m: CoachMoment, answer: MomentAnswer, t: number): boolean => {
-    if (!deps.store.answer(m.id, answer, t)) return false;
+  const close = (m: CoachMoment, answer: MomentAnswer, t: number, text?: string): boolean => {
+    if (!deps.store.answer(m.id, answer, t, text)) return false;
     deps.publish({ type: 'clear', id: m.id });
-    deps.tell({ event: 'coach.answer', momentId: m.id, answer, goal: m.goal, line: m.line }, t);
+    deps.tell(
+      {
+        event: 'coach.answer',
+        momentId: m.id,
+        answer,
+        ...(text ? { text } : {}),
+        goal: m.goal,
+        line: m.line,
+      },
+      t,
+    );
     return true;
   };
 
@@ -177,9 +196,9 @@ export function createCoach(deps: CoachDeps): Coach {
       deps.publish(frameOf(m, reading));
       return { ok: true, id: m.id };
     },
-    answer(id, answer) {
+    answer(id, answer, text) {
       const m = deps.store.openMoment();
-      return m?.id === id ? close(m, answer, now()) : false;
+      return m?.id === id ? close(m, answer, now(), text) : false;
     },
     setReadiness(readiness) {
       deps.store.setReadiness(readiness);

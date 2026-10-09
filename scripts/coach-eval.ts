@@ -234,7 +234,7 @@ async function playDay(name: string, day: readonly Signal[]): Promise<DayResult>
       clock = signal.at;
       const open = coach.openFrame();
       if (open?.type === 'moment' && 'here' in signal && signal.here.visible) {
-        if (placeOf(signal.here) !== cardAt) coach.answer(open.moment.id, 'not-now');
+        if (placeOf(signal.here) !== cardAt) coach.answer(open.moment.id, 'down');
       }
       if ('here' in signal) {
         coach.here(signal.here);

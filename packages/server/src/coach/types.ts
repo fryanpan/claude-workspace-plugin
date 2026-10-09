@@ -26,15 +26,17 @@ export interface CoachDocRef {
 }
 
 /**
- * `open` shows on the page. `thanks`, `not-now` and `not-this` are his three
- * answers: useful, right goal at the wrong time, and a wrong call.
- * `moved-on` is one he left, from before a moment followed him from page to
- * page; nothing closes one that way now, and old records keep the state and
- * count as unanswered.
+ * `open` shows on the page. `up` and `down` are his two answers, a thumbs up
+ * or down; a down may carry a few words of why. `thanks`, `not-now` and
+ * `not-this` are the three answers the card offered before, and `moved-on`
+ * one he left, from before a moment followed him from page to page: nothing
+ * gives either now, and old records keep them.
  */
-export type MomentState = 'open' | 'thanks' | 'not-now' | 'not-this' | 'moved-on';
-export type MomentAnswer = 'thanks' | 'not-now' | 'not-this';
-export const MOMENT_ANSWERS: readonly MomentAnswer[] = ['thanks', 'not-now', 'not-this'];
+export type MomentState = 'open' | MomentAnswer | 'thanks' | 'not-now' | 'not-this' | 'moved-on';
+export type MomentAnswer = 'up' | 'down';
+export const MOMENT_ANSWERS: readonly MomentAnswer[] = ['up', 'down'];
+/** What he may write with a thumbs down. */
+export const ANSWER_TEXT_CHARS = 1_000;
 
 export interface CoachMoment {
   /** `cm-` + 12 characters. */
@@ -57,6 +59,8 @@ export interface CoachMoment {
   line: string;
   state: MomentState;
   answeredAt?: number;
+  /** What he wrote with a thumbs down. */
+  answerText?: string;
 }
 
 export interface CoachState {

@@ -37,9 +37,10 @@ const empty = (): CoachState => ({
 /** One week's answers, for the front page's line and the wrong-call rate. */
 export interface CoachWeek {
   moments: number;
-  thanks: number;
-  notNow: number;
-  notThis: number;
+  /** Thumbs up, with the old cards' Thanks. */
+  up: number;
+  /** Thumbs down, with the old cards' Not now and Not this. */
+  down: number;
   unanswered: number;
   /** Events the coach session read today. */
   eventsToday: number;
@@ -167,12 +168,14 @@ export class CoachStore {
     return moment;
   }
 
-  /** His answer, or `moved-on` (an old record's only). False when it is not open. */
-  answer(id: string, answer: MomentAnswer | 'moved-on', now: number): boolean {
+  /** His answer, with what he wrote, or `moved-on` (an old record's only).
+   *  False when it is not open. */
+  answer(id: string, answer: MomentAnswer | 'moved-on', now: number, text?: string): boolean {
     const m = this.state.moments.find((x) => x.id === id);
     if (!m || m.state !== 'open') return false;
     m.state = answer;
     m.answeredAt = now;
+    if (text) m.answerText = text;
     this.write();
     return true;
   }
@@ -196,9 +199,8 @@ export class CoachStore {
     const count = (s: CoachMoment['state']) => moments.filter((m) => m.state === s).length;
     return {
       moments: moments.length,
-      thanks: count('thanks'),
-      notNow: count('not-now'),
-      notThis: count('not-this'),
+      up: count('up') + count('thanks'),
+      down: count('down') + count('not-now') + count('not-this'),
       unanswered: count('moved-on'),
       eventsToday: this.eventsOn(now),
     };

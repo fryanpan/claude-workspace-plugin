@@ -169,7 +169,7 @@ describe('the owner’s settings and answers', () => {
     );
     const answer = await postJson(
       '/coach/moments/cm-aaaaaaaaaaaa/answer',
-      { answer: 'thanks' },
+      { answer: 'up' },
       h,
       OWNER_HOST,
     );
@@ -277,23 +277,22 @@ describe('GET /coach/stream', () => {
     expect((await req('/coach/stream', local())).status).toBe(403);
   });
 
-  it('takes the page’s board and doc, and refuses ones that do not exist', async () => {
+  it('takes the page’s board and doc, and opens for a place it does not know, as the board or the front page', async () => {
     const { workspaceId, docId } = ids();
     const h = await ownerHeaders({ 'sec-fetch-site': 'same-origin' });
     const q = (params: Record<string, string>) =>
       req(`/coach/stream?${new URLSearchParams(params)}`, OWNER_HOST, { headers: h });
-    for (const params of [{ workspaceId }, { workspaceId, docId }] as Record<string, string>[]) {
-      const res = await q(params);
-      expect(res.status).toBe(200);
-      await res.body?.cancel();
-    }
     for (const params of [
+      { workspaceId },
+      { workspaceId, docId },
       { workspaceId: 'w-nowhere' },
       { workspaceId: '../etc' },
       { workspaceId, docId: 'd-not-on-it' },
       { docId },
     ] as Record<string, string>[]) {
-      expect((await q(params)).status).toBe(400);
+      const res = await q(params);
+      expect(res.status).toBe(200);
+      await res.body?.cancel();
     }
   });
 });
@@ -337,13 +336,17 @@ describe('POST /coach/moments — the coach session, this machine only', () => {
     const { id } = (await raised.json()) as { id: string };
     expect(id).toMatch(/^cm-/);
     expect((await postJson('/coach/moments', MOMENT, {}, local())).status).toBe(409);
-    const answer = await postJson(
-      `/coach/moments/${id}/answer`,
-      { answer: 'thanks' },
-      await ownerHeaders(),
-      OWNER_HOST,
+    const answerWith = async (body: unknown) =>
+      (await postJson(`/coach/moments/${id}/answer`, body, await ownerHeaders(), OWNER_HOST))
+        .status;
+    expect(await answerWith({ answer: 'thanks' })).toBe(400);
+    expect(await answerWith({ answer: 'up', text: 'Good catch' })).toBe(400);
+    expect(await answerWith({ answer: 'down', text: 'x'.repeat(1_001) })).toBe(400);
+    expect(await answerWith({ answer: 'down', text: 7 })).toBe(400);
+    expect(await answerWith({ answer: 'down', text: '  I was writing the why for Bob.  ' })).toBe(
+      200,
     );
-    expect(answer.status).toBe(200);
-    expect(await landingAsOwner()).toContain('This week: 1 moment · Thanks 1');
+    expect(await answerWith({ answer: 'up' })).toBe(404);
+    expect(await landingAsOwner()).toContain('This week: 1 moment · Helpful 0 · Not helpful 1');
   });
 });

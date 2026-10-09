@@ -12,7 +12,9 @@
  *   GET  /coach/stream               the moments, as server-sent events;
  *                                    `?workspaceId=&docId=` says where the
  *                                    page is, and neither is the front page
- *   POST /coach/moments/:id/answer   `{ answer: 'thanks' | 'not-now' | 'not-this' }`
+ *   POST /coach/moments/:id/answer   `{ answer: 'up' | 'down', text? }`: a
+ *                                    thumbs up or down, and with a down what
+ *                                    he wrote
  *   POST /coach/moments              the coach session raises a moment, from
  *                                    this machine only: `{ goal, matched,
  *                                    observed, line }`
@@ -42,6 +44,7 @@ import type { CoachPagePlace } from '../coach/hub.ts';
 import { ensureGoalsDoc } from '../coach/setup.ts';
 import type { HereSignal } from '../coach/stream.ts';
 import {
+  ANSWER_TEXT_CHARS,
   COACH_READINESS,
   type CoachReadiness,
   MOMENT_ANSWERS,
@@ -128,15 +131,33 @@ function parseHere(
   };
 }
 
-/** Where the stream's page is: a board, a doc on one, or the front page. */
-function parseStreamPlace(ctx: CoachRoutesContext, q: URLSearchParams): CoachPagePlace | string {
+/** Where the stream's page is: a board, a doc on one, or the front page.
+ *  The place only marks the card `off`, and every page shows the moment, so
+ *  a doc this board does not list (a folder's file, a diff's member) is the
+ *  board, and a board this server does not know is the front page. */
+function parseStreamPlace(ctx: CoachRoutesContext, q: URLSearchParams): CoachPagePlace {
   const ws = q.get('workspaceId');
   const doc = q.get('docId');
-  if (ws === null) return doc === null ? null : 'docId needs a workspaceId';
-  if (!ID.test(ws) || !ctx.boardExists(ws)) return 'unknown board';
-  if (doc === null) return { workspaceId: ws };
-  if (!ID.test(doc) || !ctx.docOnBoard(ws, doc)) return 'unknown doc';
+  if (ws === null || !ID.test(ws) || !ctx.boardExists(ws)) return null;
+  if (doc === null || !ID.test(doc) || !ctx.docOnBoard(ws, doc)) return { workspaceId: ws };
   return { workspaceId: ws, docId: doc };
+}
+
+/** A thumbs up, or a down with what he wrote; or the reason it is refused. */
+function parseAnswer(
+  body: Record<string, unknown> | null,
+): { answer: MomentAnswer; text?: string } | string {
+  const answer = body?.answer;
+  if (!MOMENT_ANSWERS.includes(answer as MomentAnswer)) {
+    return `answer is one of ${MOMENT_ANSWERS.join(', ')}`;
+  }
+  const raw = body?.text;
+  if (raw === undefined) return { answer: answer as MomentAnswer };
+  if (typeof raw !== 'string') return 'text must be text';
+  const text = raw.trim();
+  if (text && answer !== 'down') return 'text goes with a thumbs down';
+  if (text.length > ANSWER_TEXT_CHARS) return `text is at most ${ANSWER_TEXT_CHARS} characters`;
+  return text ? { answer: 'down', text } : { answer: answer as MomentAnswer };
 }
 
 export async function handleCoachRoutes(
@@ -153,9 +174,7 @@ export async function handleCoachRoutes(
     if (req.method !== 'GET') return j(405, { error: 'method not allowed' });
     const denied = refuseNonOwner(ctx, rq);
     if (denied) return denied;
-    const place = parseStreamPlace(ctx, new URL(req.url).searchParams);
-    if (typeof place === 'string') return j(400, { error: place });
-    return hub.open(coach.openFrame(), place);
+    return hub.open(coach.openFrame(), parseStreamPlace(ctx, new URL(req.url).searchParams));
   }
   if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
 
@@ -231,13 +250,10 @@ export async function handleCoachRoutes(
 
   const m = pathname.match(ANSWER_PATH);
   if (!m) return j(404, { error: 'not-found' });
-  const answer = body?.answer;
-  if (!MOMENT_ANSWERS.includes(answer as MomentAnswer)) {
-    return j(400, {
-      error: 'bad-answer',
-      message: `answer is one of ${MOMENT_ANSWERS.join(', ')}`,
-    });
+  const answer = parseAnswer(body);
+  if (typeof answer === 'string') return j(400, { error: 'bad-answer', message: answer });
+  if (!coach.answer(m[1] ?? '', answer.answer, answer.text)) {
+    return j(404, { error: 'no-open-moment' });
   }
-  if (!coach.answer(m[1] ?? '', answer as MomentAnswer)) return j(404, { error: 'no-open-moment' });
   return j(200, { ok: true });
 }

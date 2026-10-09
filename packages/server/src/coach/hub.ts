@@ -8,11 +8,14 @@ import { type SseStreamWriter, createSseStreamWriter } from '../sse-writer.ts';
  * nothing else, so a page holding it learns only what the coach says.
  *
  * A page that connects while a moment is open gets it at once, wherever it
- * is: a moment follows him from page to page until he answers it. Each page
- * says where it is when it connects (`?workspaceId=&docId=`; the front page
- * names nowhere), and a page on a board the coach is excluded from is never
- * sent the moment. When a board becomes off or on again, `reshow` tells each
- * page anew: a clear where it is now hidden, the moment where it may show.
+ * is, and one that connects with none open is told so, so a card it drew
+ * before he answered elsewhere goes. A moment follows him to every page until
+ * he answers it in any one. Each page says where it is when it connects
+ * (`?workspaceId=&docId=`; the front page names nowhere), and the moment a
+ * page on a board the coach is excluded from is sent says `off`, so the card
+ * there says the coach is not listening rather than offering to stop it.
+ * Showing the card there sends nothing about the board to the session. When a
+ * board becomes off or on again, `reshow` tells each page anew.
  *
  * Writes go through `createSseStreamWriter`, like every other stream here,
  * for the macOS hold that file explains.
@@ -30,33 +33,33 @@ export type CoachPagePlace = { workspaceId: string; docId?: string } | null;
 
 export interface CoachHubOptions {
   keepaliveMs?: number;
-  /** True when the coach is excluded from this place (`coach/exclusion.ts`),
-   *  so a page there must not show the moment. */
-  hiddenAt?: (place: { workspaceId: string; docId?: string }) => boolean;
+  /** True when the coach is excluded from this place (`coach/exclusion.ts`):
+   *  a page there shows the moment marked `off`. */
+  offAt?: (place: { workspaceId: string; docId?: string }) => boolean;
 }
 
 export class CoachHub {
   /** Each open page, and where it is. */
   private readonly sinks = new Map<SseStreamWriter, CoachPagePlace>();
   private readonly keepaliveMs: number;
-  private readonly hiddenAt: (place: { workspaceId: string; docId?: string }) => boolean;
+  private readonly offAt: (place: { workspaceId: string; docId?: string }) => boolean;
 
   constructor(opts: CoachHubOptions = {}) {
     this.keepaliveMs = opts.keepaliveMs ?? SSE_KEEPALIVE_MS;
-    this.hiddenAt = opts.hiddenAt ?? (() => false);
+    this.offAt = opts.offAt ?? (() => false);
   }
 
-  /** What a page at `place` is sent for `frame`: a moment is a clear where
+  /** What a page at `place` is sent for `frame`: a moment says `off` where
    *  the coach is excluded. A check that throws counts as excluded. */
   private frameAt(frame: CoachFrame, place: CoachPagePlace): CoachFrame {
     if (frame.type !== 'moment' || place === null) return frame;
-    let hidden: boolean;
+    let off: boolean;
     try {
-      hidden = this.hiddenAt(place);
+      off = this.offAt(place);
     } catch {
-      hidden = true;
+      off = true;
     }
-    return hidden ? { type: 'clear', id: frame.moment.id } : frame;
+    return off ? { ...frame, off: true } : frame;
   }
 
   get size(): number {
@@ -84,8 +87,7 @@ export class CoachHub {
         }
         sinks.set(w, place);
         w.write(':ok\n\n');
-        const first = initial ? this.frameAt(initial, place) : null;
-        if (first?.type === 'moment') w.write(frameText(first));
+        w.write(frameText(initial ? this.frameAt(initial, place) : { type: 'idle' }));
         keepalive = setInterval(() => {
           try {
             w.write(':ka\n\n');
@@ -110,25 +112,20 @@ export class CoachHub {
     });
   }
 
-  /** A new moment to every page that may show it, or its clearing to every
-   *  page. A page where it is hidden is not sent the moment at all. */
+  /** A new moment, or its clearing, to every open page. */
   publish(frame: CoachFrame): void {
-    this.send((place) => {
-      const f = this.frameAt(frame, place);
-      return f === frame ? f : null;
-    });
+    this.send((place) => this.frameAt(frame, place));
   }
 
-  /** The open moment, told to every page again: shown where it may be, a
-   *  clear where it is hidden now. */
+  /** The open moment, told to every page again, each with whether the coach
+   *  hears from it now. */
   reshow(frame: CoachFrame | null): void {
     if (frame) this.send((place) => this.frameAt(frame, place));
   }
 
-  private send(frameFor: (place: CoachPagePlace) => CoachFrame | null): void {
+  private send(frameFor: (place: CoachPagePlace) => CoachFrame): void {
     for (const [w, place] of [...this.sinks]) {
       const f = frameFor(place);
-      if (!f) continue;
       try {
         w.write(frameText(f));
       } catch {
