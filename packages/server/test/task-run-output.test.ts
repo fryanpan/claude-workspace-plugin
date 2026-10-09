@@ -197,7 +197,7 @@ describe("a scheduled run's output, end to end", () => {
     expect(handle.tasks.listReviewItems(rule.id)).toHaveLength(1);
 
     // The next run rewrites a file somebody already opened. That is still
-    // news, and opening it again is no sign it was read, so the item stands.
+    // news, so it files an item that waits for the file to be opened again.
     // The rows are dated ten minutes on, because the store stamps real time
     // and the first run's files would otherwise sit inside this run too.
     now += DAY;
@@ -297,7 +297,6 @@ describe('the run-output pass on a real store', () => {
   let dataDir: string;
   let repo: string;
   let store: TaskStore;
-  const opened = new Set<string>();
   const reports: string[] = [];
 
   beforeEach(() => {
@@ -305,7 +304,6 @@ describe('the run-output pass on a real store', () => {
     repo = mkdtempSync(join(tmpdir(), 'run-output-files-'));
     git(repo, 'init', '-q');
     store = new TaskStore({ dataDir, debounceMs: 5 });
-    opened.clear();
     reports.length = 0;
   });
 
@@ -332,7 +330,6 @@ describe('the run-output pass on a real store', () => {
           through,
           {
             files: () => lister(repo).map((f) => ({ relPath: f.relPath, at: f.mtimeMs })),
-            opened: (_ws, relPath) => opened.has(relPath),
           },
           SCHEDULER_ACTOR,
           (m) => reports.push(m),

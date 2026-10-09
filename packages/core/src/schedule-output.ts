@@ -30,9 +30,9 @@ export interface ScheduleOutputItem {
   id: string;
   /** Project-relative paths, newest first. */
   paths: string[];
-  /** The linked files no doc of the board held when it was filed. The item
-   *  is withdrawn once every one of them is opened; a run that only rewrote
-   *  files already open waits for an answer or the next run instead. */
+  /** The linked files no reader has opened since it was filed. The item is
+   *  withdrawn once every one of them is opened. Empty on an item filed
+   *  before opens were counted, which waits on every path it links. */
   waitingOn: string[];
 }
 

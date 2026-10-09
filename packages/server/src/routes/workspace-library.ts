@@ -72,6 +72,8 @@ export interface LibraryRoutesContext {
    *  (`attachment-privacy.ts`). Absent reads every set as shareable, which is
    *  what a set was before sets had a privacy. */
   isLocalOnlySet?: (setId: string | undefined) => boolean;
+  /** A reader opened this project file here (`noteOutputOpened`). */
+  onOpened?: (workspaceId: string, relPath: string) => void;
 }
 
 export interface LibraryRouteRequest {
@@ -303,14 +305,18 @@ async function openFile(
   const repoKey = projectRepoKey(src.docs, src.docKeyOf);
   const root = repoKey ? src.projectRoot(repoKey) : null;
   if (!repoKey || !root) return j(404, { error: 'not-listed' });
-  const hrefOf = (docId: string): string =>
-    `/workspaces/${encodeURIComponent(scope.workspaceId)}/docs/${encodeURIComponent(docId)}`;
+  // The file is open at `docId`: that is a reader's open, then its page.
+  const opened = (docId: string): Response => {
+    ctx.onOpened?.(scope.workspaceId, relPath);
+    const href = `/workspaces/${encodeURIComponent(scope.workspaceId)}/docs/${encodeURIComponent(docId)}`;
+    return j(200, { docId, href });
+  };
   // A file this board already holds opens at its doc. The listing stops
   // offering a path once it is bound, so a link written before the bind — a
   // run-output item's, or a second tap — would otherwise go dead. Nothing is
   // told that the board's own Files list does not already show.
   const onBoard = heldOnBoard(ctx, scope.board, repoKey, relPath);
-  if (onBoard) return j(200, { docId: onBoard, href: hrefOf(onBoard) });
+  if (onBoard) return opened(onBoard);
   // The listing is the rule: the path opens only if this board's Library
   // offers it, which is what keeps an ignored or hidden file shut.
   const offered = openableFiles(src);
@@ -344,7 +350,7 @@ async function openFile(
   const held = docStore.repos.docIdFor(makeDocKey(repoKey, relPath));
   if (held && docStore.get(held)) {
     fileHere(held);
-    return j(200, { docId: held, href: hrefOf(held) });
+    return opened(held);
   }
   // A fresh random name, never a readable one: `createForCaller` REPOINTS a
   // doc its name already resolves to, so a name like the file's could land
@@ -369,7 +375,7 @@ async function openFile(
   }
   const attached = await docStore.attachFileAsync(docId, sourceUrl);
   if (!attached.ok) return j(409, { error: 'attach_failed', docId });
-  return j(200, { docId, href: hrefOf(docId) });
+  return opened(docId);
 }
 
 /** The doc of this board that holds the project file at `relPath`, if any. */
@@ -387,7 +393,7 @@ function heldOnBoard(
  * The Library's listing as the scheduler reads it, for a run's output
  * (`task-run-output.ts`): the project's markdown files with their mtimes,
  * the ones this board would offer to open and the ones its docs hold, and
- * whether one has been opened. Read as a member on the box sees it, because
+ * which project file a doc of the board holds. Read as a member on the box sees it, because
  * the item lands on the board's own queue — except that a local-only
  * project's files, and a local-only mount's, are never offered, so their
  * names never reach an item a share visitor can read. It walks the project afresh rather than reading the
@@ -397,7 +403,10 @@ function heldOnBoard(
 export function libraryRunOutputSource(
   ctx: LibraryRoutesContext,
   boardOf: (workspaceId: string) => BoardWorkspace | undefined,
-): RunOutputSource {
+): RunOutputSource & {
+  /** The project file a doc of this board holds, for its page's open. */
+  fileOf(workspaceId: string, docId: string): string | undefined;
+} {
   const scopeOf = (workspaceId: string) => {
     const board = boardOf(workspaceId);
     return board ? { workspaceId, board } : undefined;
@@ -419,12 +428,13 @@ export function libraryRunOutputSource(
       for (const f of buildLibrary(src).files) if (f.open !== undefined) byPath.set(f.open, f.at);
       return [...byPath].map(([relPath, at]) => ({ relPath, ...(at !== undefined ? { at } : {}) }));
     },
-    opened: (workspaceId, relPath) => {
+    fileOf: (workspaceId, docId) => {
       const scope = scopeOf(workspaceId);
-      if (!scope) return false;
+      if (!scope || !scope.board.docIds.includes(docId)) return undefined;
       const src = sourcesFor(ctx, scope, false);
       const repoKey = projectRepoKey(src.docs, src.docKeyOf);
-      return repoKey !== null && heldOnBoard(ctx, scope.board, repoKey, relPath) !== undefined;
+      const key = parseDocKey(src.docKeyOf(docId) ?? '');
+      return repoKey !== null && key?.repoKey === repoKey ? key.relPath : undefined;
     },
   };
 }
