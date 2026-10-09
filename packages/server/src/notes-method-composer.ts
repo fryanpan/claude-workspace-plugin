@@ -45,7 +45,7 @@ import { type SummaryCredential, resolveCredentialSlotFrom } from './summarize.t
 const COMPOSE_MODEL: Record<NotesMethod, string | undefined> = {
   original: undefined,
   'ledger-haiku': undefined,
-  'ledger-opus': 'claude-opus-5',
+  'ledger-opus': 'claude-opus-5-5',
 };
 
 /** Raised with the model: Opus spends part of its ceiling thinking before it
@@ -75,9 +75,12 @@ export function composeSettings(method: NotesMethod): {
   model?: string;
   maxTokens?: number;
   effort?: string;
+  fallbacks?: 'default';
 } {
   const model = COMPOSE_MODEL[method];
-  return model ? { model, maxTokens: OPUS_MAX_TOKENS, effort: OPUS_EFFORT } : {};
+  return model
+    ? { model, maxTokens: OPUS_MAX_TOKENS, effort: OPUS_EFFORT, fallbacks: 'default' }
+    : {};
 }
 
 /**

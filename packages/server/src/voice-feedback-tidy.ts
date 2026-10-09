@@ -17,10 +17,10 @@
  */
 import { type TokenUsage, type VoiceTarget, dollars } from '@claude-workspaces/core';
 import { readKeychainPassword } from './share/keychain.ts';
-import { authHeader, resolveCredentialSlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, authHeader, resolveCredentialSlotFrom } from './summarize.ts';
 import { type AskProposal, readAskProposal } from './voice-feedback-ask.ts';
 
-export const TIDY_MODEL = 'claude-haiku-4-5-20251001';
+export const TIDY_MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_TOKENS = 700;
 const TIMEOUT_MS = 20_000;
@@ -194,6 +194,7 @@ export function createHaikuTidy(opts?: {
         body: JSON.stringify({
           model: TIDY_MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),

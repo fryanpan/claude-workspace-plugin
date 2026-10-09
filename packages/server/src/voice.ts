@@ -42,7 +42,7 @@ import { type AnswerCoverage, threadOpenParts, ticketOpenParts } from './answer-
 import { BOARD_FEEDBACK_DOC_ID } from './doc-ids.ts';
 import { compareSemver } from './plugin-release.ts';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 import { resolveAssignee } from './task-owner.ts';
 import { taskBodyDocId, taskIdOfBodyDoc } from './task-projection.ts';
 import { type Task, type TaskStore, type VoiceRoute, isRetired } from './tasks.ts';
@@ -221,7 +221,7 @@ export type VoiceHandleResult =
   | ({ ok: true } & VoiceResult)
   | { ok: false; error: 'workspace-not-found' };
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 /**
  * 120 was sized for a 30-byte classification, and an action reply is longer.
@@ -1603,6 +1603,7 @@ export function haikuVoiceComplete(opts?: {
         body: JSON.stringify({
           model: MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),
