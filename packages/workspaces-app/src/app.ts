@@ -224,9 +224,8 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
   // meeting strip has mounted and the viewport is wired.
   // biome-ignore lint/style/useConst: assigned after the meeting strip mounts
   let editViewport: ReturnType<typeof wireEditViewport> | undefined;
-  // Forward ref, same shape as `chrome`: the zone is created down where the
-  // meeting strip mounts (it only exists on docs that can hold a meeting),
-  // but the wash extension must be declared at editor construction.
+  // Forward ref like `chrome`: the zone is made where the meeting strip mounts
+  // (only on docs that can hold a meeting); the wash extension needs it now.
   let liveZone: MeetingLiveZone | undefined;
   // Which rows this doc is linked from, and the two writes that change it.
   // Read once the document has synced (`wireDocReady`) — before that the
@@ -246,6 +245,7 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
     onUpdate: () => chrome?.redrawThreads(),
     user: { name: user.name, color: user.color },
     docLink,
+    imageDocId: docId,
     notesLinks: {
       docId,
       linkedTasks: () => notesLinkRefs.linked(),

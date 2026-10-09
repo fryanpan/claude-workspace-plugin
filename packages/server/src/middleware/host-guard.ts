@@ -1353,6 +1353,12 @@ function docSubrouteAllowed(sub: string, method: string): boolean {
    */
   if (sub === 'meeting-bot') return method === 'GET';
   /**
+   * An image the doc names by a path relative to its own file
+   * (`routes/doc-assets.ts`). Reads only, and the doc must already be inside
+   * the shared board: what a member reaches is what the doc displays.
+   */
+  if (sub.startsWith('assets/')) return method === 'GET' || method === 'HEAD';
+  /**
    * Thread verbs, INCLUDING the three region-edit ones this used to exclude.
    *
    * The exclusion protected nothing it was written for: a member already has

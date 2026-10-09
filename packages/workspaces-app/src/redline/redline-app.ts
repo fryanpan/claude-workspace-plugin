@@ -223,6 +223,7 @@ export async function mountRedline(ctx: MountContext): Promise<void> {
         // read), so the companion opens for everybody, the threads are the
         // same ones everybody else is reading, and THIS is what locks it.
         editable: ctx.canWrite,
+        imageDocId: companion.docId,
         docLink: ctx.workspaceId
           ? { workspaceId: ctx.workspaceId, relPath: ctx.relPath, navigate: navigateTo }
           : undefined,

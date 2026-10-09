@@ -50,6 +50,8 @@ export interface CreateLiveRedlineEditorOpts {
   debounceMs?: number;
   /** In-app navigation for relative sibling links (see CreateEditorOpts). */
   docLink?: { workspaceId: string; relPath: string; navigate: (url: string) => void };
+  /** The doc a relative image path is fetched beside (see CreateEditorOpts). */
+  imageDocId?: string;
   /**
    * Whether this surface takes typing. Defaults to `true` — it is the
    * editable redline. A browser the server refuses writes from still gets it
@@ -69,6 +71,7 @@ export function createLiveRedlineEditor(opts: CreateLiveRedlineEditorOpts): Live
     onSelectionChange: opts.onSelectionChange,
     user: opts.user,
     docLink: opts.docLink,
+    imageDocId: opts.imageDocId,
     editable: opts.editable ?? true,
     extraExtensions: [
       LiveMarkup.configure({
