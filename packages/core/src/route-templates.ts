@@ -308,6 +308,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   ['inbox', 'rows', ':id', 'body'],
   ['inbox', 'rows', ':id', 'reply'],
   ['inbox', 'rows', ':id', 'state'],
+  ['landing', 'events:stream'],
   ['manifest.webmanifest'],
   ['mcp'],
   ['mounts', ':id', 'raw'],
