@@ -67,6 +67,8 @@ export interface LibraryPageDeps {
 export interface LibraryPage {
   /** Arrive at the Library: its front page, with the lists re-read. */
   open(): Promise<void>;
+  /** Re-read the lists where the reader is: same list, place and search. */
+  refresh(): Promise<void>;
 }
 
 /** The first column's header; the second is the sort (`sortHeader`). */
@@ -389,6 +391,16 @@ export function createLibraryPage(deps: LibraryPageDeps): LibraryPage {
       render();
       // Opened after the list, so a refusal's message is not painted over.
       if (wanted) await openFile(wanted);
+    },
+    async refresh() {
+      const next = await deps.fetchJson<LibraryPayload>(`${base}/items`);
+      // A failed re-read keeps the list up: unlike an arrival, the reader is
+      // looking at rows that were true a moment ago, and the next frame or
+      // reconnect reads again.
+      if (next === null) return;
+      failed = false;
+      payload = next;
+      render();
     },
   };
 }

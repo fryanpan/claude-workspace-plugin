@@ -205,10 +205,11 @@ async function boot(): Promise<void> {
     if (board && agent) choose({ board, agent });
   });
 
-  // Who is listening changes while the page sits in a pocket: re-read the
-  // list when it is shown again, keeping the pick.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
+  // Who is listening changes while the page is open: re-read the list,
+  // keeping the pick, when the server says it moved (an agent's stream
+  // opening or closing, a board renamed or retired) and when the page is
+  // shown again after sitting in a pocket, when frames may have been missed.
+  const reread = (): void => {
     void fetchBoards().then((fresh) => {
       if (typeof fresh === 'string') return;
       boards = fresh;
@@ -218,6 +219,19 @@ async function boot(): Promise<void> {
       if (keep) pick = keep;
       showPick();
     });
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') reread();
+  });
+  const stream = new EventSource('/api/voice/events:stream');
+  let dropped = false;
+  stream.addEventListener('voice.changed', reread);
+  stream.addEventListener('error', () => {
+    dropped = true;
+  });
+  stream.addEventListener('open', () => {
+    if (dropped) reread();
+    dropped = false;
   });
 
   if (!pick) {

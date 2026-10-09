@@ -26,7 +26,7 @@
  */
 
 import { escapeHtml } from '@claude-workspaces/core';
-import { mountPromptEditor } from './prompt-editor.ts';
+import { type PromptEditorHandle, mountPromptEditor } from './prompt-editor.ts';
 import { type PromptRow, type PromptsApi } from './prompts-api.ts';
 
 /** The page's own address space, so the router is one function. */
@@ -167,6 +167,8 @@ export interface PromptsPageHandle {
   render(): Promise<void>;
   /** Follow a link inside the page, as a click would. Tests drive it. */
   go(href: string): void;
+  /** A prompt changed elsewhere: redraw what is showing, in place. */
+  changed(): Promise<void>;
   /** The route the page last painted. */
   route(): PromptsRoute;
 }
@@ -196,12 +198,17 @@ export function mountPromptsPage(root: HTMLElement, env: PromptsPageEnv): Prompt
     main.innerHTML = `<div class="prompt-list">${rows.map((r) => promptRow(r, promptHref(route, r.id))).join('')}</div>`;
   }
 
+  /** The open editor, while one is showing. */
+  let editor: PromptEditorHandle | null = null;
+
   async function paint(): Promise<void> {
     root.innerHTML = chrome(route);
+    editor = null;
     const main = document.getElementById('settings-main');
     if (!main) return;
     if (route.promptId) {
-      await mountPromptEditor({ host: main, api, id: route.promptId, toast }).refresh();
+      editor = mountPromptEditor({ host: main, api, id: route.promptId, toast });
+      await editor.refresh();
     } else {
       await renderList(main);
     }
@@ -240,5 +247,14 @@ export function mountPromptsPage(root: HTMLElement, env: PromptsPageEnv): Prompt
     go(href);
   });
 
-  return { render, go, route: () => route };
+  async function changed(): Promise<void> {
+    if (route.promptId) {
+      await editor?.changed();
+      return;
+    }
+    const main = document.getElementById('settings-main');
+    if (main) await renderList(main);
+  }
+
+  return { render, go, changed, route: () => route };
 }
