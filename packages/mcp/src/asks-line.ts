@@ -5,11 +5,15 @@
  * 10-minute window: every review item filed on another board in that window,
  * by board, row, queue key, headline and when it was filed
  * (`packages/server/src/ask-feed.ts`). The lead ranks what it should with
- * `rank_review_item`, passing the key as given.
+ * `rank_review_item`, passing the key as given. An ask that stops work says
+ * so, with the stopped goal's title, because the lead's rank is what places
+ * it on Home and the lead should know what the wait costs.
  *
  * Kept out of channel-messages.ts for the reason coach-line.ts is: the
  * wording is a decision, and this is where a test can read it.
  */
+
+import { blocksLine } from '@claude-workspaces/core/review-blocks';
 
 export interface AsksPayload {
   from?: number;
@@ -25,6 +29,7 @@ export interface AskItem {
   key?: string;
   headline?: string;
   createdAt?: number;
+  stops?: { what?: string; goal?: string };
 }
 
 function clock(at: number | undefined, timeZone?: string): string {
@@ -44,7 +49,9 @@ const rowOf = (row: AskItem['row']): string =>
 function itemLine(i: AskItem, timeZone?: string): string | null {
   if (!i.key || !i.headline) return null;
   const board = i.board ?? i.workspaceId ?? '?';
-  return `- ${clock(i.createdAt, timeZone)} ${board}, ${rowOf(i.row)}: "${i.headline}" (key ${i.key})`;
+  const what = i.stops?.what;
+  const stops = what ? ` ${blocksLine({ blocks: { what } }, i.stops?.goal)}.` : '';
+  return `- ${clock(i.createdAt, timeZone)} ${board}, ${rowOf(i.row)}: "${i.headline}" (key ${i.key})${stops}`;
 }
 
 /** The line for one `workspace.new_asks` frame, or null when it carries nothing. */

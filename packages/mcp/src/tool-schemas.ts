@@ -85,7 +85,7 @@ const REVIEW_ITEM_SCHEMA = {
     blocks: {
       type: 'object',
       description:
-        "Set this when you are idle until the reader answers: name the work that is stopped. The item then sorts above every other on the reader's Home with the line 'Stopped until you answer: <what>', and its push leads with it. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
+        "Set this when you are idle until the reader answers: name the work that is stopped. The item's row carries the line 'Stopped until you answer: <what> — stops work on <goal>', and its push leads with it. The server fills in the goal from the item's task. The plan lead still ranks it: a ranked item keeps its place, and a blocking one leads only the items the lead has not ranked. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
       properties: {
         what: {
           type: 'string',
@@ -94,6 +94,11 @@ const REVIEW_ITEM_SCHEMA = {
         hours: {
           type: 'number',
           description: 'How many hours the work stays stopped if nobody answers, when you can say.',
+        },
+        goalId: {
+          type: 'string',
+          description:
+            "The id of the goal the stopped work serves, for an item that is not on a task. On a task the server uses the task's goal instead.",
         },
       },
       required: ['what'],

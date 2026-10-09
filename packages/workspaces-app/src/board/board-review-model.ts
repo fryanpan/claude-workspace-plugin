@@ -367,6 +367,9 @@ export interface ReviewItem {
    *  the row RENDERS (the authored card vs the derived line) — never whether
    *  it is in the queue, which is the server's membership call. */
   review?: ReviewPayload;
+  /** The title of the goal a blocking ask stops (`review.blocks.goalId`),
+   *  when this board holds that goal. */
+  stopsGoal?: string;
   /**
    * The owner revised this item's words in answer to a question the reader
    * asked on a phrase of it. The row comes back marked Revised, quoting the
@@ -456,13 +459,20 @@ const BAND_TASK_ROW = 0;
 const BAND_TASK_THREAD = 1;
 const BAND_DOC_THREAD = 2;
 
-function compareAsk(a: AskRank, b: AskRank): number {
+/** The task's place on the board: the rank the lead and the owner set. */
+function compareTaskPlace(a: AskRank, b: AskRank): number {
   return (
     a.placed - b.placed ||
     a.goal - b.goal ||
     a.order - b.order ||
     a.createdAt - b.createdAt ||
-    a.taskId.localeCompare(b.taskId) ||
+    a.taskId.localeCompare(b.taskId)
+  );
+}
+
+function compareAsk(a: AskRank, b: AskRank): number {
+  return (
+    compareTaskPlace(a, b) ||
     a.band - b.band ||
     a.direct - b.direct ||
     a.since - b.since ||
@@ -766,14 +776,21 @@ export function reviewQueue(
     ranked.push(entry);
   }
 
-  // An ask that STOPS work leads the whole queue, whatever its task's rank
-  // (`review-blocks.ts`); the board's order applies within each half.
+  // The board's order is the lead's rank, and an ask that STOPS work never
+  // jumps it (Bryan, 2026-10-08: "team lead should still rank"). It leads
+  // only among asks with the same place: one task's asks, or the asks no
+  // task places (`review-blocks.ts`).
   ranked.sort(
     (a, b) =>
+      compareTaskPlace(a.rank, b.rank) ||
       Number(isBlockingAsk(b.item.review)) - Number(isBlockingAsk(a.item.review)) ||
       compareAsk(a.rank, b.rank),
   );
-  const items = ranked.map((r) => r.item);
+  const goalTitle = new Map(goals.map((g) => [g.id, g.title]));
+  const items = ranked.map(({ item }) => {
+    const stopsGoal = goalTitle.get(item.review?.blocks?.goalId ?? '');
+    return stopsGoal ? { ...item, stopsGoal } : item;
+  });
 
   // Only decisions with dependents count as blocking. A thread blocks nothing
   // structurally, and a human-owned blocker is no longer IN this queue — a

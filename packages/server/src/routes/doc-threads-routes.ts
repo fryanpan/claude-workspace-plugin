@@ -39,6 +39,7 @@ import {
   reviewPayloadMessage,
   summaryHash,
   threadReviewItemId,
+  withBlocksGoal,
 } from '@claude-workspaces/core';
 import { needsCall } from '@claude-workspaces/core/summary-prompt';
 import { classifyActor } from '../actor-identity.ts';
@@ -221,6 +222,24 @@ export async function handleDocThreadRoutes(
    *  measurement rows leave `taskId` off rather than empty. */
   const rowOfDoc = taskIdOfBodyDoc(docId);
   const viaOpt = via ? { via } : {};
+  /** A blocking ask carries the goal it stops (`review-blocks.ts`): its
+   *  task's, a goal thread's own, else the asker's if that goal is on this
+   *  doc's board. The lead still ranks; this is what it ranks with. */
+  const withGoal = <T extends ReturnType<typeof reviewFromBody>>(declared: T): T => {
+    if (!declared.ok || !declared.review?.blocks) return declared;
+    const asked = declared.review.blocks.goalId;
+    const task = rowOfDoc ? taskStore.getTask(rowOfDoc) : undefined;
+    const row = task
+      ? taskStore.getGoalRow(task.goal)?.id
+      : rowOfDoc && taskStore.getGoalRow(rowOfDoc)?.id;
+    const own =
+      asked &&
+      taskStore.getGoalRow(asked)?.workspaceId ===
+        (rq.scope?.workspaceId ?? resolveWorkspaceForDoc(docId))
+        ? asked
+        : undefined;
+    return { ...declared, review: withBlocksGoal(declared.review, row ?? own) };
+  };
 
   /**
    * OWNER-ONLY ITEMS, on the doc surface. The flag is the ask's, not the
@@ -273,7 +292,7 @@ export async function handleDocThreadRoutes(
       const text = body?.text as string | undefined;
       if (!user || !text) return j(400, { error: 'author + text required' });
       if (isCategoryAuthor(user)) return refuseCategoryAuthor();
-      const declared = reviewFromBody(body?.review, text);
+      const declared = withGoal(reviewFromBody(body?.review, text));
       if (!declared.ok) return j(400, { error: declared.error });
       // A person's plain reply IS the answer to the ask it lands on.
       //
@@ -829,7 +848,7 @@ export async function handleDocThreadRoutes(
     const requestId = typeof body?.requestId === 'string' ? body.requestId : undefined;
     const voice = voiceFromBody(body?.voice, docId);
     if (voice === false) return j(400, { error: 'voice must be { clip, raw } for this doc' });
-    const declared = reviewFromBody(body?.review, text);
+    const declared = withGoal(reviewFromBody(body?.review, text));
     if (!declared.ok) return j(400, { error: declared.error });
     // Identity for the dedup below — computed from the RAW anchor
     // (so a duplicate call matches regardless of how the
@@ -1011,7 +1030,7 @@ export async function handleDocThreadRoutes(
     if (!author || !text || find.length === 0) {
       return j(400, { error: 'author + text + find required' });
     }
-    const declared = reviewFromBody(body?.review, text);
+    const declared = withGoal(reviewFromBody(body?.review, text));
     if (!declared.ok) return j(400, { error: declared.error });
     // Visitor-authored text becomes the entire prompt on this route.
     const writeOpts = {

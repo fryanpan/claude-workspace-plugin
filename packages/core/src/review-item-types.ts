@@ -74,6 +74,10 @@ export interface ReviewOption {
 export interface ReviewBlocks {
   what: string;
   hours?: number;
+  /** The goal of the stopped work, stamped by the server at filing from the
+   *  item's task (`withBlocksGoal`). The lead still ranks; this tells it what
+   *  the wait costs. */
+  goalId?: string;
 }
 /**
  * The payload an agent attaches to a comment.
@@ -138,10 +142,11 @@ export interface ReviewPayload {
   allowRules?: string[];
   /**
    * The work that is STOPPED until this is answered — set by an asker that
-   * sits idle until the reply. Such an open item sorts above every other on
-   * Home, under the one line "Stopped until you answer: <what>", and its push
-   * says so. `hours` is how long the asker expects to stay stopped, when it
-   * can say. Read by `review-blocks.ts`, which drops a malformed value.
+   * sits idle until the reply. The lead's rank still places it; among the
+   * items the lead has not ranked it leads, under the one line "Stopped until
+   * you answer: <what>", and its push says so. `hours` is how long the asker
+   * expects to stay stopped, when it can say. Read by `review-blocks.ts`,
+   * which drops a malformed value.
    */
   blocks?: ReviewBlocks;
   /**

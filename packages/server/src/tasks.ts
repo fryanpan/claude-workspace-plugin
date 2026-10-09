@@ -1506,6 +1506,8 @@ export interface ReviewItemAddedEvent {
   shape: ReviewPayload['shape'];
   /** The ask, verbatim — the trail names the question, not just its id. */
   headline: string;
+  /** What the ask stops, when it stops work — the lead's feed names it. */
+  blocks?: ReviewPayload['blocks'];
   actor: TaskActor;
   links: Ref[];
   ts: number;

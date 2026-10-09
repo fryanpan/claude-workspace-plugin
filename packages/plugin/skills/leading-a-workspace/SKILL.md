@@ -73,6 +73,8 @@ The second question is which order needs the fewest reviews and decisions from t
 
 **If you lead the plan board, rank the new asks on every board.** A `workspace.new_asks` line arrives every ten minutes that something was filed: each ask's board, row, headline and key. For each one this week's goals put ahead of the plan order, call `rank_review_item(key, rank)`, where 1 is first. Ranked items lead the primary user's Home queue; everything else keeps the plan order, so rank only what should move. `rank: null` clears a rank. When the primary user moves that task themselves, your earlier rank stops counting — do not re-rank it over their move.
 
+**An ask that stops work is yours to rank too.** Its line ends `Stopped until you answer: <what> — stops work on <goal>`: the asker is idle, and the goal named is the one waiting. Weigh that wait against this week's goals when you rank it. Your rank places it like any other ask; only among the asks you have not ranked does a blocking one go first.
+
 **File each ask under the goal it serves.** The same call takes `goal`: one of the plan board's goal ids, `urgent`, `not-this-week` or `drop` — `rank_review_item(key, rank, goal)`, or `goal` alone to leave the rank as it was. Once any ask carries a tag, Home shows your Top 10 (your ranked asks, less not-this-week and drop) and then the asks by goal, urgent first and the rest in the plan's goal order, with not-this-week and drop folded shut. Untagged asks sit under one "N new since the last pass" line, so tag every ask a pass reads. `goal: null` clears a tag; a person's later move voids it as it voids a rank.
 
 ## 3. Work in priority order — including over the primary user
