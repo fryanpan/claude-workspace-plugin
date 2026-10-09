@@ -1519,6 +1519,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     planBoard: () => crossReview.projects().planWorkspaceId,
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     boardName: (workspaceId) => taskStore.getWorkspace(workspaceId)?.name,
+    goalTitle: (goalId) => taskStore.getGoalRow(goalId)?.title,
     isOff: isOffForLead,
     rankIsOff: isOffForRank,
     taskWorkspace: (taskId) => taskStore.getTask(taskId)?.workspaceId,

@@ -1,7 +1,8 @@
 /**
- * An ask that STOPS work, on Home: it leads the queue whatever its task's
- * rank, and its row carries one steady line naming what is stopped. Every
- * other row is unchanged. Fixtures are invented.
+ * An ask that STOPS work, on Home: the board's order (the lead's rank) still
+ * places it, it leads only among asks with the same place, and its row
+ * carries one steady line naming what is stopped and the goal that work
+ * serves. Every other row is unchanged. Fixtures are invented.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { BoardTask } from '../src/board/board-model.ts';
@@ -23,13 +24,17 @@ function task(id: string, order: number): BoardTask {
   } as unknown as BoardTask;
 }
 
-function ask(taskId: string, headline: string, blocks?: { what: string }): ReviewThreadItem {
+function ask(
+  taskId: string,
+  headline: string,
+  blocks?: { what: string; goalId?: string },
+): ReviewThreadItem {
   return {
     kind: 'task-thread',
     band: 'declared',
     docId: `task:${taskId}`,
-    threadId: `th-${taskId}`,
-    commentId: `c-${taskId}`,
+    threadId: `th-${taskId}-${headline.length}`,
+    commentId: `c-${taskId}-${headline.length}`,
     taskId,
     title: `Task ${taskId}`,
     ask: headline,
@@ -41,19 +46,46 @@ function ask(taskId: string, headline: string, blocks?: { what: string }): Revie
 }
 
 describe('a blocking ask on Home', () => {
-  it('leads the queue over an ask on a higher-ranked task', () => {
+  it('stays below an ask on a higher-ranked task', () => {
     const tasks = [task('t-riverbend', 1), task('t-saltmarsh', 2)];
     const q = reviewQueue(
       tasks,
       [
-        ask('t-riverbend', 'Does the Riverbend chart read right?'),
         ask('t-saltmarsh', 'Which Saltmarsh date counts?', { what: 'the Saltmarsh re-run' }),
+        ask('t-riverbend', 'Does the Riverbend chart read right?'),
       ],
       NOW,
     );
     expect(q.items.map((i) => i.ask)).toEqual([
-      'Which Saltmarsh date counts?',
       'Does the Riverbend chart read right?',
+      'Which Saltmarsh date counts?',
+    ]);
+  });
+
+  it('leads the asks that share its place: its own task, and the asks no task places', () => {
+    const doc = (headline: string, blocks?: { what: string }): ReviewThreadItem =>
+      ({
+        ...ask('t-none', headline, blocks),
+        kind: 'doc-thread',
+        docId: 'd-dock',
+        taskId: undefined,
+        since: NOW - 7_200_000,
+      }) as ReviewThreadItem;
+    const q = reviewQueue(
+      [task('t-riverbend', 1)],
+      [
+        doc('Does the Harborlight intro read right?'),
+        doc('Which Harborlight logo?', { what: 'the Harborlight page' }),
+        ask('t-riverbend', 'Is the Riverbend axis right?'),
+        ask('t-riverbend', 'Which Riverbend source?', { what: 'the Riverbend import' }),
+      ],
+      NOW,
+    );
+    expect(q.items.map((i) => i.ask)).toEqual([
+      'Which Riverbend source?',
+      'Is the Riverbend axis right?',
+      'Which Harborlight logo?',
+      'Does the Harborlight intro read right?',
     ]);
   });
 
@@ -73,14 +105,18 @@ describe('a blocking ask on Home', () => {
     ]);
   });
 
-  it('carries one line naming the stopped work, and only on the blocking row', async () => {
+  it('carries one line naming the stopped work and its goal, only on the blocking row', async () => {
     const q = reviewQueue(
       [task('t-riverbend', 1), task('t-saltmarsh', 2)],
       [
         ask('t-riverbend', 'Does the Riverbend chart read right?'),
-        ask('t-saltmarsh', 'Which Saltmarsh date counts?', { what: 'the Saltmarsh re-run' }),
+        ask('t-saltmarsh', 'Which Saltmarsh date counts?', {
+          what: 'the Saltmarsh re-run',
+          goalId: 'g-launch',
+        }),
       ],
       NOW,
+      [{ id: 'g-launch', title: 'Ship the Harborlight launch' }],
     );
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -95,7 +131,10 @@ describe('a blocking ask on Home', () => {
     const lines = [...host.querySelectorAll('.board-review-row')].map(
       (row) => row.querySelector('.board-review-row-stops')?.textContent ?? null,
     );
-    expect(lines).toEqual(['Stopped until you answer: the Saltmarsh re-run', null]);
+    expect(lines).toEqual([
+      null,
+      'Stopped until you answer: the Saltmarsh re-run — stops work on Ship the Harborlight launch',
+    ]);
     unmount();
     host.remove();
   });

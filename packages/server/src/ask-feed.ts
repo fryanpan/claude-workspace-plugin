@@ -11,7 +11,9 @@
  * 30 asks a day comes to a few frames a day.
  *
  * Each item carries its board, its row (task or doc), its queue key, its
- * headline and when it was filed. Nothing from the detail is sent.
+ * headline and when it was filed. Nothing from the detail is sent. An ask
+ * that stops work also carries what it stops and that goal's title
+ * (`review-blocks.ts`), so the lead ranks it knowing the cost of the wait.
  *
  * **What is never sent.** The frame carries headlines from many boards to one
  * agent, so a board the coach would not hear from is not heard from here
@@ -27,7 +29,7 @@
  * frame is replayed to a stream that comes back, and a session that returns
  * should not read a backlog of stale asks.
  */
-import type { ThreadWebhookPayload } from '@claude-workspaces/core';
+import type { ReviewBlocks, ThreadWebhookPayload } from '@claude-workspaces/core';
 import { HeldWindow } from './held-window.ts';
 
 /** How long a window stays open before it goes as one frame. */
@@ -57,6 +59,18 @@ export interface NewAsk {
   key: string;
   headline: string;
   createdAt: number;
+  /** Set when the ask stops work: the stopped work, and its goal's title. */
+  stops?: { what: string; goal?: string };
+}
+
+/** A goal id's title, when the server knows the goal. */
+export type GoalTitleOf = (goalId: string) => string | undefined;
+
+/** `stops` for an ask, or nothing for one that stops no work. */
+function stopsOf(blocks: ReviewBlocks | undefined, titleOf?: GoalTitleOf): NewAsk['stops'] {
+  if (!blocks) return undefined;
+  const goal = blocks.goalId ? titleOf?.(blocks.goalId) : undefined;
+  return { what: blocks.what, ...(goal ? { goal } : {}) };
 }
 
 export interface AskFrame {
@@ -165,11 +179,14 @@ export function askFromReviewItemAdded(
     taskId: string;
     reviewItemId: string;
     headline: string;
+    blocks?: ReviewBlocks;
     actor: { id: string };
     ts: number;
   },
   board: string | undefined,
+  titleOf?: GoalTitleOf,
 ): OfferedAsk {
+  const stops = stopsOf(ev.blocks, titleOf);
   return {
     workspaceId: ev.workspaceId,
     ...(board ? { board } : {}),
@@ -177,6 +194,7 @@ export function askFromReviewItemAdded(
     key: `${ev.workspaceId}:task-review:${ev.taskId}:${ev.reviewItemId}`,
     headline: ev.headline,
     createdAt: ev.ts,
+    ...(stops ? { stops } : {}),
     actorId: ev.actor.id,
   };
 }
@@ -197,12 +215,14 @@ export interface ThreadHome {
 export function asksFromThreadEvent(
   payload: Pick<ThreadWebhookPayload, 'event' | 'docId' | 'threadId' | 'thread' | 'comment'>,
   homes: readonly ThreadHome[],
+  titleOf?: GoalTitleOf,
 ): OfferedAsk[] {
   if (payload.event !== 'thread.created' && payload.event !== 'thread.replied') return [];
   const id = payload.comment?.id;
   const comment = id ? payload.thread.comments.find((c) => c.id === id) : undefined;
   const headline = comment?.review?.headline;
   if (!comment || !headline) return [];
+  const stops = stopsOf(comment.review?.blocks, titleOf);
   return homes.map((home) => ({
     workspaceId: home.workspaceId,
     ...(home.board ? { board: home.board } : {}),
@@ -215,6 +235,7 @@ export function asksFromThreadEvent(
     key: `${home.workspaceId}:${home.kind}:${payload.docId}:${payload.threadId}`,
     headline,
     createdAt: comment.ts,
+    ...(stops ? { stops } : {}),
     actorId: comment.author.id,
   }));
 }

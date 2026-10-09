@@ -283,14 +283,20 @@ export function applyLeadRanks(
 }
 
 /**
- * Every item that STOPS work first, in the order it already had, then the
- * rest — after the plan lead's ranks, so a ranked item never outranks an ask
- * somebody is idle on (`review-blocks.ts`).
+ * The lead's ranked items where `applyLeadRanks` put them, then among the
+ * unranked every item that STOPS work first, then the rest, each part in the
+ * order it already had. Bryan, 2026-10-08: "team lead should still rank" — a
+ * blocking ask tells the lead what the wait costs (`review-blocks.ts`), and
+ * outranks only what the lead has not placed.
  */
-export function blockingFirst<T extends { review?: ReviewPayload }>(items: T[]): T[] {
+export function blockingFirst<T extends { review?: ReviewPayload; leadRank?: number }>(
+  items: T[],
+): T[] {
+  const unranked = items.filter((i) => i.leadRank === undefined);
   return [
-    ...items.filter((i) => isBlockingAsk(i.review)),
-    ...items.filter((i) => !isBlockingAsk(i.review)),
+    ...items.filter((i) => i.leadRank !== undefined),
+    ...unranked.filter((i) => isBlockingAsk(i.review)),
+    ...unranked.filter((i) => !isBlockingAsk(i.review)),
   ];
 }
 
