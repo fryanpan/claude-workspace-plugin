@@ -144,8 +144,9 @@ export interface ReviewPayload {
    * The work that is STOPPED until this is answered — set by an asker that
    * sits idle until the reply. The lead's rank still places it; among the
    * items the lead has not ranked it leads, under the one line "Stopped until
-   * you answer: <what>", and its push says so. `hours` is how long the asker expects to stay stopped, when it
-   * can say. Read by `review-blocks.ts`, which drops a malformed value.
+   * you answer: <what>", and its push says so. `hours` is how long the asker
+   * expects to stay stopped, when it can say. Read by `review-blocks.ts`,
+   * which drops a malformed value.
    */
   blocks?: ReviewBlocks;
   /**
