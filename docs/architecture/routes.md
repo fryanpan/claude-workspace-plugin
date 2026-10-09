@@ -120,6 +120,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/inbox/rows/:id/body` | GET | `routes/inbox.ts` | trusted-local |  |
 | `/inbox/rows/:id/reply` | POST | `routes/inbox.ts` | trusted-local |  |
 | `/inbox/rows/:id/state` | POST | `routes/inbox.ts` | trusted-local |  |
+| `/landing/events:stream` | GET | `routes/landing-stream.ts` | trusted-local |  |
 | `/manifest.webmanifest` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/mcp` | GET, POST, DELETE | `routes/mcp-connector.ts` | loopback-only |  |
 | `/mounts/:fileId` | GET, HEAD | `routes/mounts.ts` | trusted-local |  |

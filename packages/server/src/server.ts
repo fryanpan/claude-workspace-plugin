@@ -70,6 +70,7 @@ import { InboxReplies } from './inbox/reply.ts';
 import { systemTransport } from './inbox/send-transport.ts';
 import { InboxSends } from './inbox/sends.ts';
 import { InboxStore } from './inbox/store.ts';
+import { LANDING_CHANGED_EVENT, LANDING_CHANNEL, createLandingChanges } from './landing-changes.ts';
 import { wireLeadRanks } from './lead-rank-wiring.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
@@ -142,6 +143,7 @@ import {
   handleDocResourceRoutes,
 } from './routes/docs.ts';
 import { type InboxRoutesContext, handleInboxRoutes } from './routes/inbox.ts';
+import { handleLandingStreamRoute } from './routes/landing-stream.ts';
 import { handleMcpConnectorRoute } from './routes/mcp-connector.ts';
 import {
   type MeetingCalendarRoutesContext,
@@ -467,6 +469,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // died instead of stopping — see sse-marks.ts for why that direction is the
   // safe one.
   sse.restoreMarks(claimReplayMarks(dataDir));
+  // Open `/` pages hear one frame for any board change they draw.
+  const landingChanges = createLandingChanges({
+    emit: () => sse.broadcastTransient(LANDING_CHANNEL, { event: LANDING_CHANGED_EVENT }),
+  });
+  sse.tap(landingChanges.observe);
   const webhookLog: WebhookLogEntry[] = [];
   const webhooks = createWebhookDispatcher({
     onLog: (e) => {
@@ -2407,6 +2414,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     boardName: (id) => taskStore.getWorkspace(id)?.name,
     sizePrefs: new ReviewSizePrefs(dataDir),
     ranks: leadRanks.ranks,
+    onRanked: landingChanges.notify,
     refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     planGoalIds: (workspaceId) => planGoals(workspaceId).map((g) => g.id),
@@ -3755,6 +3763,13 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         if (handled) return handled;
       }
 
+      // --- SSE: the workspaces list's change feed --- see
+      // ./routes/landing-stream.ts. Top-level, like `/` it serves.
+      {
+        const handled = handleLandingStreamRoute({ sse, j }, { req, pathname, visitor });
+        if (handled) return handled;
+      }
+
       // --- REST + page: the cross-board review queue --- see
       // ./routes/review-queue.ts. Top-level for the prompts' reason: it is
       // about every board, not one.
@@ -4258,6 +4273,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // output for the rest of the run.
       loopLag.stop();
       taskScheduler.stop();
+      landingChanges.dispose();
       coachWiring.stop();
       leadPresence.stop();
       // The boot re-scoring pass runs for as long as there are stale rows, so

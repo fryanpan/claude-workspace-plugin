@@ -153,6 +153,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ]),
   // The rank is the plan lead's alone and checks its peer address and token
   // (`authorizeAgentCaller`), then that it is the plan board's lead.
+  ...family('routes/landing-stream.ts', [['trusted-local', '/landing/events:stream', 'GET']]),
   ...family('routes/review-queue.ts', [
     ['trusted-local', '/api/review-queue', 'GET'],
     ['loopback-only', '/api/review-queue/rank', 'POST'],
