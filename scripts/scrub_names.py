@@ -209,7 +209,7 @@ def _placeholders_on(found: List[Token]) -> Set[str]:
 
 
 def _placeholder_pair(a: str, b: str, vocab: Vocabulary) -> bool:
-    """"Ask Bob" is a placeholder after a published word; "Alice Smith" is a surname."""
+    """A placeholder after a published word, never before: what follows may be a surname."""
     return b in PLACEHOLDER_NAMES and (a in PLACEHOLDER_NAMES or vocab.case[a] >= RARE_BELOW)
 
 

@@ -13,7 +13,8 @@ about those names and nothing else:
   case; and
 - every LEAKS row names one of them and carries nothing else a leak can be: no
   email, handle, number, amount or key (`scrub_names._marks`), and none of the
-  words a non-name leak is described with.
+  words a non-name leak is described with. A capitalised word the row quotes
+  must be a placeholder too, so a row naming a second person still blocks.
 
 Anything the reply does not prove keeps the block. A malformed sweep, an
 empty LEAKS list, a row about an email, or any other name marked `keep` all
@@ -37,6 +38,7 @@ _NOT_A_NAME = re.compile(
     r"financial|ssn|birth|internal|private|client|customer|project|repo\w*|url)\b",
     re.IGNORECASE,
 )
+_QUOTED = re.compile(r"'([^']+)'|\"([^\"]+)\"|`([^`]+)`|“([^”]+)”|‘([^’]+)’")
 
 
 def _section(text: str, head: str) -> Optional[List[str]]:
@@ -80,6 +82,12 @@ def _names_a_placeholder(row: str) -> bool:
                for n in scrub_names.PLACEHOLDER_NAMES)
 
 
+def _quotes_only_placeholders(row: str) -> bool:
+    quoted = " ".join("".join(m) for m in _QUOTED.findall(row))
+    return all(w in scrub_names.PLACEHOLDER_NAMES
+               for w in re.findall(r"\b[A-Z][^\W\d_]+", quoted))
+
+
 def only_placeholders(reply: str) -> bool:
     """True when a LEAKS_FOUND reply blocks over sanctioned placeholders alone."""
     sweep = _sweep(reply)
@@ -93,6 +101,7 @@ def only_placeholders(reply: str) -> bool:
         # "<file>:<line> — <description>": the path may say "project" or
         # "repo" without the finding being about one, so only the words judge.
         said = _SPLIT.split(row, maxsplit=1)[-1]
-        if not _names_a_placeholder(said) or scrub_names._marks(said) or _NOT_A_NAME.search(said):
+        if (not _names_a_placeholder(said) or scrub_names._marks(said)
+                or _NOT_A_NAME.search(said) or not _quotes_only_placeholders(said)):
             return False
     return True

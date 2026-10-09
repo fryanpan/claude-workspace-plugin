@@ -100,6 +100,8 @@ def check_verdicts(t: ModuleType, first: str, second: str, surname: str) -> None
             [(first + "a", "keep")], [f"Personal name '{first}a' in a test string"]), False),
         ("a placeholder's email still blocks", _reply(
             [(first, "keep")], [f"Email address for {first} in a fixture"]), False),
+        ("a row quoting a second name still blocks", _reply(
+            [(first, "keep")], [f"Names '{first}' and '{surname}' in a fixture"]), False),
         ("a row naming no placeholder still blocks", _reply(
             [(first, "keep")], ["A home address in a fixture"]), False),
         ("a sweep with nothing kept still blocks", _reply([(first, "placeholder")], [named]), False),
