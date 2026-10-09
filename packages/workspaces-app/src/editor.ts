@@ -22,6 +22,7 @@ import type { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockIdentity } from './block-identity.ts';
 import { docAssetsBase, docImageExtension } from './doc-image-src.ts';
+import { docImagePaste, pickDocImages } from './doc-image-upload.ts';
 import { workspaceIdFromPath } from './doc-path.ts';
 import { boardEmbedFramesFor } from './doc/board-embed-frames.ts';
 import { FootnoteDecorations } from './doc/footnote-decorations.ts';
@@ -73,6 +74,9 @@ export interface EditorHandle {
   setMarkdown: (md: string) => void;
   getMarkdown: () => string;
   destroy: () => void;
+  /** The Aa bar's "Attach image": pick files and add them beside the doc.
+   *  Absent on a surface with no doc to store them beside. */
+  attachImage?: () => void;
 }
 
 export interface CreateEditorOpts {
@@ -192,6 +196,9 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // this extension the schema has no `image` node and sync would drop them.
       // A relative path is fetched from the doc's own folder (doc-image-src.ts).
       docImageExtension(opts.imageDocId ? docAssetsBase(opts.imageDocId) : undefined),
+      // A pasted or dropped image file is stored beside the doc first
+      // (doc-image-upload.ts); there is nowhere to store it without a doc.
+      ...(opts.imageDocId ? [docImagePaste(opts.imageDocId)] : []),
       // `$x_e$` — the `math` mark the server's parser writes, drawn with KaTeX
       // (math-inline.ts). In the base list for the image's reason: without
       // the mark in the schema, sync would drop it and the TeX would lose
@@ -455,6 +462,9 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       const store = (editor.storage as unknown as { markdown?: MarkdownStorage }).markdown;
       return store?.getMarkdown() ?? this.getText();
     },
+    ...(opts.imageDocId
+      ? { attachImage: () => pickDocImages(editor, opts.imageDocId as string) }
+      : {}),
     destroy() {
       editor.view.dom.removeEventListener('click', onLinkClick);
       editor.destroy();

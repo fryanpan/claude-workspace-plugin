@@ -135,6 +135,7 @@ export const ROUTE_TEMPLATES: readonly (readonly string[])[] = [
   // server.ts, then dispatched on the literal 'rest' of the path)
   ['workspaces', ':id', 'docs', ':id'],
   ['workspaces', ':id', 'docs', ':id', 'archive'],
+  ['workspaces', ':id', 'docs', ':id', 'assets'],
   ['workspaces', ':id', 'docs', ':id', 'unarchive'],
   ['workspaces', ':id', 'docs', ':id', 'meetings'],
   ['workspaces', ':id', 'docs', ':id', 'meetings', ':id'],

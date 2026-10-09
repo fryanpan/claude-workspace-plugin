@@ -665,7 +665,7 @@ export async function handleDocResourceRoutes(
   const docRq: DocResourceRouteRequest = { ...rq, docId, doc, rest };
   return (
     (await handleDocResourceCore(ctx, docRq)) ??
-    handleDocAssetsRoute(ctx, docRq) ??
+    (await handleDocAssetsRoute(ctx, docRq)) ??
     (await handleDocTitleRoute(ctx, docRq)) ??
     (await handleDocVoiceFeedbackRoute(ctx, docRq)) ??
     (await handleDocThreadRoutes(ctx, docRq)) ??
