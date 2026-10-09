@@ -14168,10 +14168,8 @@ var VERB = {
   left: "left"
 };
 var ANSWER = {
-  thanks: 'answered "Thanks": it helped',
-  "not-now": 'answered "Not now": right goal, wrong time',
-  "not-this": 'answered "Not this": a wrong call',
-  "moved-on": "moved on without answering"
+  up: "answered thumbs up: it helped",
+  down: "answered thumbs down: it did not help"
 };
 var READINESS = {
   less: "less readily: only when the match is plain",
@@ -14273,7 +14271,8 @@ function coachLine(event, p, timeZone) {
     const how = p.answer ? ANSWER[p.answer] : undefined;
     if (!how || !p.momentId)
       return null;
-    return `[coach.answer${clock2(p.at, timeZone)}] The owner ${how}. Your moment ${p.momentId} (goal: ${p.goal ?? "?"}) said: "${p.line ?? ""}". Write what it teaches you in your memory doc.`;
+    const wrote = p.answer === "down" && p.text ? ` They wrote: "${p.text}".` : "";
+    return `[coach.answer${clock2(p.at, timeZone)}] The owner ${how}.${wrote} Your moment ${p.momentId} (goal: ${p.goal ?? "?"}) said: "${p.line ?? ""}". Write what it teaches you in your memory doc.`;
   }
   if (event === "coach.preference") {
     const how = p.readiness ? READINESS[p.readiness] : undefined;
@@ -16154,7 +16153,7 @@ var TOOL_LIST = {
     },
     {
       name: "coach_moment",
-      description: "The coach session speaks up: a card on the owner's page with your line and Thanks / Not now / Not this. Call it only when a coach.digest plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",
+      description: "The coach session speaks up: a card on every page the owner has open with your line, a thumbs up and a thumbs down (a down may carry a few words of why, which reach you in coach.answer). Call it only when a coach.digest plainly matches the moment one goal names; otherwise say nothing. The server refuses a quote that is not that goal's words, a doc with no goals, and a second moment while one is open, and says why (raised:false).",
       inputSchema: {
         type: "object",
         properties: {
@@ -21293,7 +21292,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.304";
+var PLUGIN_VERSION = "0.1.305";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
