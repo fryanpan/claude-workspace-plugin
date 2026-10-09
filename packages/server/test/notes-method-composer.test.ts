@@ -219,7 +219,7 @@ describe('which model writes the notes', () => {
   test('ledger-opus writes on Opus', async () => {
     const { composer, seen } = composerFor('ledger-opus');
     await composer.compose(input());
-    expect(composes(seen)[0]?.model).toBe('claude-opus-5');
+    expect(composes(seen)[0]?.model).toBe('claude-opus-5-5');
   });
 
   test('Opus thinks at the effort the exploration priced it at', async () => {
@@ -252,7 +252,7 @@ describe('the method is read per tick, not per session', () => {
     expect(extracts(seen)).toHaveLength(1);
     expect(composes(seen).map((c) => c.model)).toEqual([
       expect.stringContaining('haiku'),
-      'claude-opus-5',
+      'claude-opus-5-5',
     ]);
   });
 
@@ -276,7 +276,7 @@ describe('the doc decides, not the meeting', () => {
     expect(extracts(seen)).toHaveLength(1);
     expect(composes(seen).map((c) => c.model)).toEqual([
       expect.stringContaining('haiku'),
-      'claude-opus-5',
+      'claude-opus-5-5',
     ]);
   });
 });
@@ -328,7 +328,7 @@ describe('a ledger with no key composes as the original', () => {
     expect(extracts(h.seen)).toHaveLength(0);
     // Still the method's model: it is the ledger that could not run, not the
     // choice that was ignored.
-    expect(composes(h.seen)[0]?.model).toBe('claude-opus-5');
+    expect(composes(h.seen)[0]?.model).toBe('claude-opus-5-5');
   });
 });
 

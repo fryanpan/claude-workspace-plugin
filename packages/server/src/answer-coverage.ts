@@ -43,7 +43,7 @@ import {
 } from '@claude-workspaces/core/answer-coverage-prompt';
 import { readRenamedEnv } from '@claude-workspaces/core/env-names';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 
 export interface AnswerCoverageInput {
   item: AnswerCoverageItem;
@@ -54,7 +54,7 @@ export interface AnswerCoverageInput {
 /** The seam. `null` (or a throw) means "could not tell" — the answer closes. */
 export type AnswerCoverage = (input: AnswerCoverageInput) => Promise<{ open: string[] } | null>;
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 /** Every question with the words that answer it, as JSON. A reply cut off
  *  here fails to parse and the answer closes the item, so err high. */
@@ -104,6 +104,7 @@ export function haikuAnswerCoverage(opts: HaikuAnswerCoverageOpts = {}): AnswerC
         body: JSON.stringify({
           model: MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),

@@ -41,7 +41,7 @@ import {
 } from '@claude-workspaces/core/effort-estimate-prompt';
 import { readRenamedEnv } from '@claude-workspaces/core/env-names';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 
 export type { EffortEstimateVerdict } from '@claude-workspaces/core/effort-estimate-prompt';
 
@@ -63,7 +63,7 @@ export type EffortEstimator = (
 
 /** Recorded on every estimate this module produces, so a stored number can
  *  be told which generation of scoring made it. */
-export const EFFORT_ESTIMATE_MODEL = 'claude-haiku-4-5-20251001';
+export const EFFORT_ESTIMATE_MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_TOKENS = 200;
 /**
@@ -123,6 +123,7 @@ export function haikuEffortEstimator(opts: HaikuEffortEstimatorOpts = {}): Effor
         body: JSON.stringify({
           model: EFFORT_ESTIMATE_MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),

@@ -46,7 +46,24 @@ import {
 import { ACCESS_TOKEN_ENV, claudeKeyAddHint } from './claude-key-source.ts';
 import { readKeychainPassword } from './share/keychain.ts';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
+
+/**
+ * Thinking off, on every Haiku call this server makes.
+ *
+ * Claude Haiku 5.5 thinks unless a request says not to, and its thinking
+ * counts against `max_tokens`. Every Haiku prompt here was written and
+ * measured on Haiku 4.5, which never thought, and several replies are capped
+ * tight (a title at 40 tokens, a board line at 80) or sit inside a route a
+ * person is waiting on. Thinking would spend those caps before the answer and
+ * add its latency to the wait. Haiku 5.5 accepts `disabled` at effort `high`
+ * or below; none of these calls raises effort.
+ *
+ * Measured on the notes composer, one AMI meeting (ES2003a, 11 ticks,
+ * 2026-10-08): with thinking left on, 4 ticks hit the 2,000-token cap and were
+ * refused, and output rose from 3,002 tokens to 23,845.
+ */
+export const HAIKU_NO_THINKING = { type: 'disabled' } as const;
 const API_URL = 'https://api.anthropic.com/v1/messages';
 /** Long enough to coalesce a burst of edits, short enough to feel live. */
 export const DEBOUNCE_MS = 3_000;
@@ -631,7 +648,13 @@ export class ThreadSummarizer {
           'x-api-key': this.key,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages }),
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          thinking: HAIKU_NO_THINKING,
+          system,
+          messages,
+        }),
         signal: ctl.signal,
       });
       if (!res.ok) {

@@ -46,10 +46,10 @@ import { contentWords, ideaCarried } from './notes-idea-coverage.ts';
 import { NOTES_SPEAKERS_HEADING } from './notes-prompt-store.ts';
 import { MAX_BULLET_WORDS } from './notes-quality.ts';
 import { appendToSection, replaceSection } from './prompt-sections.ts';
-import { type SummaryCredential, authHeader } from './summarize.ts';
+import { HAIKU_NO_THINKING, type SummaryCredential, authHeader } from './summarize.ts';
 
 /** The cheap model the extract runs on, whatever composes the notes. */
-export const LEDGER_EXTRACT_MODEL = 'claude-haiku-4-5-20251001';
+export const LEDGER_EXTRACT_MODEL = 'claude-haiku-5-5';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -211,6 +211,7 @@ async function extractPoints(deps: NotesLedgerDeps, transcript: string): Promise
       body: JSON.stringify({
         model: LEDGER_EXTRACT_MODEL,
         max_tokens: 700,
+        thinking: HAIKU_NO_THINKING,
         system: EXTRACT_SYSTEM,
         tools: [
           {
