@@ -173,7 +173,17 @@ function mayCarryAnOpenAsk(thread: unknown): boolean | undefined {
  * is already skipped there — it is named here as the second half of one rule
  * rather than left resting on where it happens to be broadcast today.
  */
-const BOOKKEEPING_EVENTS = new Set(['comment.delivered', 'agent.listening', 'replay.gap']);
+const BOOKKEEPING_EVENTS = new Set([
+  'comment.delivered',
+  'agent.listening',
+  'replay.gap',
+  // A page's list going stale (`packages/server/src/page-nudges.ts`). Sent to
+  // pages only, but a review set's channel reaches an agent's stream without
+  // its id, so the child drops these by name as well.
+  'library.changed',
+  'members.changed',
+  'attachments.changed',
+]);
 
 /**
  * Whether this frame records something that happened without asking the

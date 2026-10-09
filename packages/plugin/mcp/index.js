@@ -14159,7 +14159,14 @@ function mayCarryAnOpenAsk(thread) {
     return review.answeredAt === undefined && review.answeredWith === undefined && review.withdrawnAt === undefined;
   });
 }
-var BOOKKEEPING_EVENTS = new Set(["comment.delivered", "agent.listening", "replay.gap"]);
+var BOOKKEEPING_EVENTS = new Set([
+  "comment.delivered",
+  "agent.listening",
+  "replay.gap",
+  "library.changed",
+  "members.changed",
+  "attachments.changed"
+]);
 function isBookkeepingEvent(event, payload) {
   if (BOOKKEEPING_EVENTS.has(event))
     return true;
@@ -21310,7 +21317,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.305";
+var PLUGIN_VERSION = "0.1.306";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",
