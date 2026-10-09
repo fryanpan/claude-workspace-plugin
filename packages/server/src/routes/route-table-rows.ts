@@ -451,6 +451,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ]),
 
   ...family('routes/doc-assets.ts', [
+    ['share-scope', '/workspaces/:ws/docs/:docId/assets', 'POST'],
     ['share-scope', '/workspaces/:ws/docs/:docId/assets/*', 'GET HEAD'],
   ]),
   ...family('routes/doc-voice-feedback.ts', [

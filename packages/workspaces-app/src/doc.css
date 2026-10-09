@@ -686,6 +686,11 @@ body.has-set .doc-switcher-caret {
   color: var(--accent);
   border-color: #cfe0f5;
 }
+/* The picture glyph is an emoji the platform paints in colour; grey it to
+   match the bar's other glyphs (calm by default). */
+.format-bar button[data-cmd="image"] {
+  filter: grayscale(1);
+}
 .format-bar .sep {
   flex: 0 0 1px;
   width: 1px;

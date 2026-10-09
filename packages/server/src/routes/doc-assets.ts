@@ -1,5 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { dirname, extname, join, sep } from 'node:path';
+import { MAX_IMAGE_BYTES, imageStem, sniffImage, storeImageBeside } from '../doc-image-store.ts';
 import { fileSandboxHeaders } from '../mockup-frame.ts';
 import type { DocResourceRouteRequest, DocRoutesContext } from './docs-routes-context.ts';
 
@@ -27,6 +28,13 @@ import type { DocResourceRouteRequest, DocRoutesContext } from './docs-routes-co
  * Gate: `share-scope`. The host guard admits `assets/*` on a doc only when the
  * doc is inside the shared board, the same line that admits the doc's text,
  * and an image the doc displays is part of that text.
+ *
+ *   POST /workspaces/<ws>/docs/<docId>/assets?name=<file name>
+ *
+ * stores a pasted, dropped or picked image (`doc-image-store.ts`) and answers
+ * `{ src }`, the relative path the editor writes as `![](src)`. It is a write,
+ * so it is admitted exactly where the doc's live-editing socket is: on a
+ * shared doc, and only for a browser the write gate lets edit.
  */
 export const IMAGE_TYPES: Readonly<Record<string, string>> = {
   '.png': 'image/png',
@@ -40,12 +48,16 @@ export const IMAGE_TYPES: Readonly<Record<string, string>> = {
 /** The route segment the editor addresses a doc's relative images under. */
 export const DOC_ASSETS_SEGMENT = 'assets';
 
-export function handleDocAssetsRoute(
+export async function handleDocAssetsRoute(
   ctx: DocRoutesContext,
   rq: DocResourceRouteRequest,
-): Response | undefined {
+): Promise<Response | undefined> {
   const { rest, req, docId } = rq;
   const { j } = ctx;
+  if (rest === DOC_ASSETS_SEGMENT) {
+    if (req.method !== 'POST') return j(405, { error: 'method not allowed' });
+    return uploadImage(ctx, rq);
+  }
   if (!rest.startsWith(`${DOC_ASSETS_SEGMENT}/`)) return undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return j(405, { error: 'method not allowed' });
@@ -77,6 +89,48 @@ export function handleDocAssetsRoute(
     return new Response(null, { headers: { ...headers, 'content-length': String(size) } });
   }
   return new Response(Bun.file(abs), { headers });
+}
+
+async function uploadImage(ctx: DocRoutesContext, rq: DocResourceRouteRequest): Promise<Response> {
+  const { j } = ctx;
+  const md = ctx.docStore.boundPathOf(rq.docId);
+  if (!md || !/\.(md|markdown|mdx)$/i.test(md)) {
+    return j(404, { error: 'only a doc bound to a markdown file takes images' });
+  }
+  const bytes = await readCapped(rq.req, MAX_IMAGE_BYTES);
+  if (bytes === null) return j(413, { error: `an image is at most ${MAX_IMAGE_BYTES} bytes` });
+  const ext = sniffImage(bytes);
+  if (!ext) return j(415, { error: 'only PNG, JPEG, GIF and WebP images are stored' });
+  const name = new URL(rq.req.url).searchParams.get('name');
+  const out = storeImageBeside(md, bytes, ext, imageStem(name));
+  if (!out.ok) return j(409, { error: `cannot store beside this doc: ${out.reason}` });
+  return j(201, { src: out.src });
+}
+
+/** The body, or null as soon as it passes `cap` — a long upload is not read to the end. */
+async function readCapped(req: Request, cap: number): Promise<Uint8Array | null> {
+  if (Number(req.headers.get('content-length') ?? 0) > cap) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
 }
 
 /** Each segment decoded alone, or null when any of them could climb out. */

@@ -177,6 +177,8 @@ export function wireFormatBar(editor: EditorHandle, scope: MountScope): void {
     codeBlock: () => chain().toggleCodeBlock().run(),
     hr: () => chain().setHorizontalRule().run(),
     width: toggleWidthPref,
+    // Stores the picked files beside the doc (doc-image-upload.ts).
+    image: () => editor.attachImage?.(),
     table: () => {
       const btn = bar.querySelector<HTMLElement>('[data-cmd="table"]');
       if (btn) tableMenu.toggle(btn);
@@ -189,6 +191,9 @@ export function wireFormatBar(editor: EditorHandle, scope: MountScope): void {
       else chain().setLink({ href }).run();
     },
   };
+  // A surface with no doc to store an image beside has no "Attach image".
+  const imageBtn = bar.querySelector<HTMLElement>('[data-cmd="image"]');
+  if (imageBtn) imageBtn.hidden = !editor.attachImage;
   scope.listen(bar, 'mousedown', (ev) => {
     const t = ((ev as MouseEvent).target as HTMLElement).closest('button');
     if (t) (ev as MouseEvent).preventDefault();

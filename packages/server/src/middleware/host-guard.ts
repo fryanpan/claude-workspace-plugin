@@ -1359,6 +1359,13 @@ function docSubrouteAllowed(sub: string, method: string): boolean {
    */
   if (sub.startsWith('assets/')) return method === 'GET' || method === 'HEAD';
   /**
+   * Storing a pasted image beside the doc's file. A member already edits the
+   * doc's text over the live socket (`y`, below); this is the same edit made
+   * with a picture, so it is admitted on the same line. The write gate still
+   * refuses a browser that has not signed in, as it refuses that socket.
+   */
+  if (sub === 'assets') return method === 'POST';
+  /**
    * Thread verbs, INCLUDING the three region-edit ones this used to exclude.
    *
    * The exclusion protected nothing it was written for: a member already has
