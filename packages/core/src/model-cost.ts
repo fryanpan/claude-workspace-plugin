@@ -70,11 +70,17 @@ export const CACHE_BREAK_EVEN_RATIO: number =
  * (`claude-haiku-4-5-20251001`) and a reply echoes it; the price belongs to
  * the family, so `modelPrice` strips the date before looking here. A new
  * family added to this table is the whole of adding its price.
+ *
+ * Haiku 5.5's row is its card for prompts of 100K tokens or fewer; a longer
+ * prompt bills $0.50 / $2.50. No call this server makes comes near that.
  */
 export const MODEL_PRICES_PER_MILLION: Readonly<Record<string, ModelPrice>> = {
   'claude-haiku-4-5': { input: 1, output: 5 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
   'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-sonnet-5-5': { input: 2, output: 10 },
   'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-5-5': { input: 4, output: 20 },
   'claude-opus-4-8': { input: 5, output: 25 },
   'claude-fable-5-1': { input: 10, output: 50 },
 };
@@ -84,13 +90,14 @@ export const MODEL_PRICES_PER_MILLION: Readonly<Record<string, ModelPrice>> = {
  *
  * A `cache_control` marker on anything shorter is IGNORED IN SILENCE: no
  * entry, no error, and a reply that looks exactly like a hit. The first ticks
- * of a meeting sit below Haiku's 4096 because the doc has barely any notes in
- * it yet, so a short meeting caches nothing — that is the model's rule, not a
- * bug in the layout, and the recorded `cacheReadTokens` is what says which of
- * the two a given meeting met.
+ * of a meeting sat below Haiku 4.5's 4096 because the doc has barely any notes
+ * in it yet, so a short meeting cached nothing — that is the model's rule, not
+ * a bug in the layout, and the recorded `cacheReadTokens` is what says which
+ * of the two a given meeting met. Haiku 5.5's floor is 512.
  */
 export const MIN_CACHEABLE_TOKENS: Readonly<Record<string, number>> = {
   'claude-haiku-4-5': 4096,
+  'claude-haiku-5-5': 512,
 };
 
 /** A dated snapshot id reduced to the family the price list names. */
