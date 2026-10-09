@@ -9,8 +9,8 @@ its verdict word, and a block is overridden only when the reply proves it is
 about those names and nothing else:
 
 - the NAMES sweep lists at least one name marked `keep`, and every `keep`
-  name is made only of `scrub_names.PLACEHOLDER_NAMES`, whole and in exact
-  case; and
+  name is made only of `scrub_names.PLACEHOLDER_NAMES`, whole, as written or
+  in capitals (`scrub_names.PLACEHOLDER_SPELLINGS`); and
 - every LEAKS row names one of them and carries nothing else a leak can be: no
   email, handle, number, amount or key (`scrub_names._marks`), and none of the
   words a non-name leak is described with. A capitalised word the row quotes
@@ -74,17 +74,17 @@ def _sweep(text: str) -> Optional[List[Tuple[str, str]]]:
 
 def _only_placeholders(name: str) -> bool:
     words = re.findall(r"[^\W\d_]+", re.sub(r"['’]s\b", "", name))
-    return bool(words) and all(w in scrub_names.PLACEHOLDER_NAMES for w in words)
+    return bool(words) and all(w in scrub_names.PLACEHOLDER_SPELLINGS for w in words)
 
 
 def _names_a_placeholder(row: str) -> bool:
     return any(re.search(rf"(?<![^\W_]){re.escape(n)}(?![^\W_])", row)
-               for n in scrub_names.PLACEHOLDER_NAMES)
+               for n in scrub_names.PLACEHOLDER_SPELLINGS)
 
 
 def _quotes_only_placeholders(row: str) -> bool:
     quoted = " ".join("".join(m) for m in _QUOTED.findall(row))
-    return all(w in scrub_names.PLACEHOLDER_NAMES
+    return all(w in scrub_names.PLACEHOLDER_SPELLINGS
                for w in re.findall(r"\b[A-Z][^\W\d_]+", quoted))
 
 

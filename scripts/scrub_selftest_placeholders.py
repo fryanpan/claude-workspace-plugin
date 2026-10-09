@@ -27,6 +27,7 @@ import scrub_placeholders
 # word on a line is the one the case is about.
 PUBLIC = ("I was checking the hover for, not polishing. Ask the Pier desk.\n"
           "Kept in a/notes.md b/notes.md and a/test.ts b/test.ts.\n"
+          "const ID = 1;\n"
           * scrub_names.RARE_BELOW)
 
 
@@ -35,6 +36,9 @@ def _lines() -> dict:
     house = scrub_names.HOUSE_FIXTURE_NAMES[-1]
     return {"hover": f"I was checking the hover for {first}, not polishing.",
             "ask": f"Ask {second}.", "ask-house": f"Ask {house}.",
+            # A test constant named for one, as a whole word or a segment.
+            "caps": f"const {first.upper()} = 1;", "caps-id": f"const {first.upper()}_ID = 1;",
+            "caps-ask": f"Ask {second.upper()}.", "caps-house": f"Ask {house.upper()}.",
             "first": first, "second": second}
 
 
@@ -64,7 +68,7 @@ def check(t: ModuleType) -> None:
     def sent(line: str) -> str:
         return scrub_names.select(t.rules_patch("notes.md", [line]), public).text
 
-    for case in ("hover", "ask", "ask-house"):
+    for case in ("hover", "ask", "ask-house", "caps", "caps-id", "caps-ask", "caps-house"):
         t.expect(f"placeholders: the {case} line, new only for its placeholder, is not sent",
                  0 if sent(lines[case]) == "" else 1, 0, sent(lines[case]))
     for label, line in (
@@ -73,7 +77,10 @@ def check(t: ModuleType) -> None:
         ("a published capitalised word as a placeholder's surname", f"{first} Pier was checking the hover."),
         ("a longer word that starts with a placeholder", f"Ask {second}by."),
         ("a placeholder in lower case", f"Ask {second.lower()}."),
-        ("a placeholder in upper case", f"Ask {second.upper()}."),
+        ("a placeholder in mixed case", f"Ask {second[0].lower()}{second[1:].upper()}."),
+        ("a longer word in upper case", f"const {second.upper()}BY = 1;"),
+        ("an unfamiliar surname in upper case", f"const {surname.upper()} = 1;"),
+        ("an upper-case placeholder beside a lower-case one", f"const {first.upper()} = {first.lower()};"),
     ):
         t.expect(f"placeholders: {label} is still sent",
                  0 if f"+{line}" in sent(line) else 1, 0, sent(line))
@@ -90,6 +97,20 @@ def check_verdicts(t: ModuleType, first: str, second: str, surname: str) -> None
         ("...and only the house names and the pair", _reply(
             [(f"{first} {scrub_names.HOUSE_FIXTURE_NAMES[-1]}", "keep"), (second, "keep")],
             [f"Names {first} and {second} in a fixture"]), True),
+        # The incident: a test constant in capitals, the sweep keeping it.
+        ("a row naming a placeholder in capitals passes", _reply(
+            [(first, "keep")], [f"{first.upper()} used as test fixture data parameter"]), True),
+        ("...and a sweep keeping it in capitals", _reply(
+            [(first.upper(), "keep")], [f"Constant '{first.upper()}' used as sample data"]), True),
+        ("a placeholder in mixed case still blocks", _reply(
+            [(first[0].lower() + first[1:].upper(), "keep")],
+            [f"{first[0].lower() + first[1:].upper()} used as sample data"]), False),
+        ("an unfamiliar surname in capitals still blocks", _reply(
+            [(surname.upper(), "keep")], [f"{surname.upper()} used as test fixture data parameter"]), False),
+        ("a capitals placeholder quoted beside a capitals surname still blocks", _reply(
+            [(first, "keep")], [f"Names '{first.upper()}' and '{surname.upper()}' in a fixture"]), False),
+        ("a longer word in capitals still blocks", _reply(
+            [(first.upper() + "A", "keep")], [f"{first.upper()}A used as sample data"]), False),
         ("a block naming an unfamiliar surname still blocks", _reply(
             [(surname, "keep")], [f"Personal surname '{surname}' in a test fixture"]), False),
         ("a placeholder kept beside an unfamiliar name still blocks", _reply(
@@ -120,7 +141,8 @@ def check_verdicts(t: ModuleType, first: str, second: str, surname: str) -> None
         with tempfile.TemporaryDirectory() as tmp:
             ledger = os.path.join(tmp, "spend.jsonl")
             for path, (label, reply, passes) in (("/placeholder-only", cases[0]),
-                                                 ("/unfamiliar-surname", cases[2])):
+                                                 ("/placeholder-caps", cases[2]),
+                                                 ("/unfamiliar-surname", cases[8])):
                 t.HAIKU_STUB_REPLIES[path] = reply
                 before = t.HaikuStub.calls
                 r = t.spawn_haiku(f"{stub}{path}", "block-all", ledger=ledger)
@@ -134,7 +156,7 @@ def check_verdicts(t: ModuleType, first: str, second: str, surname: str) -> None
 
 
 def check_end_to_end(t: ModuleType, lines: dict, surname: str) -> None:
-    """A push of the two incident lines makes no call; the control makes one and blocks."""
+    """A push of the incident lines makes no call; the control makes one and blocks."""
     server, stub = t.start_haiku_stub()
     t.HAIKU_STUB_REPLIES["/unfamiliar-surname-e2e"] = _reply(
         [(surname, "keep")], [f"Personal surname '{surname}' in a test fixture"])
@@ -162,14 +184,16 @@ def check_end_to_end(t: ModuleType, lines: dict, surname: str) -> None:
                               argv=("--public-base", "HEAD"))
             return r, t.HaikuStub.calls - before
 
-        r, calls = pushed([lines["hover"], lines["ask"]], "/leaks-usage")
-        t.expect("placeholders: a push of the two incident lines makes no call and passes",
+        r, calls = pushed([lines["hover"], lines["ask"], lines["caps"], lines["caps-id"]],
+                          "/leaks-usage")
+        t.expect("placeholders: a push of the incident lines makes no call and passes",
                  0 if r.returncode == 0 and calls == 0 else 1, 0,
                  f"exit {r.returncode}, {calls} call(s)\n{r.stderr}")
-        r, calls = pushed([f"Ask {surname}."], "/unfamiliar-surname-e2e")
-        t.expect("placeholders: an unfamiliar surname in a fixture reaches Haiku and blocks",
-                 0 if r.returncode == 1 and calls == 1 else 1, 0,
-                 f"exit {r.returncode}, {calls} call(s)\n{r.stderr}")
+        for case, line in (("", f"Ask {surname}."), (" in capitals", f"const {surname.upper()} = 1;")):
+            r, calls = pushed([line], "/unfamiliar-surname-e2e")
+            t.expect(f"placeholders: an unfamiliar surname{case} in a fixture reaches Haiku and blocks",
+                     0 if r.returncode == 1 and calls == 1 else 1, 0,
+                     f"exit {r.returncode}, {calls} call(s)\n{r.stderr}")
     finally:
         server.shutdown()
         server.server_close()
