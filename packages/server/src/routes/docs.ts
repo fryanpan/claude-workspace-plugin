@@ -78,6 +78,7 @@ import {
 } from '../task-owner.ts';
 import { placeableGoals } from '../task-queue.ts';
 import { clipToWordBoundary } from '../task-title.ts';
+import { handleDocAssetsRoute } from './doc-assets.ts';
 import { handleDocEditRoutes } from './doc-edit-routes.ts';
 import { handleDocResourceCore } from './doc-resource.ts';
 import { handleDocThreadRoutes } from './doc-threads-routes.ts';
@@ -664,6 +665,7 @@ export async function handleDocResourceRoutes(
   const docRq: DocResourceRouteRequest = { ...rq, docId, doc, rest };
   return (
     (await handleDocResourceCore(ctx, docRq)) ??
+    handleDocAssetsRoute(ctx, docRq) ??
     (await handleDocTitleRoute(ctx, docRq)) ??
     (await handleDocVoiceFeedbackRoute(ctx, docRq)) ??
     (await handleDocThreadRoutes(ctx, docRq)) ??

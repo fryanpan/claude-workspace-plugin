@@ -2,7 +2,6 @@ import { anchors } from '@claude-workspaces/core';
 import { SPEAKER_TAG_SCHEME } from '@claude-workspaces/core';
 import { type AnyExtension, Editor } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
-import { Image } from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
@@ -22,6 +21,7 @@ import { Markdown } from 'tiptap-markdown';
 import type { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockIdentity } from './block-identity.ts';
+import { docAssetsBase, docImageExtension } from './doc-image-src.ts';
 import { workspaceIdFromPath } from './doc-path.ts';
 import { boardEmbedFramesFor } from './doc/board-embed-frames.ts';
 import { FootnoteDecorations } from './doc/footnote-decorations.ts';
@@ -91,6 +91,10 @@ export interface CreateEditorOpts {
    *  to a sibling file navigates in-SPA (via `navigate`) instead of opening
    *  a raw relative URL that 404s. Omit for standalone docs. */
   docLink?: { workspaceId: string; relPath: string; navigate: (url: string) => void };
+  /** The doc whose folder a relative image path is fetched from
+   *  (`docAssetsBase`). Omit and the browser resolves it against the page,
+   *  which finds nothing. */
+  imageDocId?: string;
   /**
    * The two taps a note's task links accept: turning the note-taker's
    * "related: …?" question into a real link, and undoing one that was wrong
@@ -186,8 +190,8 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // Block-level images. The server-side markdown round-trip (packages/core
       // prose.ts) emits/consumes `image` nodes for `![alt](src)` lines; without
       // this extension the schema has no `image` node and sync would drop them.
-      // Works for remote URLs and relative/local paths alike.
-      Image.configure({ inline: false, allowBase64: false }),
+      // A relative path is fetched from the doc's own folder (doc-image-src.ts).
+      docImageExtension(opts.imageDocId ? docAssetsBase(opts.imageDocId) : undefined),
       // `$x_e$` — the `math` mark the server's parser writes, drawn with KaTeX
       // (math-inline.ts). In the base list for the image's reason: without
       // the mark in the schema, sync would drop it and the TeX would lose

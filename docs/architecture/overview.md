@@ -1664,7 +1664,10 @@ joins the editor tier too and changes none of the picture: an extension in
 `editor.ts`'s base list that keeps a transaction dispatched from inside a
 Yjs observer from writing the editor's not-yet-redrawn doc back over the
 change being observed, which is how a reconnecting tab re-inserted an
-agent's deleted blocks. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+agent's deleted blocks. `doc-image-src.ts` joins the editor tier as well:
+the block image in `editor.ts`'s base list, which fetches a relative `src`
+from the doc's own folder (`routes/doc-assets.ts`) while the node, and so the
+`.md`, keeps the path as written. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"
