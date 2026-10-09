@@ -339,7 +339,7 @@ describe('POST /coach/moments — the coach session, this machine only', () => {
     const answerWith = async (body: unknown) =>
       (await postJson(`/coach/moments/${id}/answer`, body, await ownerHeaders(), OWNER_HOST))
         .status;
-    expect(await answerWith({ answer: 'thanks' })).toBe(400);
+    expect(await answerWith({ answer: 'maybe' })).toBe(400);
     expect(await answerWith({ answer: 'up', text: 'Good catch' })).toBe(400);
     expect(await answerWith({ answer: 'down', text: 'x'.repeat(1_001) })).toBe(400);
     expect(await answerWith({ answer: 'down', text: 7 })).toBe(400);
@@ -348,5 +348,16 @@ describe('POST /coach/moments — the coach session, this machine only', () => {
     );
     expect(await answerWith({ answer: 'up' })).toBe(404);
     expect(await landingAsOwner()).toContain('This week: 1 moment · Helpful 0 · Not helpful 1');
+    // A tab loaded before the thumbs still sends the old words, and they count.
+    const again = await postJson('/coach/moments', MOMENT, {}, local());
+    const second = ((await again.json()) as { id: string }).id;
+    const old = await postJson(
+      `/coach/moments/${second}/answer`,
+      { answer: 'thanks' },
+      await ownerHeaders(),
+      OWNER_HOST,
+    );
+    expect(old.status).toBe(200);
+    expect(await landingAsOwner()).toContain('This week: 2 moments · Helpful 1 · Not helpful 1');
   });
 });

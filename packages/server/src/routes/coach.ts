@@ -143,11 +143,20 @@ function parseStreamPlace(ctx: CoachRoutesContext, q: URLSearchParams): CoachPag
   return { workspaceId: ws, docId: doc };
 }
 
+/** The three answers a tab loaded before the thumbs still sends. */
+const OLD_ANSWERS: Record<string, MomentAnswer> = {
+  thanks: 'up',
+  'not-now': 'down',
+  'not-this': 'down',
+};
+
 /** A thumbs up, or a down with what he wrote; or the reason it is refused. */
 function parseAnswer(
   body: Record<string, unknown> | null,
 ): { answer: MomentAnswer; text?: string } | string {
-  const answer = body?.answer;
+  const sent = body?.answer;
+  const answer =
+    typeof sent === 'string' && Object.hasOwn(OLD_ANSWERS, sent) ? OLD_ANSWERS[sent] : sent;
   if (!MOMENT_ANSWERS.includes(answer as MomentAnswer)) {
     return `answer is one of ${MOMENT_ANSWERS.join(', ')}`;
   }
