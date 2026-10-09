@@ -2334,8 +2334,14 @@ export class TaskStore {
   // signatures because 35 files import this class and none of them should
   // have to learn that a delete now crosses a file boundary.
 
+  /** Told when a board is made. A create emits no store event, and the
+   *  workspaces list's feed still has to hear it (`landing-changes.ts`). */
+  onWorkspaceCreated: ((workspace: BoardWorkspace) => void) | null = null;
+
   createWorkspace(name: string, opts?: { leadAgentId?: string }): BoardWorkspace {
-    return this.workspaceStore.createWorkspace(name, opts);
+    const workspace = this.workspaceStore.createWorkspace(name, opts);
+    this.onWorkspaceCreated?.(workspace);
+    return workspace;
   }
 
   getWorkspace(id: string): BoardWorkspace | undefined {

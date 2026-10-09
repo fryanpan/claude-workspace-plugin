@@ -10,15 +10,16 @@ import { startLandingLive } from '../src/landing-live.ts';
 class FakeStream {
   url: string;
   closed = false;
-  private handlers = new Map<string, Array<() => void>>();
+  private handlers = new Map<string, Array<(ev: { data?: string }) => void>>();
   constructor(url: string) {
     this.url = url;
   }
-  addEventListener(name: string, fn: () => void) {
+  addEventListener(name: string, fn: (ev: { data?: string }) => void) {
     this.handlers.set(name, [...(this.handlers.get(name) ?? []), fn]);
   }
+  /** A frame with no body, as an older server sent it. */
   fire(name: string) {
-    for (const fn of this.handlers.get(name) ?? []) fn();
+    for (const fn of this.handlers.get(name) ?? []) fn({});
   }
   close() {
     this.closed = true;

@@ -14,36 +14,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type ServerHandle, createServer } from '../src/server.ts';
+import { landingFrames as countFrames } from './landing-frames.ts';
 import { waitFor } from './wait-for.ts';
 import { seedBoard } from './workspace-seed.ts';
 
 const PERSON = { id: 'known-reviewer', name: 'Reviewer', kind: 'person' };
-
-/** Count `landing.changed` frames off an open response until stopped. */
-function countFrames(res: Response): { count: () => number; stop: () => void } {
-  let n = 0;
-  let buf = '';
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  void (async () => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        buf += decoder.decode(value, { stream: true });
-        let sep = buf.indexOf('\n\n');
-        while (sep >= 0) {
-          if (buf.slice(0, sep).includes('event: landing.changed')) n += 1;
-          buf = buf.slice(sep + 2);
-          sep = buf.indexOf('\n\n');
-        }
-      }
-    } catch {
-      // Cancelled with a read in flight.
-    }
-  })();
-  return { count: () => n, stop: () => void reader.cancel() };
-}
 
 describe('the workspaces list change feed', () => {
   let handle: ServerHandle;
@@ -109,6 +84,17 @@ describe('the workspaces list change feed', () => {
       });
       await waitFor(() => feed.count() >= 1, { describe: 'a frame from the new board' });
       expect(await landing()).toContain('Riverbend');
+    } finally {
+      feed.stop();
+    }
+  });
+
+  it('tells an open list about a board made elsewhere before anything happens on it', async () => {
+    const feed = countFrames(await fetch(`${base}/landing/events:stream`, { headers: host() }));
+    try {
+      await seedBoard(base, { name: 'Saltmarsh' });
+      await waitFor(() => feed.parts().has('boards'), { describe: 'a frame for the new board' });
+      expect(await landing()).toContain('Saltmarsh');
     } finally {
       feed.stop();
     }

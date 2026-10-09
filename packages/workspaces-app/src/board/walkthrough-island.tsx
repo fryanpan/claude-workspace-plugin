@@ -192,6 +192,9 @@ export interface WalkChrome {
   doneLabel: string;
   /** Whether the stepper and the done screen show the sitting's tally. */
   tally: boolean;
+  /** The card on screen was answered or withdrawn elsewhere while open: it
+   *  keeps its place and is drawn closed, with nothing left to answer. */
+  closed?: boolean;
 }
 
 /** The one bar: every stop up to the chosen one filled, the chosen one
@@ -1177,15 +1180,26 @@ function Walkthrough(props: { host: HTMLElement }) {
           </div>
           {/* Keyed on `ReviewItem.key` — the one id that survives a re-fetch,
               a reorder and a peer's answer. See the head of the file. */}
-          <WalkCard
-            key={item.key}
-            item={item}
-            index={index}
-            progress={progress}
-            now={now}
-            handlers={handlers}
-            secretsGate={secretsGate}
-          />
+          {chrome?.closed ? (
+            <div class="board-walk-card" key={item.key}>
+              <WalkCardHead item={item} now={now} />
+              <div class="board-walk-advanced">
+                <span class="board-walk-advanced-said">
+                  ✓ Answered or withdrawn elsewhere. Nothing more is needed here.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <WalkCard
+              key={item.key}
+              item={item}
+              index={index}
+              progress={progress}
+              now={now}
+              handlers={handlers}
+              secretsGate={secretsGate}
+            />
+          )}
         </Fragment>
       )}
     </div>

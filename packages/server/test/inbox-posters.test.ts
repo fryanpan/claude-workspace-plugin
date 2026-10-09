@@ -18,6 +18,8 @@ import { InboxStore } from '../src/inbox/store.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { ACCESS_SHARE_CONFIG, mockCfApi } from './access-share.ts';
 import { row } from './inbox-fixtures.ts';
+import { landingFrames } from './landing-frames.ts';
+import { waitFor } from './wait-for.ts';
 
 const TEAM_DOMAIN = 'test.cloudflareaccess.com';
 const KID = 'inbox-posters-kid';
@@ -242,5 +244,23 @@ describe('the old config shape', () => {
     const was = await postAs(POSTER, { pass: 'js-4', rows: [live()] });
     expect(was.status).toBe(403);
     writeConfig({ readerAgentId: READER, posterAgentIds: [POSTER] });
+  });
+});
+
+describe('an open workspaces list', () => {
+  it('hears a row posted elsewhere, and a tap made on another device', async () => {
+    const feed = landingFrames(await req('/landing/events:stream', local()));
+    try {
+      const msg = live({ purpose: 'Asks about the Saltmarsh rota' });
+      expect((await postAs(POSTER, { pass: 'live-1', rows: [msg] })).status).toBe(200);
+      await waitFor(() => feed.parts().has('inbox'), { describe: 'an inbox frame for the post' });
+      expect(await landing()).toContain('Asks about the Saltmarsh rota');
+      const id = stored(msg.dedupeKey as string)?.id ?? '';
+      feed.parts().clear();
+      expect((await tap(id, 'remove')).status).toBe(200);
+      await waitFor(() => feed.parts().has('inbox'), { describe: 'an inbox frame for the tap' });
+    } finally {
+      feed.stop();
+    }
   });
 });

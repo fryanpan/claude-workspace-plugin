@@ -16,11 +16,15 @@
  *    doc", one quiet [Pull bot out]. Deliberately NO "open notes" button —
  *    the join click itself opened both the meeting (new tab) and the doc.
  *
- * Data is polled: calendar events live at the vendor and nothing on this
- * server pushes their changes (the board's ydoc projection carries tasks,
- * not calendars), so a 60s poll while the tab is visible is the honest
- * channel. A 503 (not configured) or 404 (not connected) answer stops the
- * poll — the feature is off, and the element stays empty.
+ * Two ways to stay current. On the board, data is polled: a 60s poll while
+ * the tab is visible. With the `pushed` attribute (the workspaces list),
+ * the page calls `refresh` when the server says a meeting was joined or
+ * left or the calendar synced (`landing-live.ts`), and the element never
+ * polls; what moves with the clock alone, the countdown and the offer's
+ * window, it redraws from the events it holds, on a timer aimed at the next
+ * minute or the next window edge. Both re-read when the tab is shown. A 503
+ * (not configured) or 404 (not connected) answer stops every read — the
+ * feature is off, and the element stays empty.
  *
  * The join POST answers `{meetingUrl, docUrl}` and the click opens BOTH: the
  * meeting in a new tab — pre-opened synchronously so the popup blocker sees
@@ -34,6 +38,7 @@ import {
   type BannerPick,
   type CalendarBannerEvent,
   bannerTimeLine,
+  bannerWindow,
   pickBanner,
   readDismissed,
   writeDismissal,
@@ -118,6 +123,7 @@ export class MeetingBannerEl extends HTMLElement {
   private busy = false;
   private error: string | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private clockTimer: ReturnType<typeof setTimeout> | null = null;
   private onVisibility = (): void => {
     if (document.visibilityState === 'visible') void this.refresh();
   };
@@ -129,6 +135,7 @@ export class MeetingBannerEl extends HTMLElement {
     this.shadow.append(style);
     document.addEventListener('visibilitychange', this.onVisibility);
     void this.refresh();
+    if (this.hasAttribute('pushed')) return;
     // The board mounts one instance per pane and only one pane shows at a
     // time, so a hidden instance skips its ticks — every poll is a vendor
     // list call. It catches up on its next tick once shown, the same ≤60s
@@ -144,6 +151,7 @@ export class MeetingBannerEl extends HTMLElement {
   disconnectedCallback(): void {
     this.stopped = true;
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.clockTimer) clearTimeout(this.clockTimer);
     document.removeEventListener('visibilitychange', this.onVisibility);
   }
 
@@ -172,11 +180,29 @@ export class MeetingBannerEl extends HTMLElement {
     return pickBanner(this.events, readDismissed(this.storage, now), now);
   }
 
+  /** A pushed banner's clock: redraw at the next minute while an offer
+   *  shows its countdown, or at the next window edge of any event held. */
+  private aimClock(showing: boolean): void {
+    if (this.clockTimer) clearTimeout(this.clockTimer);
+    this.clockTimer = null;
+    if (this.stopped || !this.hasAttribute('pushed')) return;
+    const now = this.now();
+    let next = showing ? now + 60_000 - (now % 60_000) : Number.POSITIVE_INFINITY;
+    for (const e of this.events) {
+      const w = bannerWindow(e);
+      if (!w) continue;
+      for (const edge of [w.from, w.until]) if (edge > now && edge < next) next = edge;
+    }
+    if (!Number.isFinite(next)) return;
+    this.clockTimer = setTimeout(() => this.render(), next - now);
+  }
+
   private render(): void {
     for (const el of [...this.shadow.children]) {
       if (el.tagName !== 'STYLE') el.remove();
     }
     const pick = this.pick();
+    this.aimClock(pick !== null);
     if (!pick) return;
     const { kind, event } = pick;
 

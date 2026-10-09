@@ -288,6 +288,9 @@ interface CalendarStateFile {
 export class CalendarConnectionStore {
   private readonly path: string;
   private state: CalendarStateFile;
+  /** Told after every write: a join taken or withdrawn, a calendar linked or
+   *  unlinked. An open meeting banner re-reads the events list. */
+  onChange: (() => void) | null = null;
 
   constructor(dataDir: string) {
     this.path = join(dataDir, 'calendar', 'google.json');
@@ -358,6 +361,7 @@ export class CalendarConnectionStore {
     // calendar id is still nobody else's business on a multi-user box.
     chmodSync(tmp, 0o600);
     renameSync(tmp, this.path);
+    this.onChange?.();
   }
 }
 
@@ -387,6 +391,9 @@ export interface CalendarSyncConsumerDeps {
    * never imports the relay and a test can assert the call without one.
    */
   onCancelledJoin?: (eventId: string, docId: string) => Promise<void>;
+  /** The connected calendar's events changed at the vendor: an added, moved
+   *  or cancelled meeting. An open meeting banner re-reads the list. */
+  onSynced?: () => void;
   log?: (line: string) => void;
 }
 
@@ -432,6 +439,7 @@ export class CalendarSyncConsumer {
     for (const event of events) {
       outcomes.push(await this.reconcile(event));
     }
+    if (events.length > 0) this.deps.onSynced?.();
     return outcomes;
   }
 

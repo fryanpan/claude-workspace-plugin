@@ -1156,12 +1156,13 @@ export function renderLanding(
       ? ''
       : `<details class="fold"><summary>Attachments by project <span class="count">${model.projects.length}</span></summary>
 <ul>${model.projects.map(renderLandingProjectLink).join('')}</ul></details>`;
-  // `#landing-review` and `#landing-boards` are what `landing-live.ts` swaps
-  // when a board changes; the coach and the inbox keep their own wiring.
+  // `landing-live.ts` swaps `#landing-review` and `#landing-boards` when a
+  // board changes, `#coach` and `#inbox` when theirs do, and tells the
+  // `pushed` banner when a meeting is joined or left, so it never polls.
   return landingShell(
     'Workspaces',
     `<h1>Workspaces</h1>
-<meeting-banner workspace-name="${escape(notesWorkspaceName)}"></meeting-banner>
+<meeting-banner pushed workspace-name="${escape(notesWorkspaceName)}"></meeting-banner>
 <script type="module" src="${assetHref(assets, 'landing.js')}"></script>${
       feedbackWorkspaceId
         ? `
