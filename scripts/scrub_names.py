@@ -1,23 +1,19 @@
 """The free pass in front of the Haiku scanner: which lines might hold a name.
 
-Before this existed, every added line of a push went to Haiku with a 2,400
-token prompt. Most of those lines are code and prose built from words this
-repository has already published a thousand times, and none of them can
-publish a name that is not already public. So a push is first read locally,
-for nothing, and only the lines that carry something NEW — a word the
-repository has not published, a capitalised pair it has never written, an
-email, handle, long number, amount or key it has never shown — travel to Haiku, each with a few lines
-either side so the model can tell a person from a function.
+Most added lines are code and prose built from words this repository has
+published a thousand times, and none of them can publish a name that is not
+already public. So a push is first read locally, for nothing, and only lines
+carrying something NEW — an unpublished word or capitalised pair, an email,
+handle, long number, amount or key — travel to Haiku, with a few lines either
+side so the model can tell a person from a function.
 
-**What this costs in recall, stated once and plainly.** A name made only of
-words the repository already uses — a person whose name is an ordinary word,
-a project codenamed after a common noun and written in lower case — is not
-flagged, and a line that is not flagged is never judged by anything.
-Measured recall, the corpus it was measured on, and why this trade was chosen
-over the models that were tried are in docs/architecture/scrub-name-finder.md.
+**The cost in recall.** A name made only of words the repository already uses
+is not flagged, and a line that is not flagged is never judged by anything.
+Measured recall, and why this trade was chosen over the models that were
+tried, are in docs/architecture/scrub-name-finder.md.
 
-Standard library only: this runs inside a git hook, on every push, on
-whatever Python the machine has.
+Standard library only: this runs inside a git hook, on whatever Python the
+machine has.
 """
 
 from __future__ import annotations
@@ -29,39 +25,31 @@ import subprocess
 from collections import Counter
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
-# A word the public vocabulary holds fewer times than this is new enough to
-# send. 1 would mean "never seen"; a name that slipped through once already
-# (a fixture, a quoted line) would then never be flagged again, so a few
-# sightings still count as rare.
+# Fewer sightings than this in the public vocabulary is new enough to send. 1
+# would mean a name that slipped through once is never flagged again.
 RARE_BELOW = 5
 # Lines either side of a flagged line that travel with it.
 CONTEXT_LINES = 2
-# A flagged line whose every trigger has already travelled this many times is
-# left behind: Haiku judges a word, and the fiftieth sighting of one it has
-# already seen twice tells it nothing new.
+# A flagged line whose every trigger has already travelled this often stays.
 REPEATS_SENT = 2
 
-# --- The house fixture names -------------------------------------------------
+# --- The sanctioned placeholder names ---------------------------------------
 #
-# Every builder in this repository is told to write these three words wherever
-# a real person's or client's name would otherwise go: a test fixture, a mock
-# payload, a doc example, a sample transcript. They are invented place-words
-# and they name nobody.
+# Builders here write the three house words wherever a real person's or
+# client's name would go: a fixture, a mock payload, a doc example, a sample
+# transcript. They are invented place-words and name nobody. On 2026-09-15 the
+# gate blocked one as `Personal surname "saltmarsh" used as sample data`, and a
+# push-range block is not cleared by a forward commit, so that branch was
+# rebuilt as one commit. `scrub-haiku.py` renders them into the scanner's closed
+# placeholder list; the half a person reads is CLAUDE.md's "Leak gates".
 #
-# A convention that names them is only half a convention while the gate in
-# front of the push refuses them. On 2026-09-15 a push was blocked with
-# `Personal surname "saltmarsh" used as sample data in test constant`, and
-# because the push gate reads every added line of the unpushed range, a
-# forward commit does not clear it — the only escape is rebuilding the branch
-# as one commit, which cost that branch its ordered history. This list is the
-# other half, so both halves say the same thing.
-#
-# It is deliberately three words long. The exemption is these exact words and
-# nothing wider: it is NOT "a surname in a fixture is fine", which would be a
-# hole in a leak gate on a public repository. `scrub-haiku.py` renders them
-# into the scanner's closed placeholder list, beside Alice and Bob; the half a
-# person reads is CLAUDE.md's "Leak gates" section.
+# PLACEHOLDER_NAMES adds the two the scanner's prompt names first. A line whose
+# only new word is one of these five is never sent, and a Haiku block naming
+# only these is overridden (scrub_placeholders.py). The exemption is these
+# exact words, whole and in this case: a longer word that starts with one, a
+# lower-case spelling, or an unfamiliar surname beside one is still new.
 HOUSE_FIXTURE_NAMES = ("Harborlight", "Riverbend", "Saltmarsh")
+PLACEHOLDER_NAMES = ("Alice", "Bob") + HOUSE_FIXTURE_NAMES
 
 _RUN = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
 _HEXISH = re.compile(r"^[0-9a-fA-F]{7,}$")
@@ -71,11 +59,8 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _HANDLE = re.compile(r"(?<![\w.@/])@([A-Za-z0-9][A-Za-z0-9-]{1,38})(?![\w/])")
 _TITLE_PAIR = re.compile(r"\b([A-Z][a-z]+)[ \t]+(?=([A-Z][a-z]+)\b)")
 # A word in the place people's names go: after "ask" or "thanks", before
-# "said", as the value of an `author` or `speaker` field, or owning something.
-# Ordinary words land there too ("with Chrome", "Today's"), so the rule counts
-# how often the repository has put that word in such a place, not in general.
-# This is the rule that catches a person called Carol in a repository that
-# writes "carol" everywhere: "ask Carol" is still new.
+# "said", as an `author` or `speaker` value, or owning something. The count is
+# of that word in such a place, so "ask Carol" is new where "carol" is common.
 _CUE_BEFORE = re.compile(
     r"(?:\b(?:ask|asked|thanks|thank|cc|ping|per|with|from|by|told|tell|via|for)[ \t]+"
     r"|\b(?:name|author|assignee|owner|speaker|reviewer|user|by)[\"']?[ \t]*[:=][ \t]*[\"'`])"
@@ -87,11 +72,8 @@ _CUE_AFTER = re.compile(
     re.IGNORECASE,
 )
 _OWNER = re.compile(r"\b([A-Z][a-z]+)['’]s\b")
-# Haiku judges more than names: account and phone numbers, amounts, health
-# readings and keys. Those are digits and opaque strings, which tokens() drops,
-# so they are counted as marks of their own and a new one is sent like a new
-# word. An ISO date is left out: this repository writes a new one every day.
-# Every run tokens() skips as a blob is one of these, so none goes unread.
+# Numbers, amounts, readings and keys, which tokens() drops, count as marks of
+# their own; a new one is sent like a new word. ISO dates are left out.
 _OPAQUE = re.compile(r"(?<![\w-])(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{20,}(?![\w-])"
                      r"|(?<![0-9A-Za-z])[0-9a-fA-F]{16,}(?![0-9A-Za-z])"
                      r"|(?<![^\W_])[^\W_]{40,}(?![^\W_])")
@@ -200,7 +182,8 @@ class Vocabulary:
 def triggers(text: str, vocab: Vocabulary) -> Set[str]:
     """What on this line is new to the public repository. Empty = not sent."""
     hits: Set[str] = set()
-    for t in tokens(text):
+    found = tokens(text)
+    for t in found:
         folded = t.word.lower()
         if vocab.lower[folded] < RARE_BELOW:
             hits.add(folded)
@@ -208,7 +191,7 @@ def triggers(text: str, vocab: Vocabulary) -> Set[str]:
             hits.add(folded)
     for a, b in _TITLE_PAIR.findall(text):
         pair = f"{a} {b}".lower()
-        if vocab.pairs[pair] < RARE_BELOW:
+        if vocab.pairs[pair] < RARE_BELOW and not _placeholder_pair(a, b, vocab):
             hits.add(pair)
     for cued in _cued(text):
         if vocab.cued[cued] < RARE_BELOW:
@@ -216,7 +199,18 @@ def triggers(text: str, vocab: Vocabulary) -> Set[str]:
     for mark in _marks(text):
         if vocab.marks[mark] < RARE_BELOW:
             hits.add(mark)
-    return hits
+    return hits - _placeholders_on(found)
+
+
+def _placeholders_on(found: List[Token]) -> Set[str]:
+    """Folded placeholders the line spells only in their exact case, whole."""
+    exact = {t.word.lower() for t in found if t.word in PLACEHOLDER_NAMES and not t.split}
+    return exact - {t.word.lower() for t in found if t.word not in PLACEHOLDER_NAMES or t.split}
+
+
+def _placeholder_pair(a: str, b: str, vocab: Vocabulary) -> bool:
+    """A placeholder after a published word, never before: what follows may be a surname."""
+    return b in PLACEHOLDER_NAMES and (a in PLACEHOLDER_NAMES or vocab.case[a] >= RARE_BELOW)
 
 
 # --- The public vocabulary, read from git ------------------------------------
@@ -435,12 +429,10 @@ def rules_off() -> bool:
 
 # --- Remembering the vocabulary between pushes -------------------------------
 #
-# Reading every file of the public tree takes 3 to 13 seconds on this
-# repository, depending on load, and every push would pay it. But the vocabulary only grows: a
-# word published once stays in public history whether or not a later commit
-# deletes it. So the vocabulary at the last base is kept, and a push whose
-# base descends from it reads only the commits in between. A base that does
-# not descend from it (a push to an older branch) rebuilds from the tree.
+# Reading the public tree takes 3 to 13 seconds, and every push would pay it.
+# But the vocabulary only grows: a published word stays in public history. So
+# the vocabulary at the last base is kept, and a push whose base descends from
+# it reads only the commits in between; any other base rebuilds from the tree.
 
 # Bump when tokens() or the tables change: an old file then rebuilds.
 CACHE_VERSION = 2
