@@ -84,6 +84,19 @@ send every line with a word on it, unless `--public-base REV` says what is
 public. `SCRUB_HAIKU_RULES=off` sends the whole push as before;
 `scrub-recall.py --rules off` measures that path.
 
+**Sanctioned placeholders are not new.** `scrub_names.PLACEHOLDER_NAMES` is
+Alice, Bob and the three house fixture names. A line whose only new word is one
+of them, spelled whole and in that exact case, is not sent, and neither is a
+pair made of one after a published word ("Ask" and a placeholder). A Haiku
+block is overridden to a pass only when its NAMES sweep keeps nothing but those
+words and every LEAKS row names one of them and nothing else a leak can be
+(`scripts/scrub_placeholders.py`). A longer word, another case, an unfamiliar
+surname beside one, or any other kept name still blocks. Added after the gate
+refused a test asking Bob and, the same week, a sentence about checking a
+hover for Alice whose own sweep had marked the name `keep`. Recall on the
+planted cases did not move (`scrub-recall.py --dry-run`: 7 of 7 named, before
+and after).
+
 **Standard library only**, because it runs inside a git hook on every push,
 on whatever Python the machine has.
 

@@ -68,6 +68,7 @@ from typing import Dict, List, NamedTuple, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scrub_git  # noqa: E402
 import scrub_names  # noqa: E402
+import scrub_placeholders  # noqa: E402
 
 MODEL = "claude-haiku-4-5-20251001"
 # Overridable so the self-test can drive every failure case against a stub on
@@ -1063,6 +1064,10 @@ def _scan_piece(diff_content: str, scan_range: str = "stdin") -> "int | Unavaila
             "The API's reply was not in a shape this tool can read.",
         )
     if verdict == "clean":
+        return 0
+    if verdict == "findings" and scrub_placeholders.only_placeholders(text):
+        print("[scrub-haiku] Haiku blocked only on sanctioned placeholder names "
+              f"({', '.join(scrub_names.PLACEHOLDER_NAMES)}); passing.", file=sys.stderr)
         return 0
     if verdict == "findings":
         print("[scrub-haiku] Haiku flagged leaks:", file=sys.stderr)

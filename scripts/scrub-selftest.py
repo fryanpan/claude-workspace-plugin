@@ -39,6 +39,7 @@ HAIKU = os.path.join(HERE, "scrub-haiku.py")
 sys.path.insert(0, HERE)
 import scrub_git  # noqa: E402
 import scrub_names  # noqa: E402
+import scrub_selftest_placeholders  # noqa: E402
 
 # `scrub-haiku.py` is not an importable module name, and the prompt it builds
 # is the surface this suite asserts on — the Haiku call itself is never made
@@ -1434,7 +1435,8 @@ def check_rules_pass() -> None:
 
     for kind, line, word in (
         ("person", "Thanks to Jane Roe for checking the pier.", "roe"),
-        ("organisation", "The timetable now comes from Harborlight Labs.", "harborlight"),
+        # A house name is a placeholder, so the pair is what is new about it.
+        ("organisation", "The timetable now comes from Harborlight Labs.", "harborlight labs"),
         ("project", "Moved the sailing rows over to riverbend-sync.", "riverbend"),
     ):
         chosen = scrub_names.select(rules_patch("notes.md", [ordinary, line, ordinary]), public)
@@ -2203,6 +2205,7 @@ def main() -> int:
     check_haiku_unavailable()
     check_haiku_spend()
     check_rules_pass()
+    scrub_selftest_placeholders.check(sys.modules[__name__])
     with tempfile.TemporaryDirectory() as tmp:
         registry = os.path.join(tmp, "registry.yaml")
         denylist = os.path.join(tmp, "denylist.txt")
