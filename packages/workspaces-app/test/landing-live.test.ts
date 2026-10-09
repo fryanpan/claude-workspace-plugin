@@ -117,6 +117,29 @@ describe('the workspaces list stays live', () => {
     expect(names()).toEqual(['Saltmarsh', 'Harborlight']);
   });
 
+  it('holds a swap while a finger is down, and makes it on release', async () => {
+    open(page([], ['Harborlight']));
+    document.dispatchEvent(new Event('pointerdown'));
+    served = page([], ['Riverbend', 'Harborlight']);
+    stream.fire('landing.changed');
+    for (let i = 0; i < 10; i += 1) await flush();
+    expect(names()).toEqual(['Harborlight']);
+    document.dispatchEvent(new Event('pointerup'));
+    await until(() => names().length === 2);
+    expect(names()).toEqual(['Riverbend', 'Harborlight']);
+  });
+
+  it('keeps keyboard focus on the same link', async () => {
+    const linked = (rows: string[]) =>
+      `<div id="landing-review"></div><div id="landing-boards">${rows.map((r) => `<a class="grp-name" href="/workspaces/${r}">${r}</a>`).join('')}</div>`;
+    open(linked(['Harborlight']));
+    document.querySelector<HTMLAnchorElement>('a[href="/workspaces/Harborlight"]')!.focus();
+    served = linked(['Riverbend', 'Harborlight']);
+    stream.fire('landing.changed');
+    await until(() => names().length === 2);
+    expect(document.activeElement?.getAttribute('href')).toBe('/workspaces/Harborlight');
+  });
+
   it('opens no stream on a page without the list', () => {
     document.body.innerHTML = '<p>project page</p>';
     let opened = false;

@@ -8,8 +8,10 @@
  * coach and the inbox are left alone: they keep their own wiring, and the
  * inbox may hold a reply being typed.
  *
- * The reader's place survives a swap: the review bar's tab and every fold
- * they opened or closed are carried onto the new markup.
+ * The reader's place survives a swap: the review bar's tab, every fold they
+ * opened or closed, and the link that has keyboard focus are carried onto the
+ * new markup. A swap waits while a finger or button is down, so a tap is
+ * never lost to the row being replaced under it.
  *
  * Catch-up: the stream replays nothing, so when it reopens after an error
  * the page re-reads `/` once. A hidden tab defers its re-read until it is
@@ -43,18 +45,30 @@ function carryState(here: Element, fresh: Element): void {
   }
 }
 
-async function redraw(): Promise<void> {
+function carryFocus(active: Element | null, here: Element, fresh: Element): void {
+  if (!(active instanceof HTMLAnchorElement) || !here.contains(active)) return;
+  const href = active.getAttribute('href');
+  if (href) fresh.querySelector<HTMLElement>(`a[href="${CSS.escape(href)}"]`)?.focus();
+}
+
+/** Re-read `/` and swap. False when a press began while the read was in
+ *  flight: nothing is swapped, and the caller re-reads once it ends. */
+async function redraw(held: () => boolean): Promise<boolean> {
   const res = await fetch('/', { credentials: 'same-origin' });
-  if (!res.ok) return;
+  if (!res.ok) return true;
   const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+  if (held()) return false;
   for (const sel of REGIONS) {
     const here = document.querySelector(sel);
     const fresh = doc.querySelector(sel);
     if (!here || !fresh) continue;
     const node = document.importNode(fresh, true);
     carryState(here, node);
+    const active = document.activeElement;
     here.replaceWith(node);
+    carryFocus(active, here, node);
   }
+  return true;
 }
 
 export function startLandingLive(opts: LandingLiveOptions = {}): () => void {
@@ -65,6 +79,8 @@ export function startLandingLive(opts: LandingLiveOptions = {}): () => void {
   let running = false;
   let again = false;
   let deferred = false;
+  let pressed = false;
+  let heldByPress = false;
 
   const run = async (): Promise<void> => {
     if (running) {
@@ -73,7 +89,7 @@ export function startLandingLive(opts: LandingLiveOptions = {}): () => void {
     }
     running = true;
     try {
-      await redraw();
+      if (!(await redraw(() => pressed))) heldByPress = true;
     } catch {
       // A failed re-read leaves the page as it was; the next frame retries.
     } finally {
@@ -85,6 +101,10 @@ export function startLandingLive(opts: LandingLiveOptions = {}): () => void {
     }
   };
   const schedule = (): void => {
+    if (pressed) {
+      heldByPress = true;
+      return;
+    }
     if (document.visibilityState === 'hidden') {
       deferred = true;
       return;
@@ -113,10 +133,25 @@ export function startLandingLive(opts: LandingLiveOptions = {}): () => void {
     dropped = false;
     schedule();
   });
+  const onDown = (): void => {
+    pressed = true;
+  };
+  const onUp = (): void => {
+    pressed = false;
+    if (!heldByPress) return;
+    heldByPress = false;
+    schedule();
+  };
   document.addEventListener('visibilitychange', onVisible);
+  document.addEventListener('pointerdown', onDown, true);
+  document.addEventListener('pointerup', onUp, true);
+  document.addEventListener('pointercancel', onUp, true);
   return () => {
     if (timer) clearTimeout(timer);
     document.removeEventListener('visibilitychange', onVisible);
+    document.removeEventListener('pointerdown', onDown, true);
+    document.removeEventListener('pointerup', onUp, true);
+    document.removeEventListener('pointercancel', onUp, true);
     stream.close();
   };
 }
