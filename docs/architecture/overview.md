@@ -1605,6 +1605,15 @@ whatever held them. Frames name only the list, are transient, coalesce per
 is the one stream a doc page opens for its review's sidebar; the board, voice
 and settings pages listen on streams they hold already or open one each.
 
+`folder-watch.ts` covers the one change no store announces: a file created,
+deleted or renamed straight on disk in a review's folder. While a page holds
+`ws~<set>` (the bus's `watchStreams` and `pagesOn`; agent streams do not
+count) it keeps one recursive `fs.watch` on the folder root, and on a settled
+burst compares a names-only listing (`git ls-files`, else an async `readdir`
+walk) with the last one. A changed listing runs `refreshWorkspace`, whose
+`onSetRescanned` sends the same `attachments.changed`. The watch closes with
+the last page, and at most 32 run at once.
+
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and
 `server.ts` calls it once at the front door so no route can be reached with a

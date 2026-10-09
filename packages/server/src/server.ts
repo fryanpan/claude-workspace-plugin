@@ -58,6 +58,7 @@ import { DocStore } from './doc-store.ts';
 import { createEffortScoring } from './effort-scoring.ts';
 import { InflightRegistry, LoopLagMonitor } from './event-loop.ts';
 import { originOfHeaders, withEventOrigin } from './event-origin.ts';
+import { type FolderWatches, createFolderWatches, liveRootOf } from './folder-watch.ts';
 import { taskDeepLink } from './home-brief.ts';
 import { createHomePane } from './home-pane.ts';
 import { spokenReviewComment } from './huddle.ts';
@@ -353,6 +354,9 @@ export interface ServerHandle {
   /** The builders' closing reports (dispatch-reports.ts). Exposed for the same
    *  reason `dispatches` is. */
   dispatchReports: DispatchReportStore;
+  /** The folders open pages are watching (folder-watch.ts). Exposed so a
+   *  test can count them after the last page leaves. */
+  folderWatches: FolderWatches;
   shares: Shares | null;
   /** Hang up every websocket and SSE stream whose share is no longer live,
    *  and every widget door socket whose board token is dead. Runs on a 60s
@@ -2432,6 +2436,16 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     onWritten: pageNudges.promptsChanged,
   };
 
+  // An open review follows its folder on disk while a page holds its stream
+  // (folder-watch.ts); the refresh's own `onSetRescanned` nudges the page.
+  const folderWatches = createFolderWatches({
+    rootOf: (setId) => liveRootOf(docStore.list(), setId),
+    refresh: (setId) => docStore.refreshWorkspace(setId),
+  });
+  const unwatchStreams = sse.watchStreams((channel) => {
+    if (channel.startsWith('ws~')) folderWatches.sync(channel.slice(3), sse.pagesOn(channel));
+  });
+
   /** The cross-board review queue and its wait report — trusted-local only. */
   const reviewQueueRoutesCtx: ReviewQueueRoutesContext = {
     crossReview,
@@ -4261,6 +4275,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     identities,
     dispatches,
     dispatchReports,
+    folderWatches,
     shares,
     sweepDeadShares,
     // Exactly what the interval does, exposed for the same reason
@@ -4301,6 +4316,8 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       taskScheduler.stop();
       landingChanges.dispose();
       pageNudges.dispose();
+      unwatchStreams();
+      folderWatches.dispose();
       coachWiring.stop();
       leadPresence.stop();
       // The boot re-scoring pass runs for as long as there are stale rows, so

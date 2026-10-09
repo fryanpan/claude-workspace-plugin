@@ -228,6 +228,15 @@ export class SseBus {
    */
   onAgentStreams: ((docId: string, agentId: string) => void) | null = null;
 
+  /** Told the channel whenever any stream on it opens or closes. The folder
+   *  watches read it to hold a folder only while a page has it open
+   *  (`folder-watch.ts`). */
+  private streamWatchers = new Set<(docId: string) => void>();
+  watchStreams(fn: (docId: string) => void): () => void {
+    this.streamWatchers.add(fn);
+    return () => this.streamWatchers.delete(fn);
+  }
+
   add(
     docId: string,
     sink: Sink,
@@ -246,6 +255,7 @@ export class SseBus {
       ...(shareMember !== undefined ? { shareMember } : {}),
     });
     if (agentId !== undefined) this.onAgentStreams?.(docId, agentId);
+    for (const fn of this.streamWatchers) fn(docId);
     return () => this.remove(docId, sink);
   }
 
@@ -256,6 +266,7 @@ export class SseBus {
     set.delete(sink);
     if (set.size === 0) this.byDoc.delete(docId);
     if (agentId !== undefined) this.onAgentStreams?.(docId, agentId);
+    for (const fn of this.streamWatchers) fn(docId);
   }
 
   /**
@@ -490,6 +501,13 @@ export class SseBus {
 
   count(docId: string): number {
     return this.byDoc.get(docId)?.size ?? 0;
+  }
+
+  /** How many streams on this channel no agent opened — browser tabs. */
+  pagesOn(docId: string): number {
+    let n = 0;
+    for (const who of this.byDoc.get(docId)?.values() ?? []) if (!who.agentId) n++;
+    return n;
   }
 
   /**

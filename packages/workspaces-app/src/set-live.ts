@@ -9,9 +9,12 @@
  * This replaced a 30s poll, which showed a change up to 30s late and asked
  * every 30s whether anything had.
  *
+ * Files written straight to disk reach this frame too: while this stream is
+ * open the server watches the set's folder (`server/src/folder-watch.ts`).
+ *
  * Two more re-reads cover what the stream cannot: the window regaining focus
- * (kept from the poll's day — it also catches files a "Show all files" list
- * draws from disk, which no doc write announces), and the stream reopening
+ * (kept from the poll's day — it also covers a folder the server could not
+ * watch: past its cap, or a root it cannot open), and the stream reopening
  * after a drop, when frames sent in the gap are gone because none is replayed.
  */
 /** The frame's name, as `page-nudges.ts` sends it. */
