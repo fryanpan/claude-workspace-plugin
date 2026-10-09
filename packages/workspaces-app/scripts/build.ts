@@ -208,14 +208,15 @@ async function emit(buildId: string): Promise<boolean> {
   }
 
   // The landing page: its own entry (served at /app/landing.js by the shell
-  // renderLanding emits). It defines <meeting-banner> and nothing else —
-  // splitting off because the page is a list and one self-styling element.
+  // renderLanding emits). Splitting ON for one reason: the owner's list
+  // imports the feedback widget lazily, and without splitting it would be
+  // inlined into the entry that paints the list.
   const landingResult = await Bun.build({
     entrypoints: [join(pkgRoot, 'src', 'landing-app.ts')],
     outdir: dist,
     target: 'browser',
     format: 'esm',
-    splitting: false,
+    splitting: true,
     sourcemap: 'external',
     define,
     naming: { entry: 'landing.js', chunk: '[name]-[hash].js', asset: '[name].[ext]' },
