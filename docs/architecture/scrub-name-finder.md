@@ -86,16 +86,20 @@ public. `SCRUB_HAIKU_RULES=off` sends the whole push as before;
 
 **Sanctioned placeholders are not new.** `scrub_names.PLACEHOLDER_NAMES` is
 Alice, Bob and the three house fixture names. A line whose only new word is one
-of them, spelled whole and in that exact case, is not sent, and neither is a
+of them, spelled whole as written or in capitals (a test constant such as the
+upper-case form of Alice, alone or as one `_` segment), is not sent, and neither is a
 pair made of one after a published word ("Ask" and a placeholder). A Haiku
 block is overridden to a pass only when its NAMES sweep keeps nothing but those
 words and every LEAKS row names one of them and nothing else a leak can be
-(`scripts/scrub_placeholders.py`). A longer word, another case, an unfamiliar
-surname beside one, or any other kept name still blocks. Added after the gate
+(`scripts/scrub_placeholders.py`). A longer word, a lower-case or mixed-case
+spelling, an unfamiliar surname beside one (in capitals too), or any other kept
+name still blocks. Added after the gate
 refused a test asking Bob and, the same week, a sentence about checking a
 hover for Alice whose own sweep had marked the name `keep`. Recall on the
 planted cases did not move (`scrub-recall.py --dry-run`: 7 of 7 named, before
-and after).
+and after). The capitals form was added after a test constant in capitals was
+blocked while the sweep kept the name; recall again 7 of 7, before
+and after.
 
 **Standard library only**, because it runs inside a git hook on every push,
 on whatever Python the machine has.
