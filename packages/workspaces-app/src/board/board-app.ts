@@ -649,6 +649,8 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
   // list, so the first load can resolve before the board has synced — the
   // observer below gives the walk another look at the queue then.
   let autoWalkTick: (() => void) | null = null;
+  /** Assigned when settings is wired, below the live wiring. */
+  let membersChanged: (() => void) | null = null;
 
   // Which halves of the queue have landed. The armed walk opens only once
   // both are in (or the deadline passes): a walk opened on the review-items
@@ -767,6 +769,10 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     loadHome,
     loadReviewItems,
     loadDiscussion,
+    libraryChanged: () => {
+      if (state.nav === 'library') void library.refresh();
+    },
+    membersChanged: () => membersChanged?.(),
     location,
   });
 
@@ -839,7 +845,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
   // whose nav has just gone — the subnav is drawn on one band and the row
   // list on the other.
   narrowBand?.addEventListener('change', () => settingsView.bandChanged());
-  wireBoardSettingsPanel({
+  ({ membersChanged } = wireBoardSettingsPanel({
     document,
     el,
     workspaceId,
@@ -855,7 +861,7 @@ export async function bootBoard(env: BoardBootEnv): Promise<void> {
     renderSettingsPanel,
     onOpen: () => settingsView.open(),
     href: () => location.href,
-  });
+  }));
 
   // Where an utterance lands: the open panel, or the row the keyboard is on.
   // `board-voice.ts` — one capture per page, because Space is a singleton.

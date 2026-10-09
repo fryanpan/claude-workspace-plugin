@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import { wireDiffNavRefresh } from '../src/diff-nav.ts';
 import { mountDocSetNav } from '../src/doc/doc-set-nav.ts';
 import { MountScope } from '../src/mount-scope.ts';
 import { resetSidebarSignature } from '../src/sidebar-nav-key.ts';
+import { wireWorkspaceTreeRefresh } from '../src/workspace-tree.ts';
 
 /**
  * The set navigation a document carries (doc/doc-set-nav.ts): the sidebar
@@ -11,7 +13,8 @@ import { resetSidebarSignature } from '../src/sidebar-nav-key.ts';
  * The column is committed from the LIST, never from the metadata — a doc that
  * names a set is not a doc whose set has anything in it, and a labelled empty
  * panel is width taken from the prose for nothing. Both halves are driven
- * here, plus the teardown of the ~30s workspace heartbeat.
+ * here, plus the review's own push that keeps the list current, and its
+ * teardown.
  */
 
 const open: Array<() => void> = [];
@@ -134,26 +137,101 @@ describe('a legacy hand-grouped set', () => {
   });
 });
 
-describe('the workspace heartbeat', () => {
-  it('refreshes the tree on focus and on its timer, and stops on teardown', async () => {
+/** The streams the page opened, in order. */
+class FakeStream extends EventTarget {
+  static opened: FakeStream[] = [];
+  closed = false;
+  constructor(readonly url: string) {
+    super();
+    FakeStream.opened.push(this);
+  }
+  close(): void {
+    this.closed = true;
+  }
+}
+
+describe("the review's own push", () => {
+  beforeEach(() => {
+    FakeStream.opened = [];
+    vi.stubGlobal('EventSource', FakeStream);
+  });
+
+  const frame = async (name: string) => {
+    FakeStream.opened.at(-1)?.dispatchEvent(new Event(name));
+    await vi.advanceTimersByTimeAsync(0);
+  };
+
+  it('a file joining the set redraws the open sidebar, with no timer asking', async () => {
     vi.useFakeTimers();
     const calls = stubDocs([]);
-    const { scope } = mount({ workspaceId: 'w-1' });
+    const { scope } = mount({ workspaceId: 's-harborlight' });
     // Mounting alone asks for nothing: the first paint is the navigation's.
     expect(calls).toHaveLength(0);
+    expect(FakeStream.opened.map((s) => s.url)).toEqual([
+      '/workspaces/s-harborlight/events:stream',
+    ]);
 
+    // No poll: a minute of nothing reads nothing.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(0);
+
+    await frame('attachments.changed');
+    const afterFrame = calls.length;
+    expect(afterFrame).toBeGreaterThan(0);
+
+    // Focus still re-reads, and so does the stream coming back after a drop.
     window.dispatchEvent(new Event('focus'));
     await vi.advanceTimersByTimeAsync(0);
-    const afterFocus = calls.length;
-    expect(afterFocus).toBeGreaterThan(0);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(calls.length).toBeGreaterThan(afterFocus);
+    expect(calls.length).toBeGreaterThan(afterFrame);
+    await frame('error');
+    const beforeReopen = calls.length;
+    await frame('open');
+    expect(calls.length).toBeGreaterThan(beforeReopen);
 
     const beforeDispose = calls.length;
     scope.dispose();
+    expect(FakeStream.opened.at(-1)?.closed).toBe(true);
     window.dispatchEvent(new Event('focus'));
-    await vi.advanceTimersByTimeAsync(60_000);
+    await frame('attachments.changed');
     expect(calls.length).toBe(beforeDispose);
+  });
+
+  it('listens once the synced meta names the set, as a real page boots', async () => {
+    vi.useFakeTimers();
+    const calls = stubDocs([]);
+    // The page mounts before its doc has synced, so the meta is empty here.
+    const { ydoc, nav } = mount();
+    expect(FakeStream.opened).toHaveLength(0);
+    ydoc.getMap('meta').set('workspaceId', 's-harborlight');
+    await nav.render();
+    await nav.render();
+    expect(FakeStream.opened.map((s) => s.url)).toEqual([
+      '/workspaces/s-harborlight/events:stream',
+    ]);
+    const before = calls.length;
+    await frame('attachments.changed');
+    expect(calls.length).toBeGreaterThan(before);
+  });
+
+  it('the diff list and the folder tree a code page wires redraw on the same frame', async () => {
+    vi.useFakeTimers();
+    const calls = stubDocs([]);
+    const stops = [
+      wireDiffNavRefresh('d1', 's-riverbend'),
+      wireWorkspaceTreeRefresh('d1', 's-saltmarsh'),
+    ];
+    open.push(() => {
+      for (const stop of stops) stop();
+    });
+    expect(FakeStream.opened.map((s) => s.url)).toEqual([
+      '/workspaces/s-riverbend/events:stream',
+      '/workspaces/s-saltmarsh/events:stream',
+    ]);
+    for (const [n, stream] of FakeStream.opened.entries()) {
+      const before = calls.length;
+      stream.dispatchEvent(new Event('attachments.changed'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls.length, `stream ${n}`).toBeGreaterThan(before);
+    }
   });
 });

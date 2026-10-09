@@ -13,6 +13,7 @@ import type * as Y from 'yjs';
 import { renderDiffNav, setActiveFile } from '../diff-nav.ts';
 import { docHref, workspaceIdFromPath } from '../doc-path.ts';
 import type { MountScope } from '../mount-scope.ts';
+import { watchSetChanges } from '../set-live.ts';
 import { type SetDoc, selectSetSiblings, setDocsUrl } from '../set-nav.ts';
 import {
   beginSidebarRender,
@@ -54,6 +55,9 @@ export function mountDocSetNav(opts: DocSetNavOptions): DocSetNav {
   const docMenu = document.getElementById('doc-menu');
   const docSwitcher = document.getElementById('doc-switcher') as HTMLButtonElement | null;
   let openedOnce = false;
+  /** The set whose push this mount holds, and how to let it go. */
+  let watching: string | null = null;
+  let stopWatching: (() => void) | null = null;
 
   async function renderSetNav(): Promise<void> {
     // Claim the sidebar so any concurrent/stale render (e.g. two legacy-set
@@ -80,6 +84,7 @@ export function mountDocSetNav(opts: DocSetNavOptions): DocSetNav {
       return;
     }
     if (workspaceId) {
+      watch(workspaceId);
       // Same chooser as the code/diff mount: diff reviews + browse workspaces
       // get the diff-nav; only data-less workspaces fall back to the folder
       // tree. `scope` lets a superseded navigation's late fetch bail instead of
@@ -156,11 +161,16 @@ export function mountDocSetNav(opts: DocSetNavOptions): DocSetNav {
 
   // ---- Workspace (folder) file tree ----
   // A doc bound via bind_folder carries a workspaceId. renderSetNav (above)
-  // renders it; here we wire the focus + ~30s heartbeat refresh so badges
-  // reflect newly-opened/resolved threads. Scoped so navigation drops it.
-  const workspaceId = readDocMeta(ydoc).workspaceId;
-  if (workspaceId) {
-    // The heartbeat/focus refresh MUST use the same renderer the navigation
+  // renders it; here we wire the set's push and the focus re-read
+  // (`set-live.ts`) so a file joining or leaving shows within a second.
+  // Wired from the first render that sees the id, not at mount: a page mounts
+  // before its doc has synced, and a mount-time read of the meta finds
+  // nothing. Scoped so navigation drops it.
+  function watch(workspaceId: string): void {
+    if (watching === workspaceId || scope.disposed) return;
+    stopWatching?.();
+    watching = workspaceId;
+    // The push/focus refresh MUST use the same renderer the navigation
     // path (renderSetNav) picks — renderDiffNav first, the folder tree only as
     // the fallback — otherwise it writes a `tree:` signature while navigation
     // writes `diff:`, and the shared-signature mismatch forces a full
@@ -172,13 +182,11 @@ export function mountDocSetNav(opts: DocSetNavOptions): DocSetNav {
         if (!ok) await renderWorkspaceTree(navDocId, workspaceId, true, scope);
       })();
     };
-    window.addEventListener('focus', refresh);
-    const timer = setInterval(refresh, 30_000);
-    scope.onCleanup(() => {
-      window.removeEventListener('focus', refresh);
-      clearInterval(timer);
-    });
+    stopWatching = watchSetChanges(workspaceId, refresh);
   }
+  scope.onCleanup(() => stopWatching?.());
+  const synced = readDocMeta(ydoc).workspaceId;
+  if (synced) watch(synced);
 
   return { render: renderSetNav };
 }

@@ -1593,6 +1593,18 @@ second socket in the same turn is held for about 100ms. That is the delay the
 board's wake frames and every comment broadcast were paying on the machine
 prod runs on.
 
+`page-nudges.ts` sits beside `sse.ts` too. It tells an open page that a list
+it read over REST is stale: a board's Library and members (`library.changed`,
+`members.changed` on `ws~<board>`), a review's sidebar (`attachments.changed`
+on `ws~<set>`), the voice page's agents (`voice~`) and the prompts page
+(`prompts~`). It listens on hook slots the stores already expose or gained for
+it — `DocStore.onIndexChanged`, `TaskStore.onBoardDocsChanged`,
+`ShareLinks.onSaved`, the bus's tap and `onAgentStreams` — and chains onto
+whatever held them. Frames name only the list, are transient, coalesce per
+150ms burst and skip agent streams. On the page side, `workspaces-app/src/set-live.ts`
+is the one stream a doc page opens for its review's sidebar; the board, voice
+and settings pages listen on streams they hold already or open one each.
+
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and
 `server.ts` calls it once at the front door so no route can be reached with a
