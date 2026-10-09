@@ -1156,6 +1156,8 @@ export function renderLanding(
       ? ''
       : `<details class="fold"><summary>Attachments by project <span class="count">${model.projects.length}</span></summary>
 <ul>${model.projects.map(renderLandingProjectLink).join('')}</ul></details>`;
+  // `#landing-review` and `#landing-boards` are what `landing-live.ts` swaps
+  // when a board changes; the coach and the inbox keep their own wiring.
   return landingShell(
     'Workspaces',
     `<h1>Workspaces</h1>
@@ -1167,12 +1169,12 @@ export function renderLanding(
         : ''
     }
 ${coach}
-${renderReviewBar(review)}
+<div id="landing-review">${renderReviewBar(review)}</div>
 ${inbox}
-${active}
+<div id="landing-boards">${active}
 ${inactive}
 ${retired}
-${projects}`,
+${projects}</div>`,
     sentry,
     assets,
   );

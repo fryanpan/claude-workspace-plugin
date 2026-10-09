@@ -126,6 +126,14 @@ export class SseBus {
   private replay = new Map<string, BufferedEvent[]>();
   private lastSweepAt = 0;
 
+  /** Called with the channel and event name of every `broadcast`, after the
+   *  fan-out. The workspaces list's change feed reads this (`landing-changes.ts`). */
+  private taps = new Set<(channel: string, event: string) => void>();
+  tap(fn: (channel: string, event: string) => void): () => void {
+    this.taps.add(fn);
+    return () => this.taps.delete(fn);
+  }
+
   /**
    * channel → the newest id each AUDIENCE on it saw, as far as this server
    * knows: everything this process has sent, seeded at boot with what the
@@ -279,9 +287,7 @@ export class SseBus {
     const maybeEid = (payload as { eid?: unknown }).eid;
     const id = typeof maybeEid === 'string' && maybeEid.length > 0 ? maybeEid : newEventId();
     this.buffer(docId, id, payload);
-    const set = this.byDoc.get(docId);
-    if (!set) return;
-    for (const [sink, who] of set) {
+    for (const [sink, who] of this.byDoc.get(docId) ?? []) {
       try {
         const p = forSink?.(who) ?? payload;
         sink.write(p.event, p, id);
@@ -289,6 +295,7 @@ export class SseBus {
         console.error('[sse] write failed:', err);
       }
     }
+    for (const fn of this.taps) fn(docId, payload.event);
   }
 
   /**
