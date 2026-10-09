@@ -393,8 +393,8 @@ function heldOnBoard(
  * The Library's listing as the scheduler reads it, for a run's output
  * (`task-run-output.ts`): the project's markdown files with their mtimes,
  * the ones this board would offer to open and the ones its docs hold, and
- * which project file a doc of the board holds. Read as a member on the box sees it, because
- * the item lands on the board's own queue — except that a local-only
+ * which project file a doc of the board holds. Read as a member on the box
+ * sees it, because the item lands on the board's own queue — except that a local-only
  * project's files, and a local-only mount's, are never offered, so their
  * names never reach an item a share visitor can read. It walks the project afresh rather than reading the
  * page's short-lived cache: a scan taken just before a late write would hide
