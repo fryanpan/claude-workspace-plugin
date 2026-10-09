@@ -33,6 +33,7 @@ const HASHED = [
   'reviews.js',
   'voice-page.js',
   'landing.js',
+  'coach.js',
   'sentry.js',
   'sw.js',
   'styles.css',
@@ -224,6 +225,27 @@ async function emit(buildId: string): Promise<boolean> {
   if (!landingResult.success) {
     console.error('landing build failed:');
     for (const m of landingResult.logs) console.error(m);
+    if (!isWatch) process.exit(1);
+    return false;
+  }
+
+  // The coach's card over a mock or a dev server: its own entry (served at
+  // /app/coach.js by the host page renderMockHost draws), because the host
+  // loads nothing else of the app's. No splitting: one module and the card.
+  const coachResult = await Bun.build({
+    entrypoints: [join(pkgRoot, 'src', 'coach-page.ts')],
+    outdir: dist,
+    target: 'browser',
+    format: 'esm',
+    splitting: false,
+    sourcemap: 'external',
+    define,
+    naming: { entry: 'coach.js', chunk: '[name]-[hash].js', asset: '[name].[ext]' },
+    minify: process.env.NODE_ENV !== 'dev' && !isWatch,
+  });
+  if (!coachResult.success) {
+    console.error('coach build failed:');
+    for (const m of coachResult.logs) console.error(m);
     if (!isWatch) process.exit(1);
     return false;
   }

@@ -183,7 +183,7 @@ describe('what he is looking at and writing', () => {
 });
 
 describe('the card', () => {
-  it('draws the moment escaped, and Not now answers it and takes it away', async () => {
+  it('draws the moment escaped, and a thumbs up answers it and takes it away', async () => {
     const c = mount();
     await flush();
     expect(FakeStream.last?.url).toBe('/coach/stream?workspaceId=w-harbor');
@@ -191,11 +191,11 @@ describe('the card', () => {
     expect(card()?.querySelector('.cw-coach-who')?.textContent).toBe('Saltmarsh');
     expect(card()?.querySelector('.cw-coach-line')?.textContent).toBe(MOMENT.line);
     expect(card()?.querySelector('b')).toBeNull();
-    card()?.querySelector<HTMLButtonElement>('[data-answer="not-now"]')?.click();
+    card()?.querySelector<HTMLButtonElement>('[data-answer="up"]')?.click();
     await flush();
     expect(posted.at(-1)).toEqual({
       url: '/coach/moments/cm-aaaaaaaaaaaa/answer',
-      body: { answer: 'not-now' },
+      body: { answer: 'up' },
     });
     expect(card()).toBeNull();
     c.destroy();
@@ -206,11 +206,9 @@ describe('the card', () => {
     await flush();
     FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
     status = 0;
-    card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.click();
+    card()?.querySelector<HTMLButtonElement>('[data-answer="up"]')?.click();
     await flush();
-    expect(card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.disabled).toBe(
-      false,
-    );
+    expect(card()?.querySelector<HTMLButtonElement>('[data-answer="up"]')?.disabled).toBe(false);
   });
 
   it('stays however long he leaves it, and leaves on a clear for its own id', async () => {
@@ -225,7 +223,7 @@ describe('the card', () => {
     expect(card()).toBeNull();
   });
 
-  it('Coach off for this board posts that board and takes the card away; a failure keeps it', async () => {
+  it('Coach off for this board posts that board, and the card stays and says so; a failure keeps the switch', async () => {
     mount();
     await flush();
     FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
@@ -240,7 +238,9 @@ describe('the card', () => {
     status = 200;
     card()?.querySelector<HTMLButtonElement>('.cw-coach-off')?.click();
     await flush();
-    expect(card()).toBeNull();
+    expect(card()?.querySelector('.cw-coach-line')?.textContent).toBe(MOMENT.line);
+    expect(card()?.querySelector('button.cw-coach-off')).toBeNull();
+    expect(card()?.querySelector('.cw-coach-off')?.textContent).toBe('Coach is off for this board');
   });
 });
 
@@ -258,16 +258,16 @@ describe('the card follows him', () => {
     expect(FakeStream.last?.url).toBe('/coach/stream');
     FakeStream.last?.emit({ type: 'moment', moment: { ...MOMENT, at: 1 } });
     expect(card()?.querySelector('.cw-coach-line')?.textContent).toBe(MOMENT.line);
-    expect(card()?.querySelectorAll('[data-answer]')).toHaveLength(3);
+    expect(card()?.querySelectorAll('[data-answer]')).toHaveLength(2);
     expect(card()?.querySelector('.cw-coach-off')).toBeNull();
     document.dispatchEvent(new Event('scroll'));
     vi.advanceTimersByTime(SCROLL_SETTLE_MS);
     document.dispatchEvent(new Event('visibilitychange'));
     expect(posted).toEqual([]);
-    card()?.querySelector<HTMLButtonElement>('[data-answer="thanks"]')?.click();
+    card()?.querySelector<HTMLButtonElement>('[data-answer="up"]')?.click();
     await flush();
     expect(posted).toEqual([
-      { url: '/coach/moments/cm-aaaaaaaaaaaa/answer', body: { answer: 'thanks' } },
+      { url: '/coach/moments/cm-aaaaaaaaaaaa/answer', body: { answer: 'up' } },
     ]);
     expect(card()).toBeNull();
     c.destroy();

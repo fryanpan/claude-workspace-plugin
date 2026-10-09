@@ -172,7 +172,9 @@ const BOARD_LINK = (workspaceId: string): { style: string; anchor: string } => (
  * share visitor only, one link over it back to the board the mock is filed
  * on: a reader who arrived on a mock or a dev server from a share link had no
  * way to the board but the address bar. The owner's page draws nothing of
- * its own, so the link never sits over the owner's mock. Its script builds
+ * its own, so the link never sits over the owner's mock; it loads the
+ * coach's card (`coachHref`), which the sandboxed frame cannot show, and the
+ * card stops itself for anyone but the owner. Its script builds
  * the frame, so it can hand the frame the reader's display name before the
  * widget inside reads it (see `mock-host.ts`).
  */
@@ -185,10 +187,17 @@ export function renderMockHost(args: {
   items: HostItem[];
   /** A share visitor, admitted by the gate; draws the link to the board. */
   visitor: boolean;
+  /** The coach card's script, on every page but a share visitor's. */
+  coachHref?: string;
 }): string {
   const title = TITLE.exec(args.html)?.[1]?.trim() ?? '';
   const boardLink = args.visitor ? BOARD_LINK(args.workspaceId) : { style: '', anchor: '' };
   const items = JSON.stringify(args.items.map((i) => [i.taskId, i.reviewItemId]));
+  const coach =
+    args.coachHref && !args.visitor
+      ? `<script type="module" src="${escapeAttr(args.coachHref)}" data-coach-page` +
+        ` data-workspace-id="${escapeAttr(args.workspaceId)}" data-doc-id="${escapeAttr(args.docId)}"></script>`
+      : '';
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -203,6 +212,7 @@ export function renderMockHost(args: {
     ` title="${escapeAttr(title || 'Mock')}" data-src="${escapeAttr(frameSrcFor(args.url))}"></iframe>` +
     `<script src="/widget/mock-host.js" data-workspace-id="${escapeAttr(args.workspaceId)}"` +
     ` data-doc-id="${escapeAttr(args.docId)}" data-items="${escapeAttr(items)}"></script>` +
+    coach +
     '</body></html>'
   );
 }

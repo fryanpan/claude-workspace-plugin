@@ -36,6 +36,7 @@
  * it is read once, to draw the host page's link back to the board.
  */
 import type { DocMeta, DocType } from '@claude-workspaces/core';
+import { assetHref } from '@claude-workspaces/core/asset-manifest';
 import { EMBED_PARAM } from '@claude-workspaces/core/board-embeds';
 import type { AppOutages } from '../app-outage.ts';
 import {
@@ -341,6 +342,7 @@ async function serveApp(
     // A person opening the address gets the host page. A fetch of HTML from
     // inside the app (a partial, relayed through the host) gets the bytes.
     if (dest === null || dest === 'document') {
+      const assets = readAppAssetManifest(ctx.markdownAppDist);
       const host = injectSentryHead(
         renderMockHost({
           workspaceId,
@@ -349,10 +351,11 @@ async function serveApp(
           url,
           items: [],
           visitor: rq.visitor,
+          coachHref: assetHref(assets, 'coach.js'),
         }),
         ctx.browserSentry,
         'mockup',
-        readAppAssetManifest(ctx.markdownAppDist),
+        assets,
       );
       return new Response(host, { status: up.status, headers: MOCK_HOST_HEADERS });
     }
