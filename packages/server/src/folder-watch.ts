@@ -33,6 +33,18 @@
  *     differ: a file created, deleted or renamed. The first pass after a
  *     watch starts always refreshes, because the listing it would compare
  *     against may already hold a file whose event had not yet arrived.
+ *   - A DIFF REVIEW LISTS ITS DIFF. A review based on the working tree also
+ *     draws each file's +/- counts, and a tracked file's first edit joins it
+ *     without changing `git ls-files`. So its listing is the diff itself —
+ *     `git diff --numstat` against the stored base, one entry per file with
+ *     its status and counts — and a save that moves a count is news, while
+ *     one that writes the same bytes is not. Still git as child processes,
+ *     still names and numbers only, still inside the deadline.
+ *   - A DIFF IS CHECKED WHEN A PAGE OPENS IT. Its rows are stored, so an
+ *     edit made while nobody had it open would otherwise be drawn stale
+ *     until the next event. Its watch starts from the listing the stored
+ *     rows describe and runs one pass at once; it refreshes only if the
+ *     diff moved.
  *
  * `fs.watch` is the wrong tool for following one FILE's contents
  * (learnings.md, "fs.watch is the wrong primitive"); a recursive directory
@@ -43,6 +55,8 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { attachmentIdOf } from '@claude-workspaces/core';
 import type { DocMeta } from '@claude-workspaces/core';
+import { isExcluded, normalizeExcludes } from './bind-meta.ts';
+import { diffFilesAsync } from './git-diff.ts';
 
 /** Quiet time that closes a burst. */
 export const SETTLE_MS = 150;
@@ -59,18 +73,29 @@ export type WatchFn = (
   onEvent: (relPath: string | null) => void,
 ) => { close(): void };
 
+/** What a watched set lists from: a folder, and for a diff review its base. */
+export interface LiveSource {
+  root: string;
+  /** A working-tree diff review's base commit; its listing is the diff. */
+  diffBase?: string;
+  /** Paths the review was bound to leave out. */
+  exclude?: readonly string[];
+  /** A diff review's stored rows, as `diffListing` would list them. */
+  stored?: Set<string>;
+}
+
 export interface FolderWatchHost {
-  /** The folder a set lists from disk, or undefined when it has none to
+  /** What a set lists from disk, or undefined when it has nothing to
    *  follow: a board channel, a pinned diff, a set with no root. */
-  rootOf(setId: string): string | undefined;
+  sourceOf(setId: string): LiveSource | undefined;
   /** Re-reconcile the set against disk; its success sends the page frame. */
   refresh(setId: string): Promise<unknown>;
 }
 
 export interface FolderWatchOptions {
   watch?: WatchFn;
-  /** Repo-relative paths a listing shows, or null when there is no listing. */
-  listPaths?: (root: string) => Promise<Set<string> | null>;
+  /** The entries a listing shows, or null when there is no listing. */
+  listPaths?: (source: LiveSource) => Promise<Set<string> | null>;
   settleMs?: number;
   maxWaitMs?: number;
   maxFolders?: number;
@@ -84,16 +109,59 @@ export interface FolderWatches {
   dispose(): void;
 }
 
-/** The root of a set whose file list follows the working tree. */
-export function liveRootOf(metas: readonly DocMeta[], setId: string): string | undefined {
+/** The source of a set whose file list follows the working tree. */
+export function liveSourceOf(metas: readonly DocMeta[], setId: string): LiveSource | undefined {
   let root: string | undefined;
+  let diffBase: string | undefined;
+  let exclude: string[] | undefined;
+  const stored = new Set<string>();
   for (const m of metas) {
     if (attachmentIdOf(m) !== setId) continue;
     // A pinned diff's files are a commit: the disk is not its source.
     if (m.type === 'diff' && m.diffTarget) return undefined;
     root ??= m.workspaceRoot;
+    exclude ??= m.workspaceExclude;
+    if (m.type !== 'diff') continue;
+    diffBase ??= m.diffBase;
+    if (m.relPath && !m.stale) {
+      stored.add(
+        diffEntryKey({
+          relPath: m.relPath,
+          status: m.diffStatus,
+          oldPath: m.diffOldPath,
+          additions: m.diffAdditions,
+          deletions: m.diffDeletions,
+          whitespaceOnly: m.diffWhitespaceOnly,
+        }),
+      );
+    }
   }
-  return root;
+  if (!root) return undefined;
+  if (!diffBase) return { root, ...(exclude ? { exclude } : {}) };
+  if (!exclude) return { root, diffBase, stored };
+  // A narrowed review keeps its newly excluded members; the diff skips them.
+  const excludes = normalizeExcludes(exclude);
+  const shown = [...stored].filter((k) => !isExcluded(k.split('\t')[0] ?? '', excludes));
+  return { root, diffBase, exclude, stored: new Set(shown) };
+}
+
+/** One diff row as a listing entry: path, status and counts. */
+function diffEntryKey(f: {
+  relPath: string;
+  status?: string;
+  oldPath?: string;
+  additions?: number;
+  deletions?: number;
+  whitespaceOnly?: boolean;
+}): string {
+  return [
+    f.relPath,
+    f.status ?? '',
+    f.oldPath ?? '',
+    f.additions ?? '',
+    f.deletions ?? '',
+    f.whitespaceOnly ? 'w' : '',
+  ].join('\t');
 }
 
 /** Whether an event path can change a review's listing at all. */
@@ -158,19 +226,55 @@ async function walkListing(root: string): Promise<Set<string> | null> {
   return out;
 }
 
-/** The repo's listing, else the walk, either inside a deadline. */
-export async function folderListing(root: string): Promise<Set<string> | null> {
+/** A listing, or null once `LISTING_DEADLINE_MS` has passed without one. */
+async function inDeadline(listed: Promise<Set<string> | null>): Promise<Set<string> | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), LISTING_DEADLINE_MS);
     (timer as { unref?: () => void }).unref?.();
   });
-  const listed = (async () => (await gitListing(root)) ?? (await walkListing(root)))();
   try {
     return await Promise.race([listed, late]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The repo's listing, else the walk, either inside a deadline. */
+export function folderListing(root: string): Promise<Set<string> | null> {
+  return inDeadline((async () => (await gitListing(root)) ?? (await walkListing(root)))());
+}
+
+/**
+ * A working-tree diff as the sidebar draws it: one entry per listed file,
+ * its path, status and counts. Excluded paths are left out, so churn the
+ * review never shows is not news. Null when git cannot answer in time.
+ */
+export function diffListing(
+  root: string,
+  base: string,
+  exclude: readonly string[] = [],
+): Promise<Set<string> | null> {
+  const excludes = normalizeExcludes([...exclude]);
+  return inDeadline(
+    (async () => {
+      const res = await diffFilesAsync(root, base, null);
+      if (!res.ok) return null;
+      const out = new Set<string>();
+      for (const f of res.files) {
+        if (isExcluded(f.relPath, excludes)) continue;
+        out.add(diffEntryKey(f));
+      }
+      return out;
+    })(),
+  );
+}
+
+/** The listing a set's watch compares from pass to pass. */
+export function liveListing(source: LiveSource): Promise<Set<string> | null> {
+  return source.diffBase
+    ? diffListing(source.root, source.diffBase, source.exclude)
+    : folderListing(source.root);
 }
 
 /** Whether two listings name the same paths. */
@@ -181,9 +285,10 @@ export function sameListing(a: ReadonlySet<string>, b: ReadonlySet<string>): boo
 }
 
 interface Watch {
-  root: string;
+  source: LiveSource;
   handle: { close(): void };
-  /** The listing the last pass compared against; null before the first. */
+  /** The listing the last pass compared against: a diff's stored rows at
+   *  first, a folder's null until its first pass. */
   listed: Set<string> | null;
   /** The first burst refreshes whatever the listing says: a file written
    *  while the first listing ran may be in it before its event arrives. */
@@ -200,7 +305,7 @@ export function createFolderWatches(
   opts: FolderWatchOptions = {},
 ): FolderWatches {
   const watchFn = opts.watch ?? defaultWatch;
-  const listPaths = opts.listPaths ?? folderListing;
+  const listPaths = opts.listPaths ?? liveListing;
   const settleMs = opts.settleMs ?? SETTLE_MS;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
   const maxFolders = opts.maxFolders ?? MAX_WATCHED_FOLDERS;
@@ -216,7 +321,7 @@ export function createFolderWatches(
     try {
       // Listed AFTER the burst's events arrived, so it already holds what
       // they did; a save leaves it unchanged.
-      const now = await listPaths(w.root);
+      const now = await listPaths(w.source);
       const news = w.first || !now || !w.listed || !sameListing(now, w.listed);
       w.first = false;
       w.listed = now;
@@ -248,16 +353,18 @@ export function createFolderWatches(
 
   const start = (setId: string): void => {
     if (watches.size >= maxFolders) return;
-    const root = host.rootOf(setId);
-    if (!root) {
+    const source = host.sourceOf(setId);
+    if (!source) {
       noFolder.add(setId);
       return;
     }
     const w: Watch = {
-      root,
+      source,
       handle: { close() {} },
-      listed: null,
-      first: true,
+      // A diff starts from the rows it has stored, so its first pass is a
+      // comparison like any other.
+      listed: source.stored ?? null,
+      first: !source.stored,
       dirty: false,
       firstAt: 0,
       timer: null,
@@ -265,13 +372,16 @@ export function createFolderWatches(
       closed: false,
     };
     try {
-      w.handle = watchFn(root, (rel) => onEvent(setId, w, rel));
+      w.handle = watchFn(source.root, (rel) => onEvent(setId, w, rel));
     } catch {
       // The root is gone or unreadable; the page keeps its focus re-read.
       noFolder.add(setId);
       return;
     }
     watches.set(setId, w);
+    // Check a stored diff against the disk now: it may have moved while no
+    // page held it.
+    if (source.stored) onEvent(setId, w, null);
   };
 
   const stop = (setId: string): void => {

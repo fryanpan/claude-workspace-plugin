@@ -1611,8 +1611,12 @@ deleted or renamed straight on disk in a review's folder. While a page holds
 count) it keeps one recursive `fs.watch` on the folder root, and on a settled
 burst compares a names-only listing (`git ls-files`, else an async `readdir`
 walk) with the last one. A changed listing runs `refreshWorkspace`, whose
-`onSetRescanned` sends the same `attachments.changed`. The watch closes with
-the last page, and at most 32 run at once.
+`onSetRescanned` sends the same `attachments.changed`. A diff review based on
+the working tree compares its diff instead (`git diff --numstat` against the
+stored base, path, status and counts per file), so a tracked file's first
+edit joins the list and a save that moves a count redraws it, while a save
+of the same bytes sends nothing. The watch closes with the last page, and at
+most 32 run at once.
 
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and

@@ -58,7 +58,7 @@ import { DocStore } from './doc-store.ts';
 import { createEffortScoring } from './effort-scoring.ts';
 import { InflightRegistry, LoopLagMonitor } from './event-loop.ts';
 import { originOfHeaders, withEventOrigin } from './event-origin.ts';
-import { type FolderWatches, createFolderWatches, liveRootOf } from './folder-watch.ts';
+import { type FolderWatches, createFolderWatches, liveSourceOf } from './folder-watch.ts';
 import { taskDeepLink } from './home-brief.ts';
 import { createHomePane } from './home-pane.ts';
 import { spokenReviewComment } from './huddle.ts';
@@ -2439,7 +2439,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // An open review follows its folder on disk while a page holds its stream
   // (folder-watch.ts); the refresh's own `onSetRescanned` nudges the page.
   const folderWatches = createFolderWatches({
-    rootOf: (setId) => liveRootOf(docStore.list(), setId),
+    sourceOf: (setId) => liveSourceOf(docStore.list(), setId),
     refresh: (setId) => docStore.refreshWorkspace(setId),
   });
   const unwatchStreams = sse.watchStreams((channel) => {

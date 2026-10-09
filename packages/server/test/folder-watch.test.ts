@@ -26,39 +26,8 @@ import {
 } from '../src/folder-watch.ts';
 import { NUDGE_COALESCE_MS } from '../src/page-nudges.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
+import { framesOf } from './stream-frames.ts';
 import { waitFor } from './wait-for.ts';
-
-/** Every event name read off an open stream, until stopped. */
-function framesOf(
-  res: Response,
-  abort: AbortController,
-): { names: () => string[]; stop: () => void } {
-  const names: string[] = [];
-  let buf = '';
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  void (async () => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        buf += decoder.decode(value, { stream: true });
-        let sep = buf.indexOf('\n\n');
-        while (sep >= 0) {
-          const name = /^event: (.+)$/m.exec(buf.slice(0, sep))?.[1];
-          if (name) names.push(name);
-          buf = buf.slice(sep + 2);
-          sep = buf.indexOf('\n\n');
-        }
-      }
-    } catch {
-      // Cancelled with a read in flight.
-    }
-  })();
-  // Abort, not just cancel the reader: the server learns a page left only
-  // when its connection closes.
-  return { names: () => names, stop: () => abort.abort() };
-}
 
 /** Past one burst's whole journey: settle, the pass, the coalesced frame. */
 const PAST_A_BURST = MAX_WAIT_MS + NUDGE_COALESCE_MS * 2 + 300;
@@ -163,7 +132,7 @@ describe('folder watch decisions', () => {
     let passes = 0;
     const watches = createFolderWatches(
       {
-        rootOf: (id) => (id === 'set-1' ? '/srv/harborlight' : undefined),
+        sourceOf: (id) => (id === 'set-1' ? { root: '/srv/harborlight' } : undefined),
         refresh: async () => void refreshes++,
       },
       {
@@ -243,11 +212,11 @@ describe('folder watch decisions', () => {
       let refreshes = 0;
       let passes = 0;
       const watches = createFolderWatches(
-        { rootOf: () => folder, refresh: async () => void refreshes++ },
+        { sourceOf: () => ({ root: folder }), refresh: async () => void refreshes++ },
         {
           settleMs: 20,
           maxWaitMs: 100,
-          listPaths: (root) => {
+          listPaths: ({ root }) => {
             passes++;
             return folderListing(root);
           },

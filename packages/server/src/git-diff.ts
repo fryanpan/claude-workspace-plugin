@@ -175,6 +175,15 @@ export function diffFiles(repo: string, base: string, target: string | null): Di
   return runSync(repo, diffFilesSteps(base, target));
 }
 
+/** `diffFiles` without holding the loop: the same reads, each git process awaited. */
+export function diffFilesAsync(
+  repo: string,
+  base: string,
+  target: string | null,
+): Promise<DiffFilesResult> {
+  return runAsync(repo, diffFilesSteps(base, target));
+}
+
 type DiffFilesResult = { ok: true; files: DiffFileEntry[] } | { ok: false; error: string };
 
 function* diffFilesSteps(base: string, target: string | null): GitSteps<DiffFilesResult> {
