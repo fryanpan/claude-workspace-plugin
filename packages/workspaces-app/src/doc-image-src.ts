@@ -1,4 +1,6 @@
 import { Image } from '@tiptap/extension-image';
+import { Plugin } from '@tiptap/pm/state';
+import { retryFailedDocImages } from './doc-image-retry.ts';
 import { api } from './doc-path.ts';
 
 /**
@@ -39,11 +41,13 @@ export function toDisplaySrc(src: string, base: string | undefined): string {
   return base + segs.map((s) => encodeURIComponent(decodeSafe(s))).join('/');
 }
 
-/** The reverse, for HTML the editor parses back in (a paste of its own image). */
+/**
+ * The reverse, for HTML the editor parses back in (a paste of its own image).
+ * The query is dropped: the only one the DOM carries is a retry's `?r=<n>`.
+ */
 export function fromDisplaySrc(src: string, base: string | undefined): string {
   if (!base || !src.startsWith(base)) return src;
-  return src
-    .slice(base.length)
+  return (src.slice(base.length).split(/[?#]/)[0] ?? '')
     .split('/')
     .map((s) => decodeSafe(s))
     .join('/');
@@ -64,6 +68,15 @@ export function docImageExtension(base: string | undefined) {
             typeof attrs.src === 'string' ? { src: toDisplaySrc(attrs.src, base) } : {},
         },
       };
+    },
+    // An image whose file is not there yet is asked for again (doc-image-retry.ts).
+    addProseMirrorPlugins() {
+      const parent = this.parent?.() ?? [];
+      if (!base) return parent;
+      const retry = new Plugin({
+        view: (view) => ({ destroy: retryFailedDocImages(view.dom, base) }),
+      });
+      return [...parent, retry];
     },
   }).configure({ inline: false, allowBase64: false });
 }
