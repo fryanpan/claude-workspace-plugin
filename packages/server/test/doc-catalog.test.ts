@@ -11,13 +11,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type DocMeta, createThread } from '@claude-workspaces/core';
+import { type DocMeta, type User, createThread } from '@claude-workspaces/core';
 import * as Y from 'yjs';
 import { DocCatalog, type DocCatalogHost } from '../src/doc-catalog.ts';
 import { DOC_INDEX_VERSION, type DocIndexEntry } from '../src/doc-index.ts';
 import type { LiveDoc } from '../src/doc-store.ts';
 
-const harborlight = { id: 'harborlight', name: 'Harborlight' };
+const harborlight: User = {
+  id: 'harborlight',
+  name: 'Harborlight',
+  kind: 'known',
+  color: '#000000',
+};
 
 function meta(docId: string, extra: Partial<DocMeta> = {}): DocMeta {
   return { docId, type: 'markdown', createdAt: 1_000, ...extra } as DocMeta;
@@ -34,10 +39,21 @@ function liveDoc(docId: string, extra: Partial<DocMeta> = {}): LiveDoc {
 function addThread(doc: LiveDoc, threadId: string): void {
   createThread(doc.ydoc, {
     threadId,
-    anchor: { kind: 'element', fingerprint: 'f', snippet: { text: 'x' } },
+    anchor: {
+      kind: 'element',
+      fingerprint: {
+        tag: 'P',
+        stableAttrs: {},
+        classes: [],
+        text: 'x',
+        path: 'P[0]',
+        dataAttrs: {},
+      },
+      snippet: { text: 'x' },
+    },
     createdBy: harborlight,
     firstComment: { id: `${threadId}-c1`, text: 'a point' },
-  } as Parameters<typeof createThread>[1]);
+  });
 }
 
 let dataDir: string;
