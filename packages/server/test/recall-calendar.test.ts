@@ -330,6 +330,25 @@ describe('sync consumer — the default is NO bot, and syncs never create one', 
     }
   });
 
+  it('tells an open meeting banner when the vendor reports changed events, and only then', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'calendar-sync-'));
+    try {
+      let synced = 0;
+      const { client } = fakeClient([meet('evt-1')]);
+      const consumer = new CalendarSyncConsumer({
+        client,
+        store: connectedStore(dir),
+        onSynced: () => (synced += 1),
+      });
+      await consumer.onSync({ calendarId: 'cal-OTHER', lastUpdatedTs: 't' });
+      expect(synced).toBe(0);
+      await consumer.onSync({ calendarId: 'cal-1', lastUpdatedTs: 't' });
+      expect(synced).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('THE DEFAULT: linked events nobody joined produce no action at all', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'calendar-sync-'));
     try {

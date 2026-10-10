@@ -18,8 +18,9 @@
  *
  * After any tap that changes a row, the section is re-read from `/` and
  * swapped in whole, so there is one renderer and the page never draws a
- * state the server does not hold. The message text is set with
- * `textContent` and never parsed as markup.
+ * state the server does not hold. A row posted or changed elsewhere arrives
+ * the same way (`swapInboxFrom`, called by `landing-live.ts`). The message
+ * text is set with `textContent` and never parsed as markup.
  */
 
 import {
@@ -98,6 +99,37 @@ async function refresh(): Promise<void> {
   } catch {
     // The page keeps what it showed; the next load corrects it.
   }
+}
+
+/** The reader is typing in the section or has a modal open: a live swap
+ *  would take the text box or the modal away. */
+function liveHeld(): boolean {
+  if (document.querySelector('.inbox-modal-back')) return true;
+  const a = document.activeElement;
+  return (
+    (a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement) &&
+    (section()?.contains(a) ?? false)
+  );
+}
+
+/**
+ * Swap in the section from a page read after a change elsewhere. The open
+ * line keeps the card it already shows, so the message is not fetched again
+ * and the page does not scroll to it. False, with nothing swapped, while
+ * `liveHeld`.
+ */
+export function swapInboxFrom(doc: Document): boolean {
+  const here = section();
+  const fresh = doc.querySelector(SECTION);
+  if (!here || !fresh) return true;
+  if (liveHeld()) return false;
+  const card = state.open ? rowEl(state.open)?.querySelector('.inbox-card') : null;
+  const hadFocus = here.contains(document.activeElement);
+  here.replaceWith(document.importNode(fresh, true));
+  if (card && state.open) rowEl(state.open)?.append(card);
+  applyView();
+  if (hadFocus) takeFocus();
+  return true;
 }
 
 // ---------- the view: cursor, open line, folds ----------

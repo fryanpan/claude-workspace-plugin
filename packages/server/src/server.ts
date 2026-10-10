@@ -67,6 +67,7 @@ import { createIdentitySetup } from './identity-setup.ts';
 import { InboxBodies } from './inbox/bodies.ts';
 import { inboxConfigReader } from './inbox/config.ts';
 import { inboxSectionFor } from './inbox/landing.ts';
+import { watchInbox } from './inbox/live.ts';
 import { InboxReplies } from './inbox/reply.ts';
 import { systemTransport } from './inbox/send-transport.ts';
 import { InboxSends } from './inbox/sends.ts';
@@ -480,9 +481,13 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // died instead of stopping — see sse-marks.ts for why that direction is the
   // safe one.
   sse.restoreMarks(claimReplayMarks(dataDir));
-  // Open `/` pages hear one frame for any board change they draw.
+  // Open `/` and `/review` pages hear one frame per burst, naming the parts
+  // of `/` that changed.
   const landingChanges = createLandingChanges({
-    emit: () => sse.broadcastTransient(LANDING_CHANNEL, { event: LANDING_CHANGED_EVENT }),
+    emit: (parts) => {
+      const frame = { event: LANDING_CHANGED_EVENT, parts };
+      sse.broadcastTransient(LANDING_CHANNEL, frame);
+    },
   });
   sse.tap(landingChanges.observe);
   const webhookLog: WebhookLogEntry[] = [];
@@ -792,8 +797,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
           onCancelledJoin: async (_eventId, docId) => {
             await recallRelay.leave(docId);
           },
+          onSynced: () => landingChanges.notify('meeting'),
         })
       : null;
+  // A meeting joined or left, from any device: the banner on `/` re-reads.
+  if (calendarStore) calendarStore.onChange = () => landingChanges.notify('meeting');
   /**
    * CSRF states for the Google connect flow, minted at /connect and spent at
    * /callback. In memory on purpose: a state that did not survive a restart
@@ -850,6 +858,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       ? { observedWorkFreshMs: opts.observedWorkFreshMs }
       : {}),
   });
+  taskStore.onWorkspaceCreated = () => landingChanges.notify('boards');
   // Which docs each agent identity is watching — the durable memory behind
   // the MCP child's session-scoped SSE subscriptions, so a respawned session
   // can re-wire them instead of silently starting from `[]`. See
@@ -1470,6 +1479,10 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
    *  (inbox/config.ts). Bryan's Send goes through `inboxReplies` alone. */
   const inboxConfig = inboxConfigReader(dataDir);
   const inboxStore = new InboxStore(dataDir);
+  const unwatchInbox = watchInbox({
+    store: inboxStore,
+    notify: () => landingChanges.notify('inbox'),
+  });
   const inboxBodies = new InboxBodies(dataDir);
   const inboxReplies = new InboxReplies({
     store: inboxStore,
@@ -1523,6 +1536,24 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       return board ? planBoardReading(board.goals, taskStore.listGoalRows(board.id)) : undefined;
     },
   });
+  // "Your coach" on `/` reads the coach store, the goals doc and whether the
+  // coach session is connected. None of the three broadcasts, so each tells
+  // the workspaces list's feed itself.
+  coachWiring.store.onChange = () => landingChanges.notify('coach');
+  {
+    const onRevision = docStore.onContentRevision;
+    docStore.onContentRevision = (docIds, revision) => {
+      onRevision?.(docIds, revision);
+      const goals = coachWiring.store.goalsDoc?.docId;
+      if (goals && docIds.includes(goals)) landingChanges.notify('coach');
+    };
+    const onAgentStreams = sse.onAgentStreams;
+    sse.onAgentStreams = (channel, agentId) => {
+      onAgentStreams?.(channel, agentId);
+      const board = coachWiring.store.goalsDoc?.workspaceId;
+      if (board && channel === `ws~${board}`) landingChanges.notify('coach');
+    };
+  }
   /** The plan lead's per-item ranks and its batched feed of new asks
    *  (lead-rank-wiring.ts). The feed skips every board the coach may not hear
    *  from; a rank or tag skips the same boards except shared ones. */
@@ -4334,6 +4365,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // output for the rest of the run.
       loopLag.stop();
       taskScheduler.stop();
+      unwatchInbox();
       landingChanges.dispose();
       pageNudges.dispose();
       unwatchStreams();

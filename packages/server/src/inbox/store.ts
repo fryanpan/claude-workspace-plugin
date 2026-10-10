@@ -90,8 +90,13 @@ export class InboxStore {
     this.loadError = read.error;
   }
 
+  /** Told after every write, whoever made it: Incoming Messages on an open
+   *  `/` redraws from it (`inbox/live.ts`). */
+  onChange: (() => void) | null = null;
+
   private save(): void {
     writeJsonFile(this.path, this.file);
+    this.onChange?.();
   }
 
   private move(
@@ -149,6 +154,16 @@ export class InboxStore {
 
   lastPass(): { at: number; pass: string } | undefined {
     return this.file.lastPass;
+  }
+
+  /** When the soonest snooze ends, if any row is snoozed. */
+  nextSnoozeEnd(): number | undefined {
+    let soonest: number | undefined;
+    for (const row of this.file.rows) {
+      if (row.state !== 'snoozed' || row.snoozedUntil === undefined) continue;
+      if (soonest === undefined || row.snoozedUntil < soonest) soonest = row.snoozedUntil;
+    }
+    return soonest;
   }
 
   /** Counts only, for a stall check: never a purpose, a sender or a body. */

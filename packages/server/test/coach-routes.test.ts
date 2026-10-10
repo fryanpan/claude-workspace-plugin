@@ -18,6 +18,8 @@ import { resetOwnerIdentities } from '../src/actor-identity.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { ACCESS_SHARE_CONFIG, mockCfApi } from './access-share.ts';
 import { GOALS_DOC } from './coach-fixtures.ts';
+import { landingFrames } from './landing-frames.ts';
+import { waitFor } from './wait-for.ts';
 
 const TEAM_DOMAIN = 'test.cloudflareaccess.com';
 const KID = 'coach-routes-kid';
@@ -159,6 +161,20 @@ describe('the owner’s settings and answers', () => {
     );
     expect((await postJson('/coach/prefs', { readiness: 'more' }, h, OWNER_HOST)).status).toBe(200);
     expect(await landingAsOwner()).toContain('data-readiness="more" aria-pressed="true"');
+  });
+
+  it('tells an open workspaces list that the coach changed, whoever changed it', async () => {
+    const feed = landingFrames(await req('/landing/events:stream', local()));
+    try {
+      const h = await ownerHeaders();
+      expect((await postJson('/coach/prefs', { readiness: 'less' }, h, OWNER_HOST)).status).toBe(
+        200,
+      );
+      await waitFor(() => feed.parts().has('coach'), { describe: 'a coach frame' });
+      expect(await landingAsOwner()).toContain('data-readiness="less" aria-pressed="true"');
+    } finally {
+      feed.stop();
+    }
   });
 
   it('takes “no update needed”, and has no moment to answer', async () => {

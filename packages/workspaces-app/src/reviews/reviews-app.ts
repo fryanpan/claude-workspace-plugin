@@ -10,8 +10,11 @@
  * route and meets the gates it always met.
  *
  * The queue is re-read before every step as well as after every answer, so
- * an item its filer withdrew never becomes the next card. The rail beside the
- * card is the board's, and goes to the pages of the project the card is from.
+ * an item its filer withdrew never becomes the next card, and whenever any
+ * board's asks move (`review-live.ts`), so an ask filed or answered elsewhere
+ * shows within a second without moving the card the reader is on. The rail
+ * beside the card is the board's, and goes to the pages of the project the
+ * card is from.
  */
 import type { ReviewSize } from '@claude-workspaces/core';
 import { type BoardNav, navPath } from '../board/board-presence-model.ts';
@@ -35,6 +38,7 @@ import {
   startKey,
   walkChrome,
 } from './cross-walk-model.ts';
+import { mergeLiveQueue, startReviewLive } from './review-live.ts';
 
 async function fetchQueue(): Promise<CrossEntry[] | null> {
   try {
@@ -91,6 +95,41 @@ async function boot(): Promise<void> {
     walkProgress: { cleared: 0, last: null },
   };
 
+  /** The reader's card, when it left the queue elsewhere while open. */
+  let closedKey: string | null = null;
+  // A live re-read waits out the reader's own write, whose re-read and
+  // advance would otherwise race it for the card on screen.
+  let writing = 0;
+  let liveAgain = false;
+  const liveReread = async (): Promise<void> => {
+    if (writing > 0) {
+      liveAgain = true;
+      return;
+    }
+    const fresh = await fetchQueue();
+    if (!fresh) return;
+    if (writing > 0) {
+      liveAgain = true;
+      return;
+    }
+    const merged = mergeLiveQueue(entries, fresh, walk.walkKey);
+    entries = merged.entries;
+    closedKey = merged.closedKey;
+    render();
+  };
+  const whileWriting = async <T>(write: () => Promise<T>): Promise<T> => {
+    writing += 1;
+    try {
+      return await write();
+    } finally {
+      writing -= 1;
+      if (writing === 0 && liveAgain) {
+        liveAgain = false;
+        void liveReread();
+      }
+    }
+  };
+
   const leave = (): void => location.assign('/');
   const openEntry = (key: string): boolean => {
     const entry = entries.find((e) => e.item.key === key);
@@ -133,7 +172,10 @@ async function boot(): Promise<void> {
   const step = async (to: number): Promise<void> => {
     const shown = allowedEntries(entries, level).map((e) => e.item.key);
     const fresh = await fetchQueue();
-    if (fresh) entries = fresh;
+    if (fresh) {
+      entries = fresh;
+      closedKey = null;
+    }
     const visible = allowedEntries(entries, level);
     walk.walkKey = aimAfterRefresh(shown, Math.max(0, to), visible);
     walk.walkIndex = walk.walkKey
@@ -195,25 +237,35 @@ async function boot(): Promise<void> {
       progress: walk.walkProgress,
       now: Date.now(),
       secretsGate: 'open',
-      chrome: walkChrome(current, entries, { on: sizing, level, onPick: pickSize }),
+      chrome: {
+        ...walkChrome(current, entries, { on: sizing, level, onPick: pickSize }),
+        ...(current && current.item.key === closedKey ? { closed: true } : {}),
+      },
       handlers: {
         // No ticket-decision rows reach this page: a legacy decision rides as
         // its `r-legacy` review row, which answers through `onReply`.
         onAnswer: () => Promise.resolve(false),
-        onAskOnItem: (item, phrase, question) => review.askOnReviewItem(item, phrase, question),
-        onQuestionOnItem: (item, question) => review.askOnReviewItem(item, null, question),
-        onReply: async (item, text, optionId) => {
-          const wrote = await review.replyToReviewItem(item, text, optionId);
-          if (wrote === 'asked') {
-            render();
-            return true;
-          }
-          return finish(item.key, next?.item.key ?? null, async () => wrote === 'answered');
-        },
+        onAskOnItem: (item, phrase, question) =>
+          whileWriting(() => review.askOnReviewItem(item, phrase, question)),
+        onQuestionOnItem: (item, question) =>
+          whileWriting(() => review.askOnReviewItem(item, null, question)),
+        onReply: (item, text, optionId) =>
+          whileWriting(async () => {
+            const wrote = await review.replyToReviewItem(item, text, optionId);
+            if (wrote === 'asked') {
+              render();
+              return true;
+            }
+            return finish(item.key, next?.item.key ?? null, async () => wrote === 'answered');
+          }),
         onSaveSecrets: (item, values) =>
-          finish(item.key, next?.item.key ?? null, () => review.saveSecretsOnItem(item, values)),
+          whileWriting(() =>
+            finish(item.key, next?.item.key ?? null, () => review.saveSecretsOnItem(item, values)),
+          ),
         onGrant: (item, decision) =>
-          finish(item.key, next?.item.key ?? null, () => review.grantOnItem(item, decision)),
+          whileWriting(() =>
+            finish(item.key, next?.item.key ?? null, () => review.grantOnItem(item, decision)),
+          ),
         onOpenItem: (item) => {
           openEntry(item.key);
         },
@@ -230,6 +282,7 @@ async function boot(): Promise<void> {
 
   mountWalkthroughIsland(host);
   render();
+  startReviewLive(liveReread);
 }
 
 void boot();

@@ -41,4 +41,19 @@ describe('createLandingChanges', () => {
     await waitFor(() => sent === 2, { describe: 'the second frame' });
     changes.dispose();
   });
+
+  it('names the parts a burst touched, so a page re-reads only those', async () => {
+    const sent: string[][] = [];
+    const changes = createLandingChanges({ emit: (parts) => sent.push(parts), coalesceMs: 5 });
+    changes.observe('ws~w-1', 'task.created');
+    changes.notify('coach');
+    changes.notify('inbox');
+    changes.notify('coach');
+    await waitFor(() => sent.length === 1, { describe: 'one frame for the burst' });
+    expect(sent[0]).toEqual(['boards', 'coach', 'inbox']);
+    changes.notify('meeting');
+    await waitFor(() => sent.length === 2, { describe: 'the next burst' });
+    expect(sent[1]).toEqual(['meeting']);
+    changes.dispose();
+  });
 });

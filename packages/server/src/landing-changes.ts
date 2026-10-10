@@ -21,6 +21,13 @@
  * Bursts coalesce: the first counted event arms a timer and the frame goes
  * out when it fires, so an agent filing ten tasks in a loop costs one
  * refetch per open page, not ten.
+ *
+ * The frame names the PARTS of `/` the burst touched, so the page re-reads
+ * only those. `boards` is everything a board broadcast reaches (the review
+ * bar and the board list); the coach, Incoming Messages and the meeting
+ * banner have stores of their own that broadcast nothing, and their writers
+ * call `notify` with their part. `/review` listens on the same channel and
+ * re-reads its queue on `boards`.
  */
 
 /** The bus channel open `/` pages listen on. Not a doc id or a board key,
@@ -30,6 +37,9 @@ export const LANDING_CHANGED_EVENT = 'landing.changed';
 
 /** How long a burst of board events gathers before one frame goes out. */
 export const LANDING_COALESCE_MS = 250;
+
+/** The parts of `/` a frame can name. */
+export type LandingPart = 'boards' | 'coach' | 'inbox' | 'meeting';
 
 const BOARD_EVENT_PREFIXES = ['task.', 'workspace.', 'review_item.', 'decision.', 'thread.'];
 
@@ -43,34 +53,41 @@ export function stalesLanding(channel: string, event: string): boolean {
 export interface LandingChanges {
   /** Feed one broadcast through the filter. */
   observe: (channel: string, event: string) => void;
-  /** Mark `/` stale for a change that no broadcast carries (a lead's rank). */
-  notify: () => void;
+  /** Mark a part of `/` stale for a change that no broadcast carries: a
+   *  lead's rank or a new board (`boards`), or the coach, inbox or calendar
+   *  stores. */
+  notify: (part?: LandingPart) => void;
   dispose: () => void;
 }
 
 export function createLandingChanges(opts: {
-  /** Send the frame to every open page. */
-  emit: () => void;
+  /** Send the frame to every open page, naming the parts that changed. */
+  emit: (parts: LandingPart[]) => void;
   coalesceMs?: number;
 }): LandingChanges {
   const coalesceMs = opts.coalesceMs ?? LANDING_COALESCE_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const notify = (): void => {
+  const pending = new Set<LandingPart>();
+  const notify = (part: LandingPart = 'boards'): void => {
+    pending.add(part);
     if (timer) return;
     timer = setTimeout(() => {
       timer = null;
-      opts.emit();
+      const parts = [...pending].sort();
+      pending.clear();
+      opts.emit(parts);
     }, coalesceMs);
     (timer as { unref?: () => void }).unref?.();
   };
   return {
     observe: (channel, event) => {
-      if (stalesLanding(channel, event)) notify();
+      if (stalesLanding(channel, event)) notify('boards');
     },
     notify,
     dispose: () => {
       if (timer) clearTimeout(timer);
       timer = null;
+      pending.clear();
     },
   };
 }
