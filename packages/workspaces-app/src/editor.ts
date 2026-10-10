@@ -21,6 +21,7 @@ import { Markdown } from 'tiptap-markdown';
 import type { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockIdentity } from './block-identity.ts';
+import { CommentDeleteGuard } from './comment-delete-guard.ts';
 import { docAssetsBase, docImageExtension } from './doc-image-src.ts';
 import { docImagePaste, pickDocImages } from './doc-image-upload.ts';
 import { workspaceIdFromPath } from './doc-path.ts';
@@ -238,6 +239,9 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // the change being observed — see yjs-observer-guard.ts.
       YjsObserverGuard.configure({ ydoc: opts.ydoc }),
       ThreadDecorations,
+      // Delete after a tap on a comment and a select-all does not take the
+      // whole doc (comment-delete-guard.ts).
+      CommentDeleteGuard,
       // Live status chips beside workspace task links — render-time only,
       // never written into the fragment. In the base list because every
       // prose surface may hold a task link (meeting notes are the driver).
