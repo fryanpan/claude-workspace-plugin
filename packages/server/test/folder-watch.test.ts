@@ -12,7 +12,7 @@
  * All fixtures are invented. Port 0, temp data dirs.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { watch as fsWatch, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DOC_STORE_TIMINGS } from '../src/doc-store-timings.ts';
@@ -211,17 +211,42 @@ describe('folder watch decisions', () => {
       writeFileSync(join(folder, 'README.md'), '# Harborlight\n');
       let refreshes = 0;
       let passes = 0;
+      // DIAG (temporary): a timeline of what the watch did.
+      const t0 = Date.now();
+      const log: string[] = [];
+      const mark = (what: string) => log.push(`${Date.now() - t0}ms ${what}`);
       const watches = createFolderWatches(
-        { sourceOf: () => ({ root: folder }), refresh: async () => void refreshes++ },
+        {
+          sourceOf: () => ({ root: folder }),
+          refresh: async () => {
+            mark('refresh');
+            refreshes++;
+          },
+        },
         {
           settleMs: 20,
           maxWaitMs: 100,
-          listPaths: ({ root }) => {
+          watch: (root, onEvent) => {
+            const w = fsWatch(root, { recursive: true }, (type, name) => {
+              if (log.length < 40) mark(`event ${type} ${String(name)}`);
+              onEvent(typeof name === 'string' ? name : null);
+            });
+            w.on('error', (e) => mark(`error ${String(e)}`));
+            mark('armed');
+            return w;
+          },
+          listPaths: async ({ root }) => {
             passes++;
-            return folderListing(root);
+            mark('pass start');
+            const got = await folderListing(root);
+            mark(`pass end ${got ? [...got].join(',') : 'null'}`);
+            return got;
           },
         },
       );
+      setTimeout(() => {
+        if (refreshes === 0) console.log(`[fw-diag] no refresh at 3.9s:\n${log.join('\n')}`);
+      }, 3900);
       watches.sync('set-1', 1);
       // The first burst is the one that always refreshes. Bun on Linux arms
       // its recursive watch a moment after the call returns, so keep writing
