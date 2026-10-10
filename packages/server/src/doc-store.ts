@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -39,6 +38,7 @@ import { wordCount } from '@claude-workspaces/core/word-count';
 import type { ServerWebSocket } from 'bun';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as Y from 'yjs';
+import { DocCatalog, type DocCatalogHost } from './doc-catalog.ts';
 import { DocEditOps, type DocEditPersistence } from './doc-edit-ops.ts';
 import type { BlockEditsAuthor, BlockEditsResult, DocOutline } from './doc-outline-ops.ts';
 import { type ResidencyEntry, pastWindow } from './doc-residency.ts';
@@ -98,11 +98,9 @@ import {
   newDocId,
 } from './doc-ids.ts';
 import {
-  DOC_INDEX_VERSION,
   type DocIndexEntry,
   deleteDocIndex,
   dropStagedDocIndex,
-  readAllDocIndexes,
   readDocIndex,
   stageDocIndex,
   unstageDocIndex,
@@ -534,38 +532,39 @@ export class DocStore {
   }
 
   /**
+   * What this store answers about a doc without opening it — the listing
+   * rows, the alias table and the activity mtimes (`doc-catalog.ts`).
+   */
+  private readonly catalog = new DocCatalog(this.catalogHost());
+
+  private catalogHost(): DocCatalogHost {
+    return {
+      dataDir: () => this.cfg.dataDir,
+      ydocPath: (docId) => this.pathFor(docId),
+      residentDoc: (docId) => this.docs.get(docId),
+      residentDocs: () => this.docs.values(),
+      hasPendingSave: (docId) => this.saveTimers.has(docId),
+      // The ydoc save runs at 200ms and the file write-back at 800ms, so a
+      // pending write-back is always visible from here. See `DocIndexEntry`.
+      fileWriteOwed: (doc) =>
+        this.bindings.hasPendingWrite(doc.docId) ||
+        this.bindings.hasFailedWrite(doc.docId) ||
+        this.parkedWriteOwed(doc),
+      hydrateBlocking: (docId) => this.hydrateDoc(docId, { blocking: true }),
+      evict: (docId) => {
+        this.evictDoc(docId);
+      },
+      indexChanged: (docId, prev, next) => this.onIndexChanged?.(docId, prev, next),
+    };
+  }
+
+  /**
    * docId → reader key → last time that reader fetched the doc's content
    * (GET …/docs/:docId/content?reader=…). Pairs with `lastHumanEditAt` in
    * `staleWriteCheck`: a reader whose last read predates the last human edit
    * is holding a stale copy. In-memory, like the marker it is compared to.
    */
   private agentReads = new Map<string, Map<string, number>>();
-  /**
-   * Readable alias → the doc id it was minted alongside.
-   *
-   * Rebuilt from `meta.alias` on every `getOrCreate`, so it comes back from
-   * disk with the docs at boot and travels with a `.ydoc` through archive and
-   * restore. There is deliberately no separate alias file to fall out of step
-   * with the docs it describes.
-   *
-   * Write-once: `claimAlias` refuses a name already held. That is what makes
-   * a captured URL a promise rather than a hint — a link that resolved
-   * yesterday cannot be pointed at somebody else's document today.
-   */
-  private aliases = new Map<string, string>();
-
-  /**
-   * docId → `.ydoc` mtime (ms), the value `withActivity` reports.
-   *
-   * This file is written by exactly one process — us — so the cache is
-   * authoritative between writes, and `persistDocNow` refreshes it. Before
-   * this, every `list()` stat'd every doc: one docs listing alone was ~11k
-   * syscalls per request against the measured corpus, and `list()` is called
-   * two or three times over by the workspace-thread and grouped-diff views.
-   * Deleting an entry is always safe — the next read re-stats.
-   */
-  private activityMtime = new Map<string, number>();
-
   /** docId → last time anything reached for this doc (see `touchDoc`). */
   private lastTouchedAt = new Map<string, number>();
   /** docId → last time a person's editor left it (`notePersonLeft`). */
@@ -662,11 +661,11 @@ export class DocStore {
       hydrateDoc: (docId) => this.hydrateDoc(docId),
       persistDocNow: (doc) => this.persistDocNow(doc),
       teardownDoc: (doc, closeReason) => this.teardownDoc(doc, closeReason),
-      releaseAliases: (docId) => this.releaseAliases(docId),
+      releaseAliases: (docId) => this.catalog.releaseAliases(docId),
       pathFor: (docId) => this.pathFor(docId),
-      forgetActivityMtime: (docId) => this.activityMtime.delete(docId),
-      setIndexEntry: (docId, entry) => this.setIndex(docId, entry),
-      deleteIndexEntry: (docId) => this.setIndex(docId, undefined),
+      forgetActivityMtime: (docId) => this.catalog.forgetActivity(docId),
+      setIndexEntry: (docId, entry) => this.catalog.setIndex(docId, entry),
+      deleteIndexEntry: (docId) => this.catalog.setIndex(docId, undefined),
     };
   }
 
@@ -964,20 +963,6 @@ export class DocStore {
   }
 
   /**
-   * docId → its listing row, resident.
-   *
-   * The rows are what a board actually reads, and they are ~400 bytes each
-   * against 62-125 KB for the CRDT they were being decoded out of. Held in
-   * memory deliberately: `list()` is on the board's hot path and must not
-   * become a directory walk, and the index is small enough that keeping all
-   * of it costs less than keeping one percent of the documents.
-   *
-   * Maintained by the same write that persists the doc, and by every path
-   * that stages, restores, purges or moves one — see `doc-index.ts`.
-   */
-  private docIndex = new Map<string, DocIndexEntry>();
-
-  /**
    * Told every time a doc's listing row is written, moved or dropped, with
    * the row before and after (`undefined` for none). Every list a page draws
    * from docs — a board's Library, a review's file tree — is built from these
@@ -989,13 +974,6 @@ export class DocStore {
     prev: DocIndexEntry | undefined,
     next: DocIndexEntry | undefined,
   ) => void;
-
-  private setIndex(docId: string, entry: DocIndexEntry | undefined): void {
-    const prev = this.docIndex.get(docId);
-    if (entry) this.docIndex.set(docId, entry);
-    else this.docIndex.delete(docId);
-    this.onIndexChanged?.(docId, prev, entry);
-  }
 
   /**
    * Repo+path identity for every doc that has a repo.
@@ -1020,43 +998,15 @@ export class DocStore {
     // The index IS the boot. Nothing is hydrated here: a start now costs one
     // read per doc of a small JSON row instead of decoding every CRDT ever
     // written, and a doc enters memory when somebody reaches for it.
-    this.docIndex = readAllDocIndexes(cfg.dataDir);
+    this.catalog.load();
     // Names first. A doc that is not resident still has to answer to the
     // readable alias in a link somebody saved, and `claimAlias` normally runs
     // inside `getOrCreate` — which no longer runs at boot.
-    this.seedAliasesFromIndex();
-    this.indexUnindexedDocs();
+    this.catalog.seedAliasesFromIndex();
+    this.catalog.indexUnindexedDocs();
     this.reassertPendingWrites();
     this.startMemoryLog();
     this.startEvictionSweep();
-  }
-
-  /**
-   * Put every alias in the index into the resolver table.
-   *
-   * Aliases used to be a side effect of hydration, so the table was complete
-   * because everything was loaded. With lazy hydration nothing is loaded, and
-   * a table built on demand would 404 the first request for a name — the one
-   * failure a captured URL cannot survive.
-   */
-  private seedAliasesFromIndex(): void {
-    for (const [docId, entry] of this.docIndex) {
-      const alias = entry.meta.alias;
-      if (!alias) continue;
-      // A doc whose PRIMARY id is this string beats an alias that spells it:
-      // the primary is the older address and the one saved links use. Boot
-      // used to settle this by loading every `.ydoc` first, so the primary
-      // was already resident when the alias was claimed. Nothing is resident
-      // now, so the file on disk is what has to be consulted — including the
-      // pre-index `.ydoc`s this pass runs before.
-      if (docId !== alias && existsSync(this.pathFor(alias))) {
-        console.warn(
-          `[doc-store] alias "${alias}" is also a doc id on disk; leaving it to that doc (${docId} keeps its own id)`,
-        );
-        continue;
-      }
-      this.claimAlias(alias, docId);
-    }
   }
 
   /**
@@ -1075,7 +1025,7 @@ export class DocStore {
    * reassert — this method only decides WHO to open.
    */
   private reassertPendingWrites(): void {
-    const pending = [...this.docIndex]
+    const pending = [...this.catalog.entries()]
       .filter(([, entry]) => entry.pendingFileWrite)
       .map(([docId]) => docId);
     if (pending.length === 0) return;
@@ -1092,57 +1042,6 @@ export class DocStore {
       } catch (err) {
         console.error(`[doc-store] could not reassert ${docId}:`, err);
       }
-    }
-  }
-
-  /**
-   * Give a row to every `.ydoc` that has none, then let it go again.
-   *
-   * This is the whole migration for the docs written before the index
-   * existed: hydrate once, write the row, evict. There is no separate
-   * backfill script to remember to run, and no second code path that could
-   * produce a different row than `persistDocNow` does — the row comes from
-   * the same `indexEntryFor`.
-   *
-   * A doc that already has a row is never opened, which is the point: the
-   * cost of this pass falls to zero the first time it runs.
-   */
-  private indexUnindexedDocs(): void {
-    let written = 0;
-    let files: string[];
-    try {
-      files = readdirSync(this.cfg.dataDir);
-    } catch (err) {
-      console.error('[doc-store] could not read the data dir:', err);
-      return;
-    }
-    for (const file of files) {
-      if (!file.endsWith('.ydoc')) continue;
-      const docId = file.slice(0, -'.ydoc'.length);
-      if (!docId || this.docIndex.has(docId)) continue;
-      try {
-        // Boot, and the row is written from the doc in the same turn.
-        this.hydrateDoc(docId, { blocking: true });
-        const doc = this.docs.get(docId);
-        if (!doc) continue;
-        const entry = this.indexEntryFor(doc);
-        writeDocIndex(this.cfg.dataDir, docId, entry);
-        this.docIndex.set(docId, entry);
-        written++;
-      } catch (err) {
-        // Loud: a doc with no row is invisible to every listing, so this is
-        // not a cosmetic failure. It is also self-healing — the next write to
-        // that doc writes its row — which is why it does not abort the boot.
-        console.error(`[doc-store] failed to index ${docId}:`, err);
-      } finally {
-        // Straight back out. Writing a row is not somebody opening the doc,
-        // and a migration that left 5,000 docs resident would be the very
-        // boot this change exists to stop.
-        this.evictDoc(docId);
-      }
-    }
-    if (written > 0) {
-      console.error(`[doc-store] wrote ${written} missing doc index row(s) at startup`);
     }
   }
 
@@ -1219,139 +1118,36 @@ export class DocStore {
    */
   resetDerivedCaches(): void {
     this.lastTouchedAt.clear();
-    this.activityMtime.clear();
+    this.catalog.resetActivity();
   }
 
-  /**
-   * Every doc on this server, as listing rows.
-   *
-   * A resident doc is authoritative — it may hold changes the last write
-   * has not carried into the index yet. A doc that is NOT resident is served
-   * from its index row, which is the whole point: answering "what docs are
-   * there" must not require decoding every CRDT that has ever been written.
-   *
-   * Today hydration still loads everything, so the second branch is only
-   * reached for a doc whose `.ydoc` went missing while its row survived. It
-   * is written now because the listing contract has to be settled BEFORE
-   * anything stops being resident, not at the same time.
-   */
+  /** Every doc on this server, as listing rows — see `DocCatalog.list`. */
   list(): DocMeta[] {
-    const out: DocMeta[] = [];
-    for (const doc of this.docs.values()) out.push(this.withActivity(doc.meta));
-    for (const [docId, entry] of this.docIndex) {
-      if (this.docs.has(docId)) continue;
-      out.push(this.withActivity(entry.meta));
-    }
-    return out;
+    return this.catalog.list();
   }
 
-  /**
-   * The same listing built ONLY from index rows, never from resident docs.
-   *
-   * Exists so the equality that everything else rests on can be asserted
-   * directly: an index-backed listing must equal the hydrated one field for
-   * field. Without a seam that refuses to consult the docs, a test of that
-   * property would read the docs through `list()` and pass no matter what
-   * the index said.
-   */
   listFromIndex(): DocMeta[] {
-    return [...this.docIndex.values()].map((e) => this.withActivity(e.meta));
+    return this.catalog.listFromIndex();
   }
 
-  /**
-   * A doc's open and total thread counts from its index row, without loading
-   * it. Null when there is no row — the caller reads the doc instead.
-   */
   threadCountsFromIndex(docId: string): { open: number; total: number } | null {
-    const entry = this.docIndex.get(docId);
-    return entry ? { ...entry.threads } : null;
+    return this.catalog.threadCountsFromIndex(docId);
   }
 
-  /** The most recent comment timestamp on a doc, from its index row. */
   lastThreadActivityFromIndex(docId: string): number | undefined {
-    return this.docIndex.get(docId)?.lastThreadActivityAt;
+    return this.catalog.lastThreadActivityFromIndex(docId);
   }
 
-  /**
-   * A doc's open and total thread counts, for the listings that render badges.
-   *
-   * Prefers the index row, which costs a map lookup, over decoding the doc's
-   * thread map — which the diff tree and the landing page were doing once per
-   * doc per render, twice per doc in the tree's case.
-   *
-   * The row is skipped only while `saveTimers` holds a pending write for that
-   * doc, which is exactly the window in which the doc has changes the index
-   * has not been given yet. Outside that window the two cannot differ,
-   * because the same debounced write produces both. So this is not "close
-   * enough for a badge": it is the same number, found more cheaply.
-   */
   threadCounts(docId: string): { open: number; total: number } {
-    if (!this.saveTimers.has(docId)) {
-      const entry = this.docIndex.get(docId);
-      if (entry) return { ...entry.threads };
-    }
-    const doc = this.docs.get(docId);
-    if (!doc) return { open: 0, total: 0 };
-    const all = listThreads(doc.ydoc);
-    return { open: all.filter((t) => t.status === 'open').length, total: all.length };
+    return this.catalog.threadCounts(docId);
   }
 
-  /**
-   * The newest comment timestamp on a doc — what the landing page ranks by.
-   * Same index-first rule as `threadCounts`; 0 when the doc has no comments.
-   */
   lastThreadActivity(docId: string): number {
-    if (!this.saveTimers.has(docId)) {
-      const entry = this.docIndex.get(docId);
-      if (entry) return entry.lastThreadActivityAt ?? 0;
-    }
-    const doc = this.docs.get(docId);
-    if (!doc) return 0;
-    return listThreads(doc.ydoc).reduce((max, t) => Math.max(max, t.lastActivity), 0);
+    return this.catalog.lastThreadActivity(docId);
   }
 
-  /**
-   * Stamp a doc's meta with `lastActivityAt`, derived from the persisted
-   * `.ydoc` mtime. saveToDisk rewrites that file on every prose/thread
-   * change (200ms debounced), so its mtime tracks real activity without a
-   * CRDT field that would churn the doc history on every keystroke. Falls
-   * back to `createdAt` when the file isn't on disk yet.
-   */
-  private withActivity(meta: DocMeta): DocMeta {
-    return { ...meta, lastActivityAt: this.lastActivityFor(meta.docId, meta.createdAt) };
-  }
-
-  /**
-   * When a doc last changed — the same `.ydoc` mtime `withActivity` reports —
-   * or undefined for a doc this store does not know. Read by the scheduler
-   * for an on-change rule (`task-scheduler-rows.ts`), so it never hydrates:
-   * a rule watching a cold doc must not be what pulls it into memory every
-   * thirty seconds.
-   */
   activityAt(docId: string): number | undefined {
-    const target = this.aliases.get(docId) ?? docId;
-    const meta = this.docs.get(target)?.meta ?? this.docIndex.get(target)?.meta;
-    return meta === undefined ? undefined : this.lastActivityFor(target, meta.createdAt);
-  }
-
-  /**
-   * The `.ydoc` mtime for a doc, stat'd at most once per write.
-   *
-   * Same number `withActivity` always reported — this only stops asking the
-   * filesystem for it on every row of every list. `persistDocNow` refreshes
-   * the entry (it is the only writer of that file), and every path that moves
-   * or removes the file drops the entry so the next read re-stats.
-   */
-  private lastActivityFor(docId: string, createdAt: number): number {
-    const cached = this.activityMtime.get(docId);
-    if (cached !== undefined) return cached;
-    let lastActivityAt = createdAt;
-    try {
-      const p = this.pathFor(docId);
-      if (existsSync(p)) lastActivityAt = Math.round(statSync(p).mtimeMs);
-    } catch {}
-    this.activityMtime.set(docId, lastActivityAt);
-    return lastActivityAt;
+    return this.catalog.activityAt(docId);
   }
 
   /**
@@ -1402,7 +1198,7 @@ export class DocStore {
    */
   private teardownDoc(doc: LiveDoc, closeReason: string): void {
     const docId = doc.docId;
-    this.releaseAliases(docId);
+    this.catalog.releaseAliases(docId);
     // A doc being deleted has no derived-task bookkeeping left to do — but a
     // live timer firing on a destroyed ydoc does. Drop the debounce, not
     // commit it: this path destroys the doc.
@@ -1416,7 +1212,7 @@ export class DocStore {
     this.fanout.closeSockets(doc, closeReason);
     this.editSessions.closeDoc(docId);
     this.docs.delete(docId);
-    this.activityMtime.delete(docId);
+    this.catalog.forgetActivity(docId);
     this.lastTouchedAt.delete(docId);
     this.lastPersonAt.delete(docId);
     this.hydratedAt.delete(docId);
@@ -1458,11 +1254,11 @@ export class DocStore {
    * Returns false only if the file is there and could not be moved.
    */
   stagePersisted(docId: string): boolean {
-    this.activityMtime.delete(docId);
+    this.catalog.forgetActivity(docId);
     // The row goes with the doc, or a listing keeps describing something
     // that is no longer there.
     stageDocIndex(this.cfg.dataDir, docId);
-    this.setIndex(docId, undefined);
+    this.catalog.setIndex(docId, undefined);
     const path = this.pathFor(docId);
     if (!existsSync(path)) return true;
     try {
@@ -1476,10 +1272,10 @@ export class DocStore {
 
   /** Put a staged `.ydoc` back — the delete didn't commit. */
   unstagePersisted(docId: string): void {
-    this.activityMtime.delete(docId);
+    this.catalog.forgetActivity(docId);
     unstageDocIndex(this.cfg.dataDir, docId);
     const restored = readDocIndex(this.cfg.dataDir, docId);
-    if (restored) this.setIndex(docId, restored);
+    if (restored) this.catalog.setIndex(docId, restored);
     const staged = `${this.pathFor(docId)}.deleting`;
     if (!existsSync(staged)) return;
     try {
@@ -1501,8 +1297,8 @@ export class DocStore {
   }
 
   purgePersisted(docId: string): boolean {
-    this.activityMtime.delete(docId);
-    this.setIndex(docId, undefined);
+    this.catalog.forgetActivity(docId);
+    this.catalog.setIndex(docId, undefined);
     // The one place a repo+path key is given up. A purge is the caller that
     // asked for the bytes to be gone, and leaving the key claimed would make
     // the next bind of that file re-establish an address whose document the
@@ -1734,7 +1530,7 @@ export class DocStore {
     // bind whose doc was edited while the read was in flight (see
     // `bindAfterRead`). Both say "the live doc holds content disk has never
     // held", which is the one thing an mtime comparison cannot see.
-    const liveWins = opts.liveWins === true || this.docIndex.get(docId)?.pendingFileWrite === true;
+    const liveWins = opts.liveWins === true || this.catalog.entry(docId)?.pendingFileWrite === true;
     // A board-owned doc is never file-bound (§3.3), so a sourceUrl on one
     // can only have arrived from a peer's ydoc write. Refusing to bind
     // here is the second, independent stop behind `guardPrivateMeta` —
@@ -2021,13 +1817,13 @@ export class DocStore {
    * doc with no bound file all return without doing anything.
    */
   async prewarmHydration(docId: string): Promise<void> {
-    const target = this.aliases.get(docId) ?? docId;
+    const target = this.catalog.aliasTarget(docId) ?? docId;
     if (this.docs.has(target)) return; // resident: no hydrate ahead of us
     if (isBoardOwnedDoc(target)) return; // never file-bound (§3.3)
     // The index row carries the whole DocMeta, so the bound path is known
     // WITHOUT loading the `.ydoc` — which is the point: nothing about this
     // may pull the doc into memory as a side effect.
-    const meta = this.docIndex.get(target)?.meta;
+    const meta = this.catalog.entry(target)?.meta;
     if (!meta) return;
     let path: string | undefined;
     if (meta.docHome && contentKind(meta.type) === 'prose') {
@@ -2164,7 +1960,7 @@ export class DocStore {
     // Index the readable name — for a doc just minted, and for one coming
     // back off disk at boot. Same call either way, so the alias table cannot
     // be complete at creation and empty after a restart.
-    if (meta.alias) this.claimAlias(meta.alias, docId);
+    if (meta.alias) this.catalog.claimAlias(meta.alias, docId);
     // Captured so the `awareness` getter below can reach the DocStore instance:
     // inside a getter, `this` is the doc, not the map that owns it.
     const owner = this;
@@ -2264,7 +2060,7 @@ export class DocStore {
       if (this.unboundReads.delete(resident.docId)) this.hydrateDoc(resident.docId);
       return resident;
     }
-    const target = this.aliases.get(docId) ?? docId;
+    const target = this.catalog.aliasTarget(docId) ?? docId;
     if (!existsSync(this.pathFor(target))) return undefined;
     this.hydrateDoc(target);
     return this.docs.get(target);
@@ -2311,7 +2107,7 @@ export class DocStore {
   private resolveDocForRead(docId: string): LiveDoc | undefined {
     const resident = this.peek(docId);
     if (resident) return resident;
-    const target = this.aliases.get(docId) ?? docId;
+    const target = this.catalog.aliasTarget(docId) ?? docId;
     if (!existsSync(this.pathFor(target))) return undefined;
     this.hydrateDoc(target, { bind: false });
     const doc = this.docs.get(target);
@@ -2339,7 +2135,7 @@ export class DocStore {
   peek(docId: string): LiveDoc | undefined {
     const direct = this.docs.get(docId);
     if (direct) return direct;
-    const aliased = this.aliases.get(docId);
+    const aliased = this.catalog.aliasTarget(docId);
     if (!aliased) return undefined;
     return this.docs.get(aliased);
   }
@@ -2364,7 +2160,7 @@ export class DocStore {
    * even after the doc moves or is committed.
    */
   boundPathOf(docId: string): string | undefined {
-    const target = this.peek(docId)?.docId ?? this.aliases.get(docId) ?? docId;
+    const target = this.peek(docId)?.docId ?? this.catalog.aliasTarget(docId) ?? docId;
     return this.bindings.pathOf(target);
   }
 
@@ -2438,7 +2234,7 @@ export class DocStore {
     // An unloaded doc is bound too — its binding is re-established from
     // `sourceUrl` the moment anything opens it, so the index has to be swept
     // as well or a doc nobody has opened today keeps the dead path.
-    for (const [docId, entry] of this.docIndex) {
+    for (const [docId, entry] of this.catalog.entries()) {
       if (under(entry.meta.sourceUrl)) ids.add(docId);
     }
     for (const docId of ids) {
@@ -2505,8 +2301,8 @@ export class DocStore {
   peekMeta(docId: string): DocMeta | undefined {
     const resident = this.peek(docId);
     if (resident) return resident.meta;
-    const target = this.aliases.get(docId) ?? docId;
-    return this.docIndex.get(target)?.meta;
+    const target = this.catalog.aliasTarget(docId) ?? docId;
+    return this.catalog.entry(target)?.meta;
   }
 
   /**
@@ -2517,13 +2313,13 @@ export class DocStore {
    */
   resolveDocId(docId: string): string {
     if (this.docs.has(docId)) return docId;
-    return this.aliases.get(docId) ?? docId;
+    return this.catalog.aliasTarget(docId) ?? docId;
   }
 
   /** Whether a doc exists at all — resident, indexed, or a file on disk. */
   docExists(docId: string): boolean {
     const target = this.resolveDocId(docId);
-    return this.docs.has(target) || this.docIndex.has(target) || existsSync(this.pathFor(target));
+    return this.docs.has(target) || this.catalog.has(target) || existsSync(this.pathFor(target));
   }
 
   /**
@@ -2623,49 +2419,6 @@ export class DocStore {
       this.persistMeta(docId);
     }
     return { ok: true, doc, minted: true };
-  }
-
-  /**
-   * Bind a readable name to a doc, ONCE.
-   *
-   * The refusal is the point. An alias that could be repointed would make
-   * every captured review URL provisional: the link in yesterday's task
-   * comment would still resolve, silently, to a document nobody meant to
-   * send. So a name already held stays with its first doc, and the loser is
-   * logged rather than swallowed — two docs claiming one name is a fact
-   * somebody needs to see, not a race to win.
-   *
-   * There is no `repointAlias`, no `setAlias`, and no route that reaches
-   * this. A doc that wants a different readable name gets an ADDITIONAL one;
-   * the id it lives at does not move either way.
-   */
-  private claimAlias(alias: string, docId: string): void {
-    const held = this.aliases.get(alias);
-    if (held !== undefined && held !== docId) {
-      console.error(
-        `[doc-store] alias "${alias}" already resolves to ${held}; leaving it there (${docId} keeps its own id)`,
-      );
-      return;
-    }
-    // A doc whose PRIMARY id is this string wins too — that is a
-    // pre-migration doc, and its address is the one already written down in
-    // links people saved.
-    //
-    // Belt, not braces: `get` tries the primary id first, so the primary
-    // would win the lookup even with a stale entry in this map. Keeping the
-    // map honest is still worth a line — a resolver whose table disagrees
-    // with its own answers is how the next bug reads as impossible. Measured:
-    // removing this line alone turns nothing red.
-    if (this.docs.has(alias) && alias !== docId) return;
-    this.aliases.set(alias, docId);
-  }
-
-  /** Forget a doc's alias when its doc goes away, so the name does not
-   *  outlive the doc as a dangling resolution. */
-  private releaseAliases(docId: string): void {
-    for (const [alias, target] of this.aliases) {
-      if (target === docId) this.aliases.delete(alias);
-    }
   }
 
   /** Schedule a persistence pass for a doc whose in-memory meta changed with
@@ -2990,7 +2743,7 @@ export class DocStore {
 
   private indexSaysNoThreads(docId: string, status?: 'open' | 'resolved'): boolean {
     if (this.saveTimers.has(docId)) return false;
-    const counts = this.docIndex.get(docId)?.threads;
+    const counts = this.catalog.entry(docId)?.threads;
     if (!counts) return false;
     if (status === 'open') return counts.open === 0;
     if (status === 'resolved') return counts.total - counts.open === 0;
@@ -3140,7 +2893,7 @@ export class DocStore {
     if (!doc) return null;
     const binding = this.bindings.describe(doc.docId);
     const parked = binding ? undefined : this.reportedPark(doc.docId);
-    const meta = this.withActivity(doc.meta);
+    const meta = this.catalog.withActivity(doc.meta);
 
     let textLength: number;
     let blockCount: number;
@@ -3464,7 +3217,7 @@ export class DocStore {
     // cleared here as well as in `hydrateDoc`. `getDocStatus` and `getDoc`
     // already refuse to report a reason while a binding exists, so this is
     // about not keeping the entry, not about what gets reported.
-    if (res.ok) this.parkedSources.delete(this.aliases.get(docId) ?? docId);
+    if (res.ok) this.parkedSources.delete(this.catalog.aliasTarget(docId) ?? docId);
     return res;
   }
 
@@ -3592,7 +3345,7 @@ export class DocStore {
    * a doc in memory.
    */
   getSyncError(docId: string): { message: string; at: number } | undefined {
-    const target = this.aliases.get(docId) ?? docId;
+    const target = this.catalog.aliasTarget(docId) ?? docId;
     const bound = this.bindings.getSyncError(target);
     if (bound) return bound;
     if (this.bindings.has(target)) return undefined;
@@ -3641,10 +3394,10 @@ export class DocStore {
   }
 
   private clearPendingFileWrite(docId: string): void {
-    const entry = this.docIndex.get(docId);
+    const entry = this.catalog.entry(docId);
     if (!entry?.pendingFileWrite) return;
     const { pendingFileWrite: _drop, ...rest } = entry;
-    this.docIndex.set(docId, rest);
+    this.catalog.setQuietly(docId, rest);
     // Guarded, because the only caller that matters is a POOL WRITE-BACK'S
     // async callback (`file-binding.ts`, `writeBoundFileNow`). A throw there
     // is an unhandled rejection, and under `bun test` an unhandled rejection
@@ -4252,7 +4005,7 @@ export class DocStore {
   /** Append one closed edit session. The doc may have left memory by the
    *  time a session closes, so its meta comes from the index when it has. */
   private recordEditSession(session: ClosedEditSession): void {
-    const meta = this.docs.get(session.docId)?.meta ?? this.docIndex.get(session.docId)?.meta;
+    const meta = this.docs.get(session.docId)?.meta ?? this.catalog.entry(session.docId)?.meta;
     if (!meta) return;
     appendActivity(this.cfg.dataDir, editSessionEvent(session, meta));
   }
@@ -4290,7 +4043,7 @@ export class DocStore {
     // Under lazy hydration those are two very different sets, and the whole
     // point of this sweep is the OLD threads — which are exactly the ones in
     // docs nobody has opened.
-    for (const docId of new Set([...this.docIndex.keys(), ...this.docs.keys()])) {
+    for (const docId of new Set([...this.catalog.ids(), ...this.docs.keys()])) {
       // The index says how many threads a doc has, so a doc with none is
       // skipped without loading it. On the measured corpus that is most of
       // them, and it is the difference between a sweep that reads a few
@@ -4441,9 +4194,9 @@ export class DocStore {
       // We are the only writer of this file, so recording the mtime here is
       // what lets `withActivity` stop stat-ing every doc on every list.
       try {
-        this.activityMtime.set(doc.docId, Math.round(statSync(path).mtimeMs));
+        this.catalog.noteActivityMtime(doc.docId, Math.round(statSync(path).mtimeMs));
       } catch {
-        this.activityMtime.delete(doc.docId);
+        this.catalog.forgetActivity(doc.docId);
       }
       // The sidecar rides the SAME debounced write as the `.ydoc`. Two
       // persistence paths would eventually disagree, and a doc whose
@@ -4455,9 +4208,9 @@ export class DocStore {
       // are open" far more often than it asks for a document, and none of
       // those answers needs the CRDT decoded. Written here so the index
       // cannot describe a state the `.ydoc` was never in.
-      const entry = this.indexEntryFor(doc);
+      const entry = this.catalog.indexEntryFor(doc);
       writeDocIndex(this.cfg.dataDir, doc.docId, entry);
-      this.setIndex(doc.docId, entry);
+      this.catalog.setIndex(doc.docId, entry);
     } catch (err) {
       console.error(`[doc-store] failed to persist ${doc.docId}:`, err);
     }
@@ -4477,38 +4230,8 @@ export class DocStore {
   private parkedWriteOwed(doc: LiveDoc): boolean {
     const park = this.parkedSources.get(doc.docId);
     if (!park || this.bindings.has(doc.docId)) return false;
-    if (this.docIndex.get(doc.docId)?.pendingFileWrite) return true;
+    if (this.catalog.entry(doc.docId)?.pendingFileWrite) return true;
     return doc.lastContentChangeAt !== undefined && doc.lastContentChangeAt !== park.editedBefore;
-  }
-
-  /** The doc's listing row, built from the live doc. */
-  private indexEntryFor(doc: LiveDoc): DocIndexEntry {
-    const threads = listThreads(doc.ydoc);
-    let lastThreadActivityAt: number | undefined;
-    let open = 0;
-    for (const t of threads) {
-      if (t.status === 'open') open++;
-      for (const c of t.comments) {
-        if (lastThreadActivityAt === undefined || c.ts > lastThreadActivityAt) {
-          lastThreadActivityAt = c.ts;
-        }
-      }
-    }
-    // The ydoc save runs at 200ms and the file write-back at 800ms, so a
-    // pending write-back is always visible from here. See `DocIndexEntry`.
-    const pendingFileWrite =
-      this.bindings.hasPendingWrite(doc.docId) ||
-      this.bindings.hasFailedWrite(doc.docId) ||
-      this.parkedWriteOwed(doc);
-    return {
-      v: DOC_INDEX_VERSION,
-      // A copy, not the live object: `doc.meta` keeps being mutated and the
-      // entry must describe this write.
-      meta: { ...doc.meta },
-      threads: { open, total: threads.length },
-      ...(lastThreadActivityAt !== undefined ? { lastThreadActivityAt } : {}),
-      ...(pendingFileWrite ? { pendingFileWrite: true } : {}),
-    };
   }
 
   /**

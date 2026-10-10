@@ -1495,6 +1495,13 @@ walks, ~62KB each, so the count is the lever. The same fix gave the
 `event-loop.ts` block line the CPU, major page faults and heap across the
 block, so the next idle block says which of GC, page-in or descheduling it was.
 
+`doc-catalog.ts` joins the doc-store group and moves no boundary; the diagram's
+`doc-*.ts` already draws it. It is what `DocStore` answers about a doc without
+opening it — the listing rows, the alias table and the `.ydoc` mtimes a listing
+reports as activity — moved out of `doc-store.ts` whole, behind a host of
+thunks like the other collaborators. `DocStore` keeps `list`, `threadCounts`
+and the rest as one-line forwarders, so no caller changed.
+
 `server-starts.ts` joins Ops and moves no boundary. `bin.ts` records every
 start of the process in `server-starts.json` beside the deploy log: once at
 start, and again once serving, with the deploy it confirmed. It reads the
