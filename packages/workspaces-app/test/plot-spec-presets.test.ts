@@ -25,7 +25,7 @@ describe('stackedArea', () => {
       { x: 2025, y: 23, series: 'Biking', label: 'Biking 8' },
     ]);
     expect(marks[4]).toMatchObject({ transform: 'stackY2', pointer: 'pointerX' });
-    expect(options).toMatchObject({ width: 820, x: { tickFormat: 'int' }, y: { domain: [0, 80] } });
+    expect(options).toMatchObject({ width: 820, x: { tickFormat: 'd' }, y: { domain: [0, 80] } });
   });
 
   it('draws the example the marks form draws, labelled at its ends with no legend', () => {

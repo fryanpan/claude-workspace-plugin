@@ -14,6 +14,7 @@
  * literal, draws an error box in the chart's place and calls no Plot function.
  */
 
+import { type PlotSpec, plotHeight } from '@claude-workspaces/core/plot-spec';
 import { UNREADABLE } from './mdx-chart-props.ts';
 import type { renderPlotInto } from './plot-entry.ts';
 
@@ -98,24 +99,28 @@ function errorBox(slot: HTMLElement, message: string): void {
   box.className = 'plot-spec-error';
   box.setAttribute('role', 'alert');
   box.textContent = message;
+  slot.style.removeProperty('height');
   slot.replaceChildren(box);
 }
+
+const specOf = (chart: PlotChartSummary): PlotSpec => ({
+  data: chart.data as Record<string, unknown> | undefined,
+  options: chart.options as Record<string, unknown> | undefined,
+  marks: chart.marks,
+  preset: chart.preset,
+});
 
 function draw(chunk: PlotChunk, slot: HTMLElement, chart: PlotChartSummary): void {
   if (chart.unreadable.length > 0) {
     errorBox(slot, `Not a literal, so not drawn: ${chart.unreadable.join(', ')}`);
     return;
   }
-  chunk.renderPlotInto(slot, {
-    data: chart.data as Record<string, unknown> | undefined,
-    options: chart.options as Record<string, unknown> | undefined,
-    marks: chart.marks,
-    preset: chart.preset,
-  });
+  chunk.renderPlotInto(slot, specOf(chart));
 }
 
-/** Append the chart, its subtitle above and its note below, to `host`. Until
- *  Plot has arrived the chart's slot is empty and holds its height. */
+/** Append the chart, its subtitle above and its note below, to `host`. The
+ *  slot is the chart's height from the start, so the doc does not move when
+ *  Plot arrives; `renderPlot` keeps that height and follows the width. */
 export function renderPlotChart(host: HTMLElement, chart: PlotChartSummary): void {
   if (chart.subtitle) {
     const sub = document.createElement('div');
@@ -130,6 +135,7 @@ export function renderPlotChart(host: HTMLElement, chart: PlotChartSummary): voi
   slot.addEventListener('click', (e) => {
     if (slot.querySelector('svg')) e.stopPropagation();
   });
+  slot.style.height = `${plotHeight(specOf(chart))}px`;
   host.appendChild(slot);
   if (chart.note) {
     const note = document.createElement('div');
@@ -142,17 +148,10 @@ export function renderPlotChart(host: HTMLElement, chart: PlotChartSummary): voi
     return;
   }
   slot.classList.add('is-pending');
-  const opts = chart.options as { width?: unknown; height?: unknown } | undefined;
-  if (typeof opts?.width === 'number' && typeof opts.height === 'number') {
-    slot.style.aspectRatio = `${opts.width} / ${opts.height}`;
-    slot.style.maxWidth = `${opts.width}px`;
-  }
   void loadPlot().then((chunk) => {
     // Re-rendered while the fetch was in flight: that render won.
     if (!slot.isConnected) return;
     slot.classList.remove('is-pending');
-    slot.style.removeProperty('aspect-ratio');
-    slot.style.removeProperty('max-width');
     if (chunk) draw(chunk, slot, chart);
     else errorBox(slot, 'Plot could not be loaded');
   });

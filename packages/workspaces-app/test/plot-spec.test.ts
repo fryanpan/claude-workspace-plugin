@@ -96,12 +96,55 @@ describe('how a mark is composed', () => {
     const tip = names.lastIndexOf('tip');
     expect(names.slice(tip - 2, tip + 1)).toEqual(['stackY2', 'pointerX', 'tip']);
     const stacked = calls[tip - 1]?.args[0];
-    // The spec's own options, over the tip's house edge.
+    // The spec's own options, over the tip's house edge; its years read "2005".
     expect(stacked).toEqual({
       from: 'stackY2',
-      args: [{ stroke: HOUSE.rule, ...MARKS[3]?.options }],
+      args: [{ stroke: HOUSE.rule, ...MARKS[3]?.options, format: { x: 'd' } }],
     });
     expect(calls[tip]?.args).toEqual([ROWS, { from: 'pointerX', args: [stacked] }]);
+  });
+
+  it('hands groupX, groupY and binX their outputs as the first argument', () => {
+    const { plot, calls } = spyPlot();
+    const options = { x: 'mode', y: 'n' };
+    buildPlot(plot, {
+      data: { rows: ROWS },
+      marks: [
+        { mark: 'barY', data: 'rows', transform: 'groupX', outputs: { y: 'sum' }, options },
+        { mark: 'barX', data: 'rows', transform: 'groupY', outputs: { x: 'count' }, options },
+        { mark: 'rectY', data: 'rows', transform: 'binX', outputs: { y: 'mean' }, options },
+      ],
+    });
+    const at = (name: string) => calls.find((c) => c.name === name)?.args;
+    expect(at('groupX')).toEqual([{ y: 'sum' }, options]);
+    expect(at('groupY')).toEqual([{ x: 'count' }, options]);
+    expect(at('binX')).toEqual([{ y: 'mean' }, options]);
+  });
+
+  it('draws a count per group with real Plot', () => {
+    const svg = buildPlot(Plot, {
+      data: { rows: ROWS },
+      marks: [
+        {
+          mark: 'barY',
+          data: 'rows',
+          transform: 'groupX',
+          outputs: { y: 'count' },
+          options: { x: 'mode' },
+        },
+      ],
+    });
+    // Five rows of each mode, so two bars of the same height.
+    const heights = [...svg.querySelectorAll('[aria-label="bar"] rect')].map((r) =>
+      r.getAttribute('height'),
+    );
+    expect(heights).toHaveLength(2);
+    expect(heights[0]).toBe(heights[1]);
+    const ticks = [...svg.querySelectorAll('[aria-label="y-axis tick label"] text')].map(
+      (t) => t.textContent,
+    );
+    // The y axis runs to five, the count in each group.
+    expect(Number(ticks.at(-1))).toBe(5);
   });
 
   it('passes a mark with no wrappers its options as they are, and inline data as given', () => {
@@ -164,6 +207,32 @@ describe('a spec it refuses, calling no Plot function', () => {
       'a link from the data',
       { mark: 'dot', data: 'rows', options: { href: 'url' } },
       'refused-option',
+    ],
+    [
+      'a reducer outside the list',
+      { mark: 'barY', data: 'rows', transform: 'groupX', outputs: { y: 'mode' } },
+      'unknown-reducer',
+    ],
+    [
+      'a reducer named after an object key',
+      { mark: 'barY', data: 'rows', transform: 'groupX', outputs: { y: 'constructor' } },
+      'unknown-reducer',
+    ],
+    [
+      'a reducer that is a function body',
+      { mark: 'barY', data: 'rows', transform: 'binX', outputs: { y: '(d) => d.length' } },
+      'unknown-reducer',
+    ],
+    [
+      'outputs on a transform that does not reduce',
+      { mark: 'areaY', data: 'rows', transform: 'stackY', outputs: { y: 'sum' } },
+      'bad-spec',
+    ],
+    ['outputs with no transform', { mark: 'dot', data: 'rows', outputs: { y: 'sum' } }, 'bad-spec'],
+    [
+      'outputs that are a list',
+      { mark: 'barY', data: 'rows', transform: 'groupY', outputs: ['count'] },
+      'bad-spec',
     ],
   ])('%s', (_label, mark, code) => {
     const got = refusal(one(mark));

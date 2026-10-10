@@ -131,7 +131,7 @@ describe('a PlotChart block on the doc page', () => {
     expect(texts()).not.toContain('Safe Routes goal, 16 a year');
   });
 
-  it('holds the chart slot, then draws once Plot arrives', async () => {
+  it('holds the chart’s height while Plot loads, and keeps it once drawn', async () => {
     let arrive: (c: PlotChunk) => void = () => {};
     setPlotForTest(
       null,
@@ -143,10 +143,14 @@ describe('a PlotChart block on the doc page', () => {
     mount(plotChartSource());
     const slot = view()?.querySelector<HTMLElement>('.mdx-plot');
     expect(slot?.classList.contains('is-pending')).toBe(true);
-    expect(slot?.style.aspectRatio).toBe('820 / 380');
+    expect(slot?.style.height).toBe('380px');
+    expect(slot?.querySelector('svg')).toBeNull();
     arrive(CHUNK);
     await new Promise((r) => setTimeout(r, 0));
     expect(slot?.classList.contains('is-pending')).toBe(false);
     expect(texts()).toContain('Safe Routes goal, 16 a year');
+    // The same height before and after, so the doc below does not move.
+    expect(slot?.style.height).toBe('380px');
+    expect(slot?.querySelector('svg')?.style.height).toBe('380px');
   });
 });

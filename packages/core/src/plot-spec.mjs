@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 2 (2026-10-10). Other repos copy these bytes verbatim and compare this line.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 3 (2026-10-10). Other repos copy these bytes verbatim and compare this line.
 // @ts-check
 
 /**
@@ -23,9 +23,9 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 2;
+export const PLOT_SPEC_VERSION = 3;
 
-export const PLOT_MARKS = Object.freeze([
+export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
   'areaX',
   'lineY',
@@ -43,7 +43,7 @@ export const PLOT_MARKS = Object.freeze([
   'tickY',
 ]);
 
-export const PLOT_TRANSFORMS = Object.freeze([
+export const PLOT_TRANSFORMS = /* @__PURE__ */ Object.freeze([
   'stackY',
   'stackY1',
   'stackY2',
@@ -55,14 +55,41 @@ export const PLOT_TRANSFORMS = Object.freeze([
   'groupY',
 ]);
 
-export const PLOT_POINTERS = Object.freeze(['pointerX', 'pointerY']);
+export const PLOT_POINTERS = /* @__PURE__ */ Object.freeze(['pointerX', 'pointerY']);
 
-export const PLOT_PRESETS = Object.freeze(['stackedArea', 'lines', 'barsH']);
+export const PLOT_PRESETS = /* @__PURE__ */ Object.freeze(['stackedArea', 'lines', 'barsH']);
 
-export const PLOT_FORMATS = Object.freeze(['int', 'pct', 'usd', 'comma', 'schoolYear']);
+export const PLOT_FORMATS = /* @__PURE__ */ Object.freeze([
+  'int',
+  'pct',
+  'usd',
+  'comma',
+  'schoolYear',
+]);
+
+/** The transforms that take an `outputs` object, and the reducers it may name. */
+export const PLOT_OUTPUT_TRANSFORMS = /* @__PURE__ */ Object.freeze(['groupX', 'groupY', 'binX']);
+export const PLOT_REDUCERS = /* @__PURE__ */ Object.freeze([
+  'count',
+  'sum',
+  'mean',
+  'median',
+  'min',
+  'max',
+  'first',
+  'last',
+]);
+
+/** A chart's height when its spec names none; the width follows the page. */
+export const PLOT_DEFAULT_HEIGHT = 400;
+export const PLOT_DEFAULT_WIDTH = 640;
+
+/** A height per bar, and the axis and padding around them, for `barsH`. */
+const BAR_ROW = 36;
+const BAR_FRAME = 50;
 
 /** The house palette and type, each a CSS variable a page may set. */
-export const HOUSE = Object.freeze({
+export const HOUSE = /* @__PURE__ */ Object.freeze({
   font: 'var(--chart-font, system-ui, -apple-system, "Segoe UI", sans-serif)',
   seq3: 'var(--seq-3, #2f7d76)',
   seq2: 'var(--seq-2, #c8a25e)',
@@ -75,16 +102,25 @@ export const HOUSE = Object.freeze({
 
 /** Options a mark may not take: a link's URL comes from the data, and the
  *  data is somebody's document text. */
-const REFUSED_MARK_OPTIONS = Object.freeze(['href', 'target']);
+const REFUSED_MARK_OPTIONS = /* @__PURE__ */ Object.freeze(['href', 'target']);
 
 /** Scale options whose `tickFormat` may name a format. */
-const SCALES = Object.freeze(['x', 'y', 'fx', 'fy', 'color', 'r', 'opacity', 'length']);
+const SCALES = /* @__PURE__ */ Object.freeze([
+  'x',
+  'y',
+  'fx',
+  'fy',
+  'color',
+  'r',
+  'opacity',
+  'length',
+]);
 
 /** Rough width of a 13px label's glyph, for margins that fit end labels. */
 const CH = 7.5;
 
 /**
- * @typedef {'bad-spec' | 'unknown-mark' | 'unknown-transform' | 'unknown-pointer' | 'unknown-preset' | 'unknown-format' | 'missing-data' | 'refused-option'} PlotSpecErrorCode
+ * @typedef {'bad-spec' | 'unknown-mark' | 'unknown-transform' | 'unknown-pointer' | 'unknown-preset' | 'unknown-format' | 'unknown-reducer' | 'missing-data' | 'refused-option'} PlotSpecErrorCode
  */
 
 /**
@@ -93,6 +129,7 @@ const CH = 7.5;
  * @property {string | unknown[]} [data] A key into the spec's `data`, or the rows themselves.
  * @property {string} [transform]
  * @property {string} [pointer]
+ * @property {Record<string, string>} [outputs] For groupX, groupY and binX: each output channel's reducer.
  * @property {Record<string, unknown>} [options]
  */
 
@@ -149,22 +186,25 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 
 /** @type {Record<string, Intl.NumberFormat>} */
 const NUMBER_FORMATS = {
-  int: new Intl.NumberFormat('en-US', { maximumFractionDigits: 0, useGrouping: false }),
-  comma: new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }),
+  int: /* @__PURE__ */ new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 0,
+    useGrouping: false,
+  }),
+  comma: /* @__PURE__ */ new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }),
   // A percent axis runs 0 to 100, so 43 reads "43%"; Intl's own percent
   // style would multiply by 100.
-  pct: new Intl.NumberFormat('en-US', {
+  pct: /* @__PURE__ */ new Intl.NumberFormat('en-US', {
     style: 'unit',
     unit: 'percent',
     maximumFractionDigits: 1,
   }),
-  usd: new Intl.NumberFormat('en-US', {
+  usd: /* @__PURE__ */ new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
   }),
   // Cents show only when a value has them: $1,200, and $12.50 rather than $12.5.
-  usdCents: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }),
+  usdCents: /* @__PURE__ */ new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }),
 };
 
 /**
@@ -198,7 +238,8 @@ export function plotFormat(name) {
 }
 
 /**
- * A tip's `format`: each channel's named format resolved, a boolean kept.
+ * A tip's `format`: each channel's named format resolved; a boolean, and
+ * `"d"` (Plot's own integer format, which years take), kept as they are.
  * @param {unknown} format
  * @param {string} at
  */
@@ -208,7 +249,7 @@ function tipFormat(format, at) {
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const [channel, f] of Object.entries(format)) {
-    out[channel] = typeof f === 'boolean' || f === null ? f : plotFormat(f);
+    out[channel] = typeof f === 'boolean' || f === null || f === 'd' ? f : plotFormat(f);
   }
   return out;
 }
@@ -219,7 +260,7 @@ function tipFormat(format, at) {
  * Every mark of `spec`, checked against the allowlists, its data resolved and
  * its named formats turned into functions, with no Plot function called.
  * @param {PlotSpec} spec
- * @returns {Array<{ mark: string, data: unknown[], transform?: string, pointer?: string, options: Record<string, unknown> }>}
+ * @returns {Array<{ mark: string, data: unknown[], transform?: string, outputs?: Record<string, string>, pointer?: string, options: Record<string, unknown> }>}
  */
 export function checkPlotSpec(spec) {
   if (!isRecord(spec)) throw new PlotSpecError('bad-spec', 'The chart has no spec');
@@ -250,6 +291,7 @@ export function checkPlotSpec(spec) {
         `${at}: unknown pointer ${JSON.stringify(m.pointer)}`,
       );
     }
+    const outputs = outputsOf(m, at);
     const options = m.options === undefined ? {} : m.options;
     if (!isRecord(options)) throw new PlotSpecError('bad-spec', `${at}: options must be an object`);
     for (const key of REFUSED_MARK_OPTIONS) {
@@ -262,10 +304,38 @@ export function checkPlotSpec(spec) {
       mark: m.mark,
       data: rowsOf(data, m.data, at),
       ...(m.transform === undefined ? {} : { transform: m.transform }),
+      ...(outputs === undefined ? {} : { outputs }),
       ...(m.pointer === undefined ? {} : { pointer: m.pointer }),
       options: { ...houseMarkOptions(m.mark), ...options, ...(format ? { format } : {}) },
     };
   });
+}
+
+/**
+ * A mark's `outputs`, the transform's first argument: allowed only on a
+ * transform that reduces, and each value a reducer from the allowlist.
+ * @param {Record<string, unknown>} m
+ * @param {string} at
+ * @returns {Record<string, string> | undefined}
+ */
+function outputsOf(m, at) {
+  if (m.outputs === undefined) return undefined;
+  if (!allowed(PLOT_OUTPUT_TRANSFORMS, m.transform)) {
+    throw new PlotSpecError('bad-spec', `${at}: outputs need a groupX, groupY or binX transform`);
+  }
+  if (!isRecord(m.outputs)) throw new PlotSpecError('bad-spec', `${at}: outputs must be an object`);
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [channel, reducer] of Object.entries(m.outputs)) {
+    if (!allowed(PLOT_REDUCERS, reducer)) {
+      throw new PlotSpecError(
+        'unknown-reducer',
+        `${at}: unknown reducer ${JSON.stringify(reducer)} for ${channel}`,
+      );
+    }
+    out[channel] = reducer;
+  }
+  return out;
 }
 
 /**
@@ -345,7 +415,7 @@ function houseStyle(style) {
 
 /**
  * The plot options: the house defaults under the spec's, each scale's named
- * `tickFormat` resolved.
+ * `tickFormat` resolved; `"d"` goes to Plot as its own integer format.
  * @param {Record<string, unknown>} options
  */
 function houseOptions(options) {
@@ -362,7 +432,7 @@ function houseOptions(options) {
   }
   for (const scale of SCALES) {
     const s = out[scale];
-    if (isRecord(s) && typeof s.tickFormat === 'string') {
+    if (isRecord(s) && typeof s.tickFormat === 'string' && s.tickFormat !== 'd') {
       out[scale] = { ...s, tickFormat: plotFormat(s.tickFormat) };
     }
   }
@@ -510,6 +580,28 @@ function goalMarks(goal, fmt) {
 const endMargin = (labels) => Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * CH) + 16;
 
 /**
+ * Whether every value is a whole number a year could be, so the axis ticks
+ * "2005" and not "2,005".
+ * @param {unknown[]} vs
+ */
+const yearLike = (vs) =>
+  vs.length > 0 &&
+  vs.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 1000 && v <= 3000);
+
+/**
+ * The x format a preset defaults to: `"d"` for years, `int` for other whole
+ * numbers.
+ * @param {unknown[]} rows
+ * @param {string} x
+ * @returns {string | undefined}
+ */
+function xFormatOf(rows, x) {
+  const xs = rows.map((r) => get(r, x));
+  if (yearLike(xs)) return 'd';
+  return xs.length > 0 && xs.every(Number.isInteger) ? 'int' : undefined;
+}
+
+/**
  * Options a preset sets for its value axis: integer x values tick as plain
  * integers (a year is not 2,005), and a percent axis runs 0 to 100.
  * @param {Record<string, unknown>} own
@@ -519,8 +611,7 @@ const endMargin = (labels) => Math.ceil(Math.max(0, ...labels.map((l) => l.lengt
  * @param {'x' | 'y'} valueAxis
  */
 function axisDefaults(own, rows, x, formats, valueAxis) {
-  const xs = rows.map((r) => get(r, x));
-  const xFormat = formats.x ?? (xs.length > 0 && xs.every(Number.isInteger) ? 'int' : undefined);
+  const xFormat = formats.x ?? xFormatOf(rows, x);
   const valueFormat = valueAxis === 'y' ? formats.y : formats.value;
   const ownValue = isRecord(own[valueAxis]) ? own[valueAxis] : {};
   /** @type {Record<string, unknown>} */
@@ -600,7 +691,12 @@ function stackedArea(p, rows, own) {
           fill: series,
           order,
           channels: { [key]: y },
-          format: { x: formats.x ?? 'int', y: false, [key]: formats.y ?? 'comma', fill: true },
+          format: {
+            x: formats.x ?? xFormatOf(rows, x) ?? 'int',
+            y: false,
+            [key]: formats.y ?? 'comma',
+            fill: true,
+          },
         },
       },
     ],
@@ -698,7 +794,11 @@ function lines(p, rows, own) {
           x,
           y,
           stroke: series,
-          format: { x: formats.x ?? 'int', y: formats.y ?? 'comma', stroke: true },
+          format: {
+            x: formats.x ?? xFormatOf(rows, x) ?? 'int',
+            y: formats.y ?? 'comma',
+            stroke: true,
+          },
         },
       },
     ],
@@ -826,31 +926,100 @@ function fn(Plot, name) {
 }
 
 /**
+ * The height `spec` draws at, known before Plot loads, so a page can hold the
+ * chart's place: the spec's own `options.height`, a row per bar for `barsH`,
+ * or the default. A spec too broken to read takes the default.
+ * @param {unknown} spec
+ * @returns {number}
+ */
+export function plotHeight(spec) {
+  if (!isRecord(spec)) return PLOT_DEFAULT_HEIGHT;
+  const own = isRecord(spec.options) ? spec.options.height : undefined;
+  if (finite(own) && /** @type {number} */ (own) > 0) return /** @type {number} */ (own);
+  const p = spec.preset;
+  if (isRecord(p) && p.type === 'barsH') {
+    const data = isRecord(spec.data) ? spec.data : {};
+    const rows = Array.isArray(p.data)
+      ? p.data
+      : typeof p.data === 'string' && Array.isArray(data[p.data])
+        ? /** @type {unknown[]} */ (data[p.data])
+        : [];
+    return Math.max(120, rows.length * BAR_ROW + BAR_FRAME);
+  }
+  return PLOT_DEFAULT_HEIGHT;
+}
+
+/**
+ * Set one style property, where the element has a style to set it on.
+ * @param {unknown} el
+ * @param {string} key
+ * @param {string | null} value null removes it.
+ */
+function setStyle(el, key, value) {
+  const style = /** @type {{ style?: CSSStyleDeclaration }} */ (el).style;
+  if (!style) return;
+  if (value === null) style.removeProperty(key);
+  else style.setProperty(key, value);
+}
+
+/**
+ * Year ticks for the marks form: when the spec sets no x `tickFormat`, and
+ * every x value its marks read (or its x domain) is a year, x ticks and every
+ * tip's x read "2005", not "2,005".
+ * @param {Record<string, unknown>} options
+ * @param {ReturnType<typeof checkPlotSpec>} marks
+ */
+function yearAxis(options, marks) {
+  const x = isRecord(options.x) ? options.x : {};
+  if (x.tickFormat !== undefined || x.type !== undefined) return;
+  const domain = Array.isArray(x.domain) ? x.domain : [];
+  const xs = [...domain];
+  for (const m of marks) {
+    const field = m.options.x;
+    if (typeof field === 'string') for (const r of m.data) xs.push(get(r, field));
+  }
+  if (!yearLike(xs)) return;
+  options.x = { ...x, tickFormat: 'd' };
+  for (const m of marks) {
+    if (m.mark !== 'tip' || typeof m.options.x !== 'string') continue;
+    const format = isRecord(m.options.format) ? m.options.format : {};
+    if (format.x === undefined) m.options = { ...m.options, format: { ...format, x: 'd' } };
+  }
+}
+
+/**
  * The chart `spec` describes, drawn by `Plot`. Throws a `PlotSpecError`, having
  * called no Plot function, when the spec names anything outside the
- * allowlists, a format it does not know, or a `data` key it does not carry.
+ * allowlists, a format or reducer it does not know, or a `data` key it does
+ * not carry. It draws `plotHeight(spec)` tall and `env.width` wide (else the
+ * spec's width), and its SVG fills its container's width at that height.
  * `env.document` is the document Plot draws into, for a page with none.
  * @param {PlotModule} Plot
  * @param {PlotSpec} spec
- * @param {{ document?: unknown }} [env]
+ * @param {{ document?: unknown, width?: number }} [env]
  * @returns {Element}
  */
 export function buildPlot(Plot, spec, env = {}) {
   const expanded = expandPreset(spec);
   // Every function is found, and every name and format checked, before any
   // Plot function is called.
-  const steps = checkPlotSpec(expanded).map((m) => ({
+  const checked = checkPlotSpec(expanded);
+  const own = { ...expanded.options };
+  yearAxis(own, checked);
+  const steps = checked.map((m) => ({
     m,
     mark: fn(Plot, m.mark),
     transform: m.transform ? fn(Plot, m.transform) : undefined,
     pointer: m.pointer ? fn(Plot, m.pointer) : undefined,
   }));
-  const options = houseOptions(expanded.options);
-  const grid = houseGrid(Plot, expanded.options, expanded.grid);
+  const height = plotHeight(spec);
+  const width = finite(env.width) && /** @type {number} */ (env.width) > 0 ? env.width : own.width;
+  const options = houseOptions({ ...own, height, ...(width === undefined ? {} : { width }) });
+  const grid = houseGrid(Plot, own, expanded.grid);
   const plot = fn(Plot, 'plot');
   const marks = steps.map(({ m, mark, transform, pointer }) => {
     let options = /** @type {unknown} */ (m.options);
-    if (transform) options = transform(options);
+    if (transform) options = m.outputs ? transform(m.outputs, options) : transform(options);
     if (pointer) options = pointer(options);
     return mark(m.data, options);
   });
@@ -860,13 +1029,16 @@ export function buildPlot(Plot, spec, env = {}) {
   );
   // On each SVG itself: Plot's own sheet sets `--plot-background` there, so
   // a value inherited from a parent would lose to it.
-  const custom = Object.entries(houseStyle(expanded.options.style).custom);
+  const custom = Object.entries(houseStyle(own.style).custom);
   const svgs =
     figure.tagName.toLowerCase() === 'svg' ? [figure] : [...figure.querySelectorAll('svg')];
-  for (const svg of svgs) {
-    const style = /** @type {{ style?: { setProperty?: (k: string, v: string) => void } }} */ (svg)
-      .style;
-    for (const [k, v] of custom) style?.setProperty?.(k, v);
+  for (const svg of svgs) for (const [k, v] of custom) setStyle(svg, k, v);
+  // The chart itself, after any legend: full width at its own height, so a
+  // static page that never redraws still fills its column without growing.
+  const chart = svgs.at(-1);
+  if (chart) {
+    setStyle(chart, 'width', '100%');
+    setStyle(chart, 'height', `${height}px`);
   }
   return figure;
 }
@@ -882,18 +1054,28 @@ export function hasPointer(spec) {
 }
 
 /**
- * Draw `spec` into `element`, replacing what it held: the chart, or an error
- * box (`.plot-spec-error`) saying why it could not be drawn. The sites call
- * it to draw a chart in the browser, and the board makes the same call.
- * Returns the chart, or null.
+ * What a drawn element was last drawn from, and the observer that redraws it.
+ * @type {WeakMap<Element, { Plot: PlotModule, spec: PlotSpec, width: number, frame: boolean }>}
+ */
+const drawn = /* @__PURE__ */ new WeakMap();
+
+/** @param {Element} element */
+const widthOf = (element) => Math.round(/** @type {HTMLElement} */ (element).clientWidth || 0);
+
+/**
  * @param {PlotModule} Plot
  * @param {Element} element
  * @param {PlotSpec} spec
+ * @param {number} width
  * @returns {Element | null}
  */
-export function renderPlot(Plot, element, spec) {
+function draw(Plot, element, spec, width) {
   try {
-    const figure = buildPlot(Plot, spec, { document: element.ownerDocument });
+    const figure = buildPlot(Plot, spec, {
+      document: element.ownerDocument,
+      ...(width > 0 ? { width } : {}),
+    });
+    setStyle(element, 'height', `${plotHeight(spec)}px`);
     element.replaceChildren(figure);
     return figure;
   } catch (err) {
@@ -904,7 +1086,59 @@ export function renderPlot(Plot, element, spec) {
       err instanceof PlotSpecError
         ? err.message
         : `Plot could not draw this chart: ${err instanceof Error ? err.message : String(err)}`;
+    // The box takes its own height; a refused chart is the thing to notice.
+    setStyle(element, 'height', null);
     element.replaceChildren(box);
     return null;
   }
+}
+
+/**
+ * Draw `spec` into `element`, replacing what it held: the chart, or an error
+ * box (`.plot-spec-error`) saying why it could not be drawn. The sites call
+ * it to draw a chart in the browser, and the board makes the same call.
+ *
+ * The element is held at `plotHeight(spec)` px, and the chart is drawn at the
+ * element's width, then drawn again whenever that width changes (a
+ * ResizeObserver, at most once a frame). Only the width changes: the height,
+ * the margins and the 13px text stay as the spec gives them, so a narrow
+ * column gets a narrower chart rather than a smaller one. Returns the chart,
+ * or null.
+ * @param {PlotModule} Plot
+ * @param {Element} element
+ * @param {PlotSpec} spec
+ * @returns {Element | null}
+ */
+export function renderPlot(Plot, element, spec) {
+  const width = widthOf(element);
+  const figure = draw(Plot, element, spec, width);
+  const known = drawn.get(element);
+  if (known) {
+    Object.assign(known, { Plot, spec, width });
+    return figure;
+  }
+  const view = element.ownerDocument.defaultView;
+  const Observer = view?.ResizeObserver;
+  if (!view || typeof Observer !== 'function') return figure;
+  const state = { Plot, spec, width, frame: false };
+  drawn.set(element, state);
+  const observer = new Observer(() => {
+    if (!element.isConnected) {
+      observer.disconnect();
+      drawn.delete(element);
+      return;
+    }
+    if (state.frame) return;
+    state.frame = true;
+    view.requestAnimationFrame(() => {
+      state.frame = false;
+      const now = widthOf(element);
+      if (now > 0 && now !== state.width) {
+        state.width = now;
+        draw(state.Plot, element, state.spec, now);
+      }
+    });
+  });
+  observer.observe(element);
+  return figure;
 }

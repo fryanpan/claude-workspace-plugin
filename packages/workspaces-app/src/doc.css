@@ -1140,15 +1140,11 @@ body.has-set .doc-switcher-caret {
   --seq-2: #c8a25e;
   --seq-1: #9c5f3c;
 }
+/* The slot's height is the chart's, set inline before Plot loads; the SVG
+   fills its width at that height, and renderPlot redraws it as the width
+   changes. */
 #editor > .ProseMirror .mdx-plot svg {
   display: block;
-  max-width: 100%;
-  height: auto;
-}
-/* The slot keeps the chart's own proportions while Plot is fetched. */
-#editor > .ProseMirror .mdx-plot.is-pending {
-  width: 100%;
-  min-height: 120px;
 }
 #editor > .ProseMirror .plot-spec-error {
   padding: 8px 12px;
