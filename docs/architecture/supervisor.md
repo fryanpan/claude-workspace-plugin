@@ -217,6 +217,13 @@ Two neighbouring mechanisms are often confused with this one and are not it:
   twice on 16 September. The probe uses that route because it is cheap to
   serve, not because its body means anything to the check.
 
+Before it builds or spawns anything the supervisor runs `bun install --frozen-lockfile`, and when that
+fails while `bun.lock`, every `package.json` and `node_modules` are as the last successful install
+left them, it logs a `WARNING` naming the error code, signal and elapsed time and boots anyway;
+changed inputs still refuse and back off (`dependency-install.ts`). A restart whose SIGKILL a child
+survives now logs that pid and its `ps` state (`supervisor-reap.ts`), because past that point the
+kernel, not the supervisor, is what keeps the port held.
+
 ## Worked example: 16 September 2026
 
 Two outages the same day, about ten minutes each. They are split here by which
