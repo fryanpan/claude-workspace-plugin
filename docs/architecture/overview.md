@@ -1848,6 +1848,15 @@ files: `mdx-chart.ts` draws lines, `mdx-chart-bars.ts` draws bars,
 the picture above. `mdx-chart-props.ts` also uses the site's defaults (horizontal
 bars, percent) and lists every prop the preview does not draw, or that the site
 itself ignores, so `mdx-preview.ts` can print them under the chart.
+A `<PlotChart>` is read by name instead, and does not move the picture.
+Its props are an Observable Plot spec, and `packages/core/src/plot-spec.mjs`
+turns them into a chart. It is plain JavaScript that imports nothing, because
+other repos copy its bytes. Every mark, transform and pointer it names must be
+on an allowlist, and every `data` reference must be a key or an inline array,
+so a bad spec throws before any Plot function runs. `mdx-plot-chart.ts` draws
+the subtitle, the note and the chart slot. It fetches Plot and `buildPlot`
+from `/app/plot/plot.js` the first time a doc shows one, for KaTeX's reason
+below; `plot-entry.ts` is what the build compiles to that path.
 
 `prose-math.ts` joins the same tier and does not move the picture. It is the
 grammar of a remark-math equation — `$x$` inline, `$$` … `$$` on lines of

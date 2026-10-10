@@ -320,6 +320,23 @@ async function emit(buildId: string): Promise<boolean> {
     if (!isWatch) process.exit(1);
     return false;
   }
+  // Observable Plot: its own file, fetched by `mdx-plot-chart.ts` the first
+  // time a doc shows a `<PlotChart>`, for KaTeX's reason above.
+  const plotResult = await Bun.build({
+    entrypoints: [join(pkgRoot, 'src', 'plot-entry.ts')],
+    outdir: join(dist, 'plot'),
+    target: 'browser',
+    format: 'esm',
+    splitting: false,
+    naming: { entry: 'plot.js' },
+    minify: process.env.NODE_ENV !== 'dev' && !isWatch,
+  });
+  if (!plotResult.success) {
+    console.error('plot build failed:');
+    for (const m of plotResult.logs) console.error(m);
+    if (!isWatch) process.exit(1);
+    return false;
+  }
   const katexDist = dirname(
     createRequire(join(pkgRoot, 'package.json')).resolve('katex/dist/katex.min.css'),
   );

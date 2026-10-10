@@ -1119,6 +1119,39 @@ body.has-set .doc-switcher-caret {
   font: 12px / 1.4 var(--sans);
   color: var(--fg-muted);
 }
+/* A <PlotChart> (mdx-plot-chart.ts): Observable Plot's SVG, set in the doc's
+   type and ground like a <Chart>, its subtitle under the title and its note
+   below it. Plot's own sheet uses :where(), so these win without !important. */
+#editor > .ProseMirror .mdx-subtitle {
+  margin-top: 2px;
+  font: 14px / 1.4 var(--sans);
+  color: var(--fg-muted);
+}
+#editor > .ProseMirror .mdx-plot {
+  margin-top: 8px;
+  color: var(--fg-muted);
+  --plot-background: var(--bg-panel);
+}
+#editor > .ProseMirror .mdx-plot svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  font: 12px / 1 var(--sans);
+}
+/* The slot keeps the chart's own proportions while Plot is fetched. */
+#editor > .ProseMirror .mdx-plot.is-pending {
+  width: 100%;
+  min-height: 120px;
+}
+#editor > .ProseMirror .mdx-plot-error {
+  padding: 8px 12px;
+  font: 13px / 1.4 var(--mono);
+  color: var(--red);
+  background: rgba(215, 58, 73, 0.08);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
 /* Each line's own name and last value, at its end inside the plot: the site's
    chart labels its lines there instead of carrying a legend. */
 #editor > .ProseMirror .mdx-chart .mdx-end-label {
