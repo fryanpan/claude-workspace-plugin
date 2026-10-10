@@ -32,6 +32,53 @@ import { waitFor } from './wait-for.ts';
 /** Past one burst's whole journey: settle, the pass, the coalesced frame. */
 const PAST_A_BURST = MAX_WAIT_MS + NUDGE_COALESCE_MS * 2 + 300;
 
+describe('folder watch, after a burst', () => {
+  // First in the file, so nothing earlier in this process can have wedged
+  // the watcher before the burst it is about.
+  it('a burst too big for one read leaves the next folder still heard', async () => {
+    // Bun 1.3.10's inotify reader never cleared its "more in the buffer"
+    // offset (oven-sh/bun#27668). After one read() returned more than 128
+    // events, the File Watcher thread replayed that buffer's tail forever
+    // and every watch in the process went deaf. A checkout that deletes a
+    // directory of a few hundred files is one such read.
+    const big = mkdtempSync(join(tmpdir(), 'folder-watch-burst-'));
+    const next = mkdtempSync(join(tmpdir(), 'folder-watch-next-'));
+    try {
+      mkdirSync(join(big, 'docs'));
+      for (let i = 0; i < 600; i++) writeFileSync(join(big, 'docs', `n-${i}.md`), '#\n');
+      const refreshed = new Set<string>();
+      const watches = createFolderWatches(
+        {
+          sourceOf: (id) => ({ root: id === 'big' ? big : next }),
+          refresh: async (id) => void refreshed.add(id),
+        },
+        { settleMs: 20, maxWaitMs: 100 },
+      );
+      watches.sync('big', 1);
+      await waitFor(
+        () => {
+          writeFileSync(join(big, 'first.md'), '# Harborlight\n');
+          return refreshed.has('big');
+        },
+        { describe: 'the burst folder to be heard at all' },
+      );
+      rmSync(join(big, 'docs'), { recursive: true });
+      watches.sync('next', 1);
+      await waitFor(
+        () => {
+          writeFileSync(join(next, 'tides.md'), '# Riverbend\n');
+          return refreshed.has('next');
+        },
+        { describe: 'the folder opened after the burst to be heard' },
+      );
+      watches.dispose();
+    } finally {
+      rmSync(big, { recursive: true, force: true });
+      rmSync(next, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('folder watch, through the server', () => {
   let handle: ServerHandle;
   let dataDir: string;
@@ -242,43 +289,6 @@ describe('folder watch decisions', () => {
       watches.dispose();
     } finally {
       rmSync(folder, { recursive: true, force: true });
-    }
-  });
-
-  it('a burst too big for one read leaves the next folder still heard', async () => {
-    // Bun 1.3.10's inotify reader never cleared its "more in the buffer"
-    // offset (oven-sh/bun#27668). After one read() returned more than 128
-    // events, the File Watcher thread replayed that buffer's tail forever
-    // and every watch in the process went deaf. A checkout that deletes a
-    // directory of a few hundred files is one such read.
-    const big = mkdtempSync(join(tmpdir(), 'folder-watch-burst-'));
-    const next = mkdtempSync(join(tmpdir(), 'folder-watch-next-'));
-    try {
-      mkdirSync(join(big, 'docs'));
-      for (let i = 0; i < 600; i++) writeFileSync(join(big, 'docs', `n-${i}.md`), '#\n');
-      const refreshed = new Set<string>();
-      const watches = createFolderWatches(
-        {
-          sourceOf: (id) => ({ root: id === 'big' ? big : next }),
-          refresh: async (id) => void refreshed.add(id),
-        },
-        { settleMs: 20, maxWaitMs: 100 },
-      );
-      watches.sync('big', 1);
-      await waitFor(() => {
-        writeFileSync(join(big, 'first.md'), '# Harborlight\n');
-        return refreshed.has('big');
-      });
-      rmSync(join(big, 'docs'), { recursive: true });
-      watches.sync('next', 1);
-      await waitFor(() => {
-        writeFileSync(join(next, 'tides.md'), '# Riverbend\n');
-        return refreshed.has('next');
-      });
-      watches.dispose();
-    } finally {
-      rmSync(big, { recursive: true, force: true });
-      rmSync(next, { recursive: true, force: true });
     }
   });
 });
