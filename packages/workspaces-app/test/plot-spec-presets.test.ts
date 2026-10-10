@@ -192,3 +192,34 @@ describe('a preset it refuses', () => {
     }
   });
 });
+
+describe('a chart 600px or wider', () => {
+  const lines = {
+    data: { rows: LINES },
+    preset: {
+      type: 'lines',
+      data: 'rows',
+      x: 'year',
+      y: 'v',
+      series: 'place',
+      goal: { value: 120 },
+    },
+  };
+  // A clip id counts up across the whole run, so it is not part of the drawing.
+  const drawn = (spec: Parameters<typeof buildPlot>[1], width?: number) =>
+    buildPlot(Plot, spec, width === undefined ? {} : { width }).outerHTML.replace(
+      /plot-clip-\d+/g,
+      'plot-clip',
+    );
+
+  // The files were written by the code before narrow charts were handled, so
+  // a difference here is a change to what a wide chart draws.
+  it.each([
+    ['stacked-area-820', PRESET_SPEC, undefined],
+    ['stacked-area-600', PRESET_SPEC, 600],
+    ['lines-640', lines, undefined],
+    ['lines-600', lines, 600],
+  ] as const)('draws %s exactly as before', async (name, spec, width) => {
+    await expect(drawn(spec, width)).toMatchFileSnapshot(`./fixtures/plot-wide/${name}.svg`);
+  });
+});
