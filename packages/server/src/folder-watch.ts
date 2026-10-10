@@ -46,6 +46,15 @@
  *     rows describe and runs one pass at once; it refreshes only if the
  *     diff moved.
  *
+ *   - A RUNTIME THAT GOES DEAF GETS A CLOCK. Bun before 1.3.11 on Linux
+ *     wedges every `fs.watch` in the process after one inotify read of more
+ *     than 128 events (oven-sh/bun#27668): its reader replays that buffer's
+ *     tail forever and no watch hears anything again. Deleting a directory
+ *     of a few hundred files is such a read. There, the trigger is a timer
+ *     every `POLL_MS` instead, and the pass's listing comparison is what
+ *     keeps a quiet tick from refreshing anything. A folder that cannot be
+ *     listed is news once, when it stops listing, not on every tick.
+ *
  * `fs.watch` is the wrong tool for following one FILE's contents
  * (learnings.md, "fs.watch is the wrong primitive"); a recursive directory
  * watch that only asks "did the listing change" is the use it is good for.
@@ -68,10 +77,14 @@ export const MAX_WATCHED_FOLDERS = 32;
 /** Path segments whose churn never changes what a review lists. */
 const IGNORED_SEGMENTS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage']);
 
-export type WatchFn = (
+export type WatchFn = ((
   root: string,
   onEvent: (relPath: string | null) => void,
-) => { close(): void };
+) => { close(): void }) & {
+  /** Fires on a clock, not on the disk, so a folder that cannot be listed
+   *  is news once, when it stops listing, rather than on every tick. */
+  timed?: boolean;
+};
 
 /** What a watched set lists from: a folder, and for a diff review its base. */
 export interface LiveSource {
@@ -169,8 +182,35 @@ export function isWatchedPath(relPath: string): boolean {
   return !relPath.split('/').some((seg) => IGNORED_SEGMENTS.has(seg));
 }
 
+/** How often a watch that is a timer asks for a pass. */
+export const POLL_MS = 1_000;
+
+/** Whether this runtime's recursive `fs.watch` can go deaf process-wide. */
+export function watchCanWedge(
+  platform: string = process.platform,
+  // Undefined under node: scripts tested there import this module.
+  version: string | undefined = typeof Bun === 'undefined' ? undefined : Bun.version,
+): boolean {
+  if (platform !== 'linux' || !version) return false;
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map((n) => Number.parseInt(n, 10));
+  return major < 1 || (major === 1 && (minor < 3 || (minor === 3 && patch < 11)));
+}
+
+/** A watch that is a timer: every tick is an event of unknown path. */
+export function timerWatch(ms: number): WatchFn {
+  const watch: WatchFn = (_root, onEvent) => {
+    const timer = setInterval(() => onEvent(null), ms);
+    (timer as { unref?: () => void }).unref?.();
+    return { close: () => clearInterval(timer) };
+  };
+  watch.timed = true;
+  return watch;
+}
+
+export const pollWatch = timerWatch(POLL_MS);
+
 /** Recursive directory watch; null filename means "something, unknown". */
-const defaultWatch: WatchFn = (root, onEvent) => {
+const fsDirectoryWatch: WatchFn = (root, onEvent) => {
   const w = fsWatch(root, { recursive: true }, (_type, name) => {
     onEvent(typeof name === 'string' ? name.split('\\').join('/') : null);
   });
@@ -304,7 +344,7 @@ export function createFolderWatches(
   host: FolderWatchHost,
   opts: FolderWatchOptions = {},
 ): FolderWatches {
-  const watchFn = opts.watch ?? defaultWatch;
+  const watchFn = opts.watch ?? (watchCanWedge() ? pollWatch : fsDirectoryWatch);
   const listPaths = opts.listPaths ?? liveListing;
   const settleMs = opts.settleMs ?? SETTLE_MS;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
@@ -322,7 +362,8 @@ export function createFolderWatches(
       // Listed AFTER the burst's events arrived, so it already holds what
       // they did; a save leaves it unchanged.
       const now = await listPaths(w.source);
-      const news = w.first || !now || !w.listed || !sameListing(now, w.listed);
+      const nullIsNews = watchFn.timed ? w.listed !== null : true;
+      const news = w.first || (!now ? nullIsNews : !w.listed || !sameListing(now, w.listed));
       w.first = false;
       w.listed = now;
       if (news && !w.closed) await host.refresh(setId);
