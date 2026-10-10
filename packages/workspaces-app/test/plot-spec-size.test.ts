@@ -161,6 +161,19 @@ describe('renderPlot draws at its container’s width', () => {
     expect(el.style.height).toBe('380px');
   });
 
+  it('sets a preset’s end labels for the width it draws again at', () => {
+    const el = column(820);
+    renderPlot(Plot, el, PRESET_SPEC);
+    const walking = () => svgIn(el).querySelector('text[fill="var(--seq-3, #2f7d76)"]');
+    expect(walking()?.textContent).toBe('Walking 19');
+    resize(el, 430);
+    flush();
+    expect([...(walking()?.querySelectorAll('tspan') ?? [])].map((t) => t.textContent)).toEqual([
+      'Walking',
+      '19',
+    ]);
+  });
+
   it('does not draw again when the width did not change', () => {
     const el = column(700);
     renderPlot(Plot, el, SPEC);

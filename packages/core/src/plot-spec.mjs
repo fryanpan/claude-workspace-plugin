@@ -562,22 +562,51 @@ function zeroTicks(max) {
  * The goal rule and its label at the plot's right edge.
  * @param {{ value: number, label?: string } | undefined} goal
  * @param {(v: unknown) => string} fmt
+ * @param {Record<string, unknown>} fit How a label fits the margin: `endLayout`'s.
  * @returns {PlotMarkSpec[]}
  */
-function goalMarks(goal, fmt) {
+function goalMarks(goal, fmt, fit) {
   if (!goal) return [];
   return [
     { mark: 'ruleY', data: [goal.value], options: { stroke: HOUSE.ink, strokeDasharray: '6 4' } },
     {
       mark: 'text',
       data: [{ y: goal.value, label: goal.label ?? fmt(goal.value) }],
-      options: { y: 'y', text: 'label', frameAnchor: 'right', textAnchor: 'start', dx: 8 },
+      options: { y: 'y', text: 'label', frameAnchor: 'right', textAnchor: 'start', dx: 8, ...fit },
     },
   ];
 }
 
 /** The right margin that fits the longest end label. @param {string[]} labels */
 const endMargin = (labels) => Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * CH) + 16;
+
+/** Below this width a chart's end labels take two lines and at most a third of it. */
+const NARROW = 600;
+
+/**
+ * How the end labels and the goal label at the plot's right are set. At
+ * `NARROW` or wider, each end label is "<series> <value>" on one line and the
+ * margin fits the longest. Narrower, each is the series over its value, the
+ * margin fits the longest line but takes no more than a third of the width,
+ * and a line still too wide for it ends in an ellipsis.
+ * @param {Array<{ series: string, value: string }>} ends
+ * @param {string | undefined} goal
+ * @param {number | undefined} width
+ * @param {Record<string, unknown>} own
+ */
+function endLayout(ends, goal, width, own) {
+  if (!(finite(width) && /** @type {number} */ (width) < NARROW)) {
+    const label = (/** @type {{ series: string, value: string }} */ e) => `${e.series} ${e.value}`;
+    return { label, margin: endMargin([...ends.map(label), goal ?? '']), fit: {} };
+  }
+  const label = (/** @type {{ series: string, value: string }} */ e) => `${e.series}\n${e.value}`;
+  const lines = [...ends.flatMap((e) => [e.series, e.value]), goal ?? ''];
+  const margin = Math.min(endMargin(lines), Math.floor(/** @type {number} */ (width) / 3));
+  const room = finite(own.marginRight) ? /** @type {number} */ (own.marginRight) : margin;
+  // Plot measures a line in ems of the 13px house text; 16px is the dx and a gap.
+  const fit = { lineWidth: Math.max(0, room - 16) / 13, textOverflow: 'ellipsis' };
+  return { label, margin, fit };
+}
 
 /**
  * Whether every value is a whole number a year could be, so the axis ticks
@@ -633,9 +662,10 @@ function axisDefaults(own, rows, x, formats, valueAxis) {
  * @param {Record<string, unknown>} p
  * @param {unknown[]} rows
  * @param {Record<string, unknown>} own
+ * @param {number | undefined} width
  * @returns {Omit<ExpandedSpec, 'data'>}
  */
-function stackedArea(p, rows, own) {
+function stackedArea(p, rows, own, width) {
   const x = field(p, 'x');
   const y = field(p, 'y');
   const series = field(p, 'series');
@@ -654,14 +684,16 @@ function stackedArea(p, rows, own) {
     const v = finite(get(row, y)) ? Number(get(row, y)) : 0;
     const mid = base + v / 2;
     base += v;
-    return { x: lastX, y: mid, series: s, label: `${s} ${fy(v)}` };
+    return { x: lastX, y: mid, series: s, value: fy(v) };
   });
   const goal = lineOf(p.goal, 'goal');
+  const end = endLayout(ends, goal?.label, width, own);
+  const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
   const key = y === 'x' || y === 'y' ? 'value' : y;
   return {
     grid: 'y',
     options: {
-      marginRight: endMargin([...ends.map((e) => e.label), goal?.label ?? '']),
+      marginRight: end.margin,
       // The first series takes the first house colour.
       color: { domain: order },
       ...own,
@@ -674,11 +706,19 @@ function stackedArea(p, rows, own) {
         transform: 'stackY',
         options: { x, y, fill: series, order },
       },
-      ...goalMarks(goal, fy),
+      ...goalMarks(goal, fy, end.fit),
       {
         mark: 'text',
-        data: ends,
-        options: { x: 'x', y: 'y', text: 'label', fill: 'series', textAnchor: 'start', dx: 8 },
+        data: labelled,
+        options: {
+          x: 'x',
+          y: 'y',
+          text: 'label',
+          fill: 'series',
+          textAnchor: 'start',
+          dx: 8,
+          ...end.fit,
+        },
       },
       {
         mark: 'tip',
@@ -711,9 +751,10 @@ function stackedArea(p, rows, own) {
  * @param {Record<string, unknown>} p
  * @param {unknown[]} rows
  * @param {Record<string, unknown>} own
+ * @param {number | undefined} width
  * @returns {Omit<ExpandedSpec, 'data'>}
  */
-function lines(p, rows, own) {
+function lines(p, rows, own, width) {
   const x = field(p, 'x');
   const y = field(p, 'y');
   const series = field(p, 'series');
@@ -729,9 +770,11 @@ function lines(p, rows, own) {
       /** @type {unknown} */ (undefined),
     );
     if (last === undefined) return [];
-    return [{ x: get(last, x), y: get(last, y), series: s, label: `${s} ${fy(get(last, y))}` }];
+    return [{ x: get(last, x), y: get(last, y), series: s, value: fy(get(last, y)) }];
   });
   const goal = lineOf(p.goal, 'goal');
+  const end = endLayout(ends, goal?.label, width, own);
+  const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
   const baseline = lineOf(p.baseline, 'baseline');
   const axes = axisDefaults(own, rows, x, formats, 'y');
   const ownY = isRecord(own.y) ? own.y : {};
@@ -761,7 +804,7 @@ function lines(p, rows, own) {
   return {
     grid: 'y',
     options: {
-      marginRight: endMargin([...ends.map((e) => e.label), goal?.label ?? '']),
+      marginRight: end.margin,
       color: { domain: order },
       ...own,
       ...axes,
@@ -779,12 +822,20 @@ function lines(p, rows, own) {
         : []),
       ...(solid.length > 0 ? [line(solid, false)] : []),
       ...(dash.length > 0 ? [line(dash, true)] : []),
-      ...goalMarks(goal, fy),
-      { mark: 'dot', data: ends, options: { x: 'x', y: 'y', fill: 'series', r: 3.5 } },
+      ...goalMarks(goal, fy, end.fit),
+      { mark: 'dot', data: labelled, options: { x: 'x', y: 'y', fill: 'series', r: 3.5 } },
       {
         mark: 'text',
-        data: ends,
-        options: { x: 'x', y: 'y', text: 'label', fill: 'series', textAnchor: 'start', dx: 8 },
+        data: labelled,
+        options: {
+          x: 'x',
+          y: 'y',
+          text: 'label',
+          fill: 'series',
+          textAnchor: 'start',
+          dx: 8,
+          ...end.fit,
+        },
       },
       {
         mark: 'tip',
@@ -883,11 +934,14 @@ const PRESETS = { stackedArea, lines, barsH };
 
 /**
  * A spec in its marks form. A preset expands into ordinary marks; a marks
- * spec passes through with the house grid across y.
+ * spec passes through with the house grid across y. A preset's end labels
+ * fit the width it is drawn at: `env.width`, else the spec's own width, and
+ * with neither, Plot's default 640.
  * @param {PlotSpec} spec
+ * @param {{ width?: number }} [env]
  * @returns {ExpandedSpec}
  */
-export function expandPreset(spec) {
+export function expandPreset(spec, env = {}) {
   if (!isRecord(spec)) throw new PlotSpecError('bad-spec', 'The chart has no spec');
   const data = spec.data === undefined ? {} : spec.data;
   if (!isRecord(data))
@@ -906,7 +960,13 @@ export function expandPreset(spec) {
     throw new PlotSpecError('bad-spec', 'A chart takes `marks` or a `preset`, not both');
   }
   const rows = rowsOf(data, p.data, `The ${p.type} preset`);
-  const expanded = PRESETS[/** @type {keyof typeof PRESETS} */ (p.type)](p, rows, own);
+  const width = [env.width, own.width].find((w) => finite(w) && /** @type {number} */ (w) > 0);
+  const expanded = PRESETS[/** @type {keyof typeof PRESETS} */ (p.type)](
+    p,
+    rows,
+    own,
+    /** @type {number | undefined} */ (width),
+  );
   return { data, ...expanded };
 }
 
@@ -1000,7 +1060,7 @@ function yearAxis(options, marks) {
  * @returns {Element}
  */
 export function buildPlot(Plot, spec, env = {}) {
-  const expanded = expandPreset(spec);
+  const expanded = expandPreset(spec, env.width === undefined ? {} : { width: env.width });
   // Every function is found, and every name and format checked, before any
   // Plot function is called.
   const checked = checkPlotSpec(expanded);
