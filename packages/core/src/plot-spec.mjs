@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 4 (2026-10-10, sha256 bfc7453d94a9e4ac). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 4 (2026-10-10, sha256 8c7b39817b5c3405). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -1061,7 +1061,7 @@ function thinTicks(options, marks, width) {
   if (!(finite(width) && /** @type {number} */ (width) < NARROW)) return;
   const x = isRecord(options.x) ? options.x : {};
   const ticks = Array.isArray(x.ticks) ? [...x.ticks].sort((a, b) => a - b) : [];
-  if (ticks.length < 3 || !ticks.every(finite)) return;
+  if (ticks.length < 2 || !ticks.every(finite)) return;
   const named = typeof x.tickFormat === 'string' ? x.tickFormat : 'comma';
   const format = named === 'd' ? String : plotFormat(named);
   const label = Math.max(...ticks.map((t) => format(t).length)) * CH + 2 * CH;

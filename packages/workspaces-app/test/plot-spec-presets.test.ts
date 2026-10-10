@@ -317,6 +317,14 @@ describe('explicit x ticks under 600px wide', () => {
     expect(kept.length).toBeLessThanOrEqual(3);
   });
 
+  it('keeps only the first of two ticks too close to both show', () => {
+    const two = {
+      ...SCHOOL_YEARS,
+      options: { ...SCHOOL_YEARS.options, x: { ticks: [2005, 2006] } },
+    };
+    expect(at(two, 360).map((t) => t.text)).toEqual(['2005-06']);
+  });
+
   it('thins the marks form too', () => {
     const spec = {
       ...SPEC,
