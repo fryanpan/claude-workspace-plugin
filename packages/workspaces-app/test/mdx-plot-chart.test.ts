@@ -83,6 +83,27 @@ describe('a PlotChart block on the doc page', () => {
     expect(svg()).toBeFalsy();
   });
 
+  it('opens the source on a tap on the title, not on the chart', () => {
+    mount(plotChartSource());
+    const block = () => document.querySelector('.ProseMirror .mdx-block');
+    svg()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(block()?.classList.contains('is-open')).toBe(false);
+    view()
+      ?.querySelector('.mdx-title')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(block()?.classList.contains('is-open')).toBe(true);
+  });
+
+  it('opens the source from an error box', () => {
+    mount(plotChartSource({ marks: [{ mark: 'geo', data: 'rows' }] }));
+    view()
+      ?.querySelector('.mdx-plot-error')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelector('.ProseMirror .mdx-block')?.classList.contains('is-open')).toBe(
+      true,
+    );
+  });
+
   it('names a prop that is not a literal instead of drawing', () => {
     mount('<PlotChart title="Saltmarsh" data={rows} marks={[]} />');
     expect(view()?.querySelector('.mdx-plot-error')?.textContent).toBe(

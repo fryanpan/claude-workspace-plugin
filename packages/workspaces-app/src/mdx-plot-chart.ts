@@ -124,8 +124,11 @@ export function renderPlotChart(host: HTMLElement, chart: PlotChartSummary): voi
   }
   const slot = document.createElement('div');
   slot.className = 'mdx-plot';
-  // A tap on the chart moves its tip; it does not open the source.
-  slot.addEventListener('click', (e) => e.stopPropagation());
+  // A tap on the chart moves its tip; it does not open the source. A tap on
+  // an error box still does, since the source is what the reader fixes.
+  slot.addEventListener('click', (e) => {
+    if (slot.querySelector('svg')) e.stopPropagation();
+  });
   host.appendChild(slot);
   if (chart.note) {
     const note = document.createElement('div');
