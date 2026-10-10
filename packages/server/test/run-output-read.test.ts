@@ -20,9 +20,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type User, isReviewItemOpen, reviewWithdrawn } from '@claude-workspaces/core';
 import { type ServerHandle, createServer } from '../src/server.ts';
+import { fsStampNow } from './fs-stamp.ts';
 import { seedGoalsOverHttp } from './goal-seed.ts';
 import { listenFrames, waitForFrames } from './sse-frames.ts';
 import { DAY, OWNER, instancesOf } from './task-scheduler-seed.ts';
+import { waitFor } from './wait-for.ts';
 
 const ALICE: User = { id: 'known-alice', name: 'Alice', kind: 'known', color: '#2e7dd7' };
 const MIN = 60_000;
@@ -111,6 +113,15 @@ describe('a run’s output item and the doc page', () => {
     expect(handle.runScheduler()).toHaveLength(1);
     const [instance] = instancesOf(handle.tasks, ws, rule.id);
     if (!instance) throw new Error('no instance');
+    // A file counts as the run's only if its mtime is at or after the
+    // instance's `createdAt`, and a Linux file clock can read behind
+    // `Date.now()`: a digest written straight away is stamped before its own
+    // run, the item links only the later digest, and opening the first one
+    // finds nothing to offer.
+    const startedAt = instance.createdAt;
+    await waitFor(() => fsStampNow() >= startedAt, {
+      describe: 'a new file to be stamped inside the run',
+    });
     mkdirSync(join(repo, 'digests'), { recursive: true });
     const docIds: string[] = [];
     for (const rel of files) {
