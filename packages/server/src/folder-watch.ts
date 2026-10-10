@@ -46,6 +46,14 @@
  *     rows describe and runs one pass at once; it refreshes only if the
  *     diff moved.
  *
+ *   - A RUNTIME THAT GOES DEAF GETS A CLOCK. Bun before 1.3.11 on Linux
+ *     wedges every `fs.watch` in the process after one inotify read of more
+ *     than 128 events (oven-sh/bun#27668): its reader replays that buffer's
+ *     tail forever and no watch hears anything again. Deleting a directory
+ *     of a few hundred files is such a read. There, the trigger is a timer
+ *     every `POLL_MS` instead, and the pass's listing comparison is what
+ *     keeps a quiet tick from refreshing anything.
+ *
  * `fs.watch` is the wrong tool for following one FILE's contents
  * (learnings.md, "fs.watch is the wrong primitive"); a recursive directory
  * watch that only asks "did the listing change" is the use it is good for.
@@ -169,14 +177,31 @@ export function isWatchedPath(relPath: string): boolean {
   return !relPath.split('/').some((seg) => IGNORED_SEGMENTS.has(seg));
 }
 
+/** How often a watch that is a timer asks for a pass. */
+export const POLL_MS = 1_000;
+
+/** Whether this runtime's recursive `fs.watch` can go deaf process-wide. */
+export function watchCanWedge(platform: string = process.platform, version = Bun.version): boolean {
+  return platform === 'linux' && Bun.semver.order(version, '1.3.11') < 0;
+}
+
+/** A watch that is a timer: every tick is an event of unknown path. */
+export const pollWatch: WatchFn = (_root, onEvent) => {
+  const timer = setInterval(() => onEvent(null), POLL_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return { close: () => clearInterval(timer) };
+};
+
 /** Recursive directory watch; null filename means "something, unknown". */
-const defaultWatch: WatchFn = (root, onEvent) => {
+const fsDirectoryWatch: WatchFn = (root, onEvent) => {
   const w = fsWatch(root, { recursive: true }, (_type, name) => {
     onEvent(typeof name === 'string' ? name.split('\\').join('/') : null);
   });
   w.on('error', () => w.close());
   return w;
 };
+
+const defaultWatch: WatchFn = watchCanWedge() ? pollWatch : fsDirectoryWatch;
 
 /** Entries a listing walk reads before giving up on a folder. */
 const MAX_WALK_ENTRIES = 20_000;

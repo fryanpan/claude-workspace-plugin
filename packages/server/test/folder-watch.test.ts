@@ -23,6 +23,8 @@ import {
   createFolderWatches,
   folderListing,
   isWatchedPath,
+  pollWatch,
+  watchCanWedge,
 } from '../src/folder-watch.ts';
 import { NUDGE_COALESCE_MS } from '../src/page-nudges.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
@@ -40,7 +42,8 @@ describe('folder watch, after a burst', () => {
     // offset (oven-sh/bun#27668). After one read() returned more than 128
     // events, the File Watcher thread replayed that buffer's tail forever
     // and every watch in the process went deaf. A checkout that deletes a
-    // directory of a few hundred files is one such read.
+    // directory of a few hundred files is one such read. On that runtime the
+    // default watch is a timer (`watchCanWedge`), so this holds there too.
     const big = mkdtempSync(join(tmpdir(), 'folder-watch-burst-'));
     const next = mkdtempSync(join(tmpdir(), 'folder-watch-next-'));
     try {
@@ -252,7 +255,8 @@ describe('folder watch decisions', () => {
     expect(h.closed()).toBe(1);
   });
 
-  it('an atomic save on a real folder refreshes nothing; a new file does', async () => {
+  /** Drives a real folder through `watch`, or the platform's own watch. */
+  async function atomicSave(watch?: WatchFn): Promise<void> {
     const folder = mkdtempSync(join(tmpdir(), 'folder-watch-save-'));
     try {
       writeFileSync(join(folder, 'README.md'), '# Harborlight\n');
@@ -263,9 +267,13 @@ describe('folder watch decisions', () => {
         {
           settleMs: 20,
           maxWaitMs: 100,
-          listPaths: ({ root }) => {
+          ...(watch ? { watch } : {}),
+          // Counted once the listing is back: the refresh decision follows
+          // it synchronously, so a counted pass has already decided.
+          listPaths: async ({ root }) => {
+            const listed = await folderListing(root);
             passes++;
-            return folderListing(root);
+            return listed;
           },
         },
       );
@@ -281,7 +289,6 @@ describe('folder watch decisions', () => {
       renameSync(join(folder, 'README.md.tmp'), join(folder, 'README.md'));
       // A pass that saw the save ran, and compared equal.
       await waitFor(() => passes > before);
-      await new Promise((r) => setTimeout(r, 0));
       expect(refreshes).toBe(1);
       writeFileSync(join(folder, 'tides.md'), '# Riverbend\n');
       await waitFor(() => refreshes === 2);
@@ -289,5 +296,16 @@ describe('folder watch decisions', () => {
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
+  }
+
+  it('an atomic save on a real folder refreshes nothing; a new file does', () => atomicSave());
+
+  it('the same holds when the watch is a timer', () => atomicSave(pollWatch));
+
+  it('only Linux under Bun before 1.3.11 gets the timer', () => {
+    expect(watchCanWedge('linux', '1.3.10')).toBe(true);
+    expect(watchCanWedge('linux', '1.3.11')).toBe(false);
+    expect(watchCanWedge('linux', '1.4.0')).toBe(false);
+    expect(watchCanWedge('darwin', '1.3.10')).toBe(false);
   });
 });
