@@ -174,7 +174,10 @@ const defaultWatch: WatchFn = (root, onEvent) => {
   const w = fsWatch(root, { recursive: true }, (_type, name) => {
     onEvent(typeof name === 'string' ? name.split('\\').join('/') : null);
   });
-  w.on('error', () => w.close());
+  w.on('error', (err: NodeJS.ErrnoException) => {
+    console.warn(`[folder-watch] watch error (${err.code ?? 'unknown'}): ${err.message}`);
+    w.close();
+  });
   return w;
 };
 
@@ -373,8 +376,9 @@ export function createFolderWatches(
     };
     try {
       w.handle = watchFn(source.root, (rel) => onEvent(setId, w, rel));
-    } catch {
+    } catch (err) {
       // The root is gone or unreadable; the page keeps its focus re-read.
+      console.warn('[folder-watch] watch failed to start:', (err as Error).message);
       noFolder.add(setId);
       return;
     }
