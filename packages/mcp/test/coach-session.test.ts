@@ -156,15 +156,20 @@ describe('coachLine', () => {
     );
   });
 
-  it('reads an answer and a preference as things to remember', () => {
+  it('reads an answer, with what a thumbs down wrote, and a preference as things to remember', () => {
+    const moment = {
+      momentId: 'cm-aaaaaaaaaaaa',
+      goal: 'Ask why first',
+      line: "Hi, I'm noticing you're designing the fix. Why first?",
+    };
+    expect(coachLine('coach.answer', { ...moment, answer: 'up' })).toContain(
+      'The owner answered thumbs up: it helped. Your moment cm-aaaaaaaaaaaa',
+    );
     expect(
-      coachLine('coach.answer', {
-        momentId: 'cm-aaaaaaaaaaaa',
-        answer: 'not-now',
-        goal: 'Ask why first',
-        line: "Hi, I'm noticing you're designing the fix. Why first?",
-      }),
-    ).toContain('answered "Not now": right goal, wrong time');
+      coachLine('coach.answer', { ...moment, answer: 'down', text: 'Harborlight asked for it' }),
+    ).toContain(
+      'The owner answered thumbs down: it did not help. They wrote: "Harborlight asked for it". Your moment',
+    );
     expect(coachLine('coach.preference', { readiness: 'less' })).toContain('less readily');
   });
 

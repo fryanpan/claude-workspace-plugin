@@ -625,6 +625,19 @@ under `node`, was the only test that could see it, because every other
   so the write-back isn't mistaken for an external edit. General rule: if
   you need reliable cross-platform file-change detection, reach for an
   mtime poll, not `fs.watch`.
+- **Bun 1.3.10 on Linux: one big inotify read deafens every watch in the
+  process** (measured 2026-10-10 on CI). Bun keeps one inotify instance per
+  process; when a single `read()` returns more than 128 events it saves an
+  offset and never clears it (oven-sh/bun#27668, fixed in 1.3.11), so the
+  "File Watcher" thread spins in state R replaying the same tail and no
+  watch hears anything again — no error event. A native recursive delete
+  of a few hundred watched files is enough, and Bun never removes an
+  inotify watch on `close()`, so deleting a folder after closing its watch
+  still counts. It made `folder-watch.test.ts` fail about one CI run in
+  three. Read it off `/proc/self/task/*/stat` and `fdinfo`, not the clock.
+  `folder-watch.ts` uses a timer on that runtime. Bumping CI to 1.3.11 is
+  not free: 1.3.11 also makes `stat().mtimeMs` fractional, which fails
+  `file-stamp.test.ts` and the poll's change-detection cases.
 - **Recovery tool:** `reparse_from_disk(docId)` MCP tool force-pulls disk
   into the live doc in place (no URL re-bind). The server method/route had
   existed for a while but no MCP tool wrapped it — so docs referenced a

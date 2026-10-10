@@ -52,6 +52,9 @@ export interface LinkedDockItem {
   review: ReviewPayload;
   by: string;
   ts: number;
+  /** A run's output item waiting on the file this page holds: the reader
+   *  may close it with Mark read rather than a typed answer. */
+  markRead?: true;
 }
 
 /** The server's list as dock items. Anything that is not a list is none. */

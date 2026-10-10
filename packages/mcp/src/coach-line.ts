@@ -76,10 +76,8 @@ const VERB: Record<string, string> = {
 };
 
 const ANSWER: Record<string, string> = {
-  thanks: 'answered "Thanks": it helped',
-  'not-now': 'answered "Not now": right goal, wrong time',
-  'not-this': 'answered "Not this": a wrong call',
-  'moved-on': 'moved on without answering',
+  up: 'answered thumbs up: it helped',
+  down: 'answered thumbs down: it did not help',
 };
 
 const READINESS: Record<string, string> = {
@@ -185,7 +183,8 @@ export function coachLine(event: string, p: CoachPayload, timeZone?: string): st
   if (event === 'coach.answer') {
     const how = p.answer ? ANSWER[p.answer] : undefined;
     if (!how || !p.momentId) return null;
-    return `[coach.answer${clock(p.at, timeZone)}] The owner ${how}. Your moment ${p.momentId} (goal: ${p.goal ?? '?'}) said: "${p.line ?? ''}". Write what it teaches you in your memory doc.`;
+    const wrote = p.answer === 'down' && p.text ? ` They wrote: "${p.text}".` : '';
+    return `[coach.answer${clock(p.at, timeZone)}] The owner ${how}.${wrote} Your moment ${p.momentId} (goal: ${p.goal ?? '?'}) said: "${p.line ?? ''}". Write what it teaches you in your memory doc.`;
   }
   if (event === 'coach.preference') {
     const how = p.readiness ? READINESS[p.readiness] : undefined;

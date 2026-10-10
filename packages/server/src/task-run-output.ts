@@ -18,11 +18,12 @@
  *    withdrawn after, carrying the old item's unopened files, so an unread
  *    digest never piles up into a card per day and never silently drops off.
  *
- * An item is withdrawn when every file it links that was unopened when it
- * was filed has been opened on the board, which is a doc of the board holding
- * that path: opening a file from the item or from the Library is the same
- * bind. A file already open when its run rewrote it gives no such signal, so
- * an item linking only those stands until it is answered or replaced.
+ * An item is withdrawn once a reader has opened every file it links, after
+ * it was filed (`noteOutputOpened`): the Library's open, or the doc page of a
+ * doc that holds the file — a writer binds each digest as its own doc before
+ * its run closes, so "a doc holds it" says nothing about a reader. Until
+ * then the doc page of each file it still waits on offers Mark read, which
+ * withdraws it through the review item's own route.
  *
  * Writes go through the store as the scheduler's actor, past the quality
  * judge, for the reason the stale item gives: words generated from board
@@ -31,6 +32,7 @@
 import { type TaskReviewItem, isReviewItemOpen, reviewWithdrawn } from '@claude-workspaces/core';
 import {
   OUTPUT_SLACK_MS,
+  type ScheduleOutputItem,
   outputItemPaths,
   runOutputPaths,
 } from '@claude-workspaces/core/schedule-output';
@@ -65,8 +67,6 @@ export interface RunOutputSource {
    * when the board has no project this server can list.
    */
   files(workspaceId: string): readonly { relPath: string; at?: number }[] | null;
-  /** Does a doc of this board hold the project file at this path? */
-  opened(workspaceId: string, relPath: string): boolean;
 }
 
 type Actor = { id: string; name: string; kind?: string };
@@ -140,27 +140,12 @@ export function observeRunOutput(
       store.scheduleSave(ws);
     };
 
-    // The standing item: gone once a person answered or withdrew it, and
-    // withdrawn here once every file it was waiting on has been opened.
+    // The standing item: gone once a person answered or withdrew it. Opens
+    // withdraw it as they happen (`noteOutputOpened`), not on a tick.
     const standing = state.output?.item;
-    if (state.output && standing) {
-      const item = store.listReviewItems(rule.id).find((i) => i.id === standing.id);
-      if (!item || !isReviewItemOpen(item) || reviewWithdrawn(item.review)) {
-        state.output = { forSuccessAt: state.output.forSuccessAt };
-        changed = true;
-      } else if (
-        standing.waitingOn.length > 0 &&
-        standing.waitingOn.every((p) => source.opened(ws, p))
-      ) {
-        const res = store.withdrawReviewItem(rule.id, standing.id, {
-          actor,
-          reason: 'every new file it links was opened',
-        });
-        if (res.ok) {
-          state.output = { forSuccessAt: state.output.forSuccessAt };
-          changed = true;
-        } else report(`[scheduler] ${rule.id} output item withdraw refused: ${res.error}`);
-      }
+    if (state.output && standing && !isStanding(store, rule.id, standing.id)) {
+      state.output = { forSuccessAt: state.output.forSuccessAt };
+      changed = true;
     }
 
     const output = schedule.output;
@@ -188,7 +173,7 @@ export function observeRunOutput(
       closedAt: last.closedAt,
     });
     if (fresh.length === 0) return save();
-    const carried = carriedItem ? carriedItem.paths.filter((p) => !source.opened(ws, p)) : [];
+    const carried = carriedItem ? unread(carriedItem) : [];
     const paths = outputItemPaths(fresh, carried);
     const res = store.addReviewItem(
       rule.id,
@@ -215,9 +200,91 @@ export function observeRunOutput(
       });
       if (!gone.ok) report(`[scheduler] ${rule.id} replaced item withdraw refused: ${gone.error}`);
     }
-    const waitingOn = paths.filter((p) => !source.opened(ws, p));
-    state.output = { forSuccessAt: successAt, item: { id: res.item.id, paths, waitingOn } };
+    state.output = { forSuccessAt: successAt, item: { id: res.item.id, paths, waitingOn: paths } };
     report(`[scheduler] ${rule.id} run output: filed review item ${res.item.id}`);
     return save();
   };
+}
+
+/** What an open reaches in the store. `TaskStore` satisfies it. */
+export type RunOutputOpenStore = Pick<
+  RunOutputStore,
+  'listReviewItems' | 'withdrawReviewItem' | 'scheduleSave'
+> & { listTasks(workspaceId: string): Task[] };
+
+function isStanding(
+  store: Pick<RunOutputStore, 'listReviewItems'>,
+  ruleId: string,
+  itemId: string,
+): boolean {
+  const item = store.listReviewItems(ruleId).find((i) => i.id === itemId);
+  return item !== undefined && isReviewItemOpen(item) && !reviewWithdrawn(item.review);
+}
+
+/**
+ * The files an item still waits on. An item filed before opens were counted
+ * waited only on files no doc held, which for a writer that binds its digests
+ * was none: it never withdrew. Empty, it waits on every file it links.
+ */
+function unread(item: ScheduleOutputItem): string[] {
+  return item.waitingOn.length > 0 ? item.waitingOn : item.paths;
+}
+
+/** The standing run-output items on a board whose `files` hold `relPath`,
+ *  each with the rule it is filed on. */
+function standingOn(
+  store: RunOutputOpenStore,
+  workspaceId: string,
+  relPath: string,
+  files: (item: ScheduleOutputItem) => string[],
+): { rule: Task; item: ScheduleOutputItem }[] {
+  const out: { rule: Task; item: ScheduleOutputItem }[] = [];
+  for (const rule of store.listTasks(workspaceId)) {
+    const item = rule.schedule?.state?.output?.item;
+    if (item && files(item).includes(relPath) && isStanding(store, rule.id, item.id)) {
+      out.push({ rule, item });
+    }
+  }
+  return out;
+}
+
+/** The ids of the standing run-output items that link `relPath` — what the
+ *  file's doc page offers to mark read. */
+export function itemsLinking(
+  store: RunOutputOpenStore,
+  workspaceId: string,
+  relPath: string,
+): Set<string> {
+  return new Set(standingOn(store, workspaceId, relPath, (i) => i.paths).map((s) => s.item.id));
+}
+
+/**
+ * A reader opened the project file at `relPath` on this board: through the
+ * Library, or at the doc page of a doc that holds it. Each standing item
+ * waiting on it stops waiting on it, and one with nothing left to wait on is
+ * withdrawn now, so an open Home drops it on the withdrawal's own event.
+ */
+export function noteOutputOpened(
+  store: RunOutputOpenStore,
+  workspaceId: string,
+  relPath: string,
+  actor: Actor,
+  report: (message: string) => void,
+): void {
+  for (const { rule, item } of standingOn(store, workspaceId, relPath, unread)) {
+    const left = unread(item).filter((p) => p !== relPath);
+    if (left.length === 0) {
+      const res = store.withdrawReviewItem(rule.id, item.id, {
+        actor,
+        reason: 'every new file it links was opened',
+      });
+      if (!res.ok) {
+        report(`[run-output] ${rule.id} output item withdraw refused: ${res.error}`);
+        continue;
+      }
+      const state = rule.schedule?.state;
+      if (state?.output) state.output = { forSuccessAt: state.output.forSuccessAt };
+    } else item.waitingOn = left;
+    store.scheduleSave(workspaceId);
+  }
 }

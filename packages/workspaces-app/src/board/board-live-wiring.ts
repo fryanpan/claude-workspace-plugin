@@ -251,8 +251,11 @@ export function wireBoardLive(deps: BoardLiveDeps): void {
   es.addEventListener('library.changed', () => libraryChanged());
   es.addEventListener('members.changed', () => membersChanged());
 
-  // A task going done takes its discussion out of the queue.
+  // A task going done takes its discussion out of the queue, and so does an
+  // item taken back: a reader's Mark read, or a run's output item whose files
+  // were all opened. No task row records that, so nothing else repaints it.
   es.addEventListener('task.transitioned', () => void loadReviewItems());
+  es.addEventListener('review_item.withdrawn', () => void loadReviewItems());
   // …and stales every status chip a pasted task/goal link is wearing, so the
   // chips re-ask on the same push instead of showing the old status forever.
   es.addEventListener('task.transitioned', () => staleTaskLinkStatuses());

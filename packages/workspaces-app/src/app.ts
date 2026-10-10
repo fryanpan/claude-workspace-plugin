@@ -7,6 +7,7 @@ import { docSocketUrl, workspaceIdFromPath } from './doc-path.ts';
 import { el, showToast } from './doc/chrome-dom.ts';
 import { wireThreadRangeClicks } from './doc/chrome-panels.ts';
 import { marginComposerSlot } from './doc/composer-slot.ts';
+import { mountDocCoach } from './doc/doc-coach.ts';
 import { type CommentPillHandle, mountCommentPill } from './doc/doc-comment-pill.ts';
 import { mountDocFloats } from './doc/doc-floats.ts';
 import { wireDocGates } from './doc/doc-gates.ts';
@@ -146,9 +147,9 @@ export async function bootApp(env: AppBootEnv): Promise<() => void> {
       return client;
     },
     mountFor: (ctx) => {
-      // A MARKDOWN file in a diff review reads as prose → Word-style redline;
-      // other code/diff docs → CodeMirror source; everything else → Tiptap.
-      // (redline falls back to code when the base text is unavailable.)
+      mountDocCoach(ctx);
+      // A `.md` diff member → redline (code when the base is unavailable);
+      // other code/diff docs → CodeMirror; everything else → Tiptap.
       if (ctx.docType === 'diff' && ctx.relPath.toLowerCase().endsWith('.md')) {
         return mountRedline(ctx);
       }
@@ -353,10 +354,9 @@ async function mountMarkdown(ctx: MountContext): Promise<void> {
     liveZone = meeting.liveZone;
   }
 
-  // The two always-in-view floats — Approve (the plan gate) and Review.
-  // Same rule (and reason) as the meeting strip above: a review of somebody's
-  // branch, or a companion doc under `navDocId`, is not a plan a person
-  // approves.
+  // The two always-in-view floats — Approve (the plan gate) and Review. Same
+  // rule as the meeting strip above: a review of somebody's branch, or a
+  // companion doc under `navDocId`, is not a plan a person approves.
   if (ctx.docType === 'markdown' && ctx.navDocId === undefined) {
     // A meeting's title as its page's heading, with its dates under it.
     mountMeetingHeading({

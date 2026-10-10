@@ -27,6 +27,7 @@ import type { DocStore, LiveDoc } from '../doc-store.ts';
 import type { createLeadPresenceMonitor } from '../lead-presence.ts';
 import type { ShareTarget } from '../middleware/host-guard.ts';
 import type { WorkspaceScope } from '../middleware/workspace-scope.ts';
+import type { LinkedDockItem } from '../mockup-linked-items.ts';
 import type { ReadyWorkNudger } from '../ready-nudge.ts';
 import type { GateRunOpts, ThreadReviewGate } from '../review-gate-types.ts';
 import type { BoardRole } from '../share/board-role.ts';
@@ -138,6 +139,13 @@ export interface DocRoutesContext {
   ) => { id: string; name: string } | null;
   /** The board a doc belongs to, or null. */
   resolveWorkspaceForDoc: (docId: string) => string | null;
+  /**
+   * The doc page read this doc's record on a board: a reader's open of the
+   * project file it holds (`noteOutputOpened`). Answers what its dock shows —
+   * the ticket items that link it, and the run-output items still waiting on
+   * the file, each marked as one the reader can mark read.
+   */
+  pageOpened: (workspaceId: string, docId: string) => LinkedDockItem[];
   /** Decorate a doc's meta with its review URL. `precomputedHome` is the
    *  doc's board when a listing already resolved it off a shared index;
    *  `null` is a real answer (no board), `undefined` means "not supplied". */

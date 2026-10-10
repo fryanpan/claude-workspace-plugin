@@ -16,11 +16,17 @@
  * and lifts the composer, the toast and the phone's comment sheet by it. With
  * no item nothing is mounted and the variable is never set.
  *
+ * A run's output item docks on the page of each file it links with a Mark
+ * read button beside the headline (`markRead` on the record's item). It
+ * withdraws the item through the ticket's own withdraw route, so the reader
+ * closes it without typing an answer.
+ *
  * Calm: nothing moves, pulses or wears a count.
  */
 import type { User } from '@claude-workspaces/core';
 import {
   type DockItem,
+  type LinkedDockItem,
   dockBarHtml,
   dockItems,
   dockSheetHtml,
@@ -52,7 +58,10 @@ button:disabled, textarea:disabled { opacity: 0.55; cursor: default; }
  * the toast (1200) — are the reader's current task and belong over the bar.
  * The expanded item keeps the sheet's own place above all of them.
  */
-const PAGE_STYLES = '.cw-dock { z-index: 900; }';
+const PAGE_STYLES = `.cw-dock { z-index: 900; }
+.cw-dock.doc-dock-readable { display: flex; align-items: center; }
+.doc-dock-readable .cw-dock-item { flex: 1 1 auto; min-width: 0; }
+.doc-dock-read { flex: 0 0 auto; margin-right: max(12px, env(safe-area-inset-right)); }`;
 
 /** The variable doc.css reserves the bar's height with. */
 export const DOCK_HEIGHT_VAR = '--doc-dock-h';
@@ -64,7 +73,8 @@ export interface LinkedDockOptions {
   /** Signed out: the ask is readable, and its answers are disabled. */
   canWrite: boolean;
   scope: MountScope;
-  /** The answer request; injected so a test sees what went over the wire.
+  /** The answer and Mark read requests; injected so a test sees what went
+   *  over the wire.
    *  Resolves true when the server took the answer. */
   post?: (path: string, body: Record<string, unknown>) => Promise<boolean>;
 }
@@ -83,6 +93,8 @@ export function mountLinkedDock(opts: LinkedDockOptions): void {
   const post = opts.post ?? defaultPost;
   const root = document.documentElement;
   let items: DockItem[] = [];
+  /** The review item ids the reader may close with Mark read. */
+  let readable = new Set<string>();
   let host: HTMLElement | null = null;
   let shadow: ShadowRoot | null = null;
   let resize: ResizeObserver | null = null;
@@ -139,6 +151,34 @@ export function mountLinkedDock(opts: LinkedDockOptions): void {
     }
   };
 
+  /** The same label and size in flight and after a refusal, so the target
+   *  the reader aimed at stays put; only `disabled` changes. */
+  function markReadButton(item: DockItem): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cancel doc-dock-read';
+    btn.textContent = 'Mark read';
+    btn.disabled = !canWrite;
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      const path = api(
+        `tasks/${encodeURIComponent(item.taskId ?? '')}/review-items/${encodeURIComponent(item.threadId)}/withdraw`,
+      );
+      void post(path, { author: user, reason: 'marked read' })
+        .catch(() => false)
+        .then((ok) => {
+          if (scope.disposed) return;
+          if (!ok) {
+            btn.disabled = false;
+            return;
+          }
+          items = items.filter((i) => i !== item);
+          render();
+        });
+    });
+    return btn;
+  }
+
   function render(): void {
     const item = dockItems([], items)[0];
     if (!item) {
@@ -162,6 +202,9 @@ export function mountLinkedDock(opts: LinkedDockOptions): void {
     }
     bar.innerHTML = dockBarHtml(item);
     bar.querySelector('.cw-dock-item')?.addEventListener('click', () => openItem(item));
+    const markable = readable.has(item.threadId) && item.taskId !== undefined;
+    bar.classList.toggle('doc-dock-readable', markable);
+    if (markable) bar.appendChild(markReadButton(item));
     // Measured, never assumed: the headline wraps to two lines at 430, and a
     // rotation or a zoom changes it again.
     setHeight(bar);
@@ -185,7 +228,13 @@ export function mountLinkedDock(opts: LinkedDockOptions): void {
     .read()
     .then((body) => {
       if (scope.disposed) return;
-      items = linkedDockItems((body as { linkedItems?: unknown } | null)?.linkedItems);
+      const list = (body as { linkedItems?: unknown } | null)?.linkedItems;
+      items = linkedDockItems(list);
+      readable = new Set(
+        (Array.isArray(list) ? (list as LinkedDockItem[]) : [])
+          .filter((i) => i.markRead === true)
+          .map((i) => i.reviewItemId),
+      );
       render();
     })
     // A record that could not be read shows no dock; the floats that share

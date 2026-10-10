@@ -195,6 +195,61 @@ describe('the doc dock', () => {
     expect(posts).toEqual([]);
   });
 
+  it("closes a run's output item with Mark read, through the ticket's withdraw route", async () => {
+    const digest = {
+      taskId: 't-digest',
+      reviewItemId: 'r-digest',
+      review: { review_type: 'question', headline: 'New in digests: riverbend-1008.md' },
+      by: 'Claude Workspaces Scheduler',
+      ts: T0,
+      markRead: true,
+    };
+    const { posts } = mount({ meta: {}, linkedItems: [digest] });
+    await vi.waitFor(() => expect(bar()).not.toBeNull());
+    const read = shadow()?.querySelector<HTMLButtonElement>('.doc-dock-read');
+    expect(read?.textContent).toBe('Mark read');
+    read?.click();
+    await vi.waitFor(() => expect(bar()).toBeNull());
+    expect(posts).toEqual([
+      {
+        path: '/workspaces/w-harbor/tasks/t-digest/review-items/r-digest/withdraw',
+        body: { author: READER, reason: 'marked read' },
+      },
+    ]);
+    expect(sheet()).toBeNull();
+    expect(dockHeight()).toBe('');
+  });
+
+  it('keeps Mark read where it was, with the same words, when the server refuses it', async () => {
+    const digest = { ...LINKED, markRead: true };
+    const { posts } = mount({ meta: {}, linkedItems: [digest] }, { answerOk: false });
+    await vi.waitFor(() => expect(bar()).not.toBeNull());
+    shadow()?.querySelector<HTMLButtonElement>('.doc-dock-read')?.click();
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    const read = shadow()?.querySelector<HTMLButtonElement>('.doc-dock-read');
+    await vi.waitFor(() => expect(read?.disabled).toBe(false));
+    expect(read?.textContent).toBe('Mark read');
+    expect(bar()).not.toBeNull();
+  });
+
+  it('offers no Mark read on an ask that is not a run’s output, nor to a signed-out reader', async () => {
+    mount({ meta: {}, linkedItems: [LINKED] });
+    await vi.waitFor(() => expect(bar()).not.toBeNull());
+    expect(shadow()?.querySelector('.doc-dock-read')).toBeNull();
+    for (const f of open.splice(0).reverse()) f();
+    document.body.innerHTML = '<main id="editor-pane"><div id="editor"></div></main>';
+    const { posts } = mount(
+      { meta: {}, linkedItems: [{ ...LINKED, markRead: true }] },
+      { canWrite: false },
+    );
+    await vi.waitFor(() => expect(bar()).not.toBeNull());
+    const read = shadow()?.querySelector<HTMLButtonElement>('.doc-dock-read');
+    expect(read?.disabled).toBe(true);
+    read?.click();
+    await Promise.resolve();
+    expect(posts).toEqual([]);
+  });
+
   it('takes the bar and its height away when the doc is left', async () => {
     const { scope } = mount({ meta: {}, linkedItems: [LINKED] });
     await vi.waitFor(() => expect(bar()).not.toBeNull());
