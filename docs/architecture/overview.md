@@ -1860,7 +1860,14 @@ that expand into ordinary marks, named formats in place of functions, and
 `renderPlot`, the one call each page makes. `renderPlot` draws a chart at
 its container's width and the spec's height, and draws it again when that
 width changes, so a narrow column gets a narrower chart with the same 13px
-text. `mdx-plot-chart.ts` draws the subtitle, the note and the chart slot,
+text; under 600px it also drops explicit x ticks, keeping the first, until
+no two labels overlap. The file's first line names its version and the
+sha256 of every byte after that line, so a copy that has fallen behind shows
+in the line a site compares, or in `tail -n +2 plot-spec.mjs | shasum -a 256`.
+`bun run plot-spec:stamp` (`scripts/plot-spec-stamp.ts`) rewrites the line
+after an edit, moving the version past origin/main's, and a test in
+`plot-spec.test.ts` fails while the line and the contents disagree.
+`mdx-plot-chart.ts` draws the subtitle, the note and the chart slot,
 which it sets to the chart's height (`plotHeight`) before Plot arrives, so
 the doc does not move when it does. It fetches Plot and `buildPlot`
 from `/app/plot/plot.js` the first time a doc shows one, for KaTeX's reason
