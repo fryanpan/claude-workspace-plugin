@@ -185,6 +185,11 @@ describe('the file poll while one bound file’s stat is pending', () => {
       lines.push(args.map(String).join(' '));
     });
     try {
+      // Only the held file is polled here. The log allows one slow-stat line
+      // per window across every doc, and a loaded runner stats a healthy
+      // file in more than SLOW_POLL_STAT_MS: Riverbend's line then takes the
+      // window and Harborlight's is only counted, so no wait can find it.
+      expect(docStore.evictDoc('d-river')).toBe(true);
       seam = holdStatsOf(harbor);
       writeFileSync(harbor, doc('Harborlight after a slow stat.'));
       await waitFor(() => seam?.calls() === 1, { describe: 'the poll to stat the held file' });
@@ -197,7 +202,7 @@ describe('the file poll while one bound file’s stat is pending', () => {
       );
       expect(line).not.toContain(root);
       expect(line).not.toContain('harborlight.md');
-      // One line per window: the healthy doc's stats never cross the bar.
+      // One line per window, though the held file is stat'd again after it.
       expect(lines.filter((l) => l.startsWith('[file-poll]'))).toHaveLength(1);
     } finally {
       errors.mockRestore();
