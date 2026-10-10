@@ -1,13 +1,18 @@
+import { appendFileSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   HOUSE,
   PLOT_MARKS,
   PLOT_POINTERS,
+  PLOT_SPEC_VERSION,
   PLOT_TRANSFORMS,
   PlotSpecError,
   buildPlot,
 } from '@claude-workspaces/core/plot-spec';
 import * as Plot from '@observablehq/plot';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { PLOT_SPEC_PATH, checkFile, stampFile } from '../../../scripts/plot-spec-stamp.ts';
 import { MARKS, ROWS, SPEC } from './fixtures/plot-chart.ts';
 
 /**
@@ -254,5 +259,51 @@ describe('a spec it refuses, calling no Plot function', () => {
     const got = refusal(spec);
     expect(got.code).toBe('bad-spec');
     expect(got.calls).toBe(0);
+  });
+});
+
+describe('the version line other sites compare', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  /** A copy of the canonical file, as a site would hold it. */
+  const copy = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-spec-'));
+    dirs.push(dir);
+    const path = join(dir, 'plot-spec.mjs');
+    copyFileSync(PLOT_SPEC_PATH, path);
+    return path;
+  };
+
+  it('names the version the module exports and the hash of its contents', () => {
+    expect(checkFile(PLOT_SPEC_PATH)).toEqual({ ok: true, version: PLOT_SPEC_VERSION });
+  });
+
+  it('stops matching when the contents change and the line does not', () => {
+    const path = copy();
+    appendFileSync(path, '// one more line\n');
+    expect(checkFile(path)).toMatchObject({ ok: false, version: PLOT_SPEC_VERSION });
+  });
+
+  it('moves the version on once when restamped against the released copy', () => {
+    const released = copy();
+    const edited = copy();
+    appendFileSync(edited, '// one more line\n');
+    const base = copy();
+    const next = { ok: true, version: PLOT_SPEC_VERSION + 1 };
+    // With nothing released to compare, the hash moves and the number stays.
+    expect(stampFile(edited, undefined, '2026-10-11')).toEqual({
+      ok: true,
+      version: PLOT_SPEC_VERSION,
+    });
+    expect(stampFile(edited, released, '2026-10-11')).toEqual(next);
+    // Stamping again on the same branch keeps the new number.
+    expect(stampFile(edited, released, '2026-10-11')).toEqual(next);
+    // A copy that matches the released one keeps its number.
+    expect(stampFile(base, released, '2026-10-11')).toEqual({
+      ok: true,
+      version: PLOT_SPEC_VERSION,
+    });
   });
 });

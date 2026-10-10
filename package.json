@@ -40,6 +40,7 @@
     "keys:trace": "bun run scripts/claude-key-slots.ts",
     "loc:audit": "bun run scripts/loc-audit.ts",
     "ui:shot": "bun run scripts/ui-shot.ts",
+    "plot-spec:stamp": "bun run scripts/plot-spec-stamp.ts",
     "ui:nightly": "bun run scripts/ui-nightly.ts",
     "staging": "bun run scripts/staging.ts",
     "starts:report": "bun run scripts/server-starts.ts",

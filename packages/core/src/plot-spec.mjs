@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 3 (2026-10-10). Other repos copy these bytes verbatim and compare this line.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 4 (2026-10-10, sha256 bfc7453d94a9e4ac). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 3;
+export const PLOT_SPEC_VERSION = 4;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -1048,6 +1048,46 @@ function yearAxis(options, marks) {
 }
 
 /**
+ * Below `NARROW`, an explicit numeric x `ticks` array keeps every nth tick,
+ * starting with the first, so no two labels overlap: each label is its
+ * formatted length in `CH` glyphs plus two glyphs of gap, so neighbours read
+ * as two labels, against the pixels between the closest two ticks across the
+ * plot's width.
+ * @param {Record<string, unknown>} options
+ * @param {ReturnType<typeof checkPlotSpec>} marks
+ * @param {unknown} width
+ */
+function thinTicks(options, marks, width) {
+  if (!(finite(width) && /** @type {number} */ (width) < NARROW)) return;
+  const x = isRecord(options.x) ? options.x : {};
+  const ticks = Array.isArray(x.ticks) ? [...x.ticks].sort((a, b) => a - b) : [];
+  if (ticks.length < 3 || !ticks.every(finite)) return;
+  const named = typeof x.tickFormat === 'string' ? x.tickFormat : 'comma';
+  const format = named === 'd' ? String : plotFormat(named);
+  const label = Math.max(...ticks.map((t) => format(t).length)) * CH + 2 * CH;
+  /** @type {unknown[]} */
+  const xs = Array.isArray(x.domain) ? [...x.domain] : [];
+  if (xs.length === 0) {
+    for (const m of marks) {
+      const field = m.options.x;
+      if (typeof field === 'string') for (const r of m.data) xs.push(get(r, field));
+    }
+  }
+  const all = [...ticks, ...xs.filter(finite).map(Number)];
+  const span = Math.max(...all) - Math.min(...all);
+  const margin = (/** @type {unknown} */ m, /** @type {number} */ d) =>
+    finite(m) ? /** @type {number} */ (m) : finite(options.margin) ? options.margin : d;
+  const plotWidth =
+    /** @type {number} */ (width) -
+    /** @type {number} */ (margin(options.marginLeft, 40)) -
+    /** @type {number} */ (margin(options.marginRight, 20));
+  const gap = Math.min(...ticks.slice(1).map((t, i) => t - /** @type {number} */ (ticks[i])));
+  if (!(span > 0 && gap > 0 && plotWidth > 0)) return;
+  const step = Math.ceil(label / ((gap / span) * plotWidth));
+  if (step > 1) options.x = { ...x, ticks: ticks.filter((_, i) => i % step === 0) };
+}
+
+/**
  * The chart `spec` describes, drawn by `Plot`. Throws a `PlotSpecError`, having
  * called no Plot function, when the spec names anything outside the
  * allowlists, a format or reducer it does not know, or a `data` key it does
@@ -1066,6 +1106,8 @@ export function buildPlot(Plot, spec, env = {}) {
   const checked = checkPlotSpec(expanded);
   const own = { ...expanded.options };
   yearAxis(own, checked);
+  const width = finite(env.width) && /** @type {number} */ (env.width) > 0 ? env.width : own.width;
+  thinTicks(own, checked, width);
   const steps = checked.map((m) => ({
     m,
     mark: fn(Plot, m.mark),
@@ -1073,7 +1115,6 @@ export function buildPlot(Plot, spec, env = {}) {
     pointer: m.pointer ? fn(Plot, m.pointer) : undefined,
   }));
   const height = plotHeight(spec);
-  const width = finite(env.width) && /** @type {number} */ (env.width) > 0 ? env.width : own.width;
   const options = houseOptions({ ...own, height, ...(width === undefined ? {} : { width }) });
   const grid = houseGrid(Plot, own, expanded.grid);
   const plot = fn(Plot, 'plot');

@@ -1,7 +1,7 @@
 import { HOUSE, PlotSpecError, buildPlot, expandPreset } from '@claude-workspaces/core/plot-spec';
 import * as Plot from '@observablehq/plot';
 import { describe, expect, it } from 'vitest';
-import { PRESET, PRESET_OPTIONS, PRESET_SPEC, ROWS } from './fixtures/plot-chart.ts';
+import { PRESET, PRESET_OPTIONS, PRESET_SPEC, ROWS, SPEC } from './fixtures/plot-chart.ts';
 
 /**
  * The presets `plot-spec.mjs` expands into ordinary marks: stackedArea, lines
@@ -274,6 +274,63 @@ describe('a chart under 600px wide', () => {
   });
 });
 
+/** The stacked chart ticked at its five years, each read as a school year. */
+const SCHOOL_YEARS = {
+  ...PRESET_SPEC,
+  options: { ...PRESET_OPTIONS, x: { ticks: [2005, 2010, 2015, 2020, 2025] } },
+  preset: { ...PRESET, goal: undefined, format: { x: 'schoolYear' } },
+};
+
+/** The x tick labels as drawn, each with the x its label is centred on. */
+const xTicks = (svg: Element) =>
+  [...svg.querySelectorAll('[aria-label="x-axis tick label"] text')].map((t) => ({
+    text: t.textContent ?? '',
+    x: Number(/translate\(([\d.]+)/.exec(t.getAttribute('transform') ?? '')?.[1]),
+  }));
+
+describe('explicit x ticks under 600px wide', () => {
+  const at = (spec: Parameters<typeof buildPlot>[1], width: number) =>
+    xTicks(buildPlot(Plot, spec, { width }));
+
+  it('keeps every other school year at 360px, the first kept, no two labels overlapping', () => {
+    const ticks = at(SCHOOL_YEARS, 360);
+    expect(ticks.map((t) => t.text)).toEqual(['2005-06', '2015-16', '2025-26']);
+    for (const [i, t] of ticks.slice(1).entries()) {
+      const prev = ticks[i] as { text: string; x: number };
+      // Centred labels clear each other when their centres sit a label apart.
+      expect(t.x - prev.x).toBeGreaterThan(((t.text.length + prev.text.length) / 2) * 7.5);
+    }
+  });
+
+  it('keeps every tick while the labels still fit', () => {
+    const years = { ...SCHOOL_YEARS, preset: { ...SCHOOL_YEARS.preset, format: {} } };
+    expect(at(years, 599).map((t) => t.text)).toEqual(['2005', '2010', '2015', '2020', '2025']);
+  });
+
+  it('thins further when the plot is narrower still', () => {
+    const many = {
+      ...SCHOOL_YEARS,
+      options: { ...SCHOOL_YEARS.options, x: { ticks: [2005, 2007, 2009, 2011, 2013, 2015] } },
+    };
+    const kept = at(many, 360).map((t) => t.text);
+    expect(kept[0]).toBe('2005-06');
+    expect(kept.length).toBeLessThanOrEqual(3);
+  });
+
+  it('thins the marks form too', () => {
+    const spec = {
+      ...SPEC,
+      options: {
+        ...SPEC.options,
+        width: 360,
+        marginRight: 120,
+        x: { ...SPEC.options.x, ticks: [2005, 2010, 2015, 2020, 2025], tickFormat: 'schoolYear' },
+      },
+    };
+    expect(at(spec, 360).map((t) => t.text)).toEqual(['2005-06', '2015-16', '2025-26']);
+  });
+});
+
 describe('a chart 600px or wider', () => {
   const lines = {
     data: { rows: LINES },
@@ -297,6 +354,7 @@ describe('a chart 600px or wider', () => {
   // a difference here is a change to what a wide chart draws.
   it.each([
     ['stacked-area-820', PRESET_SPEC, undefined],
+    ['stacked-area-ticks-600', SCHOOL_YEARS, 600],
     ['stacked-area-600', PRESET_SPEC, 600],
     ['lines-640', lines, undefined],
     ['lines-600', lines, 600],
