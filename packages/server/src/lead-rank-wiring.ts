@@ -20,6 +20,7 @@ import type { WebhookPayload } from '@claude-workspaces/core';
 import {
   AskFeed,
   type AskFrame,
+  type GoalTitleOf,
   type ThreadHome,
   askFromReviewItemAdded,
   asksFromThreadEvent,
@@ -34,6 +35,8 @@ export interface LeadRankWiringDeps {
   planBoard: () => string | undefined;
   leadOf: (workspaceId: string) => string | undefined;
   boardName: (workspaceId: string) => string | undefined;
+  /** A goal's title, for the goal a blocking ask stops (`ask-feed.ts`). */
+  goalTitle?: GoalTitleOf;
   isOff: (place: { workspaceId: string; docId?: string }) => boolean;
   /** `isOff`, except that a shared board counts as on. */
   rankIsOff: (place: { workspaceId: string; docId?: string }) => boolean;
@@ -108,7 +111,7 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
   const offTask = deps.onTaskEvent((ev) => {
     if (ev.type === 'review_item.added') {
       guarded('ask feed', () =>
-        feed.offer(askFromReviewItemAdded(ev, deps.boardName(ev.workspaceId))),
+        feed.offer(askFromReviewItemAdded(ev, deps.boardName(ev.workspaceId), deps.goalTitle)),
       );
     } else if (ev.type === 'task.regrouped' && ev.actor.kind === 'person') {
       guarded('person move', () => ranks.notePersonMove(ev.workspaceId, ev.taskId, ev.ts));
@@ -140,7 +143,7 @@ export function wireLeadRanks(deps: LeadRankWiringDeps): LeadRankWiring {
           const board = deps.boardName(h.workspaceId);
           return board ? { ...h, board } : h;
         });
-        for (const ask of asksFromThreadEvent(payload, homes)) feed.offer(ask);
+        for (const ask of asksFromThreadEvent(payload, homes, deps.goalTitle)) feed.offer(ask);
       });
     },
     stop: () => {

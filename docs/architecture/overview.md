@@ -53,7 +53,7 @@ flowchart TB
   subgraph srv["server — one Bun process"]
     edge["HTTP edge<br/>server.ts · routes/ · middleware/ · shells.ts · app-waiting-page.ts · member-home.ts<br/>request-admission · request-attribution<br/>socket-handlers · server-options<br/>connector/ (hosted MCP at /mcp)"]
     docs["Doc store and attachments<br/>doc-store.ts · binds.ts · file-binding.ts · file-stamp.ts<br/>doc-*.ts · doc-origin-repo.ts · doc-key.ts · repo-registry.ts<br/>repo-registry-file.ts · repo-registry-checkouts.ts<br/>doc-thread-merge.ts · doc-identity-plan.ts · doc-identity-migration.ts<br/>doc-identity-renames.ts · doc-identity-journal.ts · doc-identity-check.ts<br/>attachment-backfill.ts<br/>note-list-gap-repair.ts · note-list-gap-corpus.ts<br/>mount-registry.ts · mount-registry-file.ts · mount-scan.ts<br/>mount-reconcile.ts · mount-store.ts · attachment-privacy.ts<br/>mockup-capture.ts · mockup-versions.ts · mockup-live.ts · mockup-widget.ts<br/>mockup-linked-items.ts · mockup-frame.ts · mockup-page-links.ts · app-proxy.ts · app-outage.ts · page-thread.ts<br/>yjs-protocol.ts · sse.ts · sse-mux.ts · sse-writer.ts"]
-    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review · landing-goals<br/>review-size-prefs · review-ranks · ask-feed<br/>lead-rank-wiring · held-window · inbox/ · coach/"]
+    board["Board<br/>tasks.ts · task-*.ts · review-items/<br/>home-pane.ts · board-membership.ts · activity.ts<br/>library.ts · library-location.ts<br/>review-plan · review-sizing · cross-review-queue · cross-review<br/>review-answer-ledger · board-summary · landing-review · landing-goals · landing-changes<br/>review-size-prefs · review-ranks · ask-feed<br/>lead-rank-wiring · held-window · inbox/ · coach/"]
     meet["Meetings<br/>meetings.ts · meeting-*.ts · notes-*.ts<br/>notes-edit-guard.ts · notes-invented-links.ts · notes-scheme-links.ts<br/>notes-method-*.ts · transcribe-*.ts · recall*.ts"]
     keep["Keep-moving<br/>stall-wiring · stall-gate · stall-nudge<br/>stall-escalation · waiting-unfiled-escalation<br/>waiting-unfiled-review · waiting-unfiled-sidecar<br/>waiting-unfiled-routing · waiting-unfiled-frame<br/>waiting-unfiled-filing<br/>unanswered-thread · keep-moving · owner-ask · waiting-unfiled · blockage-lift<br/>keep-moving-verdict · ui-review-gate<br/>stall-frame-news · wake-sent-sets<br/>ready-nudge · ready-gate · ready-release · board-activity"]
     ident["Identity and sharing<br/>auth/ · share/ · identities.ts<br/>sharing-notice.ts"]
@@ -1593,6 +1593,31 @@ second socket in the same turn is held for about 100ms. That is the delay the
 board's wake frames and every comment broadcast were paying on the machine
 prod runs on.
 
+`page-nudges.ts` sits beside `sse.ts` too. It tells an open page that a list
+it read over REST is stale: a board's Library and members (`library.changed`,
+`members.changed` on `ws~<board>`), a review's sidebar (`attachments.changed`
+on `ws~<set>`), the voice page's agents (`voice~`) and the prompts page
+(`prompts~`). It listens on hook slots the stores already expose or gained for
+it — `DocStore.onIndexChanged`, `TaskStore.onBoardDocsChanged`,
+`ShareLinks.onSaved`, the bus's tap and `onAgentStreams` — and chains onto
+whatever held them. Frames name only the list, are transient, coalesce per
+150ms burst and skip agent streams. On the page side, `workspaces-app/src/set-live.ts`
+is the one stream a doc page opens for its review's sidebar; the board, voice
+and settings pages listen on streams they hold already or open one each.
+
+`folder-watch.ts` covers the one change no store announces: a file created,
+deleted or renamed straight on disk in a review's folder. While a page holds
+`ws~<set>` (the bus's `watchStreams` and `pagesOn`; agent streams do not
+count) it keeps one recursive `fs.watch` on the folder root, and on a settled
+burst compares a names-only listing (`git ls-files`, else an async `readdir`
+walk) with the last one. A changed listing runs `refreshWorkspace`, whose
+`onSetRescanned` sends the same `attachments.changed`. A diff review based on
+the working tree compares its diff instead (`git diff --numstat` against the
+stored base, path, status and counts per file), so a tracked file's first
+edit joins the list and a save that moves a count redraws it, while a save
+of the same bytes sends nothing. The watch closes with the last page, and at
+most 32 run at once.
+
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and
 `server.ts` calls it once at the front door so no route can be reached with a
@@ -1670,7 +1695,10 @@ from the doc's own folder (`routes/doc-assets.ts`) while the node, and so the
 `.md`, keeps the path as written. `doc-image-upload.ts` beside it takes a
 pasted, dropped or picked image file to that route's POST, which stores it in
 `images/` beside the `.md` through the server's `doc-image-store.ts` (one of
-the `doc-*.ts` the diagram draws), then inserts the path it answers. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+the `doc-*.ts` the diagram draws), then inserts the path it answers.
+`doc-image-retry.ts`, which that block image installs, asks again for an
+image whose file was not there yet, so it appears once the file lands without
+a reload; it changes the DOM's `src` only. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"
@@ -1940,6 +1968,14 @@ Home can show, the landing bar becomes `landing-goals.ts`. It shows the lead's
 Top 10, and then the items by goal: urgent first, the plan's goals in order,
 the untagged items under one count line, and not-this-week and drop folded.
 Each row opens `/review?item=<key>`. With no tags, the bar is unchanged.
+
+An open landing page stays current. `landing-changes.ts` taps every SSE
+broadcast, keeps the task, goal, review-item, decision and thread events, and
+sends one `landing.changed` frame per 250ms burst on
+`/landing/events:stream` (`routes/landing-stream.ts`). The page's
+`landing-live.ts` then re-reads `/` and swaps the review bar and the board
+list, keeping the open tab and folds. A lead's rank is broadcast nowhere, so
+the rank route calls the feed directly.
 
 **Incoming Messages** is a section on the landing page that lists the
 message threads an inbox reader agent judged worth Bryan's time. It is not a

@@ -115,9 +115,9 @@ function ReviewRow(props: {
    * a chip on every row and tell the reader nothing they act on.
    */
   const mark = item.review?.shape === 'secret' ? reviewShapeBadge('secret') : undefined;
-  /** What this ask is holding up, when the asker said it is idle until the
-   *  answer — the queue already put it first (`review-blocks.ts`). */
-  const stops = blocksLine(item.review);
+  /** What this ask is holding up, and the goal that work serves, when the
+   *  asker said it is idle until the answer (`review-blocks.ts`). */
+  const stops = blocksLine(item.review, item.stopsGoal);
   const className = `board-review-row board-review-${item.kind}${index === 0 ? ' board-review-row-current' : ''}${rev ? ' board-review-row-revised' : ''}`;
   const title = `${REVIEW_KIND_LABEL[item.kind]}: ${item.title}${item.ask ? ` — ${item.ask}` : ''}${item.why ? ` · ${item.why}` : ''}`;
   // Into the queue's own card at this row, not out to the task or the doc.

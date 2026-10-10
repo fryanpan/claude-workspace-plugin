@@ -126,6 +126,14 @@ export class SseBus {
   private replay = new Map<string, BufferedEvent[]>();
   private lastSweepAt = 0;
 
+  /** Called with the channel and event name of every `broadcast`, after the
+   *  fan-out. The workspaces list's change feed reads this (`landing-changes.ts`). */
+  private taps = new Set<(channel: string, event: string) => void>();
+  tap(fn: (channel: string, event: string) => void): () => void {
+    this.taps.add(fn);
+    return () => this.taps.delete(fn);
+  }
+
   /**
    * channel → the newest id each AUDIENCE on it saw, as far as this server
    * knows: everything this process has sent, seeded at boot with what the
@@ -220,6 +228,15 @@ export class SseBus {
    */
   onAgentStreams: ((docId: string, agentId: string) => void) | null = null;
 
+  /** Told the channel whenever any stream on it opens or closes. The folder
+   *  watches read it to hold a folder only while a page has it open
+   *  (`folder-watch.ts`). */
+  private streamWatchers = new Set<(docId: string) => void>();
+  watchStreams(fn: (docId: string) => void): () => void {
+    this.streamWatchers.add(fn);
+    return () => this.streamWatchers.delete(fn);
+  }
+
   add(
     docId: string,
     sink: Sink,
@@ -238,6 +255,7 @@ export class SseBus {
       ...(shareMember !== undefined ? { shareMember } : {}),
     });
     if (agentId !== undefined) this.onAgentStreams?.(docId, agentId);
+    for (const fn of this.streamWatchers) fn(docId);
     return () => this.remove(docId, sink);
   }
 
@@ -248,6 +266,7 @@ export class SseBus {
     set.delete(sink);
     if (set.size === 0) this.byDoc.delete(docId);
     if (agentId !== undefined) this.onAgentStreams?.(docId, agentId);
+    for (const fn of this.streamWatchers) fn(docId);
   }
 
   /**
@@ -279,9 +298,7 @@ export class SseBus {
     const maybeEid = (payload as { eid?: unknown }).eid;
     const id = typeof maybeEid === 'string' && maybeEid.length > 0 ? maybeEid : newEventId();
     this.buffer(docId, id, payload);
-    const set = this.byDoc.get(docId);
-    if (!set) return;
-    for (const [sink, who] of set) {
+    for (const [sink, who] of this.byDoc.get(docId) ?? []) {
       try {
         const p = forSink?.(who) ?? payload;
         sink.write(p.event, p, id);
@@ -289,6 +306,7 @@ export class SseBus {
         console.error('[sse] write failed:', err);
       }
     }
+    for (const fn of this.taps) fn(docId, payload.event);
   }
 
   /**
@@ -483,6 +501,13 @@ export class SseBus {
 
   count(docId: string): number {
     return this.byDoc.get(docId)?.size ?? 0;
+  }
+
+  /** How many streams on this channel no agent opened — browser tabs. */
+  pagesOn(docId: string): number {
+    let n = 0;
+    for (const who of this.byDoc.get(docId)?.values() ?? []) if (!who.agentId) n++;
+    return n;
   }
 
   /**

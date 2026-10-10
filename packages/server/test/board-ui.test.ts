@@ -161,8 +161,13 @@ describe('board UI routes (plan §3.12 commit 7)', () => {
     // forever as an ungrouped artifact. Absence asserted only after the
     // presence above proves the doc actually exists to be hidden.
     it('keeps the feedback doc out of the landing index', async () => {
-      const html = await (await fetch(`${base}/`)).text();
-      expect(html).toContain('Workspaces'); // the real landing page
+      const page = await (await fetch(`${base}/`)).text();
+      expect(page).toContain('Workspaces'); // the real landing page
+      // The feedback widget names the doc as where its comments go; that is
+      // the one place it may appear. Nothing lists it as an attachment.
+      const widget = /<claude-feedback-widget\b[^>]*><\/claude-feedback-widget>/;
+      expect(page).toMatch(widget);
+      const html = page.replace(widget, '');
       expect(html).not.toContain(BOARD_FEEDBACK_DOC_ID);
       expect(html).not.toContain('Board feedback (all workspaces)');
     });

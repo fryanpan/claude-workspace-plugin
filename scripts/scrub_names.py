@@ -46,10 +46,11 @@ REPEATS_SENT = 2
 # PLACEHOLDER_NAMES adds the two the scanner's prompt names first. A line whose
 # only new word is one of these five is never sent, and a Haiku block naming
 # only these is overridden (scrub_placeholders.py). The exemption is these
-# exact words, whole and in this case: a longer word that starts with one, a
-# lower-case spelling, or an unfamiliar surname beside one is still new.
+# words whole, as written or in capitals (a test constant): a longer word, a
+# lower-case or mixed spelling, or an unfamiliar surname beside one is new.
 HOUSE_FIXTURE_NAMES = ("Harborlight", "Riverbend", "Saltmarsh")
 PLACEHOLDER_NAMES = ("Alice", "Bob") + HOUSE_FIXTURE_NAMES
+PLACEHOLDER_SPELLINGS = frozenset(PLACEHOLDER_NAMES + tuple(n.upper() for n in PLACEHOLDER_NAMES))
 
 _RUN = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
 _HEXISH = re.compile(r"^[0-9a-fA-F]{7,}$")
@@ -203,9 +204,9 @@ def triggers(text: str, vocab: Vocabulary) -> Set[str]:
 
 
 def _placeholders_on(found: List[Token]) -> Set[str]:
-    """Folded placeholders the line spells only in their exact case, whole."""
-    exact = {t.word.lower() for t in found if t.word in PLACEHOLDER_NAMES and not t.split}
-    return exact - {t.word.lower() for t in found if t.word not in PLACEHOLDER_NAMES or t.split}
+    """Folded placeholders the line spells only in a sanctioned case, whole."""
+    exact = {t.word.lower() for t in found if t.word in PLACEHOLDER_SPELLINGS and not t.split}
+    return exact - {t.word.lower() for t in found if t.word not in PLACEHOLDER_SPELLINGS or t.split}
 
 
 def _placeholder_pair(a: str, b: str, vocab: Vocabulary) -> bool:

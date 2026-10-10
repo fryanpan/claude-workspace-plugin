@@ -14102,6 +14102,17 @@ function appUnreachableLine(p) {
   return `[workspace.app_unreachable] ${lead} Start its dev server on that origin.${whose} This notice fires once per outage, again only when a waiting reader asks, and re-arms after the app next answers.`;
 }
 
+// packages/core/src/review-blocks.ts
+var REVIEW_BLOCKS_HOURS_MAX = 24 * 14;
+var BLOCKS_LINE_PREFIX = "Stopped until you answer: ";
+var BLOCKS_GOAL_PREFIX = " — stops work on ";
+function blocksLine(review, goal) {
+  const what = review?.blocks?.what;
+  if (what === undefined)
+    return;
+  return `${BLOCKS_LINE_PREFIX}${what}${goal ? `${BLOCKS_GOAL_PREFIX}${goal}` : ""}`;
+}
+
 // packages/mcp/src/asks-line.ts
 function clock(at, timeZone) {
   if (typeof at !== "number" || !Number.isFinite(at))
@@ -14118,7 +14129,9 @@ function itemLine(i, timeZone) {
   if (!i.key || !i.headline)
     return null;
   const board = i.board ?? i.workspaceId ?? "?";
-  return `- ${clock(i.createdAt, timeZone)} ${board}, ${rowOf(i.row)}: "${i.headline}" (key ${i.key})`;
+  const what = i.stops?.what;
+  const stops = what ? ` ${blocksLine({ blocks: { what } }, i.stops?.goal)}.` : "";
+  return `- ${clock(i.createdAt, timeZone)} ${board}, ${rowOf(i.row)}: "${i.headline}" (key ${i.key})${stops}`;
 }
 function asksLine(p, timeZone) {
   const lines = (p.items ?? []).flatMap((i) => itemLine(i, timeZone) ?? []);
@@ -14146,7 +14159,14 @@ function mayCarryAnOpenAsk(thread) {
     return review.answeredAt === undefined && review.answeredWith === undefined && review.withdrawnAt === undefined;
   });
 }
-var BOOKKEEPING_EVENTS = new Set(["comment.delivered", "agent.listening", "replay.gap"]);
+var BOOKKEEPING_EVENTS = new Set([
+  "comment.delivered",
+  "agent.listening",
+  "replay.gap",
+  "library.changed",
+  "members.changed",
+  "attachments.changed"
+]);
 function isBookkeepingEvent(event, payload) {
   if (BOOKKEEPING_EVENTS.has(event))
     return true;
@@ -15878,7 +15898,7 @@ var REVIEW_ITEM_SCHEMA = {
     },
     blocks: {
       type: "object",
-      description: "Set this when you are idle until the reader answers: name the work that is stopped. The item then sorts above every other on the reader's Home with the line 'Stopped until you answer: <what>', and its push leads with it. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
+      description: "Set this when you are idle until the reader answers: name the work that is stopped. The item's row carries the line 'Stopped until you answer: <what> — stops work on <goal>', and its push leads with it. The server fills in the goal from the item's task. The plan lead still ranks it: a ranked item keeps its place, and a blocking one leads only the items the lead has not ranked. Omit it when you can keep working while you wait. A deadline that conflicts with what the reader asked for belongs here, filed at once, not in a later item.",
       properties: {
         what: {
           type: "string",
@@ -15887,6 +15907,10 @@ var REVIEW_ITEM_SCHEMA = {
         hours: {
           type: "number",
           description: "How many hours the work stays stopped if nobody answers, when you can say."
+        },
+        goalId: {
+          type: "string",
+          description: "The id of the goal the stopped work serves, for an item that is not on a task. On a task the server uses the task's goal instead."
         }
       },
       required: ["what"]
@@ -21293,7 +21317,7 @@ function createConnectorSession(deps) {
 // packages/mcp/src/mcp.ts
 var resolveBaseUrl2 = () => resolveBaseUrl({ env: process.env, homedir, existsSync, readFileSync });
 var AUTHOR = resolveAgentAuthor(process.env);
-var PLUGIN_VERSION = "0.1.304";
+var PLUGIN_VERSION = "0.1.306";
 var PROCESS_ID = randomUUID();
 var server = new Server({
   name: "claude-workspaces",

@@ -19,6 +19,7 @@ const ctx: VoicePageRoutesContext = {
   agents: () => [{ id: 'w-1', name: 'Harborlight', agents: [] }],
   renderPage: () => '<p>voice</p>',
   pageHeaders: { 'content-type': 'text/html' },
+  stream: () => new Response('stream', { headers: { 'content-type': 'text/event-stream' } }),
   j: (status, body) => Response.json(body, { status }),
 };
 
@@ -57,6 +58,16 @@ describe('who may open the voice page', () => {
     };
     expect(ask('/voice', visitor)?.status).toBe(403);
     expect(ask('/api/voice/agents', visitor)?.status).toBe(403);
+    expect(ask('/api/voice/events:stream', visitor)?.status).toBe(403);
+  });
+
+  it('the live stream sits behind the same owner check as the list', () => {
+    const owner = { ownerProven: () => true, anyoneProven: () => true };
+    expect(ask('/api/voice/events:stream', owner)?.headers.get('content-type')).toBe(
+      'text/event-stream',
+    );
+    expect(ask('/api/voice/events:stream', { anyoneProven: () => true })?.status).toBe(403);
+    expect(ask('/api/voice/events:stream', { mustSignIn: () => true })?.status).toBe(401);
   });
 
   it('a signed-in person who is not the owner is refused', () => {

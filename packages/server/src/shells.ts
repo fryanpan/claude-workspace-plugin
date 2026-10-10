@@ -993,6 +993,9 @@ function renderLandingArtifact(a: LandingArtifact): string {
 export const LANDING_CSS = `
 *{box-sizing:border-box}
 body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0 auto;max-width:760px;padding:20px 14px 40px;color:#1b1f23;overflow-wrap:anywhere}
+/* The feedback buttons are fixed in the bottom-right ~120px; room below the
+   last row so it can scroll out from under them on a phone. */
+body:has(claude-feedback-widget){padding-bottom:132px}
 h1{font-size:20px;margin:0 0 2px}
 h2{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#57606a;margin:26px 0 8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
 .count{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:#8b95a1}
@@ -1110,6 +1113,9 @@ export function renderLanding(
   inbox = '',
   /** The week's goals and the coach's nudge, first on the page (coach/landing.ts). */
   coach = '',
+  /** A board to reach the Workspaces feedback doc at, or '' for no widget.
+   *  The board shell's widget, for the same reasons; '' for a visitor. */
+  feedbackWorkspaceId = '',
 ): string {
   const days = Math.round(model.windowMs / 86_400_000);
   // Retired boards are NOT in this denominator. "Nothing active, 3 inactive
@@ -1150,18 +1156,25 @@ export function renderLanding(
       ? ''
       : `<details class="fold"><summary>Attachments by project <span class="count">${model.projects.length}</span></summary>
 <ul>${model.projects.map(renderLandingProjectLink).join('')}</ul></details>`;
+  // `#landing-review` and `#landing-boards` are what `landing-live.ts` swaps
+  // when a board changes; the coach and the inbox keep their own wiring.
   return landingShell(
     'Workspaces',
     `<h1>Workspaces</h1>
 <meeting-banner workspace-name="${escape(notesWorkspaceName)}"></meeting-banner>
-<script type="module" src="${assetHref(assets, 'landing.js')}"></script>
+<script type="module" src="${assetHref(assets, 'landing.js')}"></script>${
+      feedbackWorkspaceId
+        ? `
+<claude-feedback-widget workspace-id="${escape(feedbackWorkspaceId)}" doc-id="${escape(BOARD_FEEDBACK_DOC_ID)}" view="All workspaces" identity-scope="host"></claude-feedback-widget>`
+        : ''
+    }
 ${coach}
-${renderReviewBar(review)}
+<div id="landing-review">${renderReviewBar(review)}</div>
 ${inbox}
-${active}
+<div id="landing-boards">${active}
 ${inactive}
 ${retired}
-${projects}`,
+${projects}</div>`,
     sentry,
     assets,
   );

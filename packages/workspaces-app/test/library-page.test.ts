@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LibraryPayload, LibraryRow } from '../src/board/library-model.ts';
-import { settle } from './boot-harness.ts';
+import { FakeEventSource, settle } from './boot-harness.ts';
 import { WS, bootTestBoard, click, el, resetBoardServer, server } from './support/board-drive.ts';
 import { type DriveOptions, driveLibrary } from './support/library-drive.ts';
 
@@ -379,5 +379,52 @@ describe('the Library on the board', () => {
     await click(document.querySelector('[data-nav=tasks]') as HTMLElement);
     expect(showing('board-library')).toBe(false);
     expect(showing('board')).toBe(true);
+  });
+
+  /** The board's own feed, which the Library rides rather than opening one. */
+  const boardFeed = () => {
+    const feed = [...FakeEventSource.opened]
+      .reverse()
+      .find((es) => es.url.endsWith(`/workspaces/${WS}/events:stream`));
+    if (!feed) throw new Error('the board never opened its feed');
+    return feed;
+  };
+
+  it('an open Library redraws a meeting filed elsewhere, on the list it shows', async () => {
+    await bootTestBoard({ url: `https://board.test/workspaces/${WS}/library` });
+    await settle();
+    await click(
+      el('board-library').querySelector('.library-more[data-list=meetings]') as HTMLElement,
+    );
+    expect(el('board-library').querySelector('h2')?.textContent).toBe('All meetings');
+    expect(names(el('board-library'))).not.toContain('Saltmarsh review');
+    server.on(`/workspaces/${WS}/library/items`, {
+      ...PAYLOAD,
+      meetings: [
+        {
+          name: 'Saltmarsh review',
+          at: NOW + HOUR,
+          href: `/workspaces/${WS}/docs/saltmarsh-review`,
+        },
+        ...PAYLOAD.meetings,
+      ],
+    });
+    const reads = () => server.calls.filter((c) => c.url.endsWith('/library/items')).length;
+    const before = reads();
+    boardFeed().dispatchEvent(new Event('library.changed'));
+    await settle();
+    expect(reads()).toBe(before + 1);
+    expect(names(el('board-library'))).toContain('Saltmarsh review');
+    expect(el('board-library').querySelector('h2')?.textContent).toBe('All meetings');
+  });
+
+  it('a Library that is not showing does not re-read on the frame', async () => {
+    await bootTestBoard();
+    await settle();
+    const reads = () => server.calls.filter((c) => c.url.endsWith('/library/items')).length;
+    const before = reads();
+    boardFeed().dispatchEvent(new Event('library.changed'));
+    await settle();
+    expect(reads()).toBe(before);
   });
 });

@@ -72,6 +72,10 @@ export interface BoardLiveDeps {
   loadHome: () => Promise<void>;
   loadReviewItems: () => Promise<void>;
   loadDiscussion: (row: LiveDiscussionRow, quiet?: boolean) => Promise<void>;
+  /** The Library's re-read, which skips itself unless the Library is showing. */
+  libraryChanged: () => void;
+  /** The members list's re-read, a thunk: settings is wired after this. */
+  membersChanged: () => void;
   /** The address bar the boot was handed. Following a person off this board
    *  leaves through it, so a test can read where the follow sent us. */
   location: Pick<BootLocation, 'assign'>;
@@ -100,6 +104,8 @@ export function wireBoardLive(deps: BoardLiveDeps): void {
     loadHome,
     loadReviewItems,
     loadDiscussion,
+    libraryChanged,
+    membersChanged,
     location,
   } = deps;
 
@@ -240,6 +246,11 @@ export function wireBoardLive(deps: BoardLiveDeps): void {
     void loadDiscussion(open, true);
   });
 
+  // Two lists read over REST that only the server sees change: a doc filed,
+  // archived or renamed (`page-nudges.ts` on the server), and who has access.
+  es.addEventListener('library.changed', () => libraryChanged());
+  es.addEventListener('members.changed', () => membersChanged());
+
   // A task going done takes its discussion out of the queue, and so does an
   // item taken back: a reader's Mark read, or a run's output item whose files
   // were all opened. No task row records that, so nothing else repaints it.
@@ -287,6 +298,8 @@ export function wireBoardLive(deps: BoardLiveDeps): void {
       void loadEvents();
       void loadReviewItems();
       if (state.pane === 'home') void loadHome();
+      libraryChanged();
+      membersChanged();
     },
   });
   // Its own line, under the reconnect banner rather than sharing it: that one

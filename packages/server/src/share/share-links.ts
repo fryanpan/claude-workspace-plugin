@@ -349,6 +349,8 @@ export class ShareLinks {
     return true;
   }
 
+  /** Told after every write, so an open members list can re-read. */
+  onSaved: (() => void) | null = null;
   list(): ShareLinkRecord[] {
     return this.links.slice();
   }
@@ -468,6 +470,7 @@ export class ShareLinks {
     writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: SECRET_MODE });
     chmodSync(tmp, SECRET_MODE); // an existing tmp keeps its old mode otherwise
     renameSync(tmp, path);
+    this.onSaved?.();
   }
 }
 

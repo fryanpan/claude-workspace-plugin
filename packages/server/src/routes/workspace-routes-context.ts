@@ -105,6 +105,9 @@ export interface WorkspaceRoutesContext {
    * shape that makes a cooldown pass alone and fail in a suite.
    */
   slowLoadAlarm: SlowLoadAlarm;
+  /** Told when a board's own prompt words change, so an open prompts
+   *  settings page re-reads (`page-nudges.ts`). */
+  onBoardPromptsChanged?: (workspaceId: string) => void;
   /** How many builders the board may run, and who is holding the slots. */
   parallelismCapView: (
     workspaceId: string,

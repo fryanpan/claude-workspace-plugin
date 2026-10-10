@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type JSONWebKeySet, type JWK, SignJWT, exportJWK, generateKeyPair } from 'jose';
-import { type ServerHandle, createServer } from '../src/server.ts';
+import { BOARD_FEEDBACK_DOC_ID, type ServerHandle, createServer } from '../src/server.ts';
 import { ACCESS_SHARE_CONFIG, mockCfApi } from './access-share.ts';
 
 const TEAM_DOMAIN = 'test.cloudflareaccess.com';
@@ -169,6 +169,25 @@ describe('a member at the main address', () => {
       const owner = await (await page(OWNER_EMAIL, '/')).text();
       expect(owner).toContain('POST /workspaces/');
       expect(owner).toContain('Riverbend launch');
+    });
+
+    // The Workspaces feedback doc is shared by every board, and a Yjs peer
+    // syncs the whole doc, so the widget on a member's list would hand them
+    // every board's feedback threads. The owner's list carries it.
+    it('carries the Workspaces feedback widget for the owner and for no member', async () => {
+      const owner = await (await page(OWNER_EMAIL, '/')).text();
+      const tag = owner.match(/<claude-feedback-widget\b[^>]*>/)?.[0] ?? '';
+      expect(tag).toContain(`doc-id="${BOARD_FEEDBACK_DOC_ID}"`);
+      expect(tag).toContain('identity-scope="host"');
+      // The doc belongs to every board; the widget needs one to be reached at.
+      expect(tag).toMatch(/workspace-id="[^"]+"/);
+      for (const host of [MAIN_HOST, SHARE_HOST]) {
+        const html = await (await page(ALICE, '/', host)).text();
+        expect(html).toContain('Harborlight research');
+        // The element, not the word: the list's stylesheet names it.
+        expect(html).not.toMatch(/<claude-feedback-widget\b/);
+        expect(html).not.toContain(BOARD_FEEDBACK_DOC_ID);
+      }
     });
 
     it('says so when nothing is shared with the address', async () => {

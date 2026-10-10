@@ -426,8 +426,20 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     });
   };
 
-  /** `/` — the landing page. Async only for the review bar's loads. */
-  const serveLanding = async (ownerProven: boolean): Promise<Response> => {
+  /**
+   * The board `/`'s feedback widget reaches the Workspaces feedback doc at,
+   * or '' for none. The doc belongs to every board, so any board will do;
+   * the default one first. Looked up, never created: reading `/` must not
+   * mint a board on an empty server.
+   */
+  const feedbackWorkspaceId = (): string => {
+    const boards = taskStore.listWorkspaces();
+    return (boards.find((w) => w.name === defaultBoardWorkspaceName) ?? boards[0])?.id ?? '';
+  };
+
+  /** `/` — the landing page. Async only for the review bar's loads.
+   *  `feedback` is false for a visitor, as on the board (`renderBoardShell`). */
+  const serveLanding = async (ownerProven: boolean, feedback: boolean): Promise<Response> => {
     const review = await landingReview();
     // Bryan's messages, for Bryan's own session only: never for an agent
     // reading `/` from this machine, which proves nobody.
@@ -455,6 +467,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
         review,
         inbox,
         coach,
+        feedback ? feedbackWorkspaceId() : '',
       ),
       { headers: HTML_SHELL_HEADERS },
     );
@@ -685,7 +698,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
     }
 
     // --- Landing ---
-    if (pathname === '/') return serveLanding(ownerProven);
+    if (pathname === '/') return serveLanding(ownerProven, !visitor);
 
     // --- One project's artifacts, on demand ---
     // The landing page deliberately does not carry these. Work here is
