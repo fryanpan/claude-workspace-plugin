@@ -57,3 +57,29 @@ export function plotChartSource(over: { title?: string; marks?: unknown } = {}):
     `  marks={${JSON.stringify(over.marks ?? MARKS)}} />`,
   ].join('\n');
 }
+
+/** The same chart written as the stackedArea preset. */
+export const PRESET = {
+  type: 'stackedArea',
+  data: 'rows',
+  x: 'year',
+  y: 'n',
+  series: 'mode',
+  order: ['Walking', 'Biking'],
+  goal: { value: 16, label: 'Safe Routes goal, 16 a year' },
+};
+
+export const PRESET_OPTIONS = { width: 820, height: 380, y: { domain: [0, 80] } };
+
+export const PRESET_SPEC = { data: { rows: ROWS }, options: PRESET_OPTIONS, preset: PRESET };
+
+/** The preset form as a post writes it. */
+export function plotChartPresetSource(title = 'Riverbend school trips, preset'): string {
+  return [
+    `<PlotChart title="${title}"`,
+    '  subtitle="Trips a year, stacked"',
+    `  data={${JSON.stringify({ rows: ROWS })}}`,
+    `  options={${JSON.stringify(PRESET_OPTIONS)}}`,
+    `  preset={${JSON.stringify(PRESET)}} />`,
+  ].join('\n');
+}

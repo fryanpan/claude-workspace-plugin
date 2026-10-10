@@ -1,4 +1,5 @@
 import {
+  HOUSE,
   PLOT_MARKS,
   PLOT_POINTERS,
   PLOT_TRANSFORMS,
@@ -22,7 +23,14 @@ function spyPlot(): {
 } {
   const calls: Array<{ name: string; args: unknown[] }> = [];
   const plot: Record<string, unknown> = {};
-  for (const name of [...PLOT_MARKS, ...PLOT_TRANSFORMS, ...PLOT_POINTERS, 'plot']) {
+  for (const name of [
+    ...PLOT_MARKS,
+    ...PLOT_TRANSFORMS,
+    ...PLOT_POINTERS,
+    'gridX',
+    'gridY',
+    'plot',
+  ]) {
     plot[name] = (...args: unknown[]) => {
       calls.push({ name, args });
       return name === 'plot' ? document.createElement('figure') : { from: name, args };
@@ -88,7 +96,11 @@ describe('how a mark is composed', () => {
     const tip = names.lastIndexOf('tip');
     expect(names.slice(tip - 2, tip + 1)).toEqual(['stackY2', 'pointerX', 'tip']);
     const stacked = calls[tip - 1]?.args[0];
-    expect(stacked).toEqual({ from: 'stackY2', args: [MARKS[3]?.options] });
+    // The spec's own options, over the tip's house edge.
+    expect(stacked).toEqual({
+      from: 'stackY2',
+      args: [{ stroke: HOUSE.rule, ...MARKS[3]?.options }],
+    });
     expect(calls[tip]?.args).toEqual([ROWS, { from: 'pointerX', args: [stacked] }]);
   });
 
@@ -106,7 +118,15 @@ describe('how a mark is composed', () => {
     expect(last?.name).toBe('plot');
     const opts = last?.args[0] as { width: number; marks: Array<{ from: string }> };
     expect(opts.width).toBe(820);
-    expect(opts.marks.map((m) => m.from)).toEqual(['areaY', 'ruleY', 'text', 'tip']);
+    // The house grid and zero line first, under the spec's own marks.
+    expect(opts.marks.map((m) => m.from)).toEqual([
+      'gridY',
+      'ruleY',
+      'areaY',
+      'ruleY',
+      'text',
+      'tip',
+    ]);
   });
 });
 

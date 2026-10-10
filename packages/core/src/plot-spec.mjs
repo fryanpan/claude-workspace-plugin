@@ -1,17 +1,21 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 1 (2026-10-10). Other repos copy these bytes verbatim and compare this line.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 2 (2026-10-10). Other repos copy these bytes verbatim and compare this line.
 // @ts-check
 
 /**
  * The `<PlotChart>` spec turned into an Observable Plot chart, without
  * evaluating anything: every name the spec gives is looked up in an
  * allowlist, every `data` reference is a key into the spec's own `data` or an
- * inline array, and every other string is handed to Plot as the field name or
- * constant it already is.
+ * inline array, a format is one of a few names, and every other string is
+ * handed to Plot as the field name or constant it already is.
  *
- * Each mark is `Plot[mark](data, Plot[pointer](Plot[transform](options)))`,
- * leaving out whichever wrapper the mark does not name. The pointer wraps the
- * transform, so a tip sees the stacked positions. The chart is
- * `Plot.plot({ ...options, marks })`.
+ * A spec is either `marks`, each one
+ * `Plot[mark](data, Plot[pointer](Plot[transform](options)))` with whichever
+ * wrapper it does not name left out, or a `preset` that expands into exactly
+ * such marks (`expandPreset`). The pointer wraps the transform, so a tip sees
+ * the stacked positions. The chart is `Plot.plot({ ...house, ...options,
+ * marks })`: the house style is the default here, so no renderer adds its own,
+ * and a spec's options override it. Every colour and the font are CSS
+ * variables with a fallback, so a page restyles a chart by setting them.
  *
  * The whole spec is checked before any Plot function is called, so a bad spec
  * draws nothing and throws a `PlotSpecError` whose message the caller shows.
@@ -19,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 1;
+export const PLOT_SPEC_VERSION = 2;
 
 export const PLOT_MARKS = Object.freeze([
   'areaY',
@@ -53,12 +57,34 @@ export const PLOT_TRANSFORMS = Object.freeze([
 
 export const PLOT_POINTERS = Object.freeze(['pointerX', 'pointerY']);
 
+export const PLOT_PRESETS = Object.freeze(['stackedArea', 'lines', 'barsH']);
+
+export const PLOT_FORMATS = Object.freeze(['int', 'pct', 'usd', 'comma', 'schoolYear']);
+
+/** The house palette and type, each a CSS variable a page may set. */
+export const HOUSE = Object.freeze({
+  font: 'var(--chart-font, system-ui, -apple-system, "Segoe UI", sans-serif)',
+  seq3: 'var(--seq-3, #2f7d76)',
+  seq2: 'var(--seq-2, #c8a25e)',
+  seq1: 'var(--seq-1, #9c5f3c)',
+  ink: 'var(--ink, #15181c)',
+  muted: 'var(--muted, #59626f)',
+  rule: 'var(--rule, #dfe3e9)',
+  paper: 'var(--paper, #fff)',
+});
+
 /** Options a mark may not take: a link's URL comes from the data, and the
  *  data is somebody's document text. */
 const REFUSED_MARK_OPTIONS = Object.freeze(['href', 'target']);
 
+/** Scale options whose `tickFormat` may name a format. */
+const SCALES = Object.freeze(['x', 'y', 'fx', 'fy', 'color', 'r', 'opacity', 'length']);
+
+/** Rough width of a 13px label's glyph, for margins that fit end labels. */
+const CH = 7.5;
+
 /**
- * @typedef {'bad-spec' | 'unknown-mark' | 'unknown-transform' | 'unknown-pointer' | 'missing-data' | 'refused-option'} PlotSpecErrorCode
+ * @typedef {'bad-spec' | 'unknown-mark' | 'unknown-transform' | 'unknown-pointer' | 'unknown-preset' | 'unknown-format' | 'missing-data' | 'refused-option'} PlotSpecErrorCode
  */
 
 /**
@@ -74,7 +100,14 @@ const REFUSED_MARK_OPTIONS = Object.freeze(['href', 'target']);
  * @typedef {object} PlotSpec
  * @property {Record<string, unknown>} [data]
  * @property {Record<string, unknown>} [options]
- * @property {unknown} marks
+ * @property {unknown} [marks]
+ * @property {unknown} [preset]
+ */
+
+/**
+ * A spec in its marks form, as a preset expands. `grid` is the axis the house
+ * grid runs across, or false for none.
+ * @typedef {{ data: Record<string, unknown>, options: Record<string, unknown>, marks: PlotMarkSpec[], grid: 'x' | 'y' | false }} ExpandedSpec
  */
 
 /**
@@ -109,22 +142,82 @@ const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
  */
 const allowed = (list, name) => typeof name === 'string' && list.includes(name);
 
+/** @param {unknown} v */
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// ---- formats ----------------------------------------------------------------
+
+/** @type {Record<string, Intl.NumberFormat>} */
+const NUMBER_FORMATS = {
+  int: new Intl.NumberFormat('en-US', { maximumFractionDigits: 0, useGrouping: false }),
+  comma: new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }),
+  // A percent axis runs 0 to 100, so 43 reads "43%"; Intl's own percent
+  // style would multiply by 100.
+  pct: new Intl.NumberFormat('en-US', {
+    style: 'unit',
+    unit: 'percent',
+    maximumFractionDigits: 1,
+  }),
+  usd: new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }),
+  // Cents show only when a value has them: $1,200, and $12.50 rather than $12.5.
+  usdCents: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }),
+};
+
 /**
- * @param {PlotModule} Plot
- * @param {string} name
- * @returns {(...args: unknown[]) => unknown}
+ * The function a named format stands for: "int", "pct", "usd", "comma", or
+ * "schoolYear" (2005 reads "2005-06").
+ * @param {unknown} name
+ * @returns {(v: unknown) => string}
  */
-function fn(Plot, name) {
-  const f = Plot[name];
-  if (typeof f !== 'function') {
-    throw new PlotSpecError('bad-spec', `This Plot has no ${name}`);
+export function plotFormat(name) {
+  if (!allowed(PLOT_FORMATS, name)) {
+    throw new PlotSpecError('unknown-format', `unknown format ${JSON.stringify(name)}`);
   }
-  return /** @type {(...args: unknown[]) => unknown} */ (f);
+  if (name === 'schoolYear') {
+    return (v) => {
+      if (!finite(v) || !Number.isInteger(v)) return v == null ? '' : String(v);
+      const n = /** @type {number} */ (v);
+      return `${n}-${String((n + 1) % 100).padStart(2, '0')}`;
+    };
+  }
+  if (name === 'usd') {
+    return (v) => {
+      if (!finite(v)) return v == null ? '' : String(v);
+      const n = /** @type {number} */ (v);
+      return /** @type {Intl.NumberFormat} */ (
+        NUMBER_FORMATS[Number.isInteger(n) ? 'usd' : 'usdCents']
+      ).format(n);
+    };
+  }
+  const nf = /** @type {Intl.NumberFormat} */ (NUMBER_FORMATS[name]);
+  return (v) => (finite(v) ? nf.format(/** @type {number} */ (v)) : v == null ? '' : String(v));
 }
 
 /**
- * Every mark of `spec`, checked against the allowlists and its data resolved,
- * with no Plot function called.
+ * A tip's `format`: each channel's named format resolved, a boolean kept.
+ * @param {unknown} format
+ * @param {string} at
+ */
+function tipFormat(format, at) {
+  if (format === undefined) return undefined;
+  if (!isRecord(format)) throw new PlotSpecError('bad-spec', `${at}: format must be an object`);
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [channel, f] of Object.entries(format)) {
+    out[channel] = typeof f === 'boolean' || f === null ? f : plotFormat(f);
+  }
+  return out;
+}
+
+// ---- the marks form ---------------------------------------------------------
+
+/**
+ * Every mark of `spec`, checked against the allowlists, its data resolved and
+ * its named formats turned into functions, with no Plot function called.
  * @param {PlotSpec} spec
  * @returns {Array<{ mark: string, data: unknown[], transform?: string, pointer?: string, options: Record<string, unknown> }>}
  */
@@ -157,18 +250,6 @@ export function checkPlotSpec(spec) {
         `${at}: unknown pointer ${JSON.stringify(m.pointer)}`,
       );
     }
-    /** @type {unknown[]} */
-    let rows;
-    if (Array.isArray(m.data)) rows = m.data;
-    else if (typeof m.data === 'string') {
-      const named = Object.hasOwn(data, m.data) ? data[m.data] : undefined;
-      if (!Array.isArray(named)) {
-        throw new PlotSpecError('missing-data', `${at}: no data named ${JSON.stringify(m.data)}`);
-      }
-      rows = named;
-    } else {
-      throw new PlotSpecError('missing-data', `${at} has no data`);
-    }
     const options = m.options === undefined ? {} : m.options;
     if (!isRecord(options)) throw new PlotSpecError('bad-spec', `${at}: options must be an object`);
     for (const key of REFUSED_MARK_OPTIONS) {
@@ -176,32 +257,596 @@ export function checkPlotSpec(spec) {
         throw new PlotSpecError('refused-option', `${at}: the ${key} option is not allowed`);
       }
     }
+    const format = tipFormat(options.format, at);
     return {
       mark: m.mark,
-      data: rows,
+      data: rowsOf(data, m.data, at),
       ...(m.transform === undefined ? {} : { transform: m.transform }),
       ...(m.pointer === undefined ? {} : { pointer: m.pointer }),
-      options: { ...options },
+      options: { ...houseMarkOptions(m.mark), ...options, ...(format ? { format } : {}) },
     };
   });
 }
 
 /**
+ * @param {Record<string, unknown>} data
+ * @param {unknown} ref
+ * @param {string} at
+ * @returns {unknown[]}
+ */
+function rowsOf(data, ref, at) {
+  if (Array.isArray(ref)) return ref;
+  if (typeof ref === 'string') {
+    const named = Object.hasOwn(data, ref) ? data[ref] : undefined;
+    if (!Array.isArray(named)) {
+      throw new PlotSpecError('missing-data', `${at}: no data named ${JSON.stringify(ref)}`);
+    }
+    return named;
+  }
+  throw new PlotSpecError('missing-data', `${at} has no data`);
+}
+
+// ---- the house style --------------------------------------------------------
+
+/**
+ * Text wears a halo in the paper colour, so it reads where a mark crosses it;
+ * a tip is edged in the rule colour.
+ * @param {string} mark
+ * @returns {Record<string, unknown>}
+ */
+function houseMarkOptions(mark) {
+  if (mark === 'text') return { fill: HOUSE.ink, stroke: HOUSE.paper, strokeWidth: 3 };
+  if (mark === 'tip') return { stroke: HOUSE.rule };
+  return {};
+}
+
+/** @param {string} key */
+const camel = (key) =>
+  key.startsWith('--') ? key : key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+
+/**
+ * The chart's inline style, the house font, size and ink under the spec's
+ * own, split in two: properties Plot assigns one by one, and custom
+ * properties (the tip's `--plot-background`, a page's own variables), which
+ * cannot be assigned that way and are set on the drawn SVG instead.
+ * @param {unknown} style
+ * @returns {{ plain: Record<string, string>, custom: Record<string, string> }}
+ */
+function houseStyle(style) {
+  /** @type {Record<string, string>} */
+  const all = {
+    fontFamily: HOUSE.font,
+    fontSize: '13px',
+    color: HOUSE.muted,
+    background: 'transparent',
+    '--plot-background': HOUSE.paper,
+  };
+  const own =
+    typeof style === 'string'
+      ? style.split(';').map((d) => {
+          const i = d.indexOf(':');
+          return [d.slice(0, i).trim(), d.slice(i + 1).trim()];
+        })
+      : isRecord(style)
+        ? Object.entries(style)
+        : [];
+  for (const [k, v] of own) {
+    if (typeof k === 'string' && k !== '' && (typeof v === 'string' || finite(v))) {
+      all[camel(k)] = String(v);
+    }
+  }
+  /** @type {Record<string, string>} */
+  const plain = {};
+  /** @type {Record<string, string>} */
+  const custom = {};
+  for (const [k, v] of Object.entries(all)) (k.startsWith('--') ? custom : plain)[k] = v;
+  return { plain, custom };
+}
+
+/**
+ * The plot options: the house defaults under the spec's, each scale's named
+ * `tickFormat` resolved.
+ * @param {Record<string, unknown>} options
+ */
+function houseOptions(options) {
+  /** @type {Record<string, unknown>} */
+  const out = { ...options, style: houseStyle(options.style).plain };
+  for (const axis of ['x', 'y']) {
+    const own = options[axis];
+    if (own === undefined || isRecord(own)) out[axis] = { tickSize: 0, label: null, ...own };
+  }
+  const color = isRecord(options.color) ? options.color : {};
+  const ownScheme = ['range', 'scheme', 'type', 'interpolate'].some((k) => k in color);
+  if (options.color === undefined || (isRecord(options.color) && !ownScheme)) {
+    out.color = { range: [HOUSE.seq3, HOUSE.seq2, HOUSE.seq1], ...color };
+  }
+  for (const scale of SCALES) {
+    const s = out[scale];
+    if (isRecord(s) && typeof s.tickFormat === 'string') {
+      out[scale] = { ...s, tickFormat: plotFormat(s.tickFormat) };
+    }
+  }
+  return out;
+}
+
+/**
+ * The house grid: dashed in the rule colour across the value axis, under a
+ * solid zero line. None when the spec asks for Plot's own grid.
+ * @param {PlotModule} Plot
+ * @param {Record<string, unknown>} options
+ * @param {'x' | 'y' | false} grid
+ * @returns {Array<() => unknown>}
+ */
+function houseGrid(Plot, options, grid) {
+  if (!grid || options.grid !== undefined) return [];
+  const scale = options[grid];
+  if (isRecord(scale) && scale.grid !== undefined) return [];
+  const gridMark = fn(Plot, grid === 'y' ? 'gridY' : 'gridX');
+  const rule = fn(Plot, grid === 'y' ? 'ruleY' : 'ruleX');
+  return [
+    () => gridMark({ stroke: HOUSE.rule, strokeOpacity: 1, strokeDasharray: '2 4' }),
+    () => rule([0], { stroke: HOUSE.rule, clip: true }),
+  ];
+}
+
+// ---- presets ----------------------------------------------------------------
+
+/**
+ * @param {Record<string, unknown>} preset
+ * @param {string} key
+ * @returns {string}
+ */
+function field(preset, key) {
+  const v = preset[key];
+  if (typeof v !== 'string' || v === '') {
+    throw new PlotSpecError('bad-spec', `The ${preset.type} preset needs a field name in "${key}"`);
+  }
+  return v;
+}
+
+/**
+ * @param {Record<string, unknown>} preset
+ * @param {string} key
+ * @returns {string | undefined}
+ */
+function optionalField(preset, key) {
+  return preset[key] === undefined ? undefined : field(preset, key);
+}
+
+/**
+ * The preset's named formats, keyed `x` / `y` (or `value` for bars).
+ * @param {Record<string, unknown>} preset
+ * @returns {Record<string, string>}
+ */
+function formatsOf(preset) {
+  if (preset.format === undefined) return {};
+  if (!isRecord(preset.format)) {
+    throw new PlotSpecError('bad-spec', 'A preset’s format must be an object of named formats');
+  }
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [k, v] of Object.entries(preset.format)) {
+    plotFormat(v);
+    out[k] = /** @type {string} */ (v);
+  }
+  return out;
+}
+
+/**
+ * A goal or baseline: a value and an optional label.
+ * @param {unknown} v
+ * @param {string} name
+ * @returns {{ value: number, label?: string } | undefined}
+ */
+function lineOf(v, name) {
+  if (v === undefined) return undefined;
+  if (!isRecord(v) || !finite(v.value)) {
+    throw new PlotSpecError('bad-spec', `A preset’s ${name} needs a numeric "value"`);
+  }
+  const label = typeof v.label === 'string' ? v.label : undefined;
+  return { value: /** @type {number} */ (v.value), ...(label === undefined ? {} : { label }) };
+}
+
+/** A preset's `data`, which `rowsOf` has already resolved.
+ *  @param {Record<string, unknown>} p */
+const dataRef = (p) => /** @type {string | unknown[]} */ (p.data);
+
+/** @param {unknown} row @param {string} key */
+const get = (row, key) => (isRecord(row) ? row[key] : undefined);
+
+/**
+ * The series in the order the preset names, then any it left out, in the
+ * order the rows first carry them.
+ * @param {unknown[]} rows
+ * @param {string} series
+ * @param {unknown} order
+ * @returns {string[]}
+ */
+function seriesOrder(rows, series, order) {
+  const seen = [
+    ...new Set(
+      rows
+        .map((r) => get(r, series))
+        .filter((s) => s != null)
+        .map(String),
+    ),
+  ];
+  const named = Array.isArray(order) ? order.map(String) : [];
+  return [...named.filter((s) => seen.includes(s)), ...seen.filter((s) => !named.includes(s))];
+}
+
+/** Round ticks from 0 to past `max`. @param {number} max */
+function zeroTicks(max) {
+  const raw = Math.max(max, 1) / 5;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const err = raw / mag;
+  const step = mag * (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1);
+  const top = Math.ceil(max / step - 1e-9) * step;
+  const ticks = [];
+  for (let k = 0; k * step <= top + step * 1e-9; k++)
+    ticks.push(Number((k * step).toPrecision(12)));
+  return ticks;
+}
+
+/**
+ * The goal rule and its label at the plot's right edge.
+ * @param {{ value: number, label?: string } | undefined} goal
+ * @param {(v: unknown) => string} fmt
+ * @returns {PlotMarkSpec[]}
+ */
+function goalMarks(goal, fmt) {
+  if (!goal) return [];
+  return [
+    { mark: 'ruleY', data: [goal.value], options: { stroke: HOUSE.ink, strokeDasharray: '6 4' } },
+    {
+      mark: 'text',
+      data: [{ y: goal.value, label: goal.label ?? fmt(goal.value) }],
+      options: { y: 'y', text: 'label', frameAnchor: 'right', textAnchor: 'start', dx: 8 },
+    },
+  ];
+}
+
+/** The right margin that fits the longest end label. @param {string[]} labels */
+const endMargin = (labels) => Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * CH) + 16;
+
+/**
+ * Options a preset sets for its value axis: integer x values tick as plain
+ * integers (a year is not 2,005), and a percent axis runs 0 to 100.
+ * @param {Record<string, unknown>} own
+ * @param {unknown[]} rows
+ * @param {string} x
+ * @param {Record<string, string>} formats
+ * @param {'x' | 'y'} valueAxis
+ */
+function axisDefaults(own, rows, x, formats, valueAxis) {
+  const xs = rows.map((r) => get(r, x));
+  const xFormat = formats.x ?? (xs.length > 0 && xs.every(Number.isInteger) ? 'int' : undefined);
+  const valueFormat = valueAxis === 'y' ? formats.y : formats.value;
+  const ownValue = isRecord(own[valueAxis]) ? own[valueAxis] : {};
+  /** @type {Record<string, unknown>} */
+  const value = { ...(valueFormat ? { tickFormat: valueFormat } : {}) };
+  if (valueFormat === 'pct' && !('domain' in ownValue)) value.domain = [0, 100];
+  /** @type {Record<string, unknown>} */
+  const out = { [valueAxis]: { ...value, ...ownValue } };
+  if (valueAxis === 'y') {
+    const ownX = isRecord(own.x) ? own.x : {};
+    out.x = { ...(xFormat ? { tickFormat: xFormat } : {}), ...ownX };
+  }
+  return out;
+}
+
+/**
+ * Stacked areas, one per series, each labelled at its end with its name and
+ * last value inside its own band; an optional goal rule; a tip that reads the
+ * stacked positions and shows the value itself.
+ * @param {Record<string, unknown>} p
+ * @param {unknown[]} rows
+ * @param {Record<string, unknown>} own
+ * @returns {Omit<ExpandedSpec, 'data'>}
+ */
+function stackedArea(p, rows, own) {
+  const x = field(p, 'x');
+  const y = field(p, 'y');
+  const series = field(p, 'series');
+  const formats = formatsOf(p);
+  const fy = plotFormat(formats.y ?? 'comma');
+  const order = seriesOrder(rows, series, p.order);
+  const lastX = Math.max(
+    ...rows
+      .map((r) => get(r, x))
+      .filter(finite)
+      .map(Number),
+  );
+  let base = 0;
+  const ends = order.map((s) => {
+    const row = rows.find((r) => get(r, x) === lastX && String(get(r, series)) === s);
+    const v = finite(get(row, y)) ? Number(get(row, y)) : 0;
+    const mid = base + v / 2;
+    base += v;
+    return { x: lastX, y: mid, series: s, label: `${s} ${fy(v)}` };
+  });
+  const goal = lineOf(p.goal, 'goal');
+  const key = y === 'x' || y === 'y' ? 'value' : y;
+  return {
+    grid: 'y',
+    options: {
+      marginRight: endMargin([...ends.map((e) => e.label), goal?.label ?? '']),
+      // The first series takes the first house colour.
+      color: { domain: order },
+      ...own,
+      ...axisDefaults(own, rows, x, formats, 'y'),
+    },
+    marks: [
+      {
+        mark: 'areaY',
+        data: dataRef(p),
+        transform: 'stackY',
+        options: { x, y, fill: series, order },
+      },
+      ...goalMarks(goal, fy),
+      {
+        mark: 'text',
+        data: ends,
+        options: { x: 'x', y: 'y', text: 'label', fill: 'series', textAnchor: 'start', dx: 8 },
+      },
+      {
+        mark: 'tip',
+        data: dataRef(p),
+        transform: 'stackY2',
+        pointer: 'pointerX',
+        options: {
+          x,
+          y,
+          fill: series,
+          order,
+          channels: { [key]: y },
+          format: { x: formats.x ?? 'int', y: false, [key]: formats.y ?? 'comma', fill: true },
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * One line per series, each labelled at its end with its name and last
+ * value; named series dashed; an optional goal rule; an optional baseline for
+ * an index or ratio chart, which then starts at zero with the baseline drawn,
+ * labelled and ticked.
+ * @param {Record<string, unknown>} p
+ * @param {unknown[]} rows
+ * @param {Record<string, unknown>} own
+ * @returns {Omit<ExpandedSpec, 'data'>}
+ */
+function lines(p, rows, own) {
+  const x = field(p, 'x');
+  const y = field(p, 'y');
+  const series = field(p, 'series');
+  const formats = formatsOf(p);
+  const fy = plotFormat(formats.y ?? 'comma');
+  const order = seriesOrder(rows, series, p.order);
+  const dashed = Array.isArray(p.dashed) ? p.dashed.map(String) : [];
+  const isDashed = (/** @type {unknown} */ r) => dashed.includes(String(get(r, series)));
+  const ends = order.flatMap((s) => {
+    const mine = rows.filter((r) => String(get(r, series)) === s && finite(get(r, x)));
+    const last = mine.reduce(
+      (a, r) => (a === undefined || Number(get(r, x)) > Number(get(a, x)) ? r : a),
+      /** @type {unknown} */ (undefined),
+    );
+    if (last === undefined) return [];
+    return [{ x: get(last, x), y: get(last, y), series: s, label: `${s} ${fy(get(last, y))}` }];
+  });
+  const goal = lineOf(p.goal, 'goal');
+  const baseline = lineOf(p.baseline, 'baseline');
+  const axes = axisDefaults(own, rows, x, formats, 'y');
+  const ownY = isRecord(own.y) ? own.y : {};
+  if (baseline && !('domain' in ownY)) {
+    const ys = rows
+      .map((r) => get(r, y))
+      .filter(finite)
+      .map(Number);
+    const ticks = zeroTicks(Math.max(baseline.value, goal?.value ?? 0, ...ys));
+    if (!ticks.includes(baseline.value)) ticks.push(baseline.value);
+    axes.y = { zero: true, ticks: ticks.sort((a, b) => a - b), .../** @type {object} */ (axes.y) };
+  }
+  const line = (/** @type {unknown[]} */ data, /** @type {boolean} */ dash) => ({
+    mark: 'lineY',
+    data,
+    options: {
+      x,
+      y,
+      stroke: series,
+      z: series,
+      strokeWidth: 2,
+      ...(dash ? { strokeDasharray: '6 4' } : {}),
+    },
+  });
+  const solid = rows.filter((r) => !isDashed(r));
+  const dash = rows.filter(isDashed);
+  return {
+    grid: 'y',
+    options: {
+      marginRight: endMargin([...ends.map((e) => e.label), goal?.label ?? '']),
+      color: { domain: order },
+      ...own,
+      ...axes,
+    },
+    marks: [
+      ...(baseline
+        ? [
+            { mark: 'ruleY', data: [baseline.value], options: { stroke: HOUSE.muted } },
+            {
+              mark: 'text',
+              data: [{ y: baseline.value, label: baseline.label ?? fy(baseline.value) }],
+              options: { y: 'y', text: 'label', frameAnchor: 'left', textAnchor: 'start', dy: -8 },
+            },
+          ]
+        : []),
+      ...(solid.length > 0 ? [line(solid, false)] : []),
+      ...(dash.length > 0 ? [line(dash, true)] : []),
+      ...goalMarks(goal, fy),
+      { mark: 'dot', data: ends, options: { x: 'x', y: 'y', fill: 'series', r: 3.5 } },
+      {
+        mark: 'text',
+        data: ends,
+        options: { x: 'x', y: 'y', text: 'label', fill: 'series', textAnchor: 'start', dx: 8 },
+      },
+      {
+        mark: 'tip',
+        data: dataRef(p),
+        pointer: 'pointerX',
+        options: {
+          x,
+          y,
+          stroke: series,
+          format: { x: formats.x ?? 'int', y: formats.y ?? 'comma', stroke: true },
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Horizontal bars in the order the rows give, each named at the left with an
+ * optional muted sublabel under the name, and its value at the bar's end.
+ * @param {Record<string, unknown>} p
+ * @param {unknown[]} rows
+ * @param {Record<string, unknown>} own
+ * @returns {Omit<ExpandedSpec, 'data'>}
+ */
+function barsH(p, rows, own) {
+  const label = field(p, 'label');
+  const value = field(p, 'value');
+  const sublabel = optionalField(p, 'sublabel');
+  const formats = formatsOf(p);
+  const fv = plotFormat(formats.value ?? 'comma');
+  const names = rows.map((r) => String(get(r, label) ?? ''));
+  const values = rows.map((r) => ({ label: String(get(r, label) ?? ''), value: get(r, value) }));
+  const subs = sublabel
+    ? rows.map((r) => ({
+        label: String(get(r, label) ?? ''),
+        text: String(get(r, sublabel) ?? ''),
+      }))
+    : [];
+  const ownY = isRecord(own.y) ? own.y : {};
+  const axes = axisDefaults(own, rows, label, formats, 'x');
+  return {
+    grid: 'x',
+    options: {
+      marginLeft: endMargin([...names, ...subs.map((s) => s.text)]),
+      marginRight: endMargin(values.map((v) => fv(v.value))),
+      ...own,
+      ...axes,
+      y: { domain: names, axis: null, padding: 0.3, ...ownY },
+    },
+    marks: [
+      { mark: 'barX', data: dataRef(p), options: { y: label, x: value, fill: HOUSE.seq3 } },
+      {
+        mark: 'text',
+        data: values.map((v) => ({ ...v, text: fv(v.value) })),
+        options: { y: 'label', x: 'value', text: 'text', textAnchor: 'start', dx: 6 },
+      },
+      {
+        mark: 'text',
+        data: values.map((v) => ({ label: v.label })),
+        options: {
+          y: 'label',
+          text: 'label',
+          frameAnchor: 'left',
+          textAnchor: 'end',
+          dx: -8,
+          ...(sublabel ? { dy: -7 } : {}),
+        },
+      },
+      ...(sublabel
+        ? [
+            {
+              mark: 'text',
+              data: subs,
+              options: {
+                y: 'label',
+                text: 'text',
+                frameAnchor: 'left',
+                textAnchor: 'end',
+                dx: -8,
+                dy: 8,
+                fill: HOUSE.muted,
+                fontSize: 11,
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
+const PRESETS = { stackedArea, lines, barsH };
+
+/**
+ * A spec in its marks form. A preset expands into ordinary marks; a marks
+ * spec passes through with the house grid across y.
+ * @param {PlotSpec} spec
+ * @returns {ExpandedSpec}
+ */
+export function expandPreset(spec) {
+  if (!isRecord(spec)) throw new PlotSpecError('bad-spec', 'The chart has no spec');
+  const data = spec.data === undefined ? {} : spec.data;
+  if (!isRecord(data))
+    throw new PlotSpecError('bad-spec', '`data` must be an object of named rows');
+  const own = spec.options === undefined ? {} : spec.options;
+  if (!isRecord(own)) throw new PlotSpecError('bad-spec', '`options` must be an object');
+  if (spec.preset === undefined) {
+    return { data, options: own, marks: /** @type {PlotMarkSpec[]} */ (spec.marks), grid: 'y' };
+  }
+  const p = spec.preset;
+  if (!isRecord(p)) throw new PlotSpecError('bad-spec', '`preset` must be an object');
+  if (!allowed(PLOT_PRESETS, p.type)) {
+    throw new PlotSpecError('unknown-preset', `unknown preset ${JSON.stringify(p.type)}`);
+  }
+  if (spec.marks !== undefined) {
+    throw new PlotSpecError('bad-spec', 'A chart takes `marks` or a `preset`, not both');
+  }
+  const rows = rowsOf(data, p.data, `The ${p.type} preset`);
+  const expanded = PRESETS[/** @type {keyof typeof PRESETS} */ (p.type)](p, rows, own);
+  return { data, ...expanded };
+}
+
+// ---- drawing ----------------------------------------------------------------
+
+/**
+ * @param {PlotModule} Plot
+ * @param {string} name
+ * @returns {(...args: unknown[]) => unknown}
+ */
+function fn(Plot, name) {
+  const f = Plot[name];
+  if (typeof f !== 'function') {
+    throw new PlotSpecError('bad-spec', `This Plot has no ${name}`);
+  }
+  return /** @type {(...args: unknown[]) => unknown} */ (f);
+}
+
+/**
  * The chart `spec` describes, drawn by `Plot`. Throws a `PlotSpecError`, having
  * called no Plot function, when the spec names anything outside the
- * allowlists or a `data` key it does not carry.
+ * allowlists, a format it does not know, or a `data` key it does not carry.
+ * `env.document` is the document Plot draws into, for a page with none.
  * @param {PlotModule} Plot
  * @param {PlotSpec} spec
+ * @param {{ document?: unknown }} [env]
  * @returns {Element}
  */
-export function buildPlot(Plot, spec) {
-  // Every function is found before any is called.
-  const steps = checkPlotSpec(spec).map((m) => ({
+export function buildPlot(Plot, spec, env = {}) {
+  const expanded = expandPreset(spec);
+  // Every function is found, and every name and format checked, before any
+  // Plot function is called.
+  const steps = checkPlotSpec(expanded).map((m) => ({
     m,
     mark: fn(Plot, m.mark),
     transform: m.transform ? fn(Plot, m.transform) : undefined,
     pointer: m.pointer ? fn(Plot, m.pointer) : undefined,
   }));
+  const options = houseOptions(expanded.options);
+  const grid = houseGrid(Plot, expanded.options, expanded.grid);
   const plot = fn(Plot, 'plot');
   const marks = steps.map(({ m, mark, transform, pointer }) => {
     let options = /** @type {unknown} */ (m.options);
@@ -209,5 +854,57 @@ export function buildPlot(Plot, spec) {
     if (pointer) options = pointer(options);
     return mark(m.data, options);
   });
-  return /** @type {Element} */ (plot({ ...(spec.options ?? {}), marks }));
+  const doc = env.document === undefined ? {} : { document: env.document };
+  const figure = /** @type {Element} */ (
+    plot({ ...options, ...doc, marks: [...grid.map((g) => g()), ...marks] })
+  );
+  // On each SVG itself: Plot's own sheet sets `--plot-background` there, so
+  // a value inherited from a parent would lose to it.
+  const custom = Object.entries(houseStyle(expanded.options.style).custom);
+  const svgs =
+    figure.tagName.toLowerCase() === 'svg' ? [figure] : [...figure.querySelectorAll('svg')];
+  for (const svg of svgs) {
+    const style = /** @type {{ style?: { setProperty?: (k: string, v: string) => void } }} */ (svg)
+      .style;
+    for (const [k, v] of custom) style?.setProperty?.(k, v);
+  }
+  return figure;
+}
+
+/** Whether a chart only works once a page runs it: a tip follows the pointer.
+ *  @param {PlotSpec} spec */
+export function hasPointer(spec) {
+  if (!isRecord(spec)) return false;
+  if (isRecord(spec.preset)) return spec.preset.type !== 'barsH';
+  return (
+    Array.isArray(spec.marks) && spec.marks.some((m) => isRecord(m) && m.pointer !== undefined)
+  );
+}
+
+/**
+ * Draw `spec` into `element`, replacing what it held: the chart, or an error
+ * box (`.plot-spec-error`) saying why it could not be drawn. The sites call
+ * it to draw a chart in the browser, and the board makes the same call.
+ * Returns the chart, or null.
+ * @param {PlotModule} Plot
+ * @param {Element} element
+ * @param {PlotSpec} spec
+ * @returns {Element | null}
+ */
+export function renderPlot(Plot, element, spec) {
+  try {
+    const figure = buildPlot(Plot, spec, { document: element.ownerDocument });
+    element.replaceChildren(figure);
+    return figure;
+  } catch (err) {
+    const box = element.ownerDocument.createElement('div');
+    box.className = 'plot-spec-error';
+    box.setAttribute('role', 'alert');
+    box.textContent =
+      err instanceof PlotSpecError
+        ? err.message
+        : `Plot could not draw this chart: ${err instanceof Error ? err.message : String(err)}`;
+    element.replaceChildren(box);
+    return null;
+  }
 }
