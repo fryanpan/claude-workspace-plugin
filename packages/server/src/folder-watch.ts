@@ -52,7 +52,8 @@
  *     tail forever and no watch hears anything again. Deleting a directory
  *     of a few hundred files is such a read. There, the trigger is a timer
  *     every `POLL_MS` instead, and the pass's listing comparison is what
- *     keeps a quiet tick from refreshing anything.
+ *     keeps a quiet tick from refreshing anything. A folder that cannot be
+ *     listed is news once, when it stops listing, not on every tick.
  *
  * `fs.watch` is the wrong tool for following one FILE's contents
  * (learnings.md, "fs.watch is the wrong primitive"); a recursive directory
@@ -76,10 +77,14 @@ export const MAX_WATCHED_FOLDERS = 32;
 /** Path segments whose churn never changes what a review lists. */
 const IGNORED_SEGMENTS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage']);
 
-export type WatchFn = (
+export type WatchFn = ((
   root: string,
   onEvent: (relPath: string | null) => void,
-) => { close(): void };
+) => { close(): void }) & {
+  /** Fires on a clock, not on the disk, so a folder that cannot be listed
+   *  is news once, when it stops listing, rather than on every tick. */
+  timed?: boolean;
+};
 
 /** What a watched set lists from: a folder, and for a diff review its base. */
 export interface LiveSource {
@@ -192,11 +197,17 @@ export function watchCanWedge(
 }
 
 /** A watch that is a timer: every tick is an event of unknown path. */
-export const pollWatch: WatchFn = (_root, onEvent) => {
-  const timer = setInterval(() => onEvent(null), POLL_MS);
-  (timer as { unref?: () => void }).unref?.();
-  return { close: () => clearInterval(timer) };
-};
+export function timerWatch(ms: number): WatchFn {
+  const watch: WatchFn = (_root, onEvent) => {
+    const timer = setInterval(() => onEvent(null), ms);
+    (timer as { unref?: () => void }).unref?.();
+    return { close: () => clearInterval(timer) };
+  };
+  watch.timed = true;
+  return watch;
+}
+
+export const pollWatch = timerWatch(POLL_MS);
 
 /** Recursive directory watch; null filename means "something, unknown". */
 const fsDirectoryWatch: WatchFn = (root, onEvent) => {
@@ -351,7 +362,8 @@ export function createFolderWatches(
       // Listed AFTER the burst's events arrived, so it already holds what
       // they did; a save leaves it unchanged.
       const now = await listPaths(w.source);
-      const news = w.first || !now || !w.listed || !sameListing(now, w.listed);
+      const nullIsNews = watchFn.timed ? w.listed !== null : true;
+      const news = w.first || (!now ? nullIsNews : !w.listed || !sameListing(now, w.listed));
       w.first = false;
       w.listed = now;
       if (news && !w.closed) await host.refresh(setId);

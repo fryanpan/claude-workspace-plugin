@@ -23,7 +23,7 @@ import {
   createFolderWatches,
   folderListing,
   isWatchedPath,
-  pollWatch,
+  timerWatch,
   watchCanWedge,
 } from '../src/folder-watch.ts';
 import { NUDGE_COALESCE_MS } from '../src/page-nudges.ts';
@@ -300,7 +300,40 @@ describe('folder watch decisions', () => {
 
   it('an atomic save on a real folder refreshes nothing; a new file does', () => atomicSave());
 
-  it('the same holds when the watch is a timer', () => atomicSave(pollWatch));
+  it('the same holds when the watch is a timer', () => atomicSave(timerWatch(50)));
+
+  it('a timer on a folder that disappears refreshes once, not on every tick', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'folder-watch-gone-'));
+    writeFileSync(join(folder, 'README.md'), '# Harborlight\n');
+    let refreshes = 0;
+    let passes = 0;
+    const watches = createFolderWatches(
+      { sourceOf: () => ({ root: folder }), refresh: async () => void refreshes++ },
+      {
+        watch: timerWatch(20),
+        settleMs: 5,
+        maxWaitMs: 20,
+        listPaths: async ({ root }) => {
+          const listed = await folderListing(root);
+          passes++;
+          return listed;
+        },
+      },
+    );
+    try {
+      watches.sync('set-1', 1);
+      await waitFor(() => refreshes === 1);
+      rmSync(folder, { recursive: true, force: true });
+      // Gone is news once: the refresh is what drops the review's files.
+      await waitFor(() => refreshes === 2);
+      const after = passes;
+      await waitFor(() => passes >= after + 3);
+      expect(refreshes).toBe(2);
+    } finally {
+      watches.dispose();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
 
   it('only Linux under Bun before 1.3.11 gets the timer', () => {
     expect(watchCanWedge('linux', '1.3.10')).toBe(true);

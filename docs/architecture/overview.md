@@ -1616,7 +1616,9 @@ the working tree compares its diff instead (`git diff --numstat` against the
 stored base, path, status and counts per file), so a tracked file's first
 edit joins the list and a save that moves a count redraws it, while a save
 of the same bytes sends nothing. The watch closes with the last page, and at
-most 32 run at once.
+most 32 run at once. On Linux under Bun before 1.3.11 the watch is a
+one-second timer instead (`watchCanWedge`): there, one inotify read of more
+than 128 events leaves every `fs.watch` in the process deaf.
 
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and
