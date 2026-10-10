@@ -73,6 +73,12 @@ export interface PromptEditorDeps {
 export interface PromptEditorHandle {
   /** Read and paint. Awaited by the page and by tests. */
   refresh(): Promise<void>;
+  /**
+   * The prompt was saved elsewhere: re-read it, unless the reader has typed
+   * into the box since it was painted or a save is on its way — their words
+   * are the ones that matter, and their next save wins anyway.
+   */
+  changed(): Promise<void>;
   /** Resolves when any in-flight write has finished. Tests await it. */
   settled(): Promise<void>;
 }
@@ -235,8 +241,16 @@ export function mountPromptEditor(deps: PromptEditorDeps): PromptEditorHandle {
     host.querySelector('#prompt-restore')?.addEventListener('click', () => run(null));
   }
 
+  async function changed(): Promise<void> {
+    if (inFlight) return;
+    const box = host.querySelector('#prompt-box') as HTMLTextAreaElement | null;
+    if (box && painted && box.value !== painted.value) return;
+    await refresh();
+  }
+
   return {
     refresh,
+    changed,
     settled: async () => {
       await inFlight;
     },

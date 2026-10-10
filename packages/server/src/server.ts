@@ -58,6 +58,7 @@ import { DocStore } from './doc-store.ts';
 import { createEffortScoring } from './effort-scoring.ts';
 import { InflightRegistry, LoopLagMonitor } from './event-loop.ts';
 import { originOfHeaders, withEventOrigin } from './event-origin.ts';
+import { type FolderWatches, createFolderWatches, liveSourceOf } from './folder-watch.ts';
 import { taskDeepLink } from './home-brief.ts';
 import { createHomePane } from './home-pane.ts';
 import { spokenReviewComment } from './huddle.ts';
@@ -95,6 +96,7 @@ import { writeNotesMethod } from './notes-method-store.ts';
 import { fileOnMeetingDoc } from './notes-quality-review.ts';
 import { rollupNotesQuality } from './notes-quality-store.ts';
 import { NOTES_QUALITY_WINDOW_MS } from './notes-quality-thresholds.ts';
+import { PROMPTS_CHANNEL, VOICE_CHANNEL, createPageNudger, wirePageNudges } from './page-nudges.ts';
 import {
   PARK_MIGRATION_ACTOR,
   type ParkMigrationResult,
@@ -219,7 +221,7 @@ import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
-import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
+import { HTTP_IDLE_TIMEOUT_SEC, SseBus, openSseStream } from './sse.ts';
 import { createStallWiring } from './stall-wiring.ts';
 import { cryptoId } from './task-fields.ts';
 import { isReservedGoalId } from './task-goals.ts';
@@ -353,6 +355,9 @@ export interface ServerHandle {
   /** The builders' closing reports (dispatch-reports.ts). Exposed for the same
    *  reason `dispatches` is. */
   dispatchReports: DispatchReportStore;
+  /** The folders open pages are watching (folder-watch.ts). Exposed so a
+   *  test can count them after the last page leaves. */
+  folderWatches: FolderWatches;
   shares: Shares | null;
   /** Hang up every websocket and SSE stream whose share is no longer live,
    *  and every widget door socket whose board token is dead. Runs on a 60s
@@ -2436,8 +2441,41 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     requestAddress: (req) => server.requestIP(req)?.address,
   };
 
+  // Open pages hear that a REST-fed list they drew is stale: the Library,
+  // members, a review's sidebar, the voice page and the prompts settings
+  // (page-nudges.ts). Wired after the stall wiring, whose `onAgentStreams`
+  // is a plain assignment this chains onto.
+  const pageNudges = wirePageNudges({
+    nudger: createPageNudger({
+      send: (channel, frame) => sse.broadcastTransient(channel, frame, { skipAgentStreams: true }),
+    }),
+    docStore,
+    taskStore,
+    // A task's or a board's own doc is never a Library row.
+    boardsHolding: (docId) =>
+      docId.startsWith('task:') || docId.startsWith('ws:') ? [] : [...boardsForDoc(docId)],
+    shareLinks,
+    sse,
+  });
+
   /** The words this server's prompts run on — the settings page's data. */
-  const promptRoutesCtx: PromptRoutesContext = { promptStore, j, safeJson };
+  const promptRoutesCtx: PromptRoutesContext = {
+    promptStore,
+    j,
+    safeJson,
+    stream: () => openSseStream(sse, PROMPTS_CHANNEL),
+    onWritten: pageNudges.promptsChanged,
+  };
+
+  // An open review follows its folder on disk while a page holds its stream
+  // (folder-watch.ts); the refresh's own `onSetRescanned` nudges the page.
+  const folderWatches = createFolderWatches({
+    sourceOf: (setId) => liveSourceOf(docStore.list(), setId),
+    refresh: (setId) => docStore.refreshWorkspace(setId),
+  });
+  const unwatchStreams = sse.watchStreams((channel) => {
+    if (channel.startsWith('ws~')) folderWatches.sync(channel.slice(3), sse.pagesOn(channel));
+  });
 
   /** The cross-board review queue and its wait report — trusted-local only. */
   const reviewQueueRoutesCtx: ReviewQueueRoutesContext = {
@@ -2485,6 +2523,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agents: ownerVoiceAgents,
     renderPage: () => renderVoiceShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,
+    stream: () => openSseStream(sse, VOICE_CHANNEL),
     j,
   };
   /** The voice conversation API: OpenAI chat over a voice token (routes/voice-api.ts). */
@@ -3085,6 +3124,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     mountsBriefFor,
     attachmentPrivacy,
     docWithheldFrom,
+    onBoardPromptsChanged: pageNudges.promptsChanged,
   };
 
   /**
@@ -4266,6 +4306,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     identities,
     dispatches,
     dispatchReports,
+    folderWatches,
     shares,
     sweepDeadShares,
     // Exactly what the interval does, exposed for the same reason
@@ -4306,6 +4347,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       taskScheduler.stop();
       unwatchInbox();
       landingChanges.dispose();
+      pageNudges.dispose();
+      unwatchStreams();
+      folderWatches.dispose();
       coachWiring.stop();
       leadPresence.stop();
       // The boot re-scoring pass runs for as long as there are stale rows, so

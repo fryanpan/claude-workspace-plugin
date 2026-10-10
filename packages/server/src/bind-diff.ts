@@ -34,7 +34,7 @@ import { canonicalRepoRoot, findWorktreeRoot } from './doc-origin-repo.ts';
 import { scanFolder } from './fs-scan.ts';
 import {
   type DiffFileEntry,
-  diffFiles,
+  diffFilesAsync,
   resolveCommit,
   showFile,
   textLooksBinary,
@@ -267,7 +267,7 @@ export async function bindDiff(host: BindHost, opts: BindDiffOpts): Promise<Bind
     };
   }
 
-  const listed = diffFiles(root, base, target);
+  const listed = await diffFilesAsync(root, base, target);
   if (!listed.ok) return { ok: false, error: 'diff-failed', detail: listed.error };
   if (listed.files.length === 0) return { ok: false, error: 'empty-diff' };
 

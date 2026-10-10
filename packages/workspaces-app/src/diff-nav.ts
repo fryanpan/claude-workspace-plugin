@@ -1,5 +1,6 @@
 import { escapeHtml } from '@claude-workspaces/core';
 import { api, docIdFromPathOrNull } from './doc-path.ts';
+import { watchSetChanges } from './set-live.ts';
 import {
   beginSidebarRender,
   commitSidebarColumn,
@@ -393,7 +394,7 @@ function groupFolderKey(workspaceId: string, path: string): string {
  *  (sorted) before files (sorted). Leaf files reuse fileRow, so each keeps its
  *  A/M/D/R status and churn +/− counts. Folders default to
  *  expanded (they're all on the path to a change) but persist a manual collapse
- *  via `data-rel` + localStorage, so the 30s heartbeat rebuild doesn't spring
+ *  via `data-rel` + localStorage, so a pushed or focus rebuild doesn't spring
  *  them back open. */
 function renderGroupTree(
   node: GroupTreeNode,
@@ -543,21 +544,15 @@ function hasChanged(node: DirNode): boolean {
   return false;
 }
 
-/** Focus + ~30s heartbeat refresh, same contract as the workspace tree.
- *  Returns a cleanup — the caller (a per-doc mount) must call it on navigation
- *  so refreshers don't stack across docs. */
+/** Re-render on the set's own push and on focus (`set-live.ts`), same
+ *  contract as the workspace tree. Returns a cleanup — the caller (a per-doc
+ *  mount) must call it on navigation so refreshers don't stack across docs. */
 export function wireDiffNavRefresh(
   docId: string,
   workspaceId: string,
   scope?: Disposable,
 ): () => void {
-  const refresh = () => void renderDiffNav(docId, workspaceId, true, scope);
-  window.addEventListener('focus', refresh);
-  const timer = setInterval(refresh, 30_000);
-  return () => {
-    window.removeEventListener('focus', refresh);
-    clearInterval(timer);
-  };
+  return watchSetChanges(workspaceId, () => void renderDiffNav(docId, workspaceId, true, scope));
 }
 
 /** Extract the docId from a doc href (absolute or relative), or null. */

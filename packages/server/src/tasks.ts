@@ -2391,18 +2391,26 @@ export class TaskStore {
     return this.workspaceStore.setLeadAgent(workspaceId, leadAgentId, opts);
   }
 
+  /** Told when a doc is linked to or unlinked from a board. Neither emits a
+   *  store event, and an open Library still has to hear it (`page-nudges.ts`). */
+  onBoardDocsChanged: ((workspaceId: string) => void) | null = null;
+
   attachDoc(
     workspaceId: string,
     docId: string,
   ): { ok: true } | { ok: false; error: 'workspace-not-found' } {
-    return this.workspaceStore.attachDoc(workspaceId, docId);
+    const res = this.workspaceStore.attachDoc(workspaceId, docId);
+    if (res.ok) this.onBoardDocsChanged?.(workspaceId);
+    return res;
   }
 
   detachDoc(
     workspaceId: string,
     docId: string,
   ): { ok: true; removed: boolean } | { ok: false; error: 'workspace-not-found' } {
-    return this.workspaceStore.detachDoc(workspaceId, docId);
+    const res = this.workspaceStore.detachDoc(workspaceId, docId);
+    if (res.ok && res.removed) this.onBoardDocsChanged?.(workspaceId);
+    return res;
   }
 
   workspaceOfDoc(docId: string): string | null {

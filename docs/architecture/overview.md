@@ -1593,6 +1593,31 @@ second socket in the same turn is held for about 100ms. That is the delay the
 board's wake frames and every comment broadcast were paying on the machine
 prod runs on.
 
+`page-nudges.ts` sits beside `sse.ts` too. It tells an open page that a list
+it read over REST is stale: a board's Library and members (`library.changed`,
+`members.changed` on `ws~<board>`), a review's sidebar (`attachments.changed`
+on `ws~<set>`), the voice page's agents (`voice~`) and the prompts page
+(`prompts~`). It listens on hook slots the stores already expose or gained for
+it — `DocStore.onIndexChanged`, `TaskStore.onBoardDocsChanged`,
+`ShareLinks.onSaved`, the bus's tap and `onAgentStreams` — and chains onto
+whatever held them. Frames name only the list, are transient, coalesce per
+150ms burst and skip agent streams. On the page side, `workspaces-app/src/set-live.ts`
+is the one stream a doc page opens for its review's sidebar; the board, voice
+and settings pages listen on streams they hold already or open one each.
+
+`folder-watch.ts` covers the one change no store announces: a file created,
+deleted or renamed straight on disk in a review's folder. While a page holds
+`ws~<set>` (the bus's `watchStreams` and `pagesOn`; agent streams do not
+count) it keeps one recursive `fs.watch` on the folder root, and on a settled
+burst compares a names-only listing (`git ls-files`, else an async `readdir`
+walk) with the last one. A changed listing runs `refreshWorkspace`, whose
+`onSetRescanned` sends the same `attachments.changed`. A diff review based on
+the working tree compares its diff instead (`git diff --numstat` against the
+stored base, path, status and counts per file), so a tracked file's first
+edit joins the list and a save that moves a count redraws it, while a save
+of the same bytes sends nothing. The watch closes with the last page, and at
+most 32 run at once.
+
 `path-params.ts` joins that row for the same reason and from the same problem:
 it decodes one path segment, answering rather than throwing on a stray `%`, and
 `server.ts` calls it once at the front door so no route can be reached with a
@@ -1670,7 +1695,10 @@ from the doc's own folder (`routes/doc-assets.ts`) while the node, and so the
 `.md`, keeps the path as written. `doc-image-upload.ts` beside it takes a
 pasted, dropped or picked image file to that route's POST, which stores it in
 `images/` beside the `.md` through the server's `doc-image-store.ts` (one of
-the `doc-*.ts` the diagram draws), then inserts the path it answers. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+the `doc-*.ts` the diagram draws), then inserts the path it answers.
+`doc-image-retry.ts`, which that block image installs, asks again for an
+image whose file was not there yet, so it appears once the file lands without
+a reload; it changes the DOM's `src` only. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"

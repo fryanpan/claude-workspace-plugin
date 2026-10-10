@@ -58,7 +58,10 @@ export interface BoardSettingsPanelDeps {
  * inlined block held — the click listeners it registers on `document` are
  * order-sensitive against the ones around them.
  */
-export function wireBoardSettingsPanel(deps: BoardSettingsPanelDeps): void {
+export function wireBoardSettingsPanel(deps: BoardSettingsPanelDeps): {
+  /** Access changed elsewhere: redraw the members list if settings is open. */
+  membersChanged(): void;
+} {
   const { document, el, workspaceId, author, user, fetchJson, send, showToast } = deps;
   /**
    * What this reader may CHANGE here, as of the last members read.
@@ -286,4 +289,9 @@ export function wireBoardSettingsPanel(deps: BoardSettingsPanelDeps): void {
       () => showToast(deps.href()),
     );
   });
+  return {
+    membersChanged: () => {
+      if (deps.isOpen()) void members.changed();
+    },
+  };
 }

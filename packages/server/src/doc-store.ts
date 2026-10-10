@@ -665,8 +665,8 @@ export class DocStore {
       releaseAliases: (docId) => this.releaseAliases(docId),
       pathFor: (docId) => this.pathFor(docId),
       forgetActivityMtime: (docId) => this.activityMtime.delete(docId),
-      setIndexEntry: (docId, entry) => this.docIndex.set(docId, entry),
-      deleteIndexEntry: (docId) => this.docIndex.delete(docId),
+      setIndexEntry: (docId, entry) => this.setIndex(docId, entry),
+      deleteIndexEntry: (docId) => this.setIndex(docId, undefined),
     };
   }
 
@@ -976,6 +976,26 @@ export class DocStore {
    * that stages, restores, purges or moves one — see `doc-index.ts`.
    */
   private docIndex = new Map<string, DocIndexEntry>();
+
+  /**
+   * Told every time a doc's listing row is written, moved or dropped, with
+   * the row before and after (`undefined` for none). Every list a page draws
+   * from docs — a board's Library, a review's file tree — is built from these
+   * rows, so this is where an open page learns its list went stale
+   * (`page-nudges.ts` decides which changes count). Not told at boot.
+   */
+  onIndexChanged?: (
+    docId: string,
+    prev: DocIndexEntry | undefined,
+    next: DocIndexEntry | undefined,
+  ) => void;
+
+  private setIndex(docId: string, entry: DocIndexEntry | undefined): void {
+    const prev = this.docIndex.get(docId);
+    if (entry) this.docIndex.set(docId, entry);
+    else this.docIndex.delete(docId);
+    this.onIndexChanged?.(docId, prev, entry);
+  }
 
   /**
    * Repo+path identity for every doc that has a repo.
@@ -1442,7 +1462,7 @@ export class DocStore {
     // The row goes with the doc, or a listing keeps describing something
     // that is no longer there.
     stageDocIndex(this.cfg.dataDir, docId);
-    this.docIndex.delete(docId);
+    this.setIndex(docId, undefined);
     const path = this.pathFor(docId);
     if (!existsSync(path)) return true;
     try {
@@ -1459,7 +1479,7 @@ export class DocStore {
     this.activityMtime.delete(docId);
     unstageDocIndex(this.cfg.dataDir, docId);
     const restored = readDocIndex(this.cfg.dataDir, docId);
-    if (restored) this.docIndex.set(docId, restored);
+    if (restored) this.setIndex(docId, restored);
     const staged = `${this.pathFor(docId)}.deleting`;
     if (!existsSync(staged)) return;
     try {
@@ -1482,7 +1502,7 @@ export class DocStore {
 
   purgePersisted(docId: string): boolean {
     this.activityMtime.delete(docId);
-    this.docIndex.delete(docId);
+    this.setIndex(docId, undefined);
     // The one place a repo+path key is given up. A purge is the caller that
     // asked for the bytes to be gone, and leaving the key claimed would make
     // the next bind of that file re-establish an address whose document the
@@ -3345,14 +3365,24 @@ export class DocStore {
    * idempotent: the same file maps to the same docId, so threads survive.
    */
   /** Bind a whole folder/worktree for review — see binds.ts. */
-  bindFolder(opts: BindFolderOpts): Promise<BindFolderResult> {
-    return bindFolderImpl(this, opts);
+  /**
+   * A bind or refresh re-scanned a set. Its file list is a disk scan, so it
+   * can differ when no member doc did (`page-nudges.ts`).
+   */
+  onSetRescanned?: (setId: string) => void;
+
+  async bindFolder(opts: BindFolderOpts): Promise<BindFolderResult> {
+    const res = await bindFolderImpl(this, opts);
+    if (res.ok) this.onSetRescanned?.(res.setId);
+    return res;
   }
 
   /** Bind a git diff (working-tree or pinned) for review — see binds.ts.
    *  Async because a bind reads every member off the thread pool. */
-  bindDiff(opts: BindDiffOpts): Promise<BindDiffResult> {
-    return bindDiffImpl(this, opts);
+  async bindDiff(opts: BindDiffOpts): Promise<BindDiffResult> {
+    const res = await bindDiffImpl(this, opts);
+    if (res.ok) this.onSetRescanned?.(res.reviewId);
+    return res;
   }
 
   /**
@@ -3393,8 +3423,10 @@ export class DocStore {
 
   /** Re-reconcile a workspace against disk, keeping docIds (and therefore
    *  threads) stable — see binds.ts. */
-  refreshWorkspace(setId: string): Promise<RefreshWorkspaceResult> {
-    return refreshWorkspaceImpl(this, setId);
+  async refreshWorkspace(setId: string): Promise<RefreshWorkspaceResult> {
+    const res = await refreshWorkspaceImpl(this, setId);
+    if (res.ok) this.onSetRescanned?.(res.setId);
+    return res;
   }
 
   /** Re-group a diff review's sidebar in place — see binds.ts. */
@@ -4425,7 +4457,7 @@ export class DocStore {
       // cannot describe a state the `.ydoc` was never in.
       const entry = this.indexEntryFor(doc);
       writeDocIndex(this.cfg.dataDir, doc.docId, entry);
-      this.docIndex.set(doc.docId, entry);
+      this.setIndex(doc.docId, entry);
     } catch (err) {
       console.error(`[doc-store] failed to persist ${doc.docId}:`, err);
     }
