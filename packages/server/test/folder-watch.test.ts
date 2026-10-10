@@ -306,6 +306,7 @@ describe('folder watch decisions', () => {
     expect(watchCanWedge('linux', '1.3.10')).toBe(true);
     expect(watchCanWedge('linux', '1.3.11')).toBe(false);
     expect(watchCanWedge('linux', '1.4.0')).toBe(false);
+    expect(watchCanWedge('linux', '1.2.21')).toBe(true);
     expect(watchCanWedge('darwin', '1.3.10')).toBe(false);
   });
 });

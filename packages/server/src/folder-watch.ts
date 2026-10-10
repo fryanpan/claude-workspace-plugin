@@ -181,8 +181,14 @@ export function isWatchedPath(relPath: string): boolean {
 export const POLL_MS = 1_000;
 
 /** Whether this runtime's recursive `fs.watch` can go deaf process-wide. */
-export function watchCanWedge(platform: string = process.platform, version = Bun.version): boolean {
-  return platform === 'linux' && Bun.semver.order(version, '1.3.11') < 0;
+export function watchCanWedge(
+  platform: string = process.platform,
+  // Undefined under node: scripts tested there import this module.
+  version: string | undefined = typeof Bun === 'undefined' ? undefined : Bun.version,
+): boolean {
+  if (platform !== 'linux' || !version) return false;
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map((n) => Number.parseInt(n, 10));
+  return major < 1 || (major === 1 && (minor < 3 || (minor === 3 && patch < 11)));
 }
 
 /** A watch that is a timer: every tick is an event of unknown path. */
@@ -200,8 +206,6 @@ const fsDirectoryWatch: WatchFn = (root, onEvent) => {
   w.on('error', () => w.close());
   return w;
 };
-
-const defaultWatch: WatchFn = watchCanWedge() ? pollWatch : fsDirectoryWatch;
 
 /** Entries a listing walk reads before giving up on a folder. */
 const MAX_WALK_ENTRIES = 20_000;
@@ -329,7 +333,7 @@ export function createFolderWatches(
   host: FolderWatchHost,
   opts: FolderWatchOptions = {},
 ): FolderWatches {
-  const watchFn = opts.watch ?? defaultWatch;
+  const watchFn = opts.watch ?? (watchCanWedge() ? pollWatch : fsDirectoryWatch);
   const listPaths = opts.listPaths ?? liveListing;
   const settleMs = opts.settleMs ?? SETTLE_MS;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
