@@ -513,8 +513,12 @@ export const EMPTIED_MIN_HELD_CHARS = 64;
  */
 export function writeEmptiesFile(held: string, next: string): boolean {
   const count = (s: string) => s.replace(/\s+/g, '').length;
+  const after = count(next);
+  // Every write-back asks, so the held side is only counted when the answer
+  // can be yes: it holds no more non-blank characters than its length.
+  if (after * 10 >= held.length) return false;
   const before = count(held);
-  return before >= EMPTIED_MIN_HELD_CHARS && count(next) * 10 < before;
+  return before >= EMPTIED_MIN_HELD_CHARS && after * 10 < before;
 }
 
 /**
