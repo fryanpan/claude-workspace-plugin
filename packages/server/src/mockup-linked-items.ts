@@ -52,8 +52,11 @@ export function linkedTaskItems(args: {
   tasks: Array<Pick<Task, 'id' | 'title' | 'status' | 'links'>>;
   reviewsOf: (taskId: string) => TaskReviewItem[];
   canonical: (docId: string) => string;
+  /** Items about this page whatever they link — a run's output item waiting
+   *  on the file it holds — which the reader may mark read. */
+  readable?: ReadonlySet<string>;
 }): LinkedDockItem[] {
-  const { docId, tasks, reviewsOf, canonical } = args;
+  const { docId, tasks, reviewsOf, canonical, readable } = args;
   const out: LinkedDockItem[] = [];
   for (const task of tasks) {
     const rows = taskReviewItems([
@@ -67,14 +70,16 @@ export function linkedTaskItems(args: {
     ]);
     for (const row of rows) {
       if (row.review.ownerOnly) continue;
+      const markRead = readable?.has(row.reviewItemId) === true;
       const linked = itemLinkedDocIds(row.review.detail, task.links ?? []);
-      if (!linked.some((id) => canonical(id) === docId)) continue;
+      if (!markRead && !linked.some((id) => canonical(id) === docId)) continue;
       out.push({
         taskId: task.id,
         reviewItemId: row.reviewItemId,
         review: row.review,
         by: row.askedBy,
         ts: row.askedAt,
+        ...(markRead ? { markRead: true } : {}),
       });
     }
   }
@@ -94,12 +99,14 @@ export function boardLinkedItems(
     listReviewItems(taskId: string): TaskReviewItem[];
   },
   docStore: { resolveDocId(docId: string): string },
+  readable?: ReadonlySet<string>,
 ): LinkedDockItem[] {
   return linkedTaskItems({
     docId,
     tasks: taskStore.listTasks(workspaceId),
     reviewsOf: (taskId) => taskStore.listReviewItems(taskId),
     canonical: (id) => docStore.resolveDocId(id),
+    ...(readable ? { readable } : {}),
   });
 }
 

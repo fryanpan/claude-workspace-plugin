@@ -88,6 +88,7 @@ import { isAllowedBrowserOrigin } from './middleware/browser-origin.ts';
 import { isLoopbackAddress } from './middleware/host-guard.ts';
 import { type WorkspaceScope, resolveWorkspaceScope } from './middleware/workspace-scope.ts';
 import { isBrowserRequest, isGatedWrite, signInRequiredBody } from './middleware/write-gate.ts';
+import { boardLinkedItems } from './mockup-linked-items.ts';
 import { MountStore } from './mount-store.ts';
 import { parseMuxCursor } from './mux-cursor.ts';
 import { spokenLinkRef } from './notes-link-intent.ts';
@@ -225,7 +226,12 @@ import { createStallWiring } from './stall-wiring.ts';
 import { cryptoId } from './task-fields.ts';
 import { isReservedGoalId } from './task-goals.ts';
 import { TaskProjection, taskBodyDocId } from './task-projection.ts';
-import { type RunOutputSource, observeRunOutput } from './task-run-output.ts';
+import {
+  type RunOutputSource,
+  itemsLinking,
+  noteOutputOpened,
+  observeRunOutput,
+} from './task-run-output.ts';
 import { DEFAULT_SPAWNER_AGENT_ID, observeScheduledWake } from './task-scheduled-wake.ts';
 import { type FiredOccurrence, SCHEDULER_ACTOR, createTaskScheduler } from './task-scheduler.ts';
 import {
@@ -1415,7 +1421,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // `schedulerNow` is a seam for the same reason `stallNudgeQuietMs` is one:
   // the feature IS a comparison against a clock, so a test that could not move
   // the clock would have to burn real minutes to assert anything.
-  let runOutputSource = (): RunOutputSource => ({ files: () => null, opened: () => false });
+  let runOutputSource = (): RunOutputSource => ({ files: () => null });
   const taskScheduler = createTaskScheduler(taskStore, {
     ...(opts.schedulerNow !== undefined ? { now: opts.schedulerNow } : {}),
     observers: [
@@ -1438,7 +1444,6 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         taskStore,
         {
           files: (ws) => runOutputSource().files(ws),
-          opened: (ws, relPath) => runOutputSource().opened(ws, relPath),
         },
         SCHEDULER_ACTOR,
         (message) => console.error(message),
@@ -2597,6 +2602,9 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     requestAddress: (req) => server.requestIP(req)?.address,
   };
 
+  // A reader opened a project file: what a run's output item waits on.
+  const noteOpened = (ws: string, relPath: string): void =>
+    noteOutputOpened(taskStore, ws, relPath, SCHEDULER_ACTOR, (m) => console.error(m));
   /** The board's Library — its meetings and its project's files, and the
    *  verb that opens a project file nobody has bound yet. */
   const libraryRoutesCtx: LibraryRoutesContext = {
@@ -2611,9 +2619,20 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     markdownFiles: createMarkdownLister(),
     requestAddress: (req) => server.requestIP(req)?.address,
     isLocalOnlySet: (setId) => attachmentPrivacy.isLocalOnly(setId),
+    onOpened: noteOpened,
   };
-  runOutputSource = () =>
+  const libraryOutputSource = () =>
     libraryRunOutputSource(libraryRoutesCtx, (id) => taskStore.getWorkspace(id));
+  runOutputSource = libraryOutputSource;
+  // The doc page's open of the file a doc holds, and what its dock offers.
+  const pageOpened = (ws: string, docId: string) => {
+    // The project walk is paid only on a board with a run's item standing.
+    const waiting = taskStore.listTasks(ws).some((t) => t.schedule?.state?.output?.item);
+    const relPath = waiting ? libraryOutputSource().fileOf(ws, docId) : undefined;
+    if (relPath !== undefined) noteOpened(ws, relPath);
+    const readable = relPath === undefined ? undefined : itemsLinking(taskStore, ws, relPath);
+    return boardLinkedItems(ws, docId, taskStore, docStore, readable);
+  };
 
   /** The migration verb: one board doc into its project's folder, same doc. */
   const docMoveRoutesCtx: DocMoveRoutesContext = {
@@ -2822,6 +2841,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     canonicalDocId,
     backTargetFor,
     resolveWorkspaceForDoc,
+    pageOpened,
     withReviewUrl,
     boardIndexForListing,
     boardsForDocIndexed,

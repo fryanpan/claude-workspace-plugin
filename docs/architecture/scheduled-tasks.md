@@ -233,13 +233,19 @@ first and withdraws the old one after, carrying the old item's unopened files
 (seven links at most). An unread digest does not turn into a card a day, and it
 does not quietly drop off either.
 
-- **Read.** The item is withdrawn once every file it links that was unopened
-  when it was filed is held by a doc of the board, which is what opening a file
-  does from the item and from the Library alike. A run that rewrites a file
-  already open (a `latest.md`) still files an item, but opening that file again
-  is no sign it was read, so such an item stands until it is answered or the
-  next run replaces it. Answering closes it, and the next run carries nothing
-  from an answered item.
+- **Read.** The item is withdrawn once a reader has opened every file it
+  links after it was filed: through the Library's open verb, or at the doc
+  page of a doc that holds the file (the page reading its record is the open).
+  It used to wait only on files no doc held when it was filed. A writer that
+  binds each digest as its own doc before its run closes left it waiting on
+  nothing, so it never withdrew and stood until the next run replaced it.
+  An item filed that way still records an empty `waitingOn` list, which now
+  reads as waiting on every file it links. Answering closes it, and the next
+  run carries nothing from an answered item.
+- **Mark read.** While the item stands, the doc page of each file it links
+  docks it with a Mark read button. The button withdraws the item through the
+  review item's own withdraw route, without a typed answer, and an open Home
+  drops it on the `review_item.withdrawn` event.
 - **Once per run.** The rule's state remembers the success it looked at
   (`state.output.forSuccessAt`), so no later tick lists the project again for
   the same run.

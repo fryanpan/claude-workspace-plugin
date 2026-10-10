@@ -17,7 +17,6 @@ import {
   researchPlaceholderMarkdown,
   researchSectionTitle,
 } from '../huddle.ts';
-import { boardLinkedItems } from '../mockup-linked-items.ts';
 import { isCategoryAuthor } from '../task-owner.ts';
 import { taskIdOfBodyDoc } from '../task-projection.ts';
 import { clipToWordBoundary } from '../task-title.ts';
@@ -146,7 +145,7 @@ export async function handleDocResourceCore(
     // The open ticket items linking this doc, for its dock: off the board in
     // the path, where the page posts its answer, and never for a visitor.
     const itemsBoard = visitor ? undefined : (scope?.workspaceId ?? boardWs ?? undefined);
-    const linkedItems = itemsBoard ? boardLinkedItems(itemsBoard, docId, taskStore, docStore) : [];
+    const linkedItems = itemsBoard ? ctx.pageOpened(itemsBoard, docId) : [];
     return j(200, {
       meta: metaFor({ ...doc.meta, lastActivityAt: docStore.activityAt(docId) }),
       ...(taskRefs.length > 0 ? { tasks: taskRefs } : {}),
