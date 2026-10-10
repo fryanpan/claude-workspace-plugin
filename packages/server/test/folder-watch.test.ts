@@ -12,7 +12,17 @@
  * All fixtures are invented. Port 0, temp data dirs.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { watch as fsWatch, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  watch as fsWatch,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DOC_STORE_TIMINGS } from '../src/doc-store-timings.ts';
@@ -28,6 +38,52 @@ import { NUDGE_COALESCE_MS } from '../src/page-nudges.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { framesOf } from './stream-frames.ts';
 import { waitFor } from './wait-for.ts';
+
+/** DIAG (temporary): the inotify watches and thread states of this process. */
+function procState(folder: string): string {
+  const out: string[] = [];
+  try {
+    const ino = statSync(folder).ino.toString(16);
+    out.push(`folder ino=${ino}`);
+    for (const fd of readdirSync('/proc/self/fd')) {
+      let target = '';
+      try {
+        target = readlinkSync(`/proc/self/fd/${fd}`);
+      } catch {
+        continue;
+      }
+      if (target.includes('inotify')) {
+        const lines = readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8')
+          .split('\n')
+          .filter((l) => l.startsWith('inotify'));
+        out.push(
+          `inotify fd ${fd}: ${lines.length} wds; ours: ${lines.filter((l) => l.includes(`ino:${ino} `)).join(' / ') || 'NONE'}`,
+        );
+        out.push(`  last wds: ${lines.slice(-3).join(' / ')}`);
+      }
+    }
+    for (const tid of readdirSync('/proc/self/task')) {
+      const comm = readFileSync(`/proc/self/task/${tid}/comm`, 'utf8').trim();
+      const stat = readFileSync(`/proc/self/task/${tid}/stat`, 'utf8');
+      const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0];
+      let wchan = '';
+      try {
+        wchan = readFileSync(`/proc/self/task/${tid}/wchan`, 'utf8');
+      } catch {}
+      let syscall = '';
+      try {
+        syscall = readFileSync(`/proc/self/task/${tid}/syscall`, 'utf8')
+          .split(' ')
+          .slice(0, 2)
+          .join(' ');
+      } catch {}
+      out.push(`  task ${tid} ${comm} ${state} wchan=${wchan} syscall=${syscall}`);
+    }
+  } catch (e) {
+    out.push(`no /proc: ${(e as Error).message}`);
+  }
+  return out.join('\n');
+}
 
 /** Past one burst's whole journey: settle, the pass, the coalesced frame. */
 const PAST_A_BURST = MAX_WAIT_MS + NUDGE_COALESCE_MS * 2 + 300;
@@ -245,8 +301,13 @@ describe('folder watch decisions', () => {
         },
       );
       setTimeout(() => {
-        if (refreshes === 0) console.log(`[fw-diag] no refresh at 3.9s:\n${log.join('\n')}`);
+        if (refreshes === 0)
+          console.log(`[fw-diag] no refresh at 3.9s:\n${log.join('\n')}\n${procState(folder)}`);
       }, 3900);
+      setTimeout(
+        () => console.log(`[fw-diag] at 300ms refreshes=${refreshes}\n${procState(folder)}`),
+        300,
+      );
       watches.sync('set-1', 1);
       // The first burst is the one that always refreshes. Bun on Linux arms
       // its recursive watch a moment after the call returns, so keep writing
