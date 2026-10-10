@@ -90,10 +90,10 @@ const repoRoot = join(here, '..');
 const dataDir = resolveDataDir(process.env, repoRoot);
 
 // PROD: dependencies first — the builds, the server and the rest of this
-// supervisor import them. A failed install is the one deploy step that does
-// NOT fall back: this waits, on a backoff, until one succeeds; see
-// `installBeforeBoot` for why it neither boots over the failure nor exits
-// into a launchd respawn loop. The health watchdog below is armed only after
+// supervisor import them. A failed install boots only when bun.lock and the
+// manifests are what the last successful install left; otherwise this waits,
+// on a backoff, until one succeeds. See `installBeforeBoot` for why it
+// neither boots over changed inputs nor exits into a launchd respawn loop. The health watchdog below is armed only after
 // this returns; before it, it would find nothing listening and exit into
 // that same loop.
 if (noWatch) await installBeforeBoot(supervisorInstallGate(repoRoot, dataDir, note));
@@ -115,6 +115,7 @@ const { createHealthWatchdog, probeHealth } = await import(
 const { FIRST_BIND_GRACE_MS, fileRestartLedger, restartLedgerPath } = await import(
   '../packages/server/src/supervisor-restarts.ts'
 );
+const { reapChildren } = await import('../packages/server/src/supervisor-reap.ts');
 
 /**
  * DEV only. Walk to the next port when this one is occupied, so two agents on
@@ -383,46 +384,6 @@ const SIGKILL_GRACE_MS = 2_000;
 const stillRunning = (): ChildProcess[] =>
   children().filter((p) => p.exitCode === null && p.signalCode === null);
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * SIGTERM every child, then WAIT for them to actually die, then SIGKILL
- * whatever is left.
- *
- * The predecessor of this function fired SIGTERM and called `process.exit`
- * 300ms later without ever looking at whether anything died. A server child
- * midway through hydrating 5,622 documents does not exit in 300ms, so it was
- * reparented to launchd and kept running — holding its port, its 2,553 file
- * watchers and its memory — while launchd started a replacement. On
- * 2026-08-29 that leak ran nine times; the last survivor reached 2.77 GB and
- * was the process jetsam killed when the machine ran out of memory and, with
- * it, network buffers. `activity-writer.lock is held by pid 88883` appears in
- * the log across seven consecutive restarts: one orphan, outliving them all.
- */
-async function reapChildren(): Promise<void> {
-  for (const p of stillRunning()) {
-    try {
-      p.kill('SIGTERM');
-    } catch {}
-  }
-  const softDeadline = Date.now() + SHUTDOWN_GRACE_MS;
-  while (Date.now() < softDeadline && stillRunning().length > 0) await wait(100);
-
-  const stubborn = stillRunning();
-  if (stubborn.length === 0) return;
-  note(
-    `[supervisor] ${stubborn.length} child(ren) ignored SIGTERM after ` +
-      `${SHUTDOWN_GRACE_MS / 1000}s — SIGKILL (pids ${stubborn.map((p) => p.pid).join(', ')})`,
-  );
-  for (const p of stubborn) {
-    try {
-      p.kill('SIGKILL');
-    } catch {}
-  }
-  const hardDeadline = Date.now() + SIGKILL_GRACE_MS;
-  while (Date.now() < hardDeadline && stillRunning().length > 0) await wait(50);
-}
-
 /** Tear down children + discovery file and exit. `code` decides whether
  *  launchd (KeepAlive: SuccessfulExit=false) respawns us: exit 0 on an
  *  intentional stop (SIGINT/SIGTERM) so we stay down, exit 1 when a child
@@ -431,7 +392,16 @@ function cleanup(code: number): void {
   if (cleaningUp) return;
   cleaningUp = true;
   releaseDiscovery({ home: homedir(), ourPublishedPid: publishedPid });
-  void reapChildren().then(() => process.exit(code));
+  // See `supervisor-reap.ts`: SIGTERM, then SIGKILL, then a line naming any
+  // pid the kernel would not let die.
+  void reapChildren({
+    children,
+    now: Date.now,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    log: note,
+    termGraceMs: SHUTDOWN_GRACE_MS,
+    killGraceMs: SIGKILL_GRACE_MS,
+  }).then(() => process.exit(code));
 }
 
 // Last-resort orphan guard. `cleanup` covers the paths we know about; this

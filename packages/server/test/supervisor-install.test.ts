@@ -29,7 +29,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { installLedgerPath } from '../src/dependency-install.ts';
+import {
+  installLedgerPath,
+  installSuccessPath,
+  lockFingerprint,
+} from '../src/dependency-install.ts';
 import { STAMP_PATTERN } from '../src/log-stamp.ts';
 import { waitFor } from './wait-for.ts';
 
@@ -206,5 +210,26 @@ describe('scripts/serve.ts --no-watch', () => {
     );
     expect(refusal).toContain('lockfile had changes, but lockfile is frozen');
     expect(m.calls()).toEqual([{ cwd: copy, argv: 'install --frozen-lockfile' }]);
+  }, 30_000);
+
+  it('boots over a failed install when bun.lock is what the last success installed', async () => {
+    // 10 October: the registry unreachable, bun.lock untouched since the last
+    // good install. The supervisor must carry on to the builds and the server.
+    const m = machine(true);
+    mkdirSync(m.dataDir, { recursive: true });
+    writeFileSync(
+      installSuccessPath(m.dataDir),
+      JSON.stringify({ fingerprint: lockFingerprint(repoRoot), at: 0 }),
+    );
+
+    const warning = await boot(m).line('Booting anyway on the existing node_modules');
+    expect(warning).toMatch(STAMP_PATTERN);
+    expect(warning).toContain('lockfile had changes, but lockfile is frozen');
+    await waitFor(() => m.calls().some((c) => c.argv.includes('bin.ts')), {
+      timeout: 20_000,
+      describe: 'the supervisor to spawn its server',
+    });
+    expect(m.calls()[0]?.argv).toBe('install --frozen-lockfile');
+    expect(existsSync(installLedgerPath(m.dataDir))).toBe(true);
   }, 30_000);
 });
