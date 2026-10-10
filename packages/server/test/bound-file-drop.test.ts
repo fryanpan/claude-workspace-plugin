@@ -56,9 +56,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prose } from '@claude-workspaces/core';
 import { DocStore } from '../src/doc-store.ts';
+import { statStampSync } from '../src/file-stamp.ts';
 import { boundFiles } from '../src/slow-fs.ts';
 import { SseBus } from '../src/sse.ts';
 import { createWebhookDispatcher } from '../src/webhooks.ts';
+import { fsStampNow } from './fs-stamp.ts';
 import { waitFor, waitForFile } from './wait-for.ts';
 
 /** What the writer had in the doc before the meeting started. */
@@ -438,6 +440,17 @@ describe('keeping a copy does not cost another', () => {
     writeFileSync(path, BEFORE);
     expect(docStore.reconcileNow('d-forget')).toBe('apply');
     expect(backups(dataDir)).toHaveLength(1);
+    // The re-attach below arbitrates by mtime: the file's stamp in
+    // nanoseconds against the `.ydoc`'s, which bun truncates to whole
+    // milliseconds. A `.ydoc` the eviction writes in the same millisecond as
+    // the file reads as older, so the attach pulls BEFORE in, drops the
+    // re-taken notes, and the file never gets them. Wait until a new file
+    // would be stamped later. Not before the reconcile: a wait there lets the
+    // poll apply the edit, and the reconcile answers `in-sync`.
+    const dropped = statStampSync(path).mtimeMs;
+    await waitFor(() => fsStampNow() > dropped, {
+      describe: 'a new file to be stamped after the dropped one',
+    });
 
     // The doc is evicted and comes back — a fresh binding, the same id, and
     // the same content lost again. The de-dup must not answer for a run that
