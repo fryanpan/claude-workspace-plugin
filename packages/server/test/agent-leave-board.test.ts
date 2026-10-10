@@ -52,8 +52,9 @@ const call = async (method: string, path: string, body?: unknown) => {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 };
 
-/** Attach as the MCP does, and record the board's key in the watch set. */
-const join_ = async (ws: string, who: { id: string; name: string }) => {
+/** Attach as the MCP does, and record the board's key in the watch set.
+ *  Returns the attach's own timestamp. */
+const join_ = async (ws: string, who: { id: string; name: string }): Promise<number> => {
   const a = await call('POST', `/workspaces/${ws}/agents`, {
     agentId: who.id,
     agentName: who.name,
@@ -62,7 +63,18 @@ const join_ = async (ws: string, who: { id: string; name: string }) => {
   expect(a.status).toBe(200);
   const w = await call('POST', `/api/agents/${who.id}/watches`, { add: [`ws:${ws}`] });
   expect(w.status).toBe(200);
+  return (a.body.attachment as { attachedAt: number }).attachedAt;
 };
+
+/**
+ * Wait until the server's clock has moved past an attach. "Worked since
+ * attach" is `lastBoardWorkAt > attachedAt` in milliseconds, so work filed in
+ * the attach's own millisecond reads as no work at all, and the restore leaves
+ * the row dormant. On a warm run the two land in the same millisecond about
+ * one time in five.
+ */
+const pastAttach = (attachedAt: number) =>
+  waitFor(() => Date.now() > attachedAt, { describe: `the clock to pass ${attachedAt}` });
 
 const agentsOn = async (ws: string): Promise<string[]> => {
   const r = await call('GET', `/workspaces/${ws}/agents`);
@@ -199,6 +211,7 @@ const taskFramesFor = (frames: Frame[], title: string) =>
 
 describe('leaving a board, and removing an agent from one', () => {
   let ws = '';
+  let guestAttachedAt = 0;
 
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'cw-agent-leave-'));
@@ -208,7 +221,7 @@ describe('leaving a board, and removing an agent from one', () => {
     // The first attach claims the empty seat, so the lead goes first and the
     // guest is attached without it.
     await join_(ws, LEAD);
-    await join_(ws, GUEST);
+    guestAttachedAt = await join_(ws, GUEST);
   });
 
   afterEach(async () => {
@@ -279,6 +292,7 @@ describe('leaving a board, and removing an agent from one', () => {
   it('POSITIVE CONTROL: without the removal, the same restore does bring the guest back', async () => {
     // Freshly attached and worked nowhere — but the attach itself is this
     // run's, so make it do something here first, as a working guest would.
+    await pastAttach(guestAttachedAt);
     await call('POST', `/workspaces/${ws}/tasks/batch`, {
       tasks: [{ title: 'Riverbend checks the ferry timetable', body: 'Fixture.' }],
       author: { ...GUEST, color: '#000000', kind: 'known' },
@@ -289,7 +303,7 @@ describe('leaving a board, and removing an agent from one', () => {
   });
 
   it('after a server restart, re-attaches the lead and a worker but not a dormant guest', async () => {
-    await join_(ws, WORKER);
+    await pastAttach(await join_(ws, WORKER));
     const filed = await call('POST', `/workspaces/${ws}/tasks/batch`, {
       tasks: [{ title: 'Saltmarsh drafts the tide table', body: 'Fixture.' }],
       author: { ...WORKER, color: '#000000', kind: 'known' },
