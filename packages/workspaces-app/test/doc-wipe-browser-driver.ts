@@ -86,6 +86,8 @@ async function poll<T>(read: () => Promise<T | null>, what: string): Promise<T> 
 }
 
 const KEY_CODES = { Backspace: 8, Delete: 46 } as const;
+/** CDP's modifier bits: 4 is Meta, 2 is Control. */
+const MOD = process.platform === 'darwin' ? 4 : 2;
 
 const page = await bundle(join(import.meta.dir, 'doc-wipe-browser-page.ts'));
 const JS = { 'content-type': 'text/javascript' };
@@ -156,7 +158,9 @@ try {
     // somewhere other than the start the mount left it at.
     await poll(async () => ((await read()).selection.endsWith(' 1-1') ? null : true), 'the caret');
     if (g.selectAll) {
-      const a = { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 4 };
+      // Cmd on a Mac, Ctrl elsewhere: the editor's Mod-a follows the platform,
+      // and CI runs on Linux.
+      const a = { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: MOD };
       await c.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...a, commands: ['selectAll'] });
       await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...a });
       await poll(
