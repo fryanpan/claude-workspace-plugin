@@ -98,7 +98,7 @@ export function wireCoach(deps: CoachWiringDeps): CoachWiring {
   // An unreadable state file means the boards he turned off are unknown.
   const isOff = (place: { workspaceId: string; docId?: string }) =>
     store.readFailed || placeIsOff(place, deps.privacy, store.offBoards);
-  const hub = new CoachHub({ hiddenAt: isOff });
+  const hub = new CoachHub({ offAt: isOff });
   const readGoals = (): GoalsDocReading | null => {
     const doc = store.goalsDoc;
     const md = doc ? deps.docStore.readMarkdownBody(doc.docId) : null;

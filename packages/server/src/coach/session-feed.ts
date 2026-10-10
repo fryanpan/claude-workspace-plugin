@@ -69,6 +69,8 @@ export type SessionFrame = Addressed &
         event: 'coach.answer';
         momentId: string;
         answer: MomentAnswer;
+        /** What he wrote with a thumbs down. */
+        text?: string;
         goal: string;
         line: string;
       }

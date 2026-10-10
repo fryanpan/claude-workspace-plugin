@@ -20,11 +20,13 @@
  * for the owner, and it mounts the card only when the section is there.
  *
  * The card: calm by default. It sits in the bottom-left corner of every
- * page, does not move or pulse, and stays until he answers it: it follows
- * him from page to page. The stream is told where the page is, and on a
- * board the coach is off for the server clears the card there instead.
- * Drawn in a shadow root so no page's stylesheet reaches it and it adds no
- * rule to any.
+ * page he has open, does not move or pulse, and stays until he answers it in
+ * any of them; the server then clears it on the rest. A thumbs up answers at
+ * once; a thumbs down opens a box above the thumbs for why, and the same
+ * button sends it. The stream is told where the page is, and on a board the
+ * coach does not hear from the card says so in place of the switch that
+ * turns it off. Drawn in a shadow root so no page's stylesheet reaches it
+ * and it adds no rule to any.
  */
 
 const HERE_URL = '/coach/here';
@@ -46,7 +48,17 @@ export interface CoachMomentView {
   goal: string;
 }
 
-type Frame = { type: 'moment'; moment: CoachMomentView } | { type: 'clear'; id: string };
+type Frame =
+  | { type: 'moment'; moment: CoachMomentView; off?: boolean }
+  | { type: 'clear'; id: string }
+  | { type: 'idle' };
+
+const THUMB_UP =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.5l-2.3 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/></svg>';
+const THUMB_DOWN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.5l2.3-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z"/></svg>';
+const OFF_HERE = 'Coach is off for this board';
+const TURN_OFF = 'Coach off for this board';
 
 export interface CoachCardOptions {
   /** The board, or none on the front page. */
@@ -68,11 +80,15 @@ const STYLES = `
 .cw-coach-line { margin: 0 0 6px; font-size: 14.5px; line-height: 1.4; }
 .cw-coach-goal { margin: 0 0 10px; font-size: 12.5px; line-height: 1.35; color: #6e7781; }
 .cw-coach-acts { display: flex; gap: 6px; }
-.cw-coach-acts button { flex: 1 1 0; min-height: 44px; padding: 0 8px; border: 1px solid #d8dee4; border-radius: 6px; background: #fff; color: #1b1f23; font-size: 13.5px; cursor: pointer; }
+.cw-coach-acts button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 8px; border: 1px solid #d8dee4; border-radius: 6px; background: #fff; color: #1b1f23; font-size: 13.5px; cursor: pointer; }
+.cw-coach-acts svg { width: 18px; height: 18px; flex: none; }
+.cw-coach-why { display: block; width: 100%; min-height: 64px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #d8dee4; border-radius: 6px; background: #fff; color: #1b1f23; font-size: 16px; line-height: 1.35; resize: none; }
+.cw-coach-why:focus { outline: 2px solid #5b7f4e; outline-offset: 0; border-color: #5b7f4e; }
 .cw-coach-acts button:hover { background: #f6f8fa; }
 .cw-coach-acts button:disabled { opacity: .55; cursor: default; }
 .cw-coach-off { display: block; margin: 8px 0 0; padding: 6px 0; min-height: 32px; border: none; background: none; color: #6e7781; font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .cw-coach-off:disabled { opacity: .55; cursor: default; }
+span.cw-coach-off { text-decoration: none; cursor: default; }
 `;
 
 async function defaultPost(url: string, body: unknown): Promise<number> {
@@ -223,21 +239,25 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   const hide = (id?: string) => {
     if (id && shown?.id !== id) return;
     shown = null;
+    setOff = () => {};
     host?.remove();
     host = null;
   };
 
-  const answer = async (id: string, value: string, buttons: HTMLButtonElement[]) => {
+  const answer = async (id: string, body: Record<string, string>, buttons: HTMLButtonElement[]) => {
     for (const b of buttons) b.disabled = true;
-    if ((await post(`/coach/moments/${encodeURIComponent(id)}/answer`, { answer: value })) === 200)
-      hide(id);
+    if ((await post(`/coach/moments/${encodeURIComponent(id)}/answer`, body)) === 200) hide(id);
     else for (const b of buttons) b.disabled = false;
   };
 
-  const show = (m: CoachMomentView) => {
-    // Told again (a board turned on, a page off for it reporting in): the
-    // card stays as it is.
-    if (shown?.id === m.id && host) return;
+  /** The slot under the thumbs: the switch, or that the coach is off here.
+   *  Both are one line of the same height, so the card does not change size. */
+  let setOff: (off: boolean) => void = () => {};
+
+  const show = (m: CoachMomentView, off: boolean) => {
+    // Told again (a board turned on or off, a page reconnecting): the card
+    // stays as it is, and only the line under the thumbs may change.
+    if (shown?.id === m.id && host) return setOff(off);
     hide();
     shown = m;
     host = document.createElement('div');
@@ -256,23 +276,39 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     };
     const acts = document.createElement('div');
     acts.className = 'cw-coach-acts';
-    const buttons = (
-      [
-        ['thanks', 'Thanks'],
-        ['not-now', 'Not now'],
-        ['not-this', 'Not this'],
-      ] as const
-    ).map(([value, label]) => {
+    const thumb = (value: 'up' | 'down', icon: string, label: string) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.answer = value;
-      b.textContent = label;
+      b.setAttribute('aria-label', label);
+      b.innerHTML = `${icon}<span></span>`;
+      (b.querySelector('span') as HTMLSpanElement).textContent = label;
       return b;
+    };
+    const up = thumb('up', THUMB_UP, 'Helpful');
+    const down = thumb('down', THUMB_DOWN, 'Not helpful');
+    const buttons = [up, down];
+    let why: HTMLTextAreaElement | null = null;
+    up.addEventListener('click', () => void answer(m.id, { answer: 'up' }, buttons));
+    down.addEventListener('click', () => {
+      if (why) {
+        const text = why.value.trim();
+        void answer(m.id, text ? { answer: 'down', text } : { answer: 'down' }, buttons);
+        return;
+      }
+      // The box opens above the thumbs; the card grows upward from its
+      // bottom edge, so the button he pressed stays under his finger.
+      why = document.createElement('textarea');
+      why.className = 'cw-coach-why';
+      why.maxLength = 1_000;
+      why.placeholder = 'What was off? (optional)';
+      why.setAttribute('aria-label', 'What was off');
+      card.insertBefore(why, acts);
+      down.setAttribute('aria-label', 'Send');
+      (down.querySelector('span') as HTMLSpanElement).textContent = 'Send';
+      why.focus();
     });
-    for (const b of buttons) {
-      b.addEventListener('click', () => void answer(m.id, b.dataset.answer ?? '', buttons));
-      acts.appendChild(b);
-    }
+    acts.append(up, down);
     card.append(
       line('cw-coach-who', m.name),
       line('cw-coach-line', m.line),
@@ -282,17 +318,25 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     // The front page is on no board, so it has nothing to turn off.
     const workspaceId = opts.workspaceId;
     if (workspaceId) {
-      const off = document.createElement('button');
-      off.type = 'button';
-      off.className = 'cw-coach-off';
-      off.textContent = 'Coach off for this board';
-      off.addEventListener('click', async () => {
-        off.disabled = true;
-        const status = await post(BOARDS_URL, { workspaceId, off: true });
-        if (status === 200) hide();
-        else off.disabled = false;
-      });
-      card.append(off);
+      let slot: HTMLElement | null = null;
+      setOff = (isOff) => {
+        const next = isOff ? document.createElement('span') : document.createElement('button');
+        next.className = 'cw-coach-off';
+        next.textContent = isOff ? OFF_HERE : TURN_OFF;
+        if (next instanceof HTMLButtonElement) {
+          next.type = 'button';
+          next.addEventListener('click', async () => {
+            next.disabled = true;
+            const status = await post(BOARDS_URL, { workspaceId, off: true });
+            if (status === 200) setOff(true);
+            else next.disabled = false;
+          });
+        }
+        if (slot) slot.replaceWith(next);
+        else card.append(next);
+        slot = next;
+      };
+      setOff(off);
     }
     shadow.append(style, card);
     document.body.appendChild(host);
@@ -305,8 +349,9 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     } catch {
       return;
     }
-    if (frame.type === 'moment') show(frame.moment);
+    if (frame.type === 'moment') show(frame.moment, frame.off === true);
     else if (frame.type === 'clear') hide(frame.id);
+    else if (frame.type === 'idle') hide();
   };
 
   root?.addEventListener('input', onInput);
@@ -328,7 +373,9 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
     hide();
   };
 
-  // 200 is the owner; anything else (204 for anyone else) stops the page.
+  // 204 is anyone but the owner, and 403 a page he cannot prove himself on:
+  // both stop the page. Anything else is his, even a place the server could
+  // not name (a folder's file), and the card shows there all the same.
   // The doc's text arrives after the page opens, so the first view may have
   // none: send one more once the text has settled, then stop watching.
   let arriving: MutationObserver | null = null;
@@ -347,7 +394,7 @@ export function mountCoachCard(opts: CoachCardOptions): CoachCard {
   };
 
   void view().then((status) => {
-    if (status !== 200) return destroy();
+    if (status === 204 || status === 403) return destroy();
     if (stopped) return;
     awaitText();
     if (!opts.openStream && typeof EventSource === 'undefined') return;

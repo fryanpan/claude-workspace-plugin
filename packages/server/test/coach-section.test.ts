@@ -9,9 +9,8 @@ import { type CoachSectionInput, renderCoachSection } from '../src/coach/section
 
 const WEEK = {
   moments: 0,
-  thanks: 0,
-  notNow: 0,
-  notThis: 0,
+  up: 0,
+  down: 0,
   unanswered: 0,
   eventsToday: 0,
 };
@@ -78,16 +77,15 @@ describe('renderCoachSection', () => {
       week: {
         ...WEEK,
         moments: 4,
-        thanks: 1,
-        notNow: 1,
-        notThis: 1,
+        up: 1,
+        down: 2,
         unanswered: 1,
         eventsToday: 212,
       },
     });
     expect(html).toContain('href="/workspaces/w-coach/docs/d-goals">Review my goals</a>');
     expect(html).toContain('data-review="no-update"');
-    expect(html).toContain('This week: 4 moments · Thanks 1 · Not now 1 · Not this 1 · Left 1');
+    expect(html).toContain('This week: 4 moments · Helpful 1 · Not helpful 2 · Left 1');
     expect(html).toContain('Today it read what you did 212 times, about $10.60 (estimate).');
     expect(html).not.toContain('Coach paused');
     expect(html).not.toContain('Coach off for');

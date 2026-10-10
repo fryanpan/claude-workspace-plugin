@@ -36,6 +36,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { attachmentIdOf } from '@claude-workspaces/core';
 import type { DocType } from '@claude-workspaces/core';
+import { assetHref } from '@claude-workspaces/core/asset-manifest';
 import type { BrowserSentryConfig, PageType } from '../browser-sentry.ts';
 import { injectSentryHead } from '../browser-sentry.ts';
 import type { DocStore } from '../doc-store.ts';
@@ -384,6 +385,7 @@ export function createShellStatic(ctx: ShellStaticContext): ShellStatic {
           url,
           items: linked.map((i) => ({ taskId: i.taskId, reviewItemId: i.reviewItemId })),
           visitor: Boolean(visitor),
+          coachHref: assetHref(readAppAssetManifest(markdownAppDist), 'coach.js'),
         }),
         browserSentry,
         'mockup',

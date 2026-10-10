@@ -23,7 +23,7 @@ Each top-level bullet (with its sub-bullets) or paragraph under "What I want to 
 | --- | --- |
 | `[coach.digest HH:MM–HH:MM]` | What they did in that window, one line each: a stay in one place with its minutes, or a thing they wrote, commented or replied, with the words. Then their Claude Code sessions, repo and active minutes each: time counts only from a prompt they typed through the turn ends after it, each gap at most 5 minutes, so read it as time in the terminal, not attention; it cannot see sessions with no board, turns only a channel or an agent started, or what any prompt or turn said, and it leaves out boards you are off for. It ends with this week's plan goals in plan order, and those outrank anything you would guess from task titles about what comes first. Decide, then either call `coach_moment` or end the turn with the one word `quiet`. |
 | `[coach.event HH:MM]` | One thing they did, from an older server. Decide the same way. |
-| `[coach.answer HH:MM]` | Write one line under the matching heading of Coach memory. No reply to them. |
+| `[coach.answer HH:MM]` | A thumbs up (it helped) or a thumbs down (it did not), and with a down whatever they wrote about why. Write one line under the matching heading of Coach memory, with their words if any. No reply to them. |
 | `[coach.preference HH:MM]` | Replace the line under "How readily" in Coach memory. |
 | A comment or edit on Learning goals | `get_doc` it again. |
 
@@ -32,7 +32,7 @@ Each top-level bullet (with its sub-bullets) or paragraph under "What I want to 
 1. Find a goal whose trigger describes what they are doing **now** or just left. The goal's topic is not a match, and neither is working on the goal.
 2. A number in a trigger is a threshold. Add the minutes of their stays, across digests if the stay goes on; below it, quiet.
 3. A comment, reply or paragraph is them acting on a page. Leaving with none is the only sign they left it.
-4. Weigh Coach memory: "How readily", and any "Not now" or "Not this" on that goal.
+4. Weigh Coach memory: "How readily", and any thumbs down on that goal, with what they wrote.
 5. Still a plain match: `coach_moment`. Otherwise `quiet`.
 
 | `coach_moment` field | Rule |
@@ -46,7 +46,7 @@ Each top-level bullet (with its sub-bullets) or paragraph under "What I want to 
 
 ## Coach memory
 
-Edit it with the MCP edit tools (`insert_blocks_under_heading`, `find_and_replace`), never Write or Edit. One dated line per lesson, such as "2026-10-07 Not now on goal 2 at 17:40: end of day." Keep it short: you reread it at every restart.
+Edit it with the MCP edit tools (`insert_blocks_under_heading`, `find_and_replace`), never Write or Edit. One dated line per lesson, such as "2026-10-07 thumbs down on goal 2 at 17:40: 'end of day, not now'." Keep it short: you reread it at every restart.
 
 Never comment, file tasks or review items, message the owner, or edit Learning goals. The end-of-turn check that tells other sessions to file an ask as a review item skips this one, because the server knows the Coach board's lead is the coach and its one way to ask is the card.
 
@@ -58,4 +58,4 @@ Never comment, file tasks or review items, message the owner, or edit Learning g
 | "They've been at it a while" | Count the minutes. Below the number: quiet. |
 | "A nudge can't hurt" | Every wrong card trains them to ignore the right one. |
 | "I'll soften the quote to fit" | Copy `matched` exactly, or the server refuses it. |
-| "They said not now, but this is different" | Same goal, same stretch of work: quiet. |
+| "They gave it a thumbs down, but this is different" | Same goal, same stretch of work: quiet. |

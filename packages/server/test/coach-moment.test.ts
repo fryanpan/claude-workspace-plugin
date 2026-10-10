@@ -149,7 +149,7 @@ describe('a moment', () => {
       // The last card is still open, however far he has moved since: he
       // answers it now, so the next can be raised.
       const open = h.coach.openFrame();
-      if (open?.type === 'moment') expect(h.coach.answer(open.moment.id, 'not-now')).toBe(true);
+      if (open?.type === 'moment') expect(h.coach.answer(open.moment.id, 'down')).toBe(true);
       expect(h.coach.raise(MOMENTS[g] ?? null)).toMatchObject({ ok: true });
     });
     const shown = h.frames.filter((f) => f.type === 'moment');
@@ -159,15 +159,12 @@ describe('a moment', () => {
       'Say why a thing matters before deciding how to build it.',
     ]);
     expect(h.store.moments().map((m) => [m.docId, m.state])).toEqual([
-      ['d-hover', 'not-now'],
-      ['d-tokens', 'not-now'],
+      ['d-hover', 'down'],
+      ['d-tokens', 'down'],
       ['d-booking', 'open'],
     ]);
     const answers = h.told.filter((n) => n.event === 'coach.answer');
-    expect(answers.map((n) => n.event === 'coach.answer' && n.answer)).toEqual([
-      'not-now',
-      'not-now',
-    ]);
+    expect(answers.map((n) => n.event === 'coach.answer' && n.answer)).toEqual(['down', 'down']);
   });
 
   it('is refused with no goals, while another is open, and when its quote is not the goal’s words', () => {
@@ -218,8 +215,8 @@ describe('a moment', () => {
     stillOpen();
     h.coach.here({ kind: 'view', workspaceId: 'w-riverbend', docId: 'd-post', visible: true });
     stillOpen();
-    // Off for the coach: the page there is told again, so it can hide the
-    // card, and the moment stays open for the next page.
+    // Off for the coach: the page there is told again, so its card can say
+    // the coach is not listening, and the moment stays open.
     h.coach.here({ kind: 'view', workspaceId: 'w-records', docId: 'd-letters', visible: true });
     stillOpen();
     expect(h.reshown).toEqual([
@@ -230,9 +227,9 @@ describe('a moment', () => {
     h.setClock(at(22));
     h.coach.here({ kind: 'view', workspaceId: 'w-riverbend', visible: true });
     stillOpen();
-    expect(h.coach.answer(id, 'not-this')).toBe(true);
+    expect(h.coach.answer(id, 'down')).toBe(true);
     expect(h.frames.at(-1)).toEqual({ type: 'clear', id });
-    expect(h.store.moments().find((m) => m.id === id)?.state).toBe('not-this');
+    expect(h.store.moments().find((m) => m.id === id)?.state).toBe('down');
     expect(h.coach.openFrame()).toBeNull();
   });
 
@@ -253,15 +250,15 @@ describe('a moment', () => {
     const h = harness();
     const raised = h.coach.raise(MOMENTS[0] ?? null);
     const id = raised.ok ? raised.id : '';
-    expect(h.coach.answer(id, 'not-now')).toBe(true);
-    expect(h.coach.answer(id, 'thanks')).toBe(false);
+    expect(h.coach.answer(id, 'down')).toBe(true);
+    expect(h.coach.answer(id, 'up')).toBe(false);
     expect(h.frames.at(-1)).toEqual({ type: 'clear', id });
     h.coach.setReadiness('less');
     expect(h.told.slice(-2)).toEqual([
       {
         event: 'coach.answer',
         momentId: id,
-        answer: 'not-now',
+        answer: 'down',
         goal: 'Do the hard, important work before the easy polish.',
         line: MOMENTS[0]?.line ?? '',
       },

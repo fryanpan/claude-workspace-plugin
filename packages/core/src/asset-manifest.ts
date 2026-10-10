@@ -42,6 +42,7 @@ export const SHELL_ASSETS = [
   'app.js',
   'board.js',
   'landing.js',
+  'coach.js',
   'signin.js',
   'settings.js',
   'reviews.js',

@@ -42,8 +42,12 @@ describe('the moments', () => {
   it('stays open until answered or left, and takes an answer only once', () => {
     const m = store.addMoment(moment(at(9)));
     expect(store.openMoment()?.id).toBe(m.id);
-    expect(store.answer(m.id, 'thanks', at(9, 6))).toBe(true);
-    expect(store.answer(m.id, 'not-this', at(9, 7))).toBe(false);
+    expect(store.answer(m.id, 'down', at(9, 6), 'Riverbend asked for it')).toBe(true);
+    expect(store.answer(m.id, 'up', at(9, 7))).toBe(false);
+    expect(store.moments()[0]).toMatchObject({
+      state: 'down',
+      answerText: 'Riverbend asked for it',
+    });
     const left = store.addMoment(moment(at(11)));
     expect(store.answer(left.id, 'moved-on', at(23))).toBe(true);
     expect(store.openMoment()).toBeNull();
@@ -51,16 +55,15 @@ describe('the moments', () => {
 
   it('counts the week, and today’s events', () => {
     const a = store.addMoment(moment(at(9)));
-    store.answer(a.id, 'not-this', at(9, 1));
+    store.answer(a.id, 'down', at(9, 1));
     const b = store.addMoment(moment(at(11)));
     store.answer(b.id, 'moved-on', at(11, 30));
     store.addMoment(moment(at(12)));
     for (let i = 0; i < 5; i += 1) store.countEvent(at(12, i));
     expect(store.week(at(12, 10))).toEqual({
       moments: 3,
-      thanks: 0,
-      notNow: 0,
-      notThis: 1,
+      up: 0,
+      down: 1,
       unanswered: 1,
       eventsToday: 5,
     });

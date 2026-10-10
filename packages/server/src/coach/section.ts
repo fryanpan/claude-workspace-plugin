@@ -75,7 +75,7 @@ function goalsBlock(input: CoachSectionInput, docUrl: string): string {
   const w = input.week;
   const week =
     w.moments > 0
-      ? `<p class="coach-sub">This week: ${w.moments} ${w.moments === 1 ? 'moment' : 'moments'} · Thanks ${w.thanks} · Not now ${w.notNow} · Not this ${w.notThis} · Left ${w.unanswered}</p>`
+      ? `<p class="coach-sub">This week: ${w.moments} ${w.moments === 1 ? 'moment' : 'moments'} · Helpful ${w.up} · Not helpful ${w.down} · Left ${w.unanswered}</p>`
       : '';
   const events =
     w.eventsToday > 0
