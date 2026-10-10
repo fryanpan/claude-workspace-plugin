@@ -12,7 +12,7 @@
  * All fixtures are invented. Port 0, temp data dirs.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DOC_STORE_TIMINGS } from '../src/doc-store-timings.ts';
@@ -247,12 +247,15 @@ describe('folder watch decisions', () => {
 
   it('a burst too big for one read leaves the next folder still heard', async () => {
     // Bun 1.3.10's inotify reader never cleared its "more in the buffer"
-    // offset (oven-sh/bun#27668). After one read() returned 128 events or
-    // more, the File Watcher thread replayed that buffer's tail forever and
-    // every watch in the process went deaf. A checkout this size is routine.
+    // offset (oven-sh/bun#27668). After one read() returned more than 128
+    // events, the File Watcher thread replayed that buffer's tail forever
+    // and every watch in the process went deaf. A checkout that deletes a
+    // directory of a few hundred files is one such read.
     const big = mkdtempSync(join(tmpdir(), 'folder-watch-burst-'));
     const next = mkdtempSync(join(tmpdir(), 'folder-watch-next-'));
     try {
+      mkdirSync(join(big, 'docs'));
+      for (let i = 0; i < 600; i++) writeFileSync(join(big, 'docs', `n-${i}.md`), '#\n');
       const refreshed = new Set<string>();
       const watches = createFolderWatches(
         {
@@ -266,7 +269,7 @@ describe('folder watch decisions', () => {
         writeFileSync(join(big, 'first.md'), '# Harborlight\n');
         return refreshed.has('big');
       });
-      for (let i = 0; i < 600; i++) writeFileSync(join(big, `n-${i}.md`), '#\n');
+      rmSync(join(big, 'docs'), { recursive: true });
       watches.sync('next', 1);
       await waitFor(() => {
         writeFileSync(join(next, 'tides.md'), '# Riverbend\n');
