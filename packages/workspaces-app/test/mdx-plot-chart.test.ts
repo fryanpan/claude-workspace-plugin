@@ -4,8 +4,8 @@ import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { createEditor } from '../src/editor.ts';
 import { type PlotChunk, setPlotForTest } from '../src/mdx-plot-chart.ts';
-import { drawPlotSpec } from '../src/plot-entry.ts';
-import { MARKS, plotChartSource } from './fixtures/plot-chart.ts';
+import { renderPlotInto } from '../src/plot-entry.ts';
+import { MARKS, plotChartPresetSource, plotChartSource } from './fixtures/plot-chart.ts';
 
 /**
  * A `<PlotChart>` in a bound `.mdx` draws the Plot chart its props describe
@@ -18,7 +18,7 @@ import { MARKS, plotChartSource } from './fixtures/plot-chart.ts';
  * `/app/plot/plot.js` swapped in from source.
  */
 
-const CHUNK: PlotChunk = { drawPlotSpec };
+const CHUNK: PlotChunk = { renderPlotInto };
 const open: Array<() => void> = [];
 beforeEach(() => setPlotForTest(CHUNK));
 afterEach(() => {
@@ -76,9 +76,17 @@ describe('a PlotChart block on the doc page', () => {
     expect(texts()).toContain('Safe Routes goal, 16 a year');
   });
 
+  it('draws the same chart from the stackedArea preset, labelled at its ends', () => {
+    mount(plotChartPresetSource());
+    expect(view()?.querySelector('.mdx-title')?.textContent).toBe('Riverbend school trips, preset');
+    expect(texts()).toEqual(
+      expect.arrayContaining(['Walking 19', 'Biking 8', 'Safe Routes goal, 16 a year']),
+    );
+  });
+
   it('draws an error box naming the mark it refused, and no chart', () => {
     mount(plotChartSource({ marks: [...MARKS, { mark: 'geo', data: 'rows' }] }));
-    const box = view()?.querySelector('.mdx-plot-error');
+    const box = view()?.querySelector('.plot-spec-error');
     expect(box?.textContent).toBe('Mark 5: unknown mark "geo"');
     expect(svg()).toBeFalsy();
   });
@@ -97,7 +105,7 @@ describe('a PlotChart block on the doc page', () => {
   it('opens the source from an error box', () => {
     mount(plotChartSource({ marks: [{ mark: 'geo', data: 'rows' }] }));
     view()
-      ?.querySelector('.mdx-plot-error')
+      ?.querySelector('.plot-spec-error')
       ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.querySelector('.ProseMirror .mdx-block')?.classList.contains('is-open')).toBe(
       true,
@@ -106,7 +114,7 @@ describe('a PlotChart block on the doc page', () => {
 
   it('names a prop that is not a literal instead of drawing', () => {
     mount('<PlotChart title="Saltmarsh" data={rows} marks={[]} />');
-    expect(view()?.querySelector('.mdx-plot-error')?.textContent).toBe(
+    expect(view()?.querySelector('.plot-spec-error')?.textContent).toBe(
       'Not a literal, so not drawn: data',
     );
   });

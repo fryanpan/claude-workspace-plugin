@@ -1119,9 +1119,11 @@ body.has-set .doc-switcher-caret {
   font: 12px / 1.4 var(--sans);
   color: var(--fg-muted);
 }
-/* A <PlotChart> (mdx-plot-chart.ts): Observable Plot's SVG, set in the doc's
-   type and ground like a <Chart>, its subtitle under the title and its note
-   below it. Plot's own sheet uses :where(), so these win without !important. */
+/* A <PlotChart> (mdx-plot-chart.ts): Observable Plot's SVG in the house style
+   core plot-spec.mjs applies, which reads its font and colours from these
+   variables. The board sets them from its own tokens, so a chart follows the
+   doc's ground and ink wherever those go; the series colours are the house
+   palette, which the board has no tokens of its own for. */
 #editor > .ProseMirror .mdx-subtitle {
   margin-top: 2px;
   font: 14px / 1.4 var(--sans);
@@ -1129,21 +1131,26 @@ body.has-set .doc-switcher-caret {
 }
 #editor > .ProseMirror .mdx-plot {
   margin-top: 8px;
-  color: var(--fg-muted);
-  --plot-background: var(--bg-panel);
+  --chart-font: var(--sans);
+  --ink: var(--fg);
+  --muted: var(--fg-muted);
+  --rule: var(--border);
+  --paper: var(--bg-panel);
+  --seq-3: #2f7d76;
+  --seq-2: #c8a25e;
+  --seq-1: #9c5f3c;
 }
 #editor > .ProseMirror .mdx-plot svg {
   display: block;
   max-width: 100%;
   height: auto;
-  font: 12px / 1 var(--sans);
 }
 /* The slot keeps the chart's own proportions while Plot is fetched. */
 #editor > .ProseMirror .mdx-plot.is-pending {
   width: 100%;
   min-height: 120px;
 }
-#editor > .ProseMirror .mdx-plot-error {
+#editor > .ProseMirror .plot-spec-error {
   padding: 8px 12px;
   font: 13px / 1.4 var(--mono);
   color: var(--red);

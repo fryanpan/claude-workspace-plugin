@@ -15,11 +15,11 @@
  */
 
 import { UNREADABLE } from './mdx-chart-props.ts';
-import type { drawPlotSpec } from './plot-entry.ts';
+import type { renderPlotInto } from './plot-entry.ts';
 
 /** What `/app/plot/plot.js` exports. */
 export interface PlotChunk {
-  drawPlotSpec: typeof drawPlotSpec;
+  renderPlotInto: typeof renderPlotInto;
 }
 
 /** Where the build puts Plot. */
@@ -31,11 +31,12 @@ export interface PlotChartSummary {
   data?: unknown;
   options?: unknown;
   marks?: unknown;
+  preset?: unknown;
   /** The props that were not literals, so the box can name them. */
   unreadable: string[];
 }
 
-const SPEC_PROPS = ['data', 'options', 'marks'] as const;
+const SPEC_PROPS = ['data', 'options', 'marks', 'preset'] as const;
 
 /** The `<PlotChart>` props, as the literal parser read them. */
 export function plotChartOf(props: Map<string, unknown>): PlotChartSummary {
@@ -91,9 +92,10 @@ export function loadPlot(): Promise<PlotChunk | null> {
   return pending;
 }
 
+/** The box `renderPlot` draws for a spec it refuses, for a prop it never saw. */
 function errorBox(slot: HTMLElement, message: string): void {
   const box = document.createElement('div');
-  box.className = 'mdx-plot-error';
+  box.className = 'plot-spec-error';
   box.setAttribute('role', 'alert');
   box.textContent = message;
   slot.replaceChildren(box);
@@ -104,13 +106,12 @@ function draw(chunk: PlotChunk, slot: HTMLElement, chart: PlotChartSummary): voi
     errorBox(slot, `Not a literal, so not drawn: ${chart.unreadable.join(', ')}`);
     return;
   }
-  const drawn = chunk.drawPlotSpec({
+  chunk.renderPlotInto(slot, {
     data: chart.data as Record<string, unknown> | undefined,
     options: chart.options as Record<string, unknown> | undefined,
     marks: chart.marks,
+    preset: chart.preset,
   });
-  if ('figure' in drawn) slot.replaceChildren(drawn.figure);
-  else errorBox(slot, drawn.error);
 }
 
 /** Append the chart, its subtitle above and its note below, to `host`. Until

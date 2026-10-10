@@ -1853,7 +1853,11 @@ Its props are an Observable Plot spec, and `packages/core/src/plot-spec.mjs`
 turns them into a chart. It is plain JavaScript that imports nothing, because
 other repos copy its bytes. Every mark, transform and pointer it names must be
 on an allowlist, and every `data` reference must be a key or an inline array,
-so a bad spec throws before any Plot function runs. `mdx-plot-chart.ts` draws
+so a bad spec throws before any Plot function runs. The file also holds what
+makes a chart look and behave the same on every site: the house style (font,
+grid, axes and palette, each a CSS variable with a fallback), three presets
+that expand into ordinary marks, named formats in place of functions, and
+`renderPlot`, the one call each page makes. `mdx-plot-chart.ts` draws
 the subtitle, the note and the chart slot. It fetches Plot and `buildPlot`
 from `/app/plot/plot.js` the first time a doc shows one, for KaTeX's reason
 below; `plot-entry.ts` is what the build compiles to that path.
