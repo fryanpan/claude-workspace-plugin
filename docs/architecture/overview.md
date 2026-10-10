@@ -1695,7 +1695,10 @@ from the doc's own folder (`routes/doc-assets.ts`) while the node, and so the
 `.md`, keeps the path as written. `doc-image-upload.ts` beside it takes a
 pasted, dropped or picked image file to that route's POST, which stores it in
 `images/` beside the `.md` through the server's `doc-image-store.ts` (one of
-the `doc-*.ts` the diagram draws), then inserts the path it answers. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+the `doc-*.ts` the diagram draws), then inserts the path it answers.
+`doc-image-retry.ts`, which that block image installs, asks again for an
+image whose file was not there yet, so it appears once the file lands without
+a reload; it changes the DOM's `src` only. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"
