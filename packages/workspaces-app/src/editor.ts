@@ -29,6 +29,7 @@ import { boardEmbedFramesFor } from './doc/board-embed-frames.ts';
 import { FootnoteDecorations } from './doc/footnote-decorations.ts';
 import { resolveDocLink, safeLinkHref } from './link-open.ts';
 import { ListBehavior } from './list-behavior.ts';
+import { MassDeleteUndo } from './mass-delete-undo.ts';
 import { MathInline } from './math-inline.ts';
 import { MermaidCodeBlock } from './mermaid-code-block.ts';
 import { NotesLinkAffordance, type NotesLinkAffordanceOptions } from './notes-link-affordance.ts';
@@ -242,6 +243,9 @@ export function createEditor(opts: CreateEditorOpts): EditorHandle {
       // Delete after a tap on a comment and a select-all does not take the
       // whole doc (comment-delete-guard.ts).
       CommentDeleteGuard,
+      // One local edit that removes most of the doc offers an Undo toast
+      // (mass-delete-undo.ts).
+      MassDeleteUndo,
       // Live status chips beside workspace task links — render-time only,
       // never written into the fragment. In the base list because every
       // prose surface may hold a task link (meeting notes are the driver).

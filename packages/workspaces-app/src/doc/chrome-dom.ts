@@ -17,6 +17,8 @@ export function el<T extends HTMLElement>(id: string): T {
 export interface ToastAction {
   label: string;
   onAction: () => void;
+  /** How long the offer stays up, in ms, when 7s is too short to notice. */
+  holdMs?: number;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,7 +52,7 @@ export function showToast(msg: string, action?: ToastAction): void {
   }
   t.classList.remove('hidden');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), action ? 7000 : 2400);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), action ? (action.holdMs ?? 7000) : 2400);
 }
 
 export function makeBtn(label: string, onClick: () => void, primary = false): HTMLButtonElement {
