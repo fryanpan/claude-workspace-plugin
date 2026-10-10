@@ -12,17 +12,7 @@
  * All fixtures are invented. Port 0, temp data dirs.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import {
-  watch as fsWatch,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  readlinkSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DOC_STORE_TIMINGS } from '../src/doc-store-timings.ts';
@@ -38,52 +28,6 @@ import { NUDGE_COALESCE_MS } from '../src/page-nudges.ts';
 import { type ServerHandle, createServer } from '../src/server.ts';
 import { framesOf } from './stream-frames.ts';
 import { waitFor } from './wait-for.ts';
-
-/** DIAG (temporary): the inotify watches and thread states of this process. */
-function procState(folder: string): string {
-  const out: string[] = [];
-  try {
-    const ino = statSync(folder).ino.toString(16);
-    out.push(`folder ino=${ino}`);
-    for (const fd of readdirSync('/proc/self/fd')) {
-      let target = '';
-      try {
-        target = readlinkSync(`/proc/self/fd/${fd}`);
-      } catch {
-        continue;
-      }
-      if (target.includes('inotify')) {
-        const lines = readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8')
-          .split('\n')
-          .filter((l) => l.startsWith('inotify'));
-        out.push(
-          `inotify fd ${fd}: ${lines.length} wds; ours: ${lines.filter((l) => l.includes(`ino:${ino} `)).join(' / ') || 'NONE'}`,
-        );
-        out.push(`  last wds: ${lines.slice(-3).join(' / ')}`);
-      }
-    }
-    for (const tid of readdirSync('/proc/self/task')) {
-      const comm = readFileSync(`/proc/self/task/${tid}/comm`, 'utf8').trim();
-      const stat = readFileSync(`/proc/self/task/${tid}/stat`, 'utf8');
-      const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0];
-      let wchan = '';
-      try {
-        wchan = readFileSync(`/proc/self/task/${tid}/wchan`, 'utf8');
-      } catch {}
-      let syscall = '';
-      try {
-        syscall = readFileSync(`/proc/self/task/${tid}/syscall`, 'utf8')
-          .split(' ')
-          .slice(0, 2)
-          .join(' ');
-      } catch {}
-      out.push(`  task ${tid} ${comm} ${state} wchan=${wchan} syscall=${syscall}`);
-    }
-  } catch (e) {
-    out.push(`no /proc: ${(e as Error).message}`);
-  }
-  return out.join('\n');
-}
 
 /** Past one burst's whole journey: settle, the pass, the coalesced frame. */
 const PAST_A_BURST = MAX_WAIT_MS + NUDGE_COALESCE_MS * 2 + 300;
@@ -267,46 +211,16 @@ describe('folder watch decisions', () => {
       writeFileSync(join(folder, 'README.md'), '# Harborlight\n');
       let refreshes = 0;
       let passes = 0;
-      // DIAG (temporary): a timeline of what the watch did.
-      const t0 = Date.now();
-      const log: string[] = [];
-      const mark = (what: string) => log.push(`${Date.now() - t0}ms ${what}`);
       const watches = createFolderWatches(
-        {
-          sourceOf: () => ({ root: folder }),
-          refresh: async () => {
-            mark('refresh');
-            refreshes++;
-          },
-        },
+        { sourceOf: () => ({ root: folder }), refresh: async () => void refreshes++ },
         {
           settleMs: 20,
           maxWaitMs: 100,
-          watch: (root, onEvent) => {
-            const w = fsWatch(root, { recursive: true }, (type, name) => {
-              if (log.length < 40) mark(`event ${type} ${String(name)}`);
-              onEvent(typeof name === 'string' ? name : null);
-            });
-            w.on('error', (e) => mark(`error ${String(e)}`));
-            mark('armed');
-            return w;
-          },
-          listPaths: async ({ root }) => {
+          listPaths: ({ root }) => {
             passes++;
-            mark('pass start');
-            const got = await folderListing(root);
-            mark(`pass end ${got ? [...got].join(',') : 'null'}`);
-            return got;
+            return folderListing(root);
           },
         },
-      );
-      setTimeout(() => {
-        if (refreshes === 0)
-          console.log(`[fw-diag] no refresh at 3.9s:\n${log.join('\n')}\n${procState(folder)}`);
-      }, 3900);
-      setTimeout(
-        () => console.log(`[fw-diag] at 300ms refreshes=${refreshes}\n${procState(folder)}`),
-        300,
       );
       watches.sync('set-1', 1);
       // The first burst is the one that always refreshes. Bun on Linux arms
@@ -328,6 +242,40 @@ describe('folder watch decisions', () => {
       watches.dispose();
     } finally {
       rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('a burst too big for one read leaves the next folder still heard', async () => {
+    // Bun 1.3.10's inotify reader never cleared its "more in the buffer"
+    // offset (oven-sh/bun#27668). After one read() returned 128 events or
+    // more, the File Watcher thread replayed that buffer's tail forever and
+    // every watch in the process went deaf. A checkout this size is routine.
+    const big = mkdtempSync(join(tmpdir(), 'folder-watch-burst-'));
+    const next = mkdtempSync(join(tmpdir(), 'folder-watch-next-'));
+    try {
+      const refreshed = new Set<string>();
+      const watches = createFolderWatches(
+        {
+          sourceOf: (id) => ({ root: id === 'big' ? big : next }),
+          refresh: async (id) => void refreshed.add(id),
+        },
+        { settleMs: 20, maxWaitMs: 100 },
+      );
+      watches.sync('big', 1);
+      await waitFor(() => {
+        writeFileSync(join(big, 'first.md'), '# Harborlight\n');
+        return refreshed.has('big');
+      });
+      for (let i = 0; i < 600; i++) writeFileSync(join(big, `n-${i}.md`), '#\n');
+      watches.sync('next', 1);
+      await waitFor(() => {
+        writeFileSync(join(next, 'tides.md'), '# Riverbend\n');
+        return refreshed.has('next');
+      });
+      watches.dispose();
+    } finally {
+      rmSync(big, { recursive: true, force: true });
+      rmSync(next, { recursive: true, force: true });
     }
   });
 });
