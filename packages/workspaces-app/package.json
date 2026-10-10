@@ -21,6 +21,7 @@
     "@codemirror/view": "^6.34.2",
     "@claude-workspaces/core": "workspace:*",
     "@claude-workspaces/widget": "workspace:*",
+    "@observablehq/plot": "0.6.17",
     "@preact/signals": "2.11.1",
     "@sentry/browser": "^10.71.0",
     "@tiptap/core": "^3.22.3",
