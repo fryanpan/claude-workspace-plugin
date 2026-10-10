@@ -31,6 +31,10 @@ import { PROMPT_MAX_CHARS, type PromptStore } from '../prompt-store.ts';
 /** What the prompt routes read. Built once per server. */
 export interface PromptRoutesContext {
   promptStore: PromptStore;
+  /** The settings page's live stream: `prompts.changed` after any save. */
+  stream?: () => Response;
+  /** Told after a save lands, so open settings pages re-read. */
+  onWritten?: () => void;
   j: (status: number, body: unknown) => Response;
   safeJson: (req: Request) => Promise<Record<string, unknown> | null>;
 }
@@ -98,6 +102,10 @@ export async function handlePromptRoutes(
   if (pathname === '/api/prompts' && req.method === 'GET') {
     return j(200, { prompts: promptList(promptStore) });
   }
+  // Before the `:id` match below, which would read it as a prompt's id.
+  if (pathname === '/api/prompts/events:stream' && ctx.stream) {
+    return req.method === 'GET' ? ctx.stream() : j(405, { error: 'method not allowed' });
+  }
 
   const one = pathname.match(/^\/api\/prompts\/([^/]+)$/);
   if (!one) return undefined;
@@ -142,6 +150,7 @@ export async function handlePromptRoutes(
       const refusal = writeRefusal(res.error);
       return j(refusal.status, { error: res.error, message: refusal.message });
     }
+    ctx.onWritten?.();
     // Read back rather than echo what was sent: the store is what decides
     // whether these words are now an override, and a restore has to answer
     // with the default's own text for the page to put in the box.

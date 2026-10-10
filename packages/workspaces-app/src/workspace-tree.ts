@@ -7,12 +7,13 @@
  * regardless of the file type you're viewing.
  *
  * Pure render: call `renderWorkspaceTree(docId, workspaceId)` whenever counts
- * may have changed (initial mount, window focus, a heartbeat). The caller owns
- * the focus/interval wiring (`wireWorkspaceTreeRefresh`).
+ * may have changed (initial mount, window focus, the set's push). The caller
+ * owns that wiring (`wireWorkspaceTreeRefresh`).
  */
 
 import { setActiveFile } from './diff-nav.ts';
 import { api, docHref, workspaceIdFromPath } from './doc-path.ts';
+import { watchSetChanges } from './set-live.ts';
 import {
   beginSidebarRender,
   commitSidebarColumn,
@@ -189,18 +190,15 @@ export async function renderWorkspaceTree(
   }
 }
 
-/** Wire focus + ~30s refresh of the tree (counts are a snapshot otherwise).
+/** Re-render the tree on the set's own push and on focus (`set-live.ts`).
  *  Returns a cleanup so a per-doc mount can drop it on navigation. */
 export function wireWorkspaceTreeRefresh(
   docId: string,
   workspaceId: string,
   scope?: Disposable,
 ): () => void {
-  const refresh = () => void renderWorkspaceTree(docId, workspaceId, true, scope);
-  window.addEventListener('focus', refresh);
-  const timer = setInterval(refresh, 30_000);
-  return () => {
-    window.removeEventListener('focus', refresh);
-    clearInterval(timer);
-  };
+  return watchSetChanges(
+    workspaceId,
+    () => void renderWorkspaceTree(docId, workspaceId, true, scope),
+  );
 }

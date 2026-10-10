@@ -66,6 +66,12 @@ export interface BoardMembersDeps {
 export interface BoardMembersHandle {
   /** Re-read and repaint. Called every time the panel opens. */
   refresh(): Promise<void>;
+  /**
+   * Re-read because access changed elsewhere. A removal the reader is
+   * confirming stays up while that person is still listed, and a write in
+   * flight is left to repaint on its own.
+   */
+  changed(): Promise<void>;
   /** Resolves when any in-flight write has finished. Tests await it. */
   settled(): Promise<void>;
 }
@@ -251,6 +257,15 @@ export function mountBoardMembers(deps: BoardMembersDeps): BoardMembersHandle {
     paint();
   }
 
+  async function changed(): Promise<void> {
+    if (inFlight) return;
+    const keep = confirming;
+    view = await deps.read();
+    confirming = keep && view?.members.some((m) => m.email === keep) ? keep : null;
+    deps.onRole?.(view ? view.you.role : null);
+    paint();
+  }
+
   function run(work: () => Promise<void>): void {
     inFlight = work().finally(() => {
       inFlight = null;
@@ -259,6 +274,7 @@ export function mountBoardMembers(deps: BoardMembersDeps): BoardMembersHandle {
 
   return {
     refresh,
+    changed,
     settled: async () => {
       await inFlight;
     },

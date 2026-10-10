@@ -93,7 +93,7 @@ import {
 } from './meeting-lookup.ts';
 import type { NoteDocLink, NoteTaskLink, NotesTurn, SpokenCorrection } from './meeting-notes.ts';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 import { parseTaskCreate } from './task-create.ts';
 import { clipToWordBoundary } from './task-title.ts';
 import { CHORES_GOAL_ID, type CreateTaskOpts, type TaskStatus } from './tasks.ts';
@@ -780,7 +780,7 @@ function handleLookup(
 }
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
-const CAPTURE_MODEL = 'claude-haiku-4-5-20251001';
+const CAPTURE_MODEL = 'claude-haiku-5-5';
 /** The reply is a short JSON list, never notes-sized. */
 const MAX_TOKENS = 1_000;
 const TIMEOUT_MS = 30_000;
@@ -848,6 +848,7 @@ export function createHaikuTaskCaptureExtractor(
           body: JSON.stringify({
             model: CAPTURE_MODEL,
             max_tokens: MAX_TOKENS,
+            thinking: HAIKU_NO_THINKING,
             system,
             messages: [{ role: 'user', content: user }],
           }),

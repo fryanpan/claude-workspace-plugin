@@ -247,8 +247,11 @@ did drift once. A push carrying `Saltmarsh` in a test constant was blocked as a
 surname used as sample data, and because the gate reads every added line of the
 UNPUSHED RANGE a forward commit does not clear it — the branch had to be
 rebuilt as one commit and lost its ordered history. The exemption is those
-three words and nothing wider: any other unfamiliar surname is still a leak in
-a fixture, and `bun run scrub:recall` is what says so rather than this sentence.
+three words, plus Alice and Bob (`PLACEHOLDER_NAMES`, beside it), and nothing
+wider: the free pass never sends a line new only for one of those five, and a
+Haiku block naming only them is overridden. Any other unfamiliar surname is
+still a leak in a fixture, and `bun run scrub:recall` is what says so rather
+than this sentence.
 
 Setup once: `git config core.hooksPath .githooks`. Until then the clone is
 unprotected and looks identical to a protected one; `bun install` warns

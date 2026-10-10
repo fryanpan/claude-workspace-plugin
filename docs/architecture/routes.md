@@ -63,6 +63,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/plugin/refresh` | POST | `routes/ops.ts` | trusted-local | Refuses `cf-ray` and a browser, and checks no peer address: a refresh rewrites a version-keyed cache and interrupts nobody. |
 | `/api/prompts` | GET | `routes/prompts.ts` | trusted-local |  |
 | `/api/prompts/:id` | GET, PUT | `routes/prompts.ts` | trusted-local |  |
+| `/api/prompts/events:stream` | GET | `routes/prompts.ts` | trusted-local |  |
 | `/api/push/key` | GET | `routes/ops.ts` | trusted-local |  |
 | `/api/push/subscriptions` | POST, DELETE | `routes/ops.ts` | trusted-local |  |
 | `/api/refs` | GET, POST, PUT, DELETE | `routes/stale-client.ts` | trusted-local |  |
@@ -94,6 +95,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/api/threads` | GET, POST, PUT, DELETE | `routes/wrong-prefix.ts` | trusted-local |  |
 | `/api/threads/*` | GET, POST, PUT, DELETE | `routes/wrong-prefix.ts` | trusted-local |  |
 | `/api/voice/agents` | GET | `routes/voice-page.ts` | trusted-local |  |
+| `/api/voice/events:stream` | GET | `routes/voice-page.ts` | trusted-local |  |
 | `/api/voice/tokens` | GET | `routes/voice-api.ts` | trusted-local |  |
 | `/api/voice/tokens` | POST | `routes/voice-api.ts` | trusted-local |  |
 | `/api/voice/tokens/:id/revoke` | POST | `routes/voice-api.ts` | trusted-local |  |
@@ -120,6 +122,7 @@ refuses it. The gate vocabulary is [security.md](security.md).
 | `/inbox/rows/:id/body` | GET | `routes/inbox.ts` | trusted-local |  |
 | `/inbox/rows/:id/reply` | POST | `routes/inbox.ts` | trusted-local |  |
 | `/inbox/rows/:id/state` | POST | `routes/inbox.ts` | trusted-local |  |
+| `/landing/events:stream` | GET | `routes/landing-stream.ts` | trusted-local |  |
 | `/manifest.webmanifest` | GET | `routes/shell-static.ts` | share-scope |  |
 | `/mcp` | GET, POST, DELETE | `routes/mcp-connector.ts` | loopback-only |  |
 | `/mounts/:fileId` | GET, HEAD | `routes/mounts.ts` | trusted-local |  |

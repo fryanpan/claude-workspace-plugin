@@ -337,6 +337,7 @@ export async function handleWorkspaceSettings(
         const res = taskStore.setNotesHome(workspaceId, notesHomeValue, { actor: author });
         if (!res.ok) return j(404, res);
       }
+      if (hasReviewCriteria || hasEffortPrompt) ctx.onBoardPromptsChanged?.(workspaceId);
     }
     const criteria = taskStore.reviewItemCriteria(workspaceId);
     const effortPrompt = taskStore.effortEstimatePrompt(workspaceId);

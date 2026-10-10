@@ -38,9 +38,11 @@ import { parseNotesEdits } from './notes-edit-parse.ts';
 import { buildNotesPrompt } from './notes-prompt-build.ts';
 import { createPromptCacheWatcher } from './notes-prompt-cache-shape.ts';
 import { readKeychainPassword } from './share/keychain.ts';
-import { authHeader, resolveCredentialSlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, authHeader, resolveCredentialSlotFrom } from './summarize.ts';
 
-export const NOTES_MODEL = 'claude-haiku-4-5-20251001';
+export const NOTES_MODEL = 'claude-haiku-5-5';
+/** The beta that gates `fallbacks: 'default'`. */
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 /**
  * A reply that hits this is refused rather than truncated — a cut edit list
@@ -112,6 +114,12 @@ export interface HaikuNotesComposerOpts {
   maxTokens?: number;
   /** `output_config.effort` for a thinking model. Absent, nothing is sent. */
   effort?: string;
+  /**
+   * `'default'` re-runs a request a safety classifier declined on the model
+   * Anthropic recommends for that category, inside the same call. Opus 5.5
+   * takes it; Haiku 5.5 has no server-side fallback, so its route omits it.
+   */
+  fallbacks?: 'default';
   /**
    * The note-taking instructions for this tick — `createNotesPromptStore`'s
    * `read` in the server, which re-reads the operator's file every call.
@@ -205,10 +213,15 @@ export function createHaikuNotesComposer(opts: HaikuNotesComposerOpts = {}): Not
             'content-type': 'application/json',
             ...authHeader(cred),
             'anthropic-version': '2023-06-01',
+            ...(opts.fallbacks ? { 'anthropic-beta': FALLBACK_BETA } : {}),
           },
           body: JSON.stringify({
             model,
             max_tokens: maxTokens,
+            // Off on the default Haiku only: a caller that names another
+            // model (the Opus method, an eval arm) brings its own setting,
+            // and Opus 5.5 rejects `disabled` outright.
+            ...(model === NOTES_MODEL ? { thinking: HAIKU_NO_THINKING } : {}),
             system,
             // THE BLOCKS ARE THE PROMPT BUILDER'S, AND SO ARE THE
             // BREAKPOINTS. It cuts the settled table at row counts that hold
@@ -221,13 +234,14 @@ export function createHaikuNotesComposer(opts: HaikuNotesComposerOpts = {}): Not
             // measured before the chunks existed.
             //
             // THE MARKER IS NOT A GUARANTEE. Every model has a minimum
-            // cacheable prefix — 4096 tokens on Haiku 4.5, this composer's
-            // model — and a marker on anything shorter is IGNORED IN SILENCE:
-            // no entry, no error, and a reply that looks exactly like a hit.
-            // The first ticks of a meeting are below it, because the doc has
-            // barely any notes in it yet, and there is nothing to do about
-            // that but say so: `NotesTokenUsage` records what was actually
-            // read from cache, so the share is measured rather than assumed.
+            // cacheable prefix — 512 tokens on Haiku 5.5, this composer's
+            // model, 4096 on the Haiku 4.5 it ran on before — and a marker on
+            // anything shorter is IGNORED IN SILENCE: no entry, no error, and
+            // a reply that looks exactly like a hit. The first ticks of a
+            // meeting can sit below it, because the doc has barely any notes
+            // in it yet, and there is nothing to do about that but say so:
+            // `NotesTokenUsage` records what was actually read from cache, so
+            // the share is measured rather than assumed.
             messages: [
               {
                 role: 'user',
@@ -239,6 +253,7 @@ export function createHaikuNotesComposer(opts: HaikuNotesComposerOpts = {}): Not
               },
             ],
             ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
+            ...(opts.fallbacks ? { fallbacks: opts.fallbacks } : {}),
           }),
           signal: ctl.signal,
         });

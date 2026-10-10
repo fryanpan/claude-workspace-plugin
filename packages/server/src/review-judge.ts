@@ -36,7 +36,7 @@ import {
   parseReviewJudgeResponse,
 } from '@claude-workspaces/core/review-judge-prompt';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 
 export type { ReviewJudgeVerdict } from '@claude-workspaces/core/review-judge-prompt';
 
@@ -53,7 +53,7 @@ export interface ReviewJudgeInput {
  */
 export type ReviewJudge = (input: ReviewJudgeInput) => Promise<ReviewJudgeVerdict | null>;
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 /**
  * Room for a maximal verdict, with margin.
@@ -124,6 +124,7 @@ export function haikuReviewJudge(opts: HaikuReviewJudgeOpts = {}): ReviewJudge |
         body: JSON.stringify({
           model: MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),

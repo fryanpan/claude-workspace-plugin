@@ -47,6 +47,31 @@ describe('asksLine', () => {
     );
   });
 
+  it('names the work and the goal a blocking ask stops, and nothing on an ordinary one', () => {
+    const line = asksLine(
+      {
+        from: 0,
+        to: 0,
+        items: [
+          {
+            board: 'Harborlight',
+            row: { kind: 'task-review', taskId: 't-1' },
+            key: 'k-1',
+            headline: 'Which tide table?',
+            createdAt: 0,
+            stops: { what: 'the tide import', goal: 'Ship the Riverbend launch' },
+          },
+          { board: 'Harborlight', key: 'k-2', headline: 'Does this read right?', createdAt: 0 },
+        ],
+      },
+      'UTC',
+    );
+    expect(line?.split('\n').slice(1)).toEqual([
+      '- 00:00 Harborlight, task t-1: "Which tide table?" (key k-1) Stopped until you answer: the tide import — stops work on Ship the Riverbend launch.',
+      '- 00:00 Harborlight, row ?: "Does this read right?" (key k-2)',
+    ]);
+  });
+
   it('says nothing for a frame with no readable ask', () => {
     expect(asksLine({ items: [] })).toBeNull();
     expect(asksLine({ items: [{ board: 'Harborlight' }] })).toBeNull();

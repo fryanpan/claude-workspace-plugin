@@ -2,9 +2,8 @@
  * The 0..n review items filed ON a ticket — asking, answering, asking for
  * more, rewriting the ask, and taking it back.
  *
- * Lifted out of `TaskStore` whole. What these verbs need is the nine-member
- * `ReviewItemPersistence` this module declares, so a test can hand it a
- * plain object.
+ * Lifted out of `TaskStore` whole; a test hands it a plain object as the
+ * `ReviewItemPersistence` this module declares.
  *
  * The `r-legacy` row is not one of these: it is DERIVED from a legacy
  * decision's own fields, so the two verbs that accept it hand it straight to
@@ -21,6 +20,7 @@ import {
   reinstateReview,
   reviewGapAdvice,
   reviewPayloadMessage,
+  withBlocksGoal,
   withdrawReview,
   withoutHoldHistory,
 } from '@claude-workspaces/core';
@@ -63,9 +63,8 @@ export class ReviewItemStore {
    * a client had already put on screen. Only the item id is minted here,
    * `r-<crypto>`, the way options mint `o-<crypto>`.
    *
-   * `gaps` come back as `advice` on SUCCESS. They were computed and read by
-   * nobody in the first cut of this feature: the call returned 200, the card
-   * came out thinner than the author meant, and nothing connected the two.
+   * `gaps` come back as `advice` on SUCCESS: a thin card the author is never
+   * told about is written again.
    */
   addReviewItem(
     taskId: string,
@@ -85,8 +84,11 @@ export class ReviewItemStore {
     if (!read) {
       return { ok: false, error: 'bad-review', message: reviewPayloadMessage(check) };
     }
-    // Partial answers are recorded by the answer route, never filed with the ask.
-    const { partialAnswers: _filed, ...payload } = read;
+    // Partial answers are recorded by the answer route, never filed with the
+    // ask. A blocking ask carries its task's goal, never `chores` (`review-blocks.ts`).
+    const { partialAnswers: _filed, ...filed } = read;
+    const goals = this.p.getWorkspaceRecord(task.workspaceId)?.goals ?? [];
+    const payload = withBlocksGoal(filed, goals.find((g) => g.id === task.goal)?.id);
 
     const ts = this.p.now();
     const actor: TaskActor = {
@@ -100,13 +102,9 @@ export class ReviewItemStore {
       createdAt: ts,
       // Display name, like every other projected `by` (§3.3 visitor contract).
       createdBy: actor.name,
-      // The filer as an ACTOR, store-only. `recordReviewJudgement` has always
-      // written this field, so every item that reached the quality gate has
-      // carried it; stamping it here makes it true from creation instead,
-      // which is what lets a later withdrawal or answer name the filer it has
-      // to be addressed to. An item the gate never saw — the scheduler's,
-      // every server filing that skips the judge — had no filer id at all
-      // until now.
+      // The filer as an ACTOR, store-only, stamped from creation so a later
+      // withdrawal or answer can name the filer it is addressed to — including
+      // an item the gate never saw, such as the scheduler's.
       filedBy: actor,
       ...(opts.doneWhenLineId !== undefined ? { doneWhenLineId: opts.doneWhenLineId } : {}),
     };
@@ -120,6 +118,7 @@ export class ReviewItemStore {
       reviewItemId: item.id,
       shape: payload.shape,
       headline: payload.headline,
+      ...(payload.blocks ? { blocks: payload.blocks } : {}),
       actor,
       links: task.links,
       ts,

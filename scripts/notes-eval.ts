@@ -77,7 +77,10 @@ import {
   MODEL_PRICES_PER_MILLION,
   type prose,
 } from '../packages/core/src/index.ts';
-import { createHaikuNotesComposer } from '../packages/server/src/meeting-notes-composer.ts';
+import {
+  NOTES_MODEL,
+  createHaikuNotesComposer,
+} from '../packages/server/src/meeting-notes-composer.ts';
 import type { NoteReference, NotesComposeInput } from '../packages/server/src/meeting-notes.ts';
 import { meetingTranscriptPath } from '../packages/server/src/meetings.ts';
 import {
@@ -116,13 +119,12 @@ import {
   reportIdeaRates,
   setIdeaUsageSink,
 } from './notes-eval-ideas.ts';
-import { type Variant, resolveVariant } from './notes-eval-variants.ts';
+import { HELPER_MODEL, type Variant, resolveVariant } from './notes-eval-variants.ts';
 
 const JUDGE_MODEL = 'claude-sonnet-5';
 /** How the judge's spend is booked, so it never merges with a variant that
  *  happens to compose on the judge's model. */
 const JUDGE_LABEL = 'claude-sonnet-5 (judge)';
-const NOTES_MODEL = 'claude-haiku-4-5-20251001';
 
 /**
  * What a token costs, per model, in dollars — input then output.
@@ -145,9 +147,9 @@ const PRICES: Record<string, { input: number; output: number }> = {
       { input: p.input / 1_000_000, output: p.output / 1_000_000 },
     ]),
   ),
-  // Keyed on the dated snapshot this script actually sends, since `costOf`
-  // looks models up by the exact string the API reported.
-  [NOTES_MODEL]: { input: 1 / 1_000_000, output: 5 / 1_000_000 },
+  // The variants' helper sends a dated snapshot, and `costOf` looks models
+  // up by the exact string it was booked under.
+  [HELPER_MODEL]: { input: 1 / 1_000_000, output: 5 / 1_000_000 },
   [JUDGE_LABEL]: { input: 2 / 1_000_000, output: 10 / 1_000_000 },
 };
 

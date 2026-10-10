@@ -24,7 +24,7 @@
 
 import { readRenamedEnv } from '@claude-workspaces/core/env-names';
 import { readKeychainPassword } from './share/keychain.ts';
-import { resolveKeySlotFrom } from './summarize.ts';
+import { HAIKU_NO_THINKING, resolveKeySlotFrom } from './summarize.ts';
 
 /**
  * The seam: notes in, a title out, or `null` for "no usable title" — a down
@@ -32,7 +32,7 @@ import { resolveKeySlotFrom } from './summarize.ts';
  */
 export type MeetingNamer = (input: { notes: string }) => Promise<string | null>;
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_TOKENS = 40;
 export const MEETING_NAMER_TIMEOUT_MS = 15_000;
@@ -147,6 +147,7 @@ export function haikuMeetingNamer(opts: HaikuMeetingNamerOpts = {}): MeetingName
         body: JSON.stringify({
           model: MODEL,
           max_tokens: MAX_TOKENS,
+          thinking: HAIKU_NO_THINKING,
           system,
           messages: [{ role: 'user', content: user }],
         }),

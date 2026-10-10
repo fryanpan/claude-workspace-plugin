@@ -57,6 +57,9 @@ export interface ReviewQueueRoutesContext {
   j: (status: number, body: unknown) => Response;
   safeJson: (req: Request) => Promise<Record<string, unknown> | null>;
   ranks: ReviewRanks;
+  /** Tells open `/` pages a rank or goal tag moved (`landing-changes.ts`):
+   *  a rank is written here and broadcast nowhere. */
+  onRanked?: () => void;
   /** The plan board's goal ids, in order — what a goal tag may name. */
   planGoalIds: (planWorkspaceId: string) => string[];
   /** The plan board's seated lead, or undefined. */
@@ -164,6 +167,7 @@ async function handleRank(ctx: ReviewQueueRoutesContext, req: Request): Promise<
   }
   if (hasRank) ctx.ranks.set(item.key, rank, agentId);
   if (hasGoal) ctx.ranks.setGoal(item.key, goal, agentId);
+  ctx.onRanked?.();
   const taskId =
     item.kind === 'task-review' || item.kind === 'task-thread' ? item.taskId : undefined;
   const movedAt = taskId ? ctx.ranks.personMovedAt(item.workspaceId, taskId) : undefined;

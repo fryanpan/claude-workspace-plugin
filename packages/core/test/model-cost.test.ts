@@ -97,6 +97,17 @@ describe('which models the table can price', () => {
     for (const model of ['claude-haiku-4-5-20251001', 'claude-sonnet-5', 'claude-opus-5'])
       expect(isPricedModel(model)).toBe(true);
   });
+
+  test('the newest models carry their own published prices', () => {
+    expect(modelPrice('claude-haiku-5-5')).toEqual({ input: 0.1, output: 0.5 });
+    expect(modelPrice('claude-sonnet-5-5')).toEqual({ input: 2, output: 10 });
+    expect(modelPrice('claude-opus-5-5')).toEqual({ input: 4, output: 20 });
+    // Not read through `claude-opus-5`'s row: the newer model is cheaper.
+    expect(dollars({ ...ZERO_USAGE, outputTokens: 1_000_000 }, 'claude-opus-5-5')).toBeCloseTo(
+      20,
+      6,
+    );
+  });
 });
 
 describe('adding usage up', () => {

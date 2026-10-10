@@ -58,6 +58,7 @@ import { DocStore } from './doc-store.ts';
 import { createEffortScoring } from './effort-scoring.ts';
 import { InflightRegistry, LoopLagMonitor } from './event-loop.ts';
 import { originOfHeaders, withEventOrigin } from './event-origin.ts';
+import { type FolderWatches, createFolderWatches, liveSourceOf } from './folder-watch.ts';
 import { taskDeepLink } from './home-brief.ts';
 import { createHomePane } from './home-pane.ts';
 import { spokenReviewComment } from './huddle.ts';
@@ -70,6 +71,7 @@ import { InboxReplies } from './inbox/reply.ts';
 import { systemTransport } from './inbox/send-transport.ts';
 import { InboxSends } from './inbox/sends.ts';
 import { InboxStore } from './inbox/store.ts';
+import { LANDING_CHANGED_EVENT, LANDING_CHANNEL, createLandingChanges } from './landing-changes.ts';
 import { wireLeadRanks } from './lead-rank-wiring.ts';
 import { createMarkdownLister, projectRepoKey } from './library.ts';
 import { describeLiveness } from './liveness.ts';
@@ -93,6 +95,7 @@ import { writeNotesMethod } from './notes-method-store.ts';
 import { fileOnMeetingDoc } from './notes-quality-review.ts';
 import { rollupNotesQuality } from './notes-quality-store.ts';
 import { NOTES_QUALITY_WINDOW_MS } from './notes-quality-thresholds.ts';
+import { PROMPTS_CHANNEL, VOICE_CHANNEL, createPageNudger, wirePageNudges } from './page-nudges.ts';
 import {
   PARK_MIGRATION_ACTOR,
   type ParkMigrationResult,
@@ -142,6 +145,7 @@ import {
   handleDocResourceRoutes,
 } from './routes/docs.ts';
 import { type InboxRoutesContext, handleInboxRoutes } from './routes/inbox.ts';
+import { handleLandingStreamRoute } from './routes/landing-stream.ts';
 import { handleMcpConnectorRoute } from './routes/mcp-connector.ts';
 import {
   type MeetingCalendarRoutesContext,
@@ -216,7 +220,7 @@ import { SpokenReplyRelay } from './spoken-reply/relay.ts';
 import { SPOKEN_TIMINGS_FILE, SpokenTimings } from './spoken-reply/timings.ts';
 import { claimReplayMarks, saveReplayMarks } from './sse-marks.ts';
 import { channelForWatchKey, openAgentMuxStream } from './sse-mux.ts';
-import { HTTP_IDLE_TIMEOUT_SEC, SseBus } from './sse.ts';
+import { HTTP_IDLE_TIMEOUT_SEC, SseBus, openSseStream } from './sse.ts';
 import { createStallWiring } from './stall-wiring.ts';
 import { cryptoId } from './task-fields.ts';
 import { isReservedGoalId } from './task-goals.ts';
@@ -350,6 +354,9 @@ export interface ServerHandle {
   /** The builders' closing reports (dispatch-reports.ts). Exposed for the same
    *  reason `dispatches` is. */
   dispatchReports: DispatchReportStore;
+  /** The folders open pages are watching (folder-watch.ts). Exposed so a
+   *  test can count them after the last page leaves. */
+  folderWatches: FolderWatches;
   shares: Shares | null;
   /** Hang up every websocket and SSE stream whose share is no longer live,
    *  and every widget door socket whose board token is dead. Runs on a 60s
@@ -467,6 +474,11 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
   // died instead of stopping — see sse-marks.ts for why that direction is the
   // safe one.
   sse.restoreMarks(claimReplayMarks(dataDir));
+  // Open `/` pages hear one frame for any board change they draw.
+  const landingChanges = createLandingChanges({
+    emit: () => sse.broadcastTransient(LANDING_CHANNEL, { event: LANDING_CHANGED_EVENT }),
+  });
+  sse.tap(landingChanges.observe);
   const webhookLog: WebhookLogEntry[] = [];
   const webhooks = createWebhookDispatcher({
     onLog: (e) => {
@@ -1519,6 +1531,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     planBoard: () => crossReview.projects().planWorkspaceId,
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     boardName: (workspaceId) => taskStore.getWorkspace(workspaceId)?.name,
+    goalTitle: (goalId) => taskStore.getGoalRow(goalId)?.title,
     isOff: isOffForLead,
     rankIsOff: isOffForRank,
     taskWorkspace: (taskId) => taskStore.getTask(taskId)?.workspaceId,
@@ -2397,8 +2410,41 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     requestAddress: (req) => server.requestIP(req)?.address,
   };
 
+  // Open pages hear that a REST-fed list they drew is stale: the Library,
+  // members, a review's sidebar, the voice page and the prompts settings
+  // (page-nudges.ts). Wired after the stall wiring, whose `onAgentStreams`
+  // is a plain assignment this chains onto.
+  const pageNudges = wirePageNudges({
+    nudger: createPageNudger({
+      send: (channel, frame) => sse.broadcastTransient(channel, frame, { skipAgentStreams: true }),
+    }),
+    docStore,
+    taskStore,
+    // A task's or a board's own doc is never a Library row.
+    boardsHolding: (docId) =>
+      docId.startsWith('task:') || docId.startsWith('ws:') ? [] : [...boardsForDoc(docId)],
+    shareLinks,
+    sse,
+  });
+
   /** The words this server's prompts run on — the settings page's data. */
-  const promptRoutesCtx: PromptRoutesContext = { promptStore, j, safeJson };
+  const promptRoutesCtx: PromptRoutesContext = {
+    promptStore,
+    j,
+    safeJson,
+    stream: () => openSseStream(sse, PROMPTS_CHANNEL),
+    onWritten: pageNudges.promptsChanged,
+  };
+
+  // An open review follows its folder on disk while a page holds its stream
+  // (folder-watch.ts); the refresh's own `onSetRescanned` nudges the page.
+  const folderWatches = createFolderWatches({
+    sourceOf: (setId) => liveSourceOf(docStore.list(), setId),
+    refresh: (setId) => docStore.refreshWorkspace(setId),
+  });
+  const unwatchStreams = sse.watchStreams((channel) => {
+    if (channel.startsWith('ws~')) folderWatches.sync(channel.slice(3), sse.pagesOn(channel));
+  });
 
   /** The cross-board review queue and its wait report — trusted-local only. */
   const reviewQueueRoutesCtx: ReviewQueueRoutesContext = {
@@ -2406,6 +2452,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     boardName: (id) => taskStore.getWorkspace(id)?.name,
     sizePrefs: new ReviewSizePrefs(dataDir),
     ranks: leadRanks.ranks,
+    onRanked: landingChanges.notify,
     refuseNonLocal: (req) => refuseNonLocalAgentCaller(req, server.requestIP(req)?.address),
     leadOf: (workspaceId) => taskStore.getWorkspace(workspaceId)?.leadAgentId,
     planGoalIds: (workspaceId) => planGoals(workspaceId).map((g) => g.id),
@@ -2445,6 +2492,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     agents: ownerVoiceAgents,
     renderPage: () => renderVoiceShell(browserSentry, readAppAssetManifest(markdownAppDist)),
     pageHeaders: HTML_SHELL_HEADERS,
+    stream: () => openSseStream(sse, VOICE_CHANNEL),
     j,
   };
   /** The voice conversation API: OpenAI chat over a voice token (routes/voice-api.ts). */
@@ -3045,6 +3093,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     mountsBriefFor,
     attachmentPrivacy,
     docWithheldFrom,
+    onBoardPromptsChanged: pageNudges.promptsChanged,
   };
 
   /**
@@ -3754,6 +3803,13 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
         if (handled) return handled;
       }
 
+      // --- SSE: the workspaces list's change feed --- see
+      // ./routes/landing-stream.ts. Top-level, like `/` it serves.
+      {
+        const handled = handleLandingStreamRoute({ sse, j }, { req, pathname, visitor });
+        if (handled) return handled;
+      }
+
       // --- REST + page: the cross-board review queue --- see
       // ./routes/review-queue.ts. Top-level for the prompts' reason: it is
       // about every board, not one.
@@ -4219,6 +4275,7 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
     identities,
     dispatches,
     dispatchReports,
+    folderWatches,
     shares,
     sweepDeadShares,
     // Exactly what the interval does, exposed for the same reason
@@ -4257,6 +4314,10 @@ export function createServer(opts: ServerOptions = {}): ServerHandle {
       // output for the rest of the run.
       loopLag.stop();
       taskScheduler.stop();
+      landingChanges.dispose();
+      pageNudges.dispose();
+      unwatchStreams();
+      folderWatches.dispose();
       coachWiring.stop();
       leadPresence.stop();
       // The boot re-scoring pass runs for as long as there are stale rows, so

@@ -62,6 +62,19 @@ async function boot(): Promise<void> {
     api,
   });
   window.addEventListener('popstate', () => void page.render());
+  // A prompt saved in another tab, or a board's criteria rewritten by an
+  // agent, redraws here (`page-nudges.ts` on the server). A dropped stream
+  // misses frames, so its reopening re-reads too.
+  const prompts = new EventSource('/api/prompts/events:stream');
+  let dropped = false;
+  prompts.addEventListener('prompts.changed', () => void page.changed());
+  prompts.addEventListener('error', () => {
+    dropped = true;
+  });
+  prompts.addEventListener('open', () => {
+    if (dropped) void page.changed();
+    dropped = false;
+  });
   await page.render();
 }
 

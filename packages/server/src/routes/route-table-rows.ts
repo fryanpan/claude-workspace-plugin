@@ -149,8 +149,11 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
 
   ...family('routes/prompts.ts', [
     ['trusted-local', '/api/prompts', 'GET'],
+    ['trusted-local', '/api/prompts/events:stream', 'GET'],
     ['trusted-local', '/api/prompts/:id', 'GET PUT'],
   ]),
+  // Gated like the `/` it refreshes.
+  ...family('routes/landing-stream.ts', [['trusted-local', '/landing/events:stream', 'GET']]),
   // The rank is the plan lead's alone and checks its peer address and token
   // (`authorizeAgentCaller`), then that it is the plan board's lead.
   ...family('routes/review-queue.ts', [
@@ -165,6 +168,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   ...family('routes/voice-page.ts', [
     ['trusted-local', '/voice', 'GET'],
     ['trusted-local', '/api/voice/agents', 'GET'],
+    ['trusted-local', '/api/voice/events:stream', 'GET'],
   ]),
   // The voice conversation API. `/v1/` takes a voice API bearer and nothing
   // else, checked in the handler. The token routes are the owner's: through

@@ -178,6 +178,17 @@ describe('a listening notice wakes nobody', () => {
   });
 });
 
+describe("a page's stale-list notice wakes nobody", () => {
+  it.each(['library.changed', 'members.changed', 'attachments.changed'])(
+    'says nothing for %s',
+    async (event) => {
+      const { frames, messages } = renderer();
+      await messages.emitChannelMessage(event, { event });
+      expect(frames).toEqual([]);
+    },
+  );
+});
+
 describe('a gap in the event history wakes nobody', () => {
   it('writes no channel line for a gap naming a doc', async () => {
     const { notified, emitted, handle } = handler();

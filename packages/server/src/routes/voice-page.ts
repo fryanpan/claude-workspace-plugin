@@ -22,6 +22,9 @@ export interface VoicePageRoutesContext {
   agents: () => VoiceBoard[];
   renderPage: () => string;
   pageHeaders: Record<string, string>;
+  /** The page's live stream: `voice.changed` when an agent or board it lists
+   *  changes (`page-nudges.ts`). Behind the same owner check as the list. */
+  stream: () => Response;
   j: (status: number, body: unknown) => Response;
 }
 
@@ -40,6 +43,7 @@ export interface VoicePageRouteRequest {
 
 const PAGE = '/voice';
 const LIST = '/api/voice/agents';
+const STREAM = '/api/voice/events:stream';
 
 /** Null when the caller is the owner, else the refusal. */
 export function refuseNonOwner(
@@ -59,8 +63,9 @@ export function handleVoicePageRoutes(
   ctx: VoicePageRoutesContext,
   rq: VoicePageRouteRequest,
 ): Response | null {
-  if (rq.pathname !== PAGE && rq.pathname !== LIST) return null;
+  if (rq.pathname !== PAGE && rq.pathname !== LIST && rq.pathname !== STREAM) return null;
   if (rq.req.method !== 'GET') return ctx.j(405, { error: 'method not allowed' });
+  if (rq.pathname === STREAM) return refuseNonOwner(ctx, rq) ?? ctx.stream();
   if (rq.pathname === LIST) {
     const denied = refuseNonOwner(ctx, rq);
     return denied ?? ctx.j(200, { boards: ctx.agents() });

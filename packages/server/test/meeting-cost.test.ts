@@ -101,7 +101,7 @@ function meetingWith(
     compose: (input, n) => {
       // The composer's own seam, the same one the real Haiku composer uses
       // to report what the API charged.
-      input.measure?.({ model: 'claude-haiku-4-5-20251001' });
+      input.measure?.({ model: 'claude-haiku-5-5' });
       input.measure?.({
         usage: {
           inputTokens: opts.composeUsage?.inputTokens ?? 10_000,
@@ -136,7 +136,7 @@ describe('every Claude call a tick makes is recorded', () => {
     await h.speak('Anything at all.');
     await h.end();
     const capture = capturesIn(h.timing().rows()[0]?.calls ?? [])[0];
-    expect(capture?.model).toBe('claude-haiku-4-5-20251001');
+    expect(capture?.model).toBe('claude-haiku-5-5');
     expect(capture?.usage).toEqual({
       inputTokens: CAPTURE_USAGE.input_tokens,
       outputTokens: CAPTURE_USAGE.output_tokens,
@@ -275,7 +275,7 @@ describe('MUTATION CONTROL: the pre-fix pipeline', () => {
       captureBoard: emptyBoard,
       taskExtractor: blindExtractor,
       compose: (input, n) => {
-        input.measure?.({ model: 'claude-haiku-4-5-20251001' });
+        input.measure?.({ model: 'claude-haiku-5-5' });
         input.measure?.({
           usage: {
             inputTokens: 10_000,
