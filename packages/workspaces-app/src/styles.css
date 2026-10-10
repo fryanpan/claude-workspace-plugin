@@ -2503,6 +2503,12 @@ body.composer-open #editor > .ProseMirror ::selection {
   left: 50%;
   bottom: calc(var(--kb-bottom, 0px) + 24px + var(--safe-bottom));
   transform: translateX(-50%) translateY(0);
+  /* As wide as its words, up to the window. Shrink-to-fit at left:50% has
+     only half the window to fit into, so a phone wrapped a one-line toast
+     and its Undo onto two lines. */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   background: #1b1f23;
   color: #fff;
   padding: 10px 16px;

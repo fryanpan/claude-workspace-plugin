@@ -1712,7 +1712,12 @@ pasted, dropped or picked image file to that route's POST, which stores it in
 the `doc-*.ts` the diagram draws), then inserts the path it answers.
 `doc-image-retry.ts`, which that block image installs, asks again for an
 image whose file was not there yet, so it appears once the file lands without
-a reload; it changes the DOM's `src` only. `core` is three tiers: wire types, the document model (`prose-*.ts`,
+a reload; it changes the DOM's `src` only. `comment-delete-guard.ts` and
+`mass-delete-undo.ts` join the editor tier and change none of the picture:
+two extensions in `editor.ts`'s base list. The first refuses Delete over a
+selection spanning blocks right after a tap on a comment, which is how a
+select-all reached from a comment wiped a doc; the second puts up an Undo
+toast after one local edit removes most of the doc. `core` is three tiers: wire types, the document model (`prose-*.ts`,
 `anchor/**`, `redline.ts`), then the rules both sides must compute identically
 (`review-item*.ts`, `effort-*.ts`, `goal-effort.ts`, and
 `note-suggestion.ts`, which is how a note's written "did you mean this row?"
@@ -1959,7 +1964,11 @@ flowchart LR
 
 The file is the source of truth at rest, the live doc at runtime, both
 directions debounced — which is why a plain `Write` to a bound file loses: the
-doc reasserts itself a second later while git still exits 0. A new field needs
+doc reasserts itself a second later while git still exits 0. The doc→file
+direction is never refused, so a doc emptied in the editor empties its file;
+`file-binding.ts` first copies what the file held into the data dir's
+`clobber-backups/` (`<docId>-emptied-<ms>.md`) and logs the path, and the
+editor offers Undo for the same edit (`mass-delete-undo.ts`). A new field needs
 three additions, MCP tool schema, route and service, and the route is the one
 nothing type-checks, so add an HTTP-level test for every new parameter. The
 audio socket is the meeting's lifecycle: every way it can end ends the meeting

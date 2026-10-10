@@ -502,6 +502,25 @@ export const SLOW_POLL_STAT_MS = DOC_STORE_TIMINGS.boundReadDeadlineMs / 12;
 /** At most one slow-stat line per backoff window; the rest are counted into it. */
 const SLOW_POLL_LOG_EVERY_MS = DOC_STORE_TIMINGS.boundReadRetryMs;
 
+/** A file holding fewer non-blank characters than this is not "real
+ *  content" for `writeEmptiesFile` — a stub, a title, a front-matter line. */
+export const EMPTIED_MIN_HELD_CHARS = 64;
+
+/**
+ * Whether writing `next` over a file holding `held` empties it: the file held
+ * real content and the write keeps under a tenth of it, counted in non-blank
+ * characters so a doc reduced to a newline or an empty heading still counts.
+ */
+export function writeEmptiesFile(held: string, next: string): boolean {
+  const count = (s: string) => s.replace(/\s+/g, '').length;
+  const after = count(next);
+  // Every write-back asks, so the held side is only counted when the answer
+  // can be yes: it holds no more non-blank characters than its length.
+  if (after * 10 >= held.length) return false;
+  const before = count(held);
+  return before >= EMPTIED_MIN_HELD_CHARS && after * 10 < before;
+}
+
 /**
  * How many copies of ONE doc's own content to keep in `clobber-backups/`.
  *
@@ -2288,6 +2307,9 @@ export class FileBindings {
               parseOptsFor(binding.path),
             );
       const bytes = written?.text ?? md;
+      // A doc emptied in the editor reaches the file a second later; keep
+      // what the file held first. The write still goes ahead.
+      this.keepEmptiedFile(doc.docId, binding, bytes);
       // Atomic: write-temp-then-rename, so a crash mid-write can't leave
       // the user's file truncated and a concurrent reader never sees half
       // a document. (Same save pattern editors use.) Rename onto the
@@ -2595,6 +2617,38 @@ export class FileBindings {
       at,
       seq: doc.seq,
     });
+  }
+
+  /**
+   * Copy a bound file's content into `clobber-backups/` before a write-back
+   * that leaves it empty or nearly so (`writeEmptiesFile`), and log where it
+   * went. Returns the copy's path, or null when none was needed or the copy
+   * failed.
+   *
+   * The write is NOT refused: a person clearing a doc on purpose must be able
+   * to, and the `.ydoc` keeps the history either way. What this changes is
+   * that the words are also a plain file a person can find, the way a
+   * conflict's losing side already is. On 10 Oct a select-all and Delete in
+   * the editor took a bound `.mdx` to 0 bytes, and the only copy left was
+   * inside the `.ydoc`.
+   *
+   * "What the file held" is the binding's own record of it — the bytes last
+   * read or written. The write-back has just checked the file's stat against
+   * that record, so they are the file's bytes, and no read of a file that
+   * may sit on a stalled sync folder is added to the write path.
+   */
+  private keepEmptiedFile(docId: string, binding: FileBinding, next: string): string | null {
+    const held =
+      typeof binding.diskSource === 'string'
+        ? binding.diskSource
+        : (binding.diskSource?.text ?? binding.lastWritten);
+    if (held === undefined || !writeEmptiesFile(held, next)) return null;
+    const path = this.backupExternalVersion(docId, held, 'emptied');
+    console.warn(
+      `[doc-store] ${docId}: write-back empties ${binding.path} (${held.length} -> ${next.length} bytes); ` +
+        (path ? `kept what it held in ${path}` : 'the copy of what it held FAILED'),
+    );
+    return path;
   }
 
   /**
