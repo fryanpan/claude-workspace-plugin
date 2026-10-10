@@ -270,9 +270,8 @@ describe('folder watch decisions', () => {
         },
       );
       watches.sync('set-1', 1);
-      // The first burst is the one that always refreshes. Bun on Linux arms
-      // its recursive watch a moment after the call returns, so keep writing
-      // the same file until an event lands; rewrites leave the listing alone.
+      // The first burst is the one that always refreshes. Keep writing the
+      // same file until it has; rewrites leave the listing alone.
       await waitFor(() => {
         writeFileSync(join(folder, 'first.md'), '# Saltmarsh\n');
         return refreshes === 1;

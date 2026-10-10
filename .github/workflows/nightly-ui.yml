@@ -37,7 +37,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           # Same pin as ci.yml. Bump the two together.
-          bun-version: 1.3.10
+          bun-version: 1.3.11
       - run: bun install --frozen-lockfile
 
       # `ui:shot` takes a Chrome binary or refuses to start. The runner image
