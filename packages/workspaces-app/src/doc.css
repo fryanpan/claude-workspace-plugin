@@ -1119,6 +1119,42 @@ body.has-set .doc-switcher-caret {
   font: 12px / 1.4 var(--sans);
   color: var(--fg-muted);
 }
+/* A <PlotChart> (mdx-plot-chart.ts): Observable Plot's SVG in the house style
+   core plot-spec.mjs applies, which reads its font and colours from these
+   variables. The board sets them from its own tokens, so a chart follows the
+   doc's ground and ink wherever those go; the series colours are the house
+   palette, which the board has no tokens of its own for. */
+#editor > .ProseMirror .mdx-subtitle {
+  margin-top: 2px;
+  font: 14px / 1.4 var(--sans);
+  color: var(--fg-muted);
+}
+#editor > .ProseMirror .mdx-plot {
+  margin-top: 8px;
+  --chart-font: var(--sans);
+  --ink: var(--fg);
+  --muted: var(--fg-muted);
+  --rule: var(--border);
+  --paper: var(--bg-panel);
+  --seq-3: #2f7d76;
+  --seq-2: #c8a25e;
+  --seq-1: #9c5f3c;
+}
+/* The slot's height is the chart's, set inline before Plot loads; the SVG
+   fills its width at that height, and renderPlot redraws it as the width
+   changes. */
+#editor > .ProseMirror .mdx-plot svg {
+  display: block;
+}
+#editor > .ProseMirror .plot-spec-error {
+  padding: 8px 12px;
+  font: 13px / 1.4 var(--mono);
+  color: var(--red);
+  background: rgba(215, 58, 73, 0.08);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
 /* Each line's own name and last value, at its end inside the plot: the site's
    chart labels its lines there instead of carrying a legend. */
 #editor > .ProseMirror .mdx-chart .mdx-end-label {
