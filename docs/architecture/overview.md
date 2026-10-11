@@ -1862,7 +1862,8 @@ names, and every `data` reference must be a key or an inline array, so a bad spe
 makes a chart look and behave the same on every site: the house style (font,
 grid, axes and palette, each a CSS variable with a fallback), three presets
 that expand into ordinary marks (a preset's series take Observable 10
-unless it marks them `ordered`, when they take the sequential ramp), named formats in place of functions, and
+unless it marks them `ordered`, when they take the sequential ramp; and
+stackedArea and lines draw `events` as dashed rules labelled at the top), named formats in place of functions, and
 `renderPlot`, the one call each page makes. `renderPlot` draws a chart at
 its container's width and the spec's height, and draws it again when that
 width changes, so a narrow column gets a narrower chart with the same 13px
