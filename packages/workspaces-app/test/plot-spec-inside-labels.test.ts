@@ -1,7 +1,9 @@
 import { HOUSE, buildPlot } from '@claude-workspaces/core/plot-spec';
 import * as Plot from '@observablehq/plot';
 import { describe, expect, it } from 'vitest';
+import { measured } from './fixtures/chrome-glyph-widths.ts';
 import { PRESET, PRESET_SPEC } from './fixtures/plot-chart.ts';
+import { ALL_MODES, ALL_MODES_ORDER } from './fixtures/ssc-all-modes.ts';
 
 /**
  * Under 600px a stackedArea chart labels each series inside its own band and
@@ -55,7 +57,10 @@ const edgeAt = (pts: Pt[], x: number) => {
 };
 
 /** Every drawn text label's box: its estimated width, a line high. */
-const boxes = (svg: Element): Box[] =>
+const boxes = (
+  svg: Element,
+  width = (text: string, size: number) => text.length * CH * (size / LINE),
+): Box[] =>
   [...svg.querySelectorAll('[aria-label="text"]')].flatMap((g) => {
     const [dx, dy] = translate(g);
     const anchor = g.getAttribute('text-anchor') ?? 'start';
@@ -63,16 +68,16 @@ const boxes = (svg: Element): Box[] =>
     return [...g.querySelectorAll('text')].map((t) => {
       const [x, y] = translate(t);
       const text = t.firstChild?.textContent ?? '';
-      const w = text.length * CH * (size / LINE);
+      const w = width(text, size);
       const a = anchor === 'end' ? x + dx - w : x + dx;
       return { text, a, b: a + w, top: y + dy - size / 2, bottom: y + dy + size / 2, anchor, size };
     });
   });
 
 /** The labels that leave their own band anywhere along their width. */
-const outsideBand = (svg: Element, order: string[]) => {
+const outsideBand = (svg: Element, order: string[], width?: Parameters<typeof boxes>[1]) => {
   const all = bands(svg);
-  return boxes(svg)
+  return boxes(svg, width)
     .filter((l) => order.includes(l.text))
     .filter((l) => {
       const band = all[order.indexOf(l.text)];
@@ -294,6 +299,23 @@ describe('a school-trips chart at 371px', () => {
     const svg = at(SSC, 371);
     expect([...svg.querySelectorAll('text')].map((t) => t.textContent)).toContain('2025-26');
     expect(rightmost(svg)).toBeLessThanOrEqual(371);
+  });
+});
+
+/**
+ * The all-modes chart as published, measured with Chrome's glyph widths: a
+ * phone's 430px viewport draws it 371px wide. Biking is 6 to 18 a year, but
+ * the bands under it rise and fall, so its widest level window is short.
+ */
+describe('the all-modes school-trips chart on a phone', () => {
+  it.each([371, 430])('names every band at %ipx, Biking inside its own', (w) => {
+    const svg = at(ALL_MODES, w);
+    const all = boxes(svg, measured);
+    expect(all.map((l) => l.text).sort()).toEqual([...ALL_MODES_ORDER].sort());
+    // The top band is too thin at the right, so its label sits just above it.
+    expect(outsideBand(svg, ALL_MODES_ORDER, measured)).toEqual(['Other, mostly scooters']);
+    expect(overlaps(all)).toEqual([]);
+    expect(rightmost(svg)).toBeLessThanOrEqual(w);
   });
 });
 
