@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 4b25d5246b5bcef9). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 844528baea3968f6). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -791,8 +791,8 @@ function eventMarks(laid) {
  * Below `NARROW`, where a stacked chart's labels go instead of its right
  * margin: each series' name inside its own band, and the goal's label above
  * its rule at the left. A label fits where its line, `PAD` clear of both
- * edges, lies inside the band all along its width and clear of the goal's
- * rule and label and of every label already placed. Each series takes the
+ * edges, lies inside the band all along its width and clear of each event's
+ * rule and label, the goal's rule and label, and every label already placed. Each series takes the
  * first of these that fits: at 13px, at the first x reading rightward or the
  * last x reading leftward, whichever leaves more room; at 13px, wherever
  * along the band leaves most room; the same two at 11px; for the top band
@@ -867,11 +867,14 @@ function insideLabels(rows, f, goal, fmt, own, width, rightMargin, events) {
     const t = a1 === a0 ? 0 : (p - a0) / (a1 - a0);
     return py(/** @type {number} */ (vs[k - 1]) * (1 - t) + /** @type {number} */ (vs[k]) * t);
   };
-  // Pixel boxes a label must stay clear of: the events' labels, the goal's
-  // rule and label, then each label as it is placed.
+  // Pixel boxes a label must stay clear of: the events' rules and labels,
+  // the goal's rule and label, then each label as it is placed.
   const laid = eventLayout(events, [x0, x1], { left, right, top });
   /** @type {Array<{ a: number, b: number, top: number, bottom: number }>} */
-  const blocked = laid.flatMap((e) => (e.box ? [e.box] : []));
+  const blocked = laid.flatMap((e) => [
+    ...(e.box ? [e.box] : []),
+    { a: px(e.x) - 1, b: px(e.x) + 1, top, bottom },
+  ]);
   /** @type {Inside['goal']} */
   let goalLabel;
   if (goal) {

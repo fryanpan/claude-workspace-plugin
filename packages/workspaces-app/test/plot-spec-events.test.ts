@@ -130,6 +130,23 @@ describe('an event label beside a band label', () => {
     if (!event || !biking) throw new Error('no event or Biking label');
     expect(biking.a < event.b && event.a < biking.b && biking.top < event.bottom).toBe(false);
   });
+  it('keeps a band’s label off an event’s rule', () => {
+    // Biking is thickest around 2012-2014, right where the rule falls.
+    const biking = [1, 1, 2, 3, 5, 8, 11, 13, 14, 14, 13, 12, 10, 8, 6, 4, 3, 2, 1, 1, 1];
+    const rows = biking.flatMap((n, i) => [
+      { year: 2005 + i, mode: 'Walking', n: 43 - i * 1.2 },
+      { year: 2005 + i, mode: 'Biking', n },
+    ]);
+    for (const width of [371, 430]) {
+      const svg = at({ ...withEvents([VISION]), data: { rows } }, width);
+      const x = Number(eventRules(svg)[0]?.querySelector('line')?.getAttribute('x1'));
+      const crossing = boxes(svg).filter(
+        (l) => PRESET.order.includes(l.text) && l.a < x && l.b > x,
+      );
+      expect(boxes(svg).map((l) => l.text)).toContain('Biking');
+      expect(crossing.map((l) => l.text)).toEqual([]);
+    }
+  });
 });
 
 describe('events it refuses', () => {
