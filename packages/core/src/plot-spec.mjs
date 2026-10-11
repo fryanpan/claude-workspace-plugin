@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 375677f7c095ae40). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 4b25d5246b5bcef9). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -653,8 +653,139 @@ const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
  * @typedef {{ x: number, y: number, series: string, label: string }} InsideLabel
  * @typedef {'left' | 'right' | 'along'} InsideSide
  * @typedef {{ side: InsideSide, size: number, labels: InsideLabel[] }} InsideGroup
- * @typedef {{ groups: InsideGroup[], goal?: { y: number, label: string, lineWidth: number } }} Inside
+ * @typedef {{ groups: InsideGroup[], events: LaidEvent[], goal?: { y: number, label: string, lineWidth: number } }} Inside
  */
+
+/**
+ * The plot's frame in pixels: the spec's margins, else Plot's defaults (40
+ * left, 20 top, 30 bottom) and `rightMargin`.
+ * @param {Record<string, unknown>} own
+ * @param {number} width
+ * @param {number} rightMargin
+ */
+function frameOf(own, width, rightMargin) {
+  const margin = (/** @type {string} */ k, /** @type {number} */ d) =>
+    /** @type {number} */ (finite(own[k]) ? own[k] : finite(own.margin) ? own.margin : d);
+  const height = finite(own.height) ? /** @type {number} */ (own.height) : PLOT_DEFAULT_HEIGHT;
+  return {
+    left: margin('marginLeft', 40),
+    right: width - margin('marginRight', rightMargin),
+    top: margin('marginTop', 20),
+    bottom: height - margin('marginBottom', 30),
+  };
+}
+
+/**
+ * @typedef {{ x: number, label: string }} PlotEvent
+ * @typedef {{ x: number, label: string, side: 'start' | 'end', box?: { a: number, b: number, top: number, bottom: number } }} LaidEvent
+ */
+
+/**
+ * A preset's `events`: each a value on x and an optional label.
+ * @param {unknown} v
+ * @returns {PlotEvent[]}
+ */
+function eventsOf(v) {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) throw new PlotSpecError('bad-spec', 'A preset’s events must be a list');
+  return v.map((e, i) => {
+    if (!isRecord(e) || !finite(e.x)) {
+      throw new PlotSpecError('bad-spec', `Event ${i + 1} needs a numeric "x"`);
+    }
+    return { x: /** @type {number} */ (e.x), label: typeof e.label === 'string' ? e.label : '' };
+  });
+}
+
+/**
+ * The x extent a preset's chart spans: the spec's own domain, else every x
+ * its rows and events carry. Undefined for an x that is not a number.
+ * @param {unknown[]} rows
+ * @param {string} x
+ * @param {Record<string, unknown>} own
+ * @param {PlotEvent[]} events
+ * @returns {[number, number] | undefined}
+ */
+function xExtent(rows, x, own, events) {
+  const d = isRecord(own.x) ? own.x.domain : undefined;
+  if (Array.isArray(d) && d.length === 2 && d.every(finite)) {
+    return [/** @type {number} */ (d[0]), /** @type {number} */ (d[1])];
+  }
+  const xs = rows.map((r) => get(r, x));
+  if (xs.length === 0 || !xs.every(finite)) return undefined;
+  const all = [...xs.map(Number), ...events.map((e) => e.x)];
+  return [Math.min(...all), Math.max(...all)];
+}
+
+/**
+ * Where each event's label goes: at the top of the plot, on whichever side
+ * of its rule has more of the x range. Given the plot's frame in pixels
+ * (below `NARROW`), a label wider than its side's room wraps once, at the
+ * space nearest its middle, and `box` is the pixels it covers.
+ * @param {PlotEvent[]} events
+ * @param {[number, number] | undefined} extent
+ * @param {{ left: number, right: number, top: number }} [frame]
+ * @returns {LaidEvent[]}
+ */
+function eventLayout(events, extent, frame) {
+  return events.map((e) => {
+    const [x0, x1] = extent ?? [e.x, e.x];
+    const share = x1 > x0 ? (e.x - x0) / (x1 - x0) : 0;
+    /** @type {'start' | 'end'} */
+    const side = share > 0.5 ? 'end' : 'start';
+    if (!frame) return { x: e.x, label: e.label, side };
+    const at = frame.left + share * (frame.right - frame.left);
+    const room = (side === 'start' ? frame.right - at : at - frame.left) - 8;
+    let label = e.label;
+    if (label.length * CH > room && label.includes(' ')) {
+      const mid = label.length / 2;
+      const cut = [...label.matchAll(/ /g)]
+        .map((m) => /** @type {number} */ (m.index))
+        .sort((m, n) => Math.abs(m - mid) - Math.abs(n - mid))[0];
+      if (cut !== undefined) label = `${label.slice(0, cut)}\n${label.slice(cut + 1)}`;
+    }
+    const lines = label.split('\n');
+    const w = Math.max(...lines.map((l) => l.length)) * CH;
+    const a = side === 'start' ? at + 4 : at - 4 - w;
+    const top = frame.top + 4;
+    return { x: e.x, label, side, box: { a, b: a + w, top, bottom: top + lines.length * LINE } };
+  });
+}
+
+/**
+ * Each event's dashed rule in the muted ink, and its label at the plot's top.
+ * @param {LaidEvent[]} laid
+ * @returns {PlotMarkSpec[]}
+ */
+function eventMarks(laid) {
+  if (laid.length === 0) return [];
+  /** @type {PlotMarkSpec[]} */
+  const marks = [
+    {
+      mark: 'ruleX',
+      data: laid.map((e) => e.x),
+      options: { stroke: HOUSE.muted, strokeDasharray: '4 4' },
+    },
+  ];
+  for (const side of /** @type {const} */ (['start', 'end'])) {
+    const data = laid.filter((e) => e.side === side && e.label !== '');
+    if (data.length === 0) continue;
+    marks.push({
+      mark: 'text',
+      data: data.map(({ x, label }) => ({ x, label })),
+      options: {
+        x: 'x',
+        text: 'label',
+        frameAnchor: 'top',
+        lineAnchor: 'top',
+        textAnchor: side,
+        dx: side === 'start' ? 4 : -4,
+        dy: 4,
+        fill: HOUSE.muted,
+      },
+    });
+  }
+  return marks;
+}
 
 /**
  * Below `NARROW`, where a stacked chart's labels go instead of its right
@@ -678,9 +809,10 @@ const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
  * @param {Record<string, unknown>} own
  * @param {number} width
  * @param {number} rightMargin The margin the chart takes when the spec sets none.
+ * @param {PlotEvent[]} events Their labels are placed first, and kept clear of.
  * @returns {Inside | undefined}
  */
-function insideLabels(rows, f, goal, fmt, own, width, rightMargin) {
+function insideLabels(rows, f, goal, fmt, own, width, rightMargin, events) {
   const ownX = isRecord(own.x) ? own.x : {};
   const ownY = isRecord(own.y) ? own.y : {};
   const reshaped = (/** @type {Record<string, unknown>} */ o, /** @type {string[]} */ keys) =>
@@ -714,17 +846,11 @@ function insideLabels(rows, f, goal, fmt, own, width, rightMargin) {
   const pair = (/** @type {unknown} */ d) =>
     Array.isArray(d) && d.length === 2 && d.every(finite) ? /** @type {number[]} */ (d) : undefined;
   const [x0, x1] = pair(ownX.domain) ?? [
-    /** @type {number} */ (xs[0]),
-    /** @type {number} */ (xs.at(-1)),
+    Math.min(/** @type {number} */ (xs[0]), ...events.map((e) => e.x)),
+    Math.max(/** @type {number} */ (xs.at(-1)), ...events.map((e) => e.x)),
   ];
   const [y0, y1] = pair(ownY.domain) ?? [0, Math.max(...totals, goal?.value ?? 0)];
-  const margin = (/** @type {string} */ k, /** @type {number} */ d) =>
-    /** @type {number} */ (finite(own[k]) ? own[k] : finite(own.margin) ? own.margin : d);
-  const height = finite(own.height) ? /** @type {number} */ (own.height) : PLOT_DEFAULT_HEIGHT;
-  const left = margin('marginLeft', 40);
-  const right = width - margin('marginRight', rightMargin);
-  const top = margin('marginTop', 20);
-  const bottom = height - margin('marginBottom', 30);
+  const { left, right, top, bottom } = frameOf(own, width, rightMargin);
   if (!(x1 > x0 && y1 > y0 && right > left && bottom > top)) return undefined;
   const px = (/** @type {number} */ v) => left + ((v - x0) / (x1 - x0)) * (right - left);
   const py = (/** @type {number} */ v) => bottom - ((v - y0) / (y1 - y0)) * (bottom - top);
@@ -741,10 +867,11 @@ function insideLabels(rows, f, goal, fmt, own, width, rightMargin) {
     const t = a1 === a0 ? 0 : (p - a0) / (a1 - a0);
     return py(/** @type {number} */ (vs[k - 1]) * (1 - t) + /** @type {number} */ (vs[k]) * t);
   };
-  // Pixel boxes a label must stay clear of: the goal's rule and label, then
-  // each label as it is placed.
+  // Pixel boxes a label must stay clear of: the events' labels, the goal's
+  // rule and label, then each label as it is placed.
+  const laid = eventLayout(events, [x0, x1], { left, right, top });
   /** @type {Array<{ a: number, b: number, top: number, bottom: number }>} */
-  const blocked = [];
+  const blocked = laid.flatMap((e) => (e.box ? [e.box] : []));
   /** @type {Inside['goal']} */
   let goalLabel;
   if (goal) {
@@ -848,7 +975,11 @@ function insideLabels(rows, f, goal, fmt, own, width, rightMargin) {
       return;
     }
   });
-  return { groups: [...groups.values()], ...(goalLabel ? { goal: goalLabel } : {}) };
+  return {
+    groups: [...groups.values()],
+    events: laid,
+    ...(goalLabel ? { goal: goalLabel } : {}),
+  };
 }
 
 /**
@@ -996,6 +1127,8 @@ function stackedArea(p, rows, own, width) {
   const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
   const key = y === 'x' || y === 'y' ? 'value' : y;
   const narrowRight = insideMargin(rows, x, own, formats.x ?? xFormatOf(rows, x));
+  const events = eventsOf(p.events);
+  const narrow = finite(width) && /** @type {number} */ (width) < NARROW;
   const inside =
     finite(width) && /** @type {number} */ (width) < NARROW
       ? insideLabels(
@@ -1006,8 +1139,16 @@ function stackedArea(p, rows, own, width) {
           own,
           /** @type {number} */ (width),
           narrowRight,
+          events,
         )
       : undefined;
+  const laid =
+    inside?.events ??
+    eventLayout(
+      events,
+      xExtent(rows, x, own, events),
+      narrow ? frameOf(own, /** @type {number} */ (width), end.margin) : undefined,
+    );
   /** @type {PlotMarkSpec[]} */
   const labels = inside
     ? [...(goal ? [goalRule(goal)] : []), ...insideMarks(inside)]
@@ -1042,6 +1183,7 @@ function stackedArea(p, rows, own, width) {
         transform: 'stackY',
         options: { x, y, fill: series, order },
       },
+      ...eventMarks(laid),
       ...labels,
       {
         mark: 'tip',
@@ -1124,6 +1266,14 @@ function lines(p, rows, own, width) {
   });
   const solid = rows.filter((r) => !isDashed(r));
   const dash = rows.filter(isDashed);
+  const events = eventsOf(p.events);
+  const laid = eventLayout(
+    events,
+    xExtent(rows, x, own, events),
+    finite(width) && /** @type {number} */ (width) < NARROW
+      ? frameOf(own, /** @type {number} */ (width), end.margin)
+      : undefined,
+  );
   return {
     grid: 'y',
     options: {
@@ -1145,6 +1295,7 @@ function lines(p, rows, own, width) {
         : []),
       ...(solid.length > 0 ? [line(solid, false)] : []),
       ...(dash.length > 0 ? [line(dash, true)] : []),
+      ...eventMarks(laid),
       ...goalMarks(goal, fy, end.fit),
       { mark: 'dot', data: labelled, options: { x: 'x', y: 'y', fill: 'series', r: 3.5 } },
       {
