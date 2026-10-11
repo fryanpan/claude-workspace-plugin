@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 9 (2026-10-11, sha256 4fd3f17784be6304). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 9 (2026-10-11, sha256 c9e3bdcab9c6b7ad). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -1244,16 +1244,20 @@ function stackedArea(p, rows, own, width) {
     const v = get(r, y);
     totals.set(get(r, x), (totals.get(get(r, x)) ?? 0) + (finite(v) ? Number(v) : 0));
   }
-  const spread = spreadEnds(
-    [
-      ...ends.map((e) => ({ y: e.y, lines: narrow ? 2 : 1 })),
-      ...(goal ? [{ y: goal.value, lines: 1 }] : []),
-    ],
-    [...totals.values()],
-    own,
-    finite(width) ? /** @type {number} */ (width) : PLOT_DEFAULT_WIDTH,
-    end.margin,
-  );
+  const want = [
+    ...ends.map((e) => ({ y: e.y, lines: narrow ? 2 : 1 })),
+    ...(goal ? [{ y: goal.value, lines: 1 }] : []),
+  ];
+  // A negative value stacks below zero, outside the domain spreadEnds assumes.
+  const spread = rows.some((r) => finite(get(r, y)) && Number(get(r, y)) < 0)
+    ? want.map((w) => w.y)
+    : spreadEnds(
+        want,
+        [...totals.values()],
+        own,
+        finite(width) ? /** @type {number} */ (width) : PLOT_DEFAULT_WIDTH,
+        end.margin,
+      );
   const labelled = ends.map(({ value, ...e }, i) => ({
     ...e,
     y: spread[i] ?? e.y,
