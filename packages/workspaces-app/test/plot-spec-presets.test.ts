@@ -16,15 +16,15 @@ const texts = (svg: Element, sel = 'text') =>
 describe('stackedArea', () => {
   it('expands into the stacked areas, the goal, end labels and a stacked tip', () => {
     const { marks, options, grid } = expandPreset(PRESET_SPEC);
-    expect(marks.map((m) => m.mark)).toEqual(['areaY', 'ruleY', 'text', 'text', 'tip']);
+    expect(marks.map((m) => m.mark)).toEqual(['areaY', 'ruleY', 'text', 'dot', 'text', 'tip']);
     expect(grid).toBe('y');
     expect(marks[0]).toMatchObject({ data: 'rows', transform: 'stackY' });
     // Each label sits at the last year, in the middle of its own band.
-    expect(marks[3]?.data).toEqual([
+    expect(marks[4]?.data).toEqual([
       { x: 2025, y: 9.5, series: 'Walking', label: 'Walking 19' },
       { x: 2025, y: 23, series: 'Biking', label: 'Biking 8' },
     ]);
-    expect(marks[4]).toMatchObject({ transform: 'stackY2', pointer: 'pointerX' });
+    expect(marks[5]).toMatchObject({ transform: 'stackY2', pointer: 'pointerX' });
     expect(options).toMatchObject({ width: 820, x: { tickFormat: 'd' }, y: { domain: [0, 80] } });
   });
 
@@ -43,7 +43,7 @@ describe('stackedArea', () => {
   });
 
   it('shows the series’ own value in its tip, not the stacked total', () => {
-    const tip = expandPreset(PRESET_SPEC).marks[4];
+    const tip = expandPreset(PRESET_SPEC).marks[5];
     expect(tip?.options).toMatchObject({ channels: { n: 'n' }, format: { y: false } });
   });
 });
@@ -384,8 +384,9 @@ describe('a chart 600px or wider', () => {
       'plot-clip',
     );
 
-  // The files were written by the code before narrow charts were handled, so
-  // a difference here is a change to what a wide chart draws.
+  // Each file is what a wide chart draws, so a difference here is a change to
+  // it. The stacked ones were rewritten in Version 9 for inked end labels with
+  // swatches; the lines ones date from before narrow charts were handled.
   it.each([
     ['stacked-area-820', PRESET_SPEC, undefined],
     ['stacked-area-ticks-600', SCHOOL_YEARS, 600],

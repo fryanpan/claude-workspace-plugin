@@ -215,7 +215,7 @@ describe('a stackedArea chart at 430px', () => {
     ],
   ])('keeps the end labels when the spec %s', (_label, over) => {
     const svg = at({ ...PRESET_SPEC, ...over });
-    const lines = [...svg.querySelectorAll('[aria-label="text"] text[fill]')].map((t) =>
+    const lines = [...svg.querySelectorAll('[aria-label="text"] text')].map((t) =>
       [...t.querySelectorAll('tspan')].map((s) => s.textContent),
     );
     expect(lines).toContainEqual(['Walking', '19']);

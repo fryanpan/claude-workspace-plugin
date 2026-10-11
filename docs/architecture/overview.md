@@ -1870,6 +1870,9 @@ width changes, so a narrow column gets a narrower chart with the same 13px
 text; under 600px it also drops explicit x ticks, keeping the first, until
 no two labels overlap, and a stacked chart names each series inside its
 own band and its goal above the rule, so the right margin goes to the data.
+At 600px and wider a stacked chart's end labels are set in ink beside a dot
+of the series' colour, and labels whose bands are too thin to keep them
+apart are moved apart on y around where they want to be (`spreadEnds`).
 A band label's width is estimated glyph by glyph against Chrome's system-ui
 widths, because a thin band's level window is often only a few px wider than
 its name. The file's first line names its version and the
