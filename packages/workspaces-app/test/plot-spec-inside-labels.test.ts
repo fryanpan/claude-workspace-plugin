@@ -172,8 +172,16 @@ describe('a stackedArea chart at 430px', () => {
     expect(overlaps(all)).toEqual([]);
   });
 
-  it('keeps the end labels when the spec reverses y, whose pixels it cannot know here', () => {
-    const svg = at({ ...PRESET_SPEC, options: { height: 380, y: { reverse: true } } });
+  // Each is a chart whose pixels the preset cannot know before Plot draws it.
+  it.each([
+    ['reverses y', { options: { height: 380, y: { reverse: true } } }],
+    ['insets the plot', { options: { height: 380, insetTop: 10 } }],
+    [
+      'stacks a negative value',
+      { data: { rows: PRESET_SPEC.data.rows.map((r, i) => (i === 1 ? { ...r, n: -2 } : r)) } },
+    ],
+  ])('keeps the end labels when the spec %s', (_label, over) => {
+    const svg = at({ ...PRESET_SPEC, ...over });
     const lines = [...svg.querySelectorAll('[aria-label="text"] text[fill]')].map((t) =>
       [...t.querySelectorAll('tspan')].map((s) => s.textContent),
     );

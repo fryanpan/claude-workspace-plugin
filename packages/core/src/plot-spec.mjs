@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 5 (2026-10-11, sha256 114218ddd176a05a). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 5 (2026-10-11, sha256 63d6d63ca6607350). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -620,6 +620,8 @@ const LINE = 13;
 const PAD = 2;
 /** The right margin of a narrow stacked chart, whose labels sit inside it. */
 const INSIDE_MARGIN = 20;
+/** Scale options that move a value's pixel away from the linear map. */
+const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
 
 /**
  * @typedef {{ x: number, y: number, series: string, label: string }} InsideLabel
@@ -636,8 +638,9 @@ const INSIDE_MARGIN = 20;
  * either side goes unlabelled, and its tip still names it. Labels in disjoint
  * bands cannot overlap. Positions are the pixels Plot will draw at, from the
  * spec's margins or Plot's defaults (40 left, 20 top, 30 bottom). Undefined
- * when those pixels cannot be known here: an x that is not a number, or a
- * scale whose type or direction the spec sets.
+ * when those pixels cannot be known here: an x that is not a number, a
+ * negative value (it stacks below zero), an inset, or a scale whose type,
+ * direction, range or rounding the spec sets.
  * @param {unknown[]} rows
  * @param {{ x: string, y: string, series: string, order: string[] }} f
  * @param {{ value: number, label?: string } | undefined} goal
@@ -649,8 +652,11 @@ const INSIDE_MARGIN = 20;
 function insideLabels(rows, f, goal, fmt, own, width) {
   const ownX = isRecord(own.x) ? own.x : {};
   const ownY = isRecord(own.y) ? own.y : {};
-  if ([ownX, ownY].some((s) => s.type !== undefined || s.reverse !== undefined)) return undefined;
+  const reshaped = (/** @type {Record<string, unknown>} */ o, /** @type {string[]} */ keys) =>
+    Object.keys(o).some((k) => keys.includes(k) || k.startsWith('inset'));
+  if (reshaped(own, []) || [ownX, ownY].some((s) => reshaped(s, SCALE_SHAPES))) return undefined;
   if (!rows.every((r) => finite(get(r, f.x)))) return undefined;
+  if (rows.some((r) => finite(get(r, f.y)) && Number(get(r, f.y)) < 0)) return undefined;
   const xs = [...new Set(rows.map((r) => Number(get(r, f.x))))].sort((a, b) => a - b);
   if (xs.length < 2) return undefined;
   /** @type {Map<string, number>} */
@@ -658,7 +664,7 @@ function insideLabels(rows, f, goal, fmt, own, width) {
   for (const r of rows) {
     const k = `${get(r, f.x)}|${get(r, f.series)}`;
     const v = get(r, f.y);
-    sums.set(k, (sums.get(k) ?? 0) + (finite(v) ? Math.max(0, Number(v)) : 0));
+    sums.set(k, (sums.get(k) ?? 0) + (finite(v) ? Number(v) : 0));
   }
   const bands = f.order.map(() => ({
     lo: /** @type {number[]} */ ([]),
