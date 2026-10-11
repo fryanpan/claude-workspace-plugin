@@ -1861,7 +1861,8 @@ on an allowlist, as must every reducer a groupX, groupY or binX `outputs`
 names, and every `data` reference must be a key or an inline array, so a bad spec throws before any Plot function runs. The file also holds what
 makes a chart look and behave the same on every site: the house style (font,
 grid, axes and palette, each a CSS variable with a fallback), three presets
-that expand into ordinary marks, named formats in place of functions, and
+that expand into ordinary marks (a preset's series take Observable 10
+unless it marks them `ordered`, when they take the sequential ramp), named formats in place of functions, and
 `renderPlot`, the one call each page makes. `renderPlot` draws a chart at
 its container's width and the spec's height, and draws it again when that
 width changes, so a narrow column gets a narrower chart with the same 13px

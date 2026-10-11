@@ -38,7 +38,8 @@ describe('stackedArea', () => {
     );
     // A year is not a quantity: no thousands separator on the axis.
     expect(texts(svg, '[aria-label="x-axis tick label"] text')).toContain('2010');
-    expect(svg.querySelector('[aria-label="area"] path')?.getAttribute('fill')).toBe(HOUSE.seq3);
+    // Unordered series take Observable 10, the first series its first colour.
+    expect(svg.querySelector('[aria-label="area"] path')?.getAttribute('fill')).toBe('#4269d0');
   });
 
   it('shows the series’ own value in its tip, not the stacked total', () => {
@@ -169,6 +170,45 @@ describe('barsH', () => {
     expect(svg.querySelector('[aria-label="x-grid"]')?.getAttribute('stroke-dasharray')).toBe(
       '2 4',
     );
+  });
+});
+
+describe('a preset’s series colours', () => {
+  const fills = (spec: Parameters<typeof buildPlot>[1]) =>
+    [...svgOf(spec).querySelectorAll('[aria-label="area"] path')].map((p) =>
+      p.getAttribute('fill'),
+    );
+  const strokes = (spec: Parameters<typeof buildPlot>[1]) =>
+    [...svgOf(spec).querySelectorAll('[aria-label="line"] path')].map((p) =>
+      p.getAttribute('stroke'),
+    );
+
+  it('are Observable 10 in series order, on a stacked chart and a lines chart', () => {
+    expect(fills(PRESET_SPEC)).toEqual(['#4269d0', '#efb118']);
+    const lines = {
+      data: { rows: LINES },
+      preset: { type: 'lines', data: 'rows', x: 'year', y: 'v', series: 'place' },
+    };
+    expect(strokes(lines)).toEqual(['#4269d0', '#efb118']);
+  });
+
+  it('keep the house’s sequential ramp when the preset says its series are ordered', () => {
+    expect(fills({ ...PRESET_SPEC, preset: { ...PRESET, ordered: true } })).toEqual([
+      HOUSE.seq3,
+      HOUSE.seq2,
+    ]);
+  });
+
+  it('are the spec’s own scheme when it names one, and Observable 10 when it names only a domain', () => {
+    const own = (color: Record<string, unknown>) => ({
+      ...PRESET_SPEC,
+      options: { ...PRESET_OPTIONS, color },
+    });
+    expect(fills(own({ domain: ['Walking', 'Biking'], scheme: 'set2' }))).toEqual([
+      '#66c2a5',
+      '#fc8d62',
+    ]);
+    expect(fills(own({ domain: ['Biking', 'Walking'] }))).toEqual(['#efb118', '#4269d0']);
   });
 });
 
