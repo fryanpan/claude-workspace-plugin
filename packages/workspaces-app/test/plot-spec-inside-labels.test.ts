@@ -248,6 +248,55 @@ describe('a stackedArea chart with three thin bands at 430px', () => {
   });
 });
 
+/**
+ * Shaped like the school-trips charts on prod: school years ticked every
+ * fifth, a Biking band 40-60px thick in the middle years and a few px at
+ * both ends, and a goal, drawn 371px wide.
+ */
+const SSC_YEARS = Array.from({ length: 21 }, (_, i) => 2005 + i);
+const SSC_BIKING = [1, 1, 2, 3, 5, 8, 11, 13, 14, 14, 13, 12, 10, 8, 6, 4, 3, 2, 1, 1, 1];
+const SSC = {
+  data: {
+    rows: SSC_YEARS.flatMap((year, i) => [
+      { year, mode: 'Walking', n: 43 - i * 1.2 },
+      { year, mode: 'Biking', n: SSC_BIKING[i] ?? 0 },
+    ]),
+  },
+  options: { height: 380, y: { domain: [0, 80] }, x: { ticks: [2005, 2010, 2015, 2020, 2025] } },
+  preset: {
+    ...PRESET,
+    format: { x: 'schoolYear' },
+    goal: { value: 16, label: 'Safe Routes goal, 16 a year' },
+  },
+};
+
+/** How far each text reaches right: tick labels centred, at 8px a glyph. */
+const rightmost = (svg: Element) =>
+  Math.max(
+    ...[...svg.querySelectorAll('[aria-label="x-axis tick label"] text')].map((t) => {
+      const [x] = translate(t);
+      const [dx] = translate(t.parentElement);
+      return x + dx + ((t.textContent ?? '').length * 8) / 2;
+    }),
+    ...boxes(svg).map((l) => l.b),
+  );
+
+describe('a school-trips chart at 371px', () => {
+  it('names Walking, Biking and the goal, Biking where its band is thick', () => {
+    const svg = at(SSC, 371);
+    const names = boxes(svg).map((l) => l.text);
+    expect(names).toEqual(expect.arrayContaining(['Walking', 'Biking', SSC.preset.goal.label]));
+    expect(outsideBand(svg, TWO_ORDER)).toEqual([]);
+    expect(overlaps(boxes(svg))).toEqual([]);
+  });
+
+  it('keeps every text inside the SVG, the last school-year tick included', () => {
+    const svg = at(SSC, 371);
+    expect([...svg.querySelectorAll('text')].map((t) => t.textContent)).toContain('2025-26');
+    expect(rightmost(svg)).toBeLessThanOrEqual(371);
+  });
+});
+
 describe('the checks above, against a chart drawn wrong', () => {
   it('reports a label moved out of its band, and two labels drawn over each other', () => {
     const svg = at(PRESET_SPEC);

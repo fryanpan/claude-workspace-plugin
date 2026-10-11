@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 6 (2026-10-11, sha256 8334ee8f9da0943a). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 375677f7c095ae40). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 6;
+export const PLOT_SPEC_VERSION = 7;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -623,8 +623,29 @@ function endLayout(ends, goal, width, own) {
 const LINE = 13;
 const SMALL = 11;
 const PAD = 2;
-/** The right margin of a narrow stacked chart, whose labels sit inside it. */
+/** The least right margin of a narrow stacked chart, whose labels sit
+ *  inside it, and the width of a tick label's glyph: tabular digits at 13px,
+ *  "2025-26" measured 55px in Chrome. */
 const INSIDE_MARGIN = 20;
+const TICK_CH = 8;
+
+/**
+ * The right margin of a narrow stacked chart: room for half the widest x
+ * tick label, centred on the plot's right edge, and never less than
+ * `INSIDE_MARGIN`.
+ * @param {unknown[]} rows
+ * @param {string} x
+ * @param {Record<string, unknown>} own
+ * @param {string | undefined} format
+ */
+function insideMargin(rows, x, own, format) {
+  const ownX = isRecord(own.x) ? own.x : {};
+  const ticks = Array.isArray(ownX.ticks) ? ownX.ticks : rows.map((r) => get(r, x));
+  const named = typeof ownX.tickFormat === 'string' ? ownX.tickFormat : format;
+  const f = named === undefined || named === 'd' ? String : plotFormat(named);
+  const widest = Math.max(0, ...ticks.filter(finite).map((t) => f(t).length));
+  return Math.max(INSIDE_MARGIN, Math.ceil((widest * TICK_CH) / 2) + 2);
+}
 /** Scale options that move a value's pixel away from the linear map. */
 const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
 
@@ -656,9 +677,10 @@ const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
  * @param {(v: unknown) => string} fmt
  * @param {Record<string, unknown>} own
  * @param {number} width
+ * @param {number} rightMargin The margin the chart takes when the spec sets none.
  * @returns {Inside | undefined}
  */
-function insideLabels(rows, f, goal, fmt, own, width) {
+function insideLabels(rows, f, goal, fmt, own, width, rightMargin) {
   const ownX = isRecord(own.x) ? own.x : {};
   const ownY = isRecord(own.y) ? own.y : {};
   const reshaped = (/** @type {Record<string, unknown>} */ o, /** @type {string[]} */ keys) =>
@@ -700,7 +722,7 @@ function insideLabels(rows, f, goal, fmt, own, width) {
     /** @type {number} */ (finite(own[k]) ? own[k] : finite(own.margin) ? own.margin : d);
   const height = finite(own.height) ? /** @type {number} */ (own.height) : PLOT_DEFAULT_HEIGHT;
   const left = margin('marginLeft', 40);
-  const right = width - margin('marginRight', INSIDE_MARGIN);
+  const right = width - margin('marginRight', rightMargin);
   const top = margin('marginTop', 20);
   const bottom = height - margin('marginBottom', 30);
   if (!(x1 > x0 && y1 > y0 && right > left && bottom > top)) return undefined;
@@ -973,9 +995,18 @@ function stackedArea(p, rows, own, width) {
   const end = endLayout(ends, goal?.label, width, own);
   const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
   const key = y === 'x' || y === 'y' ? 'value' : y;
+  const narrowRight = insideMargin(rows, x, own, formats.x ?? xFormatOf(rows, x));
   const inside =
     finite(width) && /** @type {number} */ (width) < NARROW
-      ? insideLabels(rows, { x, y, series, order }, goal, fy, own, /** @type {number} */ (width))
+      ? insideLabels(
+          rows,
+          { x, y, series, order },
+          goal,
+          fy,
+          own,
+          /** @type {number} */ (width),
+          narrowRight,
+        )
       : undefined;
   /** @type {PlotMarkSpec[]} */
   const labels = inside
@@ -999,7 +1030,7 @@ function stackedArea(p, rows, own, width) {
   return {
     grid: 'y',
     options: {
-      marginRight: inside ? INSIDE_MARGIN : end.margin,
+      marginRight: inside ? narrowRight : end.margin,
       ...own,
       ...seriesColor(p, order, own),
       ...axisDefaults(own, rows, x, formats, 'y'),
