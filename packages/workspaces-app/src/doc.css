@@ -1201,21 +1201,22 @@ body.has-set .doc-switcher-caret {
 #editor > .ProseMirror .mdx-block.is-editing .mdx-source {
   display: block;
 }
-/* A chart's Edit, in the top right corner of its block for a reader who can
-   write. Sized for "Done" and "Edit" alike so the swap moves nothing, and 44px
-   tall for a thumb: from the block's edge it centres on the title's line and
-   ends above the chart's top label. The title leaves room for it. */
+/* A chart's Edit, for a reader who can write: the right end of the title's
+   row. The row is the button's 44px tall, a thumb's target, and the title
+   wraps short of it, so the chart starts below it and nothing is drawn
+   under it. Sized for "Done" and "Edit" alike so the swap moves nothing. The
+   10px and 8px are inside the block's padding, so it never meets the border. */
 #editor > .ProseMirror .mdx-block {
   position: relative;
 }
 #editor > .ProseMirror .mdx-edit {
   display: none;
   position: absolute;
-  top: 0;
-  right: 0;
-  min-width: 64px;
-  min-height: 44px;
-  padding: 0 12px;
+  top: 10px;
+  right: 8px;
+  width: 64px;
+  height: 44px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -1229,13 +1230,22 @@ body.has-set .doc-switcher-caret {
   background: var(--bg-hover);
   color: var(--fg);
 }
-#editor > .ProseMirror[contenteditable="true"] .mdx-block.has-chart .mdx-edit,
-#editor > .ProseMirror[contenteditable="true"] .mdx-block.is-editing .mdx-edit {
+#editor > .ProseMirror[contenteditable="true"] .mdx-block:is(.has-chart, .is-editing) .mdx-edit {
   display: block;
 }
-#editor > .ProseMirror[contenteditable="true"] .mdx-block.has-chart .mdx-head,
-#editor > .ProseMirror[contenteditable="true"] .mdx-block.is-editing .mdx-head {
-  padding-right: 64px;
+#editor > .ProseMirror[contenteditable="true"] .mdx-block:is(.has-chart, .is-editing) .mdx-head {
+  min-height: 44px;
+  align-items: center;
+  padding-right: 66px;
+}
+/* A chart with no title still gets the row, so the button sits above the plot. */
+#editor
+  > .ProseMirror[contenteditable="true"]
+  .mdx-block:is(.has-chart, .is-editing)
+  .mdx-view:not(:has(> .mdx-head))::before {
+  content: "";
+  display: block;
+  height: 44px;
 }
 /* The open source reads as a field: a solid border where the closed one is dashed. */
 #editor > .ProseMirror .mdx-block.is-editing .mdx-source {

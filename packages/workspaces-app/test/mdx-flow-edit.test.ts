@@ -217,10 +217,10 @@ describe("editing a chart's tag", () => {
       const edit = chartOf(root).querySelector('.mdx-edit') as HTMLElement;
       const box = () => {
         const st = styleOf(edit);
-        return [st.display, st.position, st.top, st.right, st.minWidth, st.minHeight];
+        return [st.display, st.position, st.top, st.right, st.width, st.height];
       };
       const closed = box();
-      expect(closed).toEqual(['block', 'absolute', '0px', '0px', '64px', '44px']);
+      expect(closed).toEqual(['block', 'absolute', '10px', '8px', '64px', '44px']);
       edit.click();
       expect(box()).toEqual(closed);
     });
