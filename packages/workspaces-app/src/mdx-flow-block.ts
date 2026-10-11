@@ -1,11 +1,11 @@
 import { MDX_FLOW_LANGUAGE } from '@claude-workspaces/core/prose';
-import type { Editor } from '@tiptap/core';
+import type { Editor, NodeViewRendererProps } from '@tiptap/core';
 import type { Node as PMNode, Slice } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { AddMarkStep, RemoveMarkStep, ReplaceStep, type Step } from '@tiptap/pm/transform';
 import type { EditorView, NodeView } from '@tiptap/pm/view';
 import { ySyncPluginKey } from '@tiptap/y-tiptap';
-import { renderMdxSummary, summarizeMdx } from './mdx-preview.ts';
+import { type MdxSummary, renderMdxSummary, summarizeMdx } from './mdx-preview.ts';
 
 /**
  * An `.mdx` component, expression or import run in the editor: a code block
@@ -14,9 +14,11 @@ import { renderMdxSummary, summarizeMdx } from './mdx-preview.ts';
  *
  * The source is the node's text, so a comment anchors to words in it exactly
  * as it does in prose, and a block holding an open comment shows its source
- * so the comment can be seen. It is read-only here: `mdxReadOnly` refuses a
- * local edit inside it, since a typo in a prop breaks the post's build and
- * the block's point is to be read.
+ * so the comment can be seen. It is read-only until the reader taps Edit on
+ * a chart: a typo in a prop breaks the post's build, so `mdxReadOnly` refuses
+ * a local edit inside any block not open for editing. While it is open the
+ * chart redraws as the reader pauses, and a source that does not draw keeps
+ * the last chart that did, with the reason under the source.
  */
 
 export { MDX_FLOW_LANGUAGE };
@@ -25,7 +27,36 @@ export function isMdxFlowNode(node: PMNode): boolean {
   return node.type.name === 'codeBlock' && node.attrs.language === MDX_FLOW_LANGUAGE;
 }
 
-export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
+/** How long the chart waits after the last keystroke before it redraws. */
+export const REDRAW_MS = 300;
+
+/** Whether a block's view drew a chart, so a broken edit has one to keep. */
+const drewChart = (s: MdxSummary) => !s.error && (s.chart !== undefined || s.plot !== undefined);
+
+/** Whether a block is a chart's tag, drawn or not: a tag left broken must
+ *  still offer Edit when the doc is next opened. */
+const isChartTag = (s: MdxSummary) => drewChart(s) || (s.kind === 'jsx' && /Chart$/.test(s.label));
+
+/** Draw `next` into `view`, and say why it failed when it did: the tag did not
+ *  parse, it no longer reads as a chart, Plot refused its spec, or a drawing
+ *  threw. */
+function drawInto(view: HTMLElement, next: MdxSummary, width: number): string | undefined {
+  try {
+    renderMdxSummary(view, next, width);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  if (next.error) return next.error;
+  if (!drewChart(next))
+    return 'This no longer reads as a chart: check its brackets, quotes and commas';
+  return view.querySelector('.plot-spec-error')?.textContent ?? undefined;
+}
+
+export function mdxFlowNodeView(
+  initial: PMNode,
+  editor: Editor,
+  getPos: NodeViewRendererProps['getPos'],
+): NodeView {
   let node = initial;
   const wrapper = document.createElement('div');
   wrapper.className = 'mdx-block';
@@ -38,6 +69,16 @@ export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
   view.setAttribute('aria-expanded', 'false');
   wrapper.appendChild(view);
 
+  // Shown on a chart to a reader who can write; CSS hides it when the editor
+  // is read-only. Its label swaps between two words of one width.
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'mdx-edit';
+  edit.setAttribute('contenteditable', 'false');
+  edit.setAttribute('aria-pressed', 'false');
+  edit.textContent = 'Edit';
+  wrapper.appendChild(edit);
+
   const pre = document.createElement('pre');
   pre.className = 'mdx-source';
   const code = document.createElement('code');
@@ -45,16 +86,46 @@ export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
   pre.appendChild(code);
   wrapper.appendChild(pre);
 
+  const error = document.createElement('div');
+  error.className = 'mdx-edit-error';
+  error.setAttribute('contenteditable', 'false');
+  error.setAttribute('role', 'status');
+  error.hidden = true;
+  wrapper.appendChild(error);
+
   let rendered = '';
+  // The summary the view shows: the last one that drew, while a broken edit
+  // keeps it.
   let summary = summarizeMdx('');
   let drawnAt = 0;
+  let pending: ReturnType<typeof setTimeout> | null = null;
   const render = () => {
+    pending = null;
     if (node.textContent === rendered) return;
     rendered = node.textContent;
-    summary = summarizeMdx(rendered);
-    wrapper.dataset.kind = summary.kind;
+    const next = summarizeMdx(rendered);
+    const kept = drewChart(summary) ? [...view.childNodes] : null;
     drawnAt = view.clientWidth;
-    renderMdxSummary(view, summary, drawnAt);
+    const failed = drawInto(view, next, drawnAt);
+    if (failed && kept) {
+      view.replaceChildren(...kept);
+      error.textContent = failed;
+      error.hidden = false;
+    } else {
+      summary = next;
+      error.hidden = true;
+      error.textContent = '';
+    }
+    view.dataset.kind = summary.kind;
+    wrapper.dataset.kind = summary.kind;
+    wrapper.classList.toggle('has-chart', isChartTag(summary));
+  };
+  const editing = () => wrapper.classList.contains('is-editing');
+  // Typing redraws once the reader pauses; a change from elsewhere draws at once.
+  const schedule = () => {
+    if (pending) clearTimeout(pending);
+    if (editing()) pending = setTimeout(render, REDRAW_MS);
+    else render();
   };
   // A chart is drawn one unit per pixel so its words stay readable on a
   // phone, so it is redrawn when the column's width changes.
@@ -90,6 +161,29 @@ export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
     e.preventDefault();
     toggle();
   });
+  const setEditing = (on: boolean) => {
+    if (on && !editor.isEditable) return;
+    wrapper.classList.toggle('is-editing', on);
+    edit.textContent = on ? 'Done' : 'Edit';
+    edit.setAttribute('aria-pressed', String(on));
+    // The source takes the editor's own editability while it is open.
+    if (on) code.removeAttribute('contenteditable');
+    else code.setAttribute('contenteditable', 'false');
+    if (!on) {
+      if (pending) render();
+      return;
+    }
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    if (typeof pos !== 'number') return;
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(pos + node.nodeSize - 1)
+      .run();
+  };
+  // Keep the tap from moving the caret before the click lands.
+  edit.addEventListener('mousedown', (e) => e.preventDefault());
+  edit.addEventListener('click', () => setEditing(!editing()));
   render();
   showComment();
 
@@ -99,7 +193,7 @@ export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
     update(next) {
       if (!isMdxFlowNode(next)) return false;
       node = next;
-      render();
+      schedule();
       showComment();
       return true;
     },
@@ -111,30 +205,45 @@ export function mdxFlowNodeView(initial: PMNode, _editor: Editor): NodeView {
       return !(code === target || code.contains(target));
     },
     stopEvent(event) {
-      return view.contains(event.target as Node);
+      const target = event.target as Node;
+      return view.contains(target) || edit.contains(target);
     },
     destroy() {
+      if (pending) clearTimeout(pending);
       resized?.disconnect();
     },
   };
 }
 
-/** How a range meets the `mdx-flow` blocks it reaches: whether it takes any
- *  whole, and whether it reaches into any without taking all of it. A
- *  collapsed range touches a block only strictly inside it. */
-function meet(doc: PMNode, from: number, to: number): { whole: PMNode[]; partial: boolean } {
+/** How a range meets the `mdx-flow` blocks it reaches: the ones it takes
+ *  whole, and the positions of those it reaches into without taking all of
+ *  them. A collapsed range touches a block only strictly inside it. */
+function meet(doc: PMNode, from: number, to: number): { whole: PMNode[]; partial: number[] } {
   const whole: PMNode[] = [];
-  let partial = false;
+  const partial: number[] = [];
   const lo = Math.max(0, from - 1);
   const hi = Math.min(doc.content.size, to + 1);
   doc.nodesBetween(lo, hi, (n, pos) => {
-    if (!isMdxFlowNode(n)) return !partial;
+    if (!isMdxFlowNode(n)) return true;
     const end = pos + n.nodeSize;
     if (from <= pos && to >= end) whole.push(n);
-    else if (from === to ? from > pos && from < end : from < end && to > pos) partial = true;
+    else if (from === to ? from > pos && from < end : from < end && to > pos) partial.push(pos);
     return false;
   });
   return { whole, partial };
+}
+
+/** Whether a block is open for editing: its view says so. */
+type IsOpen = (pos: number) => boolean;
+
+/** Whether `from`..`to` lies inside the source of one block open for editing,
+ *  and reaches no other block. */
+function insideOpen(doc: PMNode, from: number, to: number, isOpen: IsOpen): boolean {
+  const { whole, partial } = meet(doc, from, to);
+  const at = partial[0];
+  if (whole.length > 0 || partial.length !== 1 || at === undefined || !isOpen(at)) return false;
+  const block = doc.nodeAt(at);
+  return block !== null && from >= at + 1 && to <= at + block.nodeSize - 1;
 }
 
 /** Whether `slice` carries a block's source back in as something else — how a
@@ -147,13 +256,22 @@ function carriesSource(slice: Slice, blocks: PMNode[]): boolean {
   });
 }
 
-function refusesStep(step: Step, doc: PMNode): boolean {
+function refusesStep(step: Step, doc: PMNode, isOpen: IsOpen): boolean {
   // A mark cannot land in a code block's text, so a bold over a component is
   // no change to it.
   if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) return false;
   if (step instanceof ReplaceStep) {
+    // Text typed or deleted inside an open block lands; a slice that would
+    // split the block or carry another node into it does not.
+    const { slice } = step;
+    const flat = slice.openStart === 0 && slice.openEnd === 0;
+    let textOnly = true;
+    slice.content.forEach((n) => {
+      if (!n.isText) textOnly = false;
+    });
+    if (flat && textOnly && insideOpen(doc, step.from, step.to, isOpen)) return false;
     const { whole, partial } = meet(doc, step.from, step.to);
-    return partial || carriesSource(step.slice, whole);
+    return partial.length > 0 || carriesSource(step.slice, whole);
   }
   // Every other step rewraps, retypes or re-attributes what it spans: a quote,
   // a list, a heading, a language change. None may reach a component at all.
@@ -162,19 +280,20 @@ function refusesStep(step: Step, doc: PMNode): boolean {
   if (from === undefined) return false;
   const to = at.to ?? from + 1;
   const { whole, partial } = meet(doc, from, Math.max(from + 1, to));
-  return partial || whole.length > 0;
+  return partial.length > 0 || whole.length > 0;
 }
 
 /** Keep the browser from editing the DOM across a block: its own delete moves
  *  the rest of the source into the paragraph beside it, where ProseMirror
  *  reads it back as inline code. A change that takes whole blocks is made
  *  here instead, as a transaction the guard below reads. */
-function beforeInput(view: EditorView, event: InputEvent): boolean {
+function beforeInput(view: EditorView, event: InputEvent, isOpen: IsOpen): boolean {
   const { from, to } = view.state.selection;
+  if (insideOpen(view.state.doc, from, to, isOpen)) return false;
   const { whole, partial } = meet(view.state.doc, from, to);
-  if (!partial && whole.length === 0) return false;
+  if (partial.length === 0 && whole.length === 0) return false;
   event.preventDefault();
-  if (partial) return true;
+  if (partial.length > 0) return true;
   const type = event.inputType;
   if ((type === 'insertText' || type === 'insertReplacementText') && event.data) {
     view.dispatch(view.state.tr.insertText(event.data, from, to).scrollIntoView());
@@ -189,18 +308,34 @@ function beforeInput(view: EditorView, event: InputEvent): boolean {
  *  into part of its source, a quote or list wrapped around it — on every
  *  path: a command, a key, the browser's own input. Deleting the block whole
  *  still lands, and so does a change from the Yjs sync — the server, another
- *  reader. */
+ *  reader. A block whose Edit is on takes a change that stays inside its
+ *  source; every other block still refuses. */
 export function mdxReadOnly(): Plugin {
+  let pm: EditorView | null = null;
+  const isOpen: IsOpen = (pos) => {
+    const dom = pm?.nodeDOM(pos);
+    return dom instanceof HTMLElement && dom.classList.contains('is-editing');
+  };
   return new Plugin({
     key: new PluginKey('mdxReadOnly'),
+    view(editorView) {
+      pm = editorView;
+      return {
+        destroy: () => {
+          pm = null;
+        },
+      };
+    },
     props: {
-      handleDOMEvents: { beforeinput: beforeInput },
-      handleTextInput: (view, from, to) => meet(view.state.doc, from, to).partial,
+      handleDOMEvents: { beforeinput: (view, event) => beforeInput(view, event, isOpen) },
+      handleTextInput: (view, from, to) =>
+        !insideOpen(view.state.doc, from, to, isOpen) &&
+        meet(view.state.doc, from, to).partial.length > 0,
     },
     filterTransaction(tr, state) {
       if (!tr.docChanged || tr.getMeta(ySyncPluginKey)) return true;
       // Each step's positions are in the doc as it stood before that step.
-      return !tr.steps.some((step, k) => refusesStep(step, tr.docs[k] ?? state.doc));
+      return !tr.steps.some((step, k) => refusesStep(step, tr.docs[k] ?? state.doc, isOpen));
     },
   });
 }

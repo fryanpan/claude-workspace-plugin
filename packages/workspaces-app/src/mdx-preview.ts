@@ -29,6 +29,8 @@ export interface MdxSummary {
   plot?: PlotChartSummary;
   /** A component's children as plain words, tags removed. */
   children?: string;
+  /** Why the opening tag could not be read, when it could not. */
+  error?: string;
 }
 
 export function summarizeMdx(source: string): MdxSummary {
@@ -51,6 +53,8 @@ export function summarizeMdx(source: string): MdxSummary {
   }
   const name = text.match(/^<([A-Za-z][\w.:-]*)?/)?.[1] ?? 'Fragment';
   const summary: MdxSummary = { kind: 'jsx', label: name };
+  const openEnd = openTagEnd(text);
+  if (openEnd < 0) summary.error = `<${name}> is not closed: a quote, a brace or the > is missing`;
   const props = readProps(text);
   const title = props.get('title');
   if (typeof title === 'string') summary.title = title;
@@ -60,7 +64,6 @@ export function summarizeMdx(source: string): MdxSummary {
     if (chart) summary.chart = chart;
   }
   const close = text.lastIndexOf(`</${name === 'Fragment' ? '' : name}>`);
-  const openEnd = openTagEnd(text);
   if (close > 0 && openEnd > 0 && close > openEnd) {
     const words = text
       .slice(openEnd, close)
