@@ -207,6 +207,31 @@ describe('.mdx components are blocks of their own source', () => {
     expect(statSync(path).mtimeMs).toBe(before);
   });
 
+  it("a reader's typing inside a chart's source reaches the file", async () => {
+    const path = writeOld('post.mdx', POST);
+    const doc = docStore.getOrCreate('post.mdx', { type: 'markdown', sourceUrl: path });
+    expect((await docStore.attachFileAsync('post.mdx', path)).ok).toBe(true);
+    // The editor's own change: a browser's copy of the doc types into the
+    // chart block's text, and the update arrives over the socket.
+    const page = new Y.Doc();
+    Y.applyUpdate(page, Y.encodeStateAsUpdate(doc.ydoc));
+    const chart = (prose.getProseFragment(page).toArray() as Y.XmlElement[]).find(
+      (b) =>
+        b.getAttribute('language') === prose.MDX_FLOW_LANGUAGE &&
+        String(b.toArray()[0]).startsWith('<LineChart'),
+    );
+    const text = chart?.toArray()[0] as Y.XmlText | undefined;
+    if (!text) throw new Error('no chart block');
+    const at = String(text).indexOf('Harborlight');
+    const sv = Y.encodeStateVector(page);
+    text.insert(at, 'Riverbend and ');
+    Y.applyUpdate(doc.ydoc, Y.encodeStateAsUpdate(page, sv), 'socket');
+    await waitForFileToBe(
+      path,
+      POST.replace('Harborlight ferry', 'Riverbend and Harborlight ferry'),
+    );
+  });
+
   it('an agent rewrite of an .mdx doc reads its components as blocks too', async () => {
     const path = writeOld('post.mdx', POST);
     docStore.getOrCreate('post.mdx', { type: 'markdown', sourceUrl: path });

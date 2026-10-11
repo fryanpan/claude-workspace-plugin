@@ -93,7 +93,8 @@ export const MermaidCodeBlock = CodeBlock.extend({
   addNodeView() {
     return ({ node: initial, editor, getPos }: NodeViewRendererProps) => {
       // An `.mdx` component has a view of its own (mdx-flow-block.ts).
-      if (initial.attrs.language === MDX_FLOW_LANGUAGE) return mdxFlowNodeView(initial, editor);
+      if (initial.attrs.language === MDX_FLOW_LANGUAGE)
+        return mdxFlowNodeView(initial, editor, getPos);
       let node = initial;
 
       const wrapper = document.createElement('div');

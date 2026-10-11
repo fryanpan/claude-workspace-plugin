@@ -1197,8 +1197,61 @@ body.has-set .doc-switcher-caret {
 #editor > .ProseMirror .mdx-source code {
   white-space: pre;
 }
-#editor > .ProseMirror .mdx-block.is-open .mdx-source {
+#editor > .ProseMirror .mdx-block.is-open .mdx-source,
+#editor > .ProseMirror .mdx-block.is-editing .mdx-source {
   display: block;
+}
+/* A chart's Edit, in the top right corner of its block for a reader who can
+   write. Sized for "Done" and "Edit" alike so the swap moves nothing, and 44px
+   tall for a thumb: from the block's edge it centres on the title's line and
+   ends above the chart's top label. The title leaves room for it. */
+#editor > .ProseMirror .mdx-block {
+  position: relative;
+}
+#editor > .ProseMirror .mdx-edit {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: 500 13px / 1 var(--sans);
+  color: var(--fg-muted);
+  text-align: center;
+  cursor: pointer;
+}
+#editor > .ProseMirror .mdx-edit:hover,
+#editor > .ProseMirror .mdx-edit[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+#editor > .ProseMirror[contenteditable="true"] .mdx-block.has-chart .mdx-edit,
+#editor > .ProseMirror[contenteditable="true"] .mdx-block.is-editing .mdx-edit {
+  display: block;
+}
+#editor > .ProseMirror[contenteditable="true"] .mdx-block.has-chart .mdx-head,
+#editor > .ProseMirror[contenteditable="true"] .mdx-block.is-editing .mdx-head {
+  padding-right: 64px;
+}
+/* The open source reads as a field: a solid border where the closed one is dashed. */
+#editor > .ProseMirror .mdx-block.is-editing .mdx-source {
+  border-style: solid;
+  border-color: var(--accent-line);
+  background: var(--bg);
+  cursor: text;
+}
+/* Why the chart above is the last one that drew. */
+#editor > .ProseMirror .mdx-edit-error {
+  margin-top: 6px;
+  font: 13px / 1.4 var(--sans);
+  color: var(--red);
+}
+#editor > .ProseMirror .mdx-edit-error[hidden] {
+  display: none;
 }
 #editor > .ProseMirror .cm-diagram-error {
   color: var(--red);
