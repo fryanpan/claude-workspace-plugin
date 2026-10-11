@@ -1717,6 +1717,15 @@ export class FileBindings {
           this.retryUnreadAttach(doc, binding, res);
           return;
         }
+        // These exact bytes were already accounted for while the read was on
+        // the pool: a flush guard reconciled them, or they are our own write.
+        // A second reconcile of an outside write would back it up and record
+        // the conflict a second time.
+        if (res.exists && res.mtimeMs === binding.lastMtimeMs && res.size === binding.lastSize) {
+          binding.pendingMtimeMs = undefined;
+          binding.pendingSize = undefined;
+          return;
+        }
         // Commit the stamp of the bytes we actually got, not the one the stat
         // reported — the file may have been written again in between, and
         // that write must still look like a change worth reading.
@@ -2273,10 +2282,28 @@ export class FileBindings {
       if (binding.readTimer) {
         clearTimeout(binding.readTimer);
         binding.readTimer = null;
+        // Stat before the read, and commit that stamp once the reconcile has
+        // read the file, as the poll's read callback would have. Left
+        // uncommitted, the next sweep sees the same change and reconciles it
+        // again: a second backup and a second conflict for one outside write.
+        // A 'missing' reconcile read nothing, so the change stays pending.
+        let seen: { mtimeMs: number; size: number } | undefined;
+        try {
+          if (!boundFiles.quarantined(binding.path) && existsSync(binding.path)) {
+            seen = statStampSync(binding.path);
+          }
+        } catch {}
+        const outcome = this.reconcileFromDisk(doc, binding);
+        if (seen && outcome !== 'missing') {
+          binding.lastMtimeMs = seen.mtimeMs;
+          binding.lastSize = seen.size;
+          binding.pendingMtimeMs = undefined;
+          binding.pendingSize = undefined;
+        }
         // 'in-sync' means the bytes never actually changed — an mtime touch,
         // or a formatting-variant of our own last write. This flush's content
         // still has to reach disk, so fall through instead of dropping it.
-        if (this.reconcileFromDisk(doc, binding) !== 'in-sync') return;
+        if (outcome !== 'in-sync') return;
       }
       // Guard (RC2b): if disk moved since we last read or wrote it, we'd be
       // overwriting bytes we have never seen — the poll just hasn't caught

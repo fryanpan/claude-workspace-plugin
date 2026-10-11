@@ -144,4 +144,45 @@ describe('a write-back still on the pool', () => {
       describe: 'the live edits reasserted to disk',
     });
   });
+
+  // The flake PR 1285's CI hit: the flush reconciled the outside write while
+  // the poll's read of the same bytes was still on the pool, and when that
+  // read came back it reconciled them again — two backups, two conflicts.
+  it('an outside write the poll is still reading is backed up once', async () => {
+    const path = await bind('post.mdx', MDX);
+    let reads = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = boundFiles.read.bind(boundFiles);
+    const patchRead = boundFiles as unknown as { read: typeof read };
+    patchRead.read = async (p, o) => {
+      const res = await read(p, o);
+      reads++;
+      await held;
+      return res;
+    };
+    try {
+      const outside = MDX.replace('at dusk', 'at midnight');
+      writeFileSync(path, outside);
+      await waitFor(() => reads >= 1, { describe: 'the poll to read the outside write' });
+      edit('post.mdx', 'runs hourly', 'runs every half hour');
+      await waitFor(() => docStore.getDocStatus('post.mdx')?.syncError, {
+        describe: 'the flush to record the conflict',
+      });
+      release();
+      // The reassert is a write-back window after the conflict; every held
+      // read's callback has run by the time it lands.
+      await waitForFile(path, (body) => body.includes('runs every half hour'), {
+        describe: 'the live edits reasserted to disk',
+      });
+      const saved = backups();
+      expect(saved).toHaveLength(1);
+      expect(readFileSync(join(dataDir, 'clobber-backups', saved[0] ?? ''), 'utf8')).toBe(outside);
+    } finally {
+      release();
+      patchRead.read = read;
+    }
+  });
 });
