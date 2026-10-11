@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 8 (2026-10-11, sha256 c73edecce94e9bc7). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 9 (2026-10-11, sha256 4fd3f17784be6304). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 8;
+export const PLOT_SPEC_VERSION = 9;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -566,15 +566,16 @@ function zeroTicks(max) {
  * @param {{ value: number, label?: string } | undefined} goal
  * @param {(v: unknown) => string} fmt
  * @param {Record<string, unknown>} fit How a label fits the margin: `endLayout`'s.
+ * @param {number} [labelY] Where the label sits on y, when moved off the rule.
  * @returns {PlotMarkSpec[]}
  */
-function goalMarks(goal, fmt, fit) {
+function goalMarks(goal, fmt, fit, labelY = goal?.value) {
   if (!goal) return [];
   return [
     goalRule(goal),
     {
       mark: 'text',
-      data: [{ y: goal.value, label: goal.label ?? fmt(goal.value) }],
+      data: [{ y: labelY, label: goal.label ?? fmt(goal.value) }],
       options: { y: 'y', text: 'label', frameAnchor: 'right', textAnchor: 'start', dx: 8, ...fit },
     },
   ];
@@ -603,18 +604,20 @@ const NARROW = 600;
  * @param {string | undefined} goal
  * @param {number | undefined} width
  * @param {Record<string, unknown>} own
+ * @param {number} [inset] Px before each end label, for a swatch.
  */
-function endLayout(ends, goal, width, own) {
+function endLayout(ends, goal, width, own, inset = 0) {
   if (!(finite(width) && /** @type {number} */ (width) < NARROW)) {
     const label = (/** @type {{ series: string, value: string }} */ e) => `${e.series} ${e.value}`;
-    return { label, margin: endMargin([...ends.map(label), goal ?? '']), fit: {} };
+    const margin = Math.max(endMargin(ends.map(label)) + inset, endMargin([goal ?? '']));
+    return { label, margin, fit: {} };
   }
   const label = (/** @type {{ series: string, value: string }} */ e) => `${e.series}\n${e.value}`;
   const lines = [...ends.flatMap((e) => [e.series, e.value]), goal ?? ''];
-  const margin = Math.min(endMargin(lines), Math.floor(/** @type {number} */ (width) / 3));
+  const margin = Math.min(endMargin(lines) + inset, Math.floor(/** @type {number} */ (width) / 3));
   const room = finite(own.marginRight) ? /** @type {number} */ (own.marginRight) : margin;
   // Plot measures a line in ems of the 13px house text; 16px is the dx and a gap.
-  const fit = { lineWidth: Math.max(0, room - 16) / 13, textOverflow: 'ellipsis' };
+  const fit = { lineWidth: Math.max(0, room - 16 - inset) / 13, textOverflow: 'ellipsis' };
   return { label, margin, fit };
 }
 
@@ -1120,10 +1123,90 @@ function axisDefaults(own, rows, x, formats, valueAxis) {
   return out;
 }
 
+/** The px a stacked chart's end label leaves for its swatch, a dot this wide;
+ *  and the px kept between two end labels' lines, Chrome's box for a 13px
+ *  line being about 16px tall, with 1px to spare. */
+const SWATCH = 12;
+const END_GAP = 4;
+
+/**
+ * Where the labels at a stacked chart's right edge sit on y so that no two
+ * overlap: each wants its own y; labels that would touch are set edge to edge
+ * around the mean of what they want, inside the frame. The wanted ys come
+ * back unchanged when the y scale is anything but plain linear.
+ * @param {Array<{ y: number, lines: number }>} want
+ * @param {number[]} totals Each x's stacked total.
+ * @param {Record<string, unknown>} own
+ * @param {number} width
+ * @param {number} margin
+ * @returns {number[]}
+ */
+function spreadEnds(want, totals, own, width, margin) {
+  const ownY = isRecord(own.y) ? own.y : {};
+  const shaped =
+    Object.keys(ownY).some((k) => SCALE_SHAPES.includes(k) || k.startsWith('inset')) ||
+    Object.keys(own).some((k) => k.startsWith('inset'));
+  const d = ownY.domain;
+  const [y0, y1] =
+    Array.isArray(d) && d.length === 2 && d.every(finite)
+      ? /** @type {number[]} */ (d)
+      : [0, Math.max(...totals, ...want.map((w) => w.y))];
+  const { top, bottom } = frameOf(own, width, margin);
+  const ys = want.map((w) => w.y);
+  if (shaped || !(y1 > y0 && bottom > top) || want.length < 2) return ys;
+  const py = (/** @type {number} */ v) => bottom - ((v - y0) / (y1 - y0)) * (bottom - top);
+  /** @type {Array<{ at: number[], hs: number[], wants: number[], to: number }>} */
+  let groups = want
+    .map((w, i) => ({ i, p: py(w.y), h: w.lines * LINE + END_GAP }))
+    .sort((m, n) => m.p - n.p)
+    .map((m) => ({ at: [m.i], hs: [m.h], to: m.p - m.h / 2, wants: [m.p] }));
+  /** Each group's top: the mean of where its labels want it, inside the frame. */
+  const settle = (/** @type {{ hs: number[], wants: number[] }} */ g) => {
+    let off = 0;
+    const tops = g.hs.map((h, k) => {
+      const t = /** @type {number} */ (g.wants[k]) - off - h / 2;
+      off += h;
+      return t;
+    });
+    const mean = tops.reduce((a, b) => a + b, 0) / tops.length;
+    return Math.min(Math.max(mean, top), bottom - off);
+  };
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (let k = 1; k < groups.length; k++) {
+      const a = /** @type {(typeof groups)[number]} */ (groups[k - 1]);
+      const b = /** @type {(typeof groups)[number]} */ (groups[k]);
+      const reach = a.to + a.hs.reduce((m, n) => m + n, 0);
+      if (reach <= b.to) continue;
+      const g = {
+        at: [...a.at, ...b.at],
+        hs: [...a.hs, ...b.hs],
+        wants: [...a.wants, ...b.wants],
+        to: 0,
+      };
+      g.to = settle(g);
+      groups = [...groups.slice(0, k - 1), g, ...groups.slice(k + 1)];
+      moved = true;
+      break;
+    }
+  }
+  const out = [...ys];
+  for (const g of groups.filter((m) => m.at.length > 1)) {
+    let off = g.to;
+    g.at.forEach((i, k) => {
+      const h = /** @type {number} */ (g.hs[k]);
+      out[i] = y0 + ((bottom - (off + h / 2)) / (bottom - top)) * (y1 - y0);
+      off += h;
+    });
+  }
+  return out;
+}
+
 /**
  * Stacked areas, one per series, each labelled at its end with its name and
- * last value inside its own band (under `NARROW`, with its name inside the
- * band itself: `insideLabels`); an optional goal rule; a tip that reads the
+ * last value in ink beside a swatch of its colour, the labels moved apart on
+ * y where they would overlap (`spreadEnds`; under `NARROW`, with its name
+ * inside the band itself: `insideLabels`); an optional goal rule; a tip that reads the
  * stacked positions and shows the value itself.
  * @param {Record<string, unknown>} p
  * @param {unknown[]} rows
@@ -1153,12 +1236,32 @@ function stackedArea(p, rows, own, width) {
     return { x: lastX, y: mid, series: s, value: fy(v) };
   });
   const goal = lineOf(p.goal, 'goal');
-  const end = endLayout(ends, goal?.label, width, own);
-  const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
+  const narrow = finite(width) && /** @type {number} */ (width) < NARROW;
+  const end = endLayout(ends, goal?.label, width, own, SWATCH);
+  /** @type {Map<unknown, number>} */
+  const totals = new Map();
+  for (const r of rows) {
+    const v = get(r, y);
+    totals.set(get(r, x), (totals.get(get(r, x)) ?? 0) + (finite(v) ? Number(v) : 0));
+  }
+  const spread = spreadEnds(
+    [
+      ...ends.map((e) => ({ y: e.y, lines: narrow ? 2 : 1 })),
+      ...(goal ? [{ y: goal.value, lines: 1 }] : []),
+    ],
+    [...totals.values()],
+    own,
+    finite(width) ? /** @type {number} */ (width) : PLOT_DEFAULT_WIDTH,
+    end.margin,
+  );
+  const labelled = ends.map(({ value, ...e }, i) => ({
+    ...e,
+    y: spread[i] ?? e.y,
+    label: end.label({ ...e, value }),
+  }));
   const key = y === 'x' || y === 'y' ? 'value' : y;
   const narrowRight = insideMargin(rows, x, own, formats.x ?? xFormatOf(rows, x));
   const events = eventsOf(p.events);
-  const narrow = finite(width) && /** @type {number} */ (width) < NARROW;
   const inside =
     finite(width) && /** @type {number} */ (width) < NARROW
       ? insideLabels(
@@ -1183,7 +1286,12 @@ function stackedArea(p, rows, own, width) {
   const labels = inside
     ? [...(goal ? [goalRule(goal)] : []), ...insideMarks(inside)]
     : [
-        ...goalMarks(goal, fy, end.fit),
+        ...goalMarks(goal, fy, end.fit, spread[ends.length]),
+        {
+          mark: 'dot',
+          data: labelled,
+          options: { x: 'x', y: 'y', fill: 'series', r: SWATCH / 3, dx: 8 + SWATCH / 3 },
+        },
         {
           mark: 'text',
           data: labelled,
@@ -1191,9 +1299,9 @@ function stackedArea(p, rows, own, width) {
             x: 'x',
             y: 'y',
             text: 'label',
-            fill: 'series',
+            fill: HOUSE.ink,
             textAnchor: 'start',
-            dx: 8,
+            dx: 8 + SWATCH,
             ...end.fit,
           },
         },
