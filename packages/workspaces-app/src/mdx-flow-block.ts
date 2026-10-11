@@ -261,7 +261,15 @@ function refusesStep(step: Step, doc: PMNode, isOpen: IsOpen): boolean {
   // no change to it.
   if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) return false;
   if (step instanceof ReplaceStep) {
-    if (insideOpen(doc, step.from, step.to, isOpen)) return false;
+    // Text typed or deleted inside an open block lands; a slice that would
+    // split the block or carry another node into it does not.
+    const { slice } = step;
+    const flat = slice.openStart === 0 && slice.openEnd === 0;
+    let textOnly = true;
+    slice.content.forEach((n) => {
+      if (!n.isText) textOnly = false;
+    });
+    if (flat && textOnly && insideOpen(doc, step.from, step.to, isOpen)) return false;
     const { whole, partial } = meet(doc, step.from, step.to);
     return partial.length > 0 || carriesSource(step.slice, whole);
   }

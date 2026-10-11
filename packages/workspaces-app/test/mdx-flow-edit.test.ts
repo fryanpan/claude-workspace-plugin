@@ -105,6 +105,10 @@ describe("editing a chart's tag", () => {
     type(handle, posOf(handle, 'climbed'), '', posOf(handle, 'North'));
     expect(md(ydoc)).toBe(before);
 
+    // Nor may it split the open block into two.
+    handle.editor.chain().setTextSelection(posOf(handle, 'North')).splitBlock().run();
+    expect(md(ydoc)).toBe(before);
+
     // Done closes it again.
     chartOf(root).querySelector<HTMLElement>('.mdx-edit')?.click();
     type(handle, posOf(handle, 'North'), 'X');
