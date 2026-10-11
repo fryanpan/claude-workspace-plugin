@@ -1869,7 +1869,10 @@ its container's width and the spec's height, and draws it again when that
 width changes, so a narrow column gets a narrower chart with the same 13px
 text; under 600px it also drops explicit x ticks, keeping the first, until
 no two labels overlap, and a stacked chart names each series inside its
-own band and its goal above the rule, so the right margin goes to the data. The file's first line names its version and the
+own band and its goal above the rule, so the right margin goes to the data.
+A band label's width is estimated glyph by glyph against Chrome's system-ui
+widths, because a thin band's level window is often only a few px wider than
+its name. The file's first line names its version and the
 sha256 of every byte after that line, so a copy that has fallen behind shows
 in the line a site compares, or in `tail -n +2 plot-spec.mjs | shasum -a 256`.
 `bun run plot-spec:stamp` (`scripts/plot-spec-stamp.ts`) rewrites the line

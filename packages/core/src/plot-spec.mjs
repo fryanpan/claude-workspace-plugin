@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 7 (2026-10-11, sha256 844528baea3968f6). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 8 (2026-10-11, sha256 c73edecce94e9bc7). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 7;
+export const PLOT_SPEC_VERSION = 8;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -623,6 +623,33 @@ function endLayout(ends, goal, width, own) {
 const LINE = 13;
 const SMALL = 11;
 const PAD = 2;
+
+/**
+ * A 13px label's width in px, by glyph class. System-ui in Chrome measured
+ * "Biking" at 37px where seven and a half a glyph says 45, and a thin band's
+ * window is that much shorter. Each class sits near its widest common glyph,
+ * plus 5% for fonts that run wider; a glyph past Latin is taken as 1em.
+ * @param {string} text
+ */
+const labelWidth = (text) =>
+  1.05 *
+  [...text].reduce(
+    (w, c) =>
+      w +
+      ((c.codePointAt(0) ?? 0) > 0x24f
+        ? LINE
+        : /[ijlI.,:;!|' ]/.test(c)
+          ? 3.6
+          : /[ftr()/]/.test(c)
+            ? 5
+            : /[mwMW%@]/.test(c)
+              ? 11.5
+              : /[A-Z0-9&]/.test(c)
+                ? 9.5
+                : 7.5),
+    0,
+  );
+
 /** The least right margin of a narrow stacked chart, whose labels sit
  *  inside it, and the width of a tick label's glyph: tabular digits at 13px,
  *  "2025-26" measured 55px in Chrome. */
@@ -938,7 +965,7 @@ function insideLabels(rows, f, goal, fmt, own, width, rightMargin, events) {
       ...(i === f.order.length - 1 ? [{ h: LINE, along: false, edges: above, low: true }] : []),
     ];
     for (const t of tries) {
-      const w = s.length * CH * (t.h / LINE);
+      const w = labelWidth(s) * (t.h / LINE);
       /** @type {Array<[InsideSide, number]>} */
       const spans = t.along
         ? Array.from(
