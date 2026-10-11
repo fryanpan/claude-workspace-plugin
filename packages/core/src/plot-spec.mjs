@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 6 (2026-10-11, sha256 84e3ce340a7a1727). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 6 (2026-10-11, sha256 8334ee8f9da0943a). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -413,6 +413,9 @@ function houseStyle(style) {
   return { plain, custom };
 }
 
+/** Colour options that already say which colours a scale uses. */
+const COLOR_SCHEMES = /* @__PURE__ */ Object.freeze(['range', 'scheme', 'type', 'interpolate']);
+
 /**
  * The plot options: the house defaults under the spec's, each scale's named
  * `tickFormat` resolved; `"d"` goes to Plot as its own integer format.
@@ -426,7 +429,7 @@ function houseOptions(options) {
     if (own === undefined || isRecord(own)) out[axis] = { tickSize: 0, label: null, ...own };
   }
   const color = isRecord(options.color) ? options.color : {};
-  const ownScheme = ['range', 'scheme', 'type', 'interpolate'].some((k) => k in color);
+  const ownScheme = COLOR_SCHEMES.some((k) => k in color);
   if (options.color === undefined || (isRecord(options.color) && !ownScheme)) {
     out.color = { range: [HOUSE.seq3, HOUSE.seq2, HOUSE.seq1], ...color };
   }
@@ -870,6 +873,24 @@ function insideMarks(inside) {
 }
 
 /**
+ * A preset's series colours, in series order: Observable 10, unless the
+ * preset says its series are `ordered`, which keeps the house's sequential
+ * ramp, or the spec's own colour options name their colours. A spec's own
+ * colour options go over these; a colour that is not an object is the
+ * spec's alone.
+ * @param {Record<string, unknown>} p
+ * @param {string[]} order
+ * @param {Record<string, unknown>} own
+ * @returns {{ color?: unknown }}
+ */
+function seriesColor(p, order, own) {
+  if (own.color !== undefined && !isRecord(own.color)) return {};
+  const color = isRecord(own.color) ? own.color : {};
+  const named = p.ordered === true || COLOR_SCHEMES.some((k) => k in color);
+  return { color: { domain: order, ...(named ? {} : { scheme: 'observable10' }), ...color } };
+}
+
+/**
  * Whether every value is a whole number a year could be, so the axis ticks
  * "2005" and not "2,005".
  * @param {unknown[]} vs
@@ -979,9 +1000,8 @@ function stackedArea(p, rows, own, width) {
     grid: 'y',
     options: {
       marginRight: inside ? INSIDE_MARGIN : end.margin,
-      // The first series takes the first house colour.
-      color: { domain: order },
       ...own,
+      ...seriesColor(p, order, own),
       ...axisDefaults(own, rows, x, formats, 'y'),
     },
     marks: [
@@ -1077,8 +1097,8 @@ function lines(p, rows, own, width) {
     grid: 'y',
     options: {
       marginRight: end.margin,
-      color: { domain: order },
       ...own,
+      ...seriesColor(p, order, own),
       ...axes,
     },
     marks: [
