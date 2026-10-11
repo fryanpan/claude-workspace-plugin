@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 5 (2026-10-11, sha256 63d6d63ca6607350). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 6 (2026-10-11, sha256 84e3ce340a7a1727). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 5;
+export const PLOT_SPEC_VERSION = 6;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -615,8 +615,10 @@ function endLayout(ends, goal, width, own) {
   return { label, margin, fit };
 }
 
-/** A 13px label's height, and the gap it keeps from each edge of its band. */
+/** A label's height in px, the smaller one a thin band takes, and the gap a
+ *  label keeps from each edge of its band. */
 const LINE = 13;
+const SMALL = 11;
 const PAD = 2;
 /** The right margin of a narrow stacked chart, whose labels sit inside it. */
 const INSIDE_MARGIN = 20;
@@ -625,18 +627,22 @@ const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
 
 /**
  * @typedef {{ x: number, y: number, series: string, label: string }} InsideLabel
- * @typedef {{ left: InsideLabel[], right: InsideLabel[], goal?: { y: number, label: string, lineWidth: number } }} Inside
+ * @typedef {'left' | 'right' | 'along'} InsideSide
+ * @typedef {{ side: InsideSide, size: number, labels: InsideLabel[] }} InsideGroup
+ * @typedef {{ groups: InsideGroup[], goal?: { y: number, label: string, lineWidth: number } }} Inside
  */
 
 /**
  * Below `NARROW`, where a stacked chart's labels go instead of its right
- * margin: each series' name inside its own band, at the first x reading
- * rightward or the last x reading leftward, whichever leaves the label more
- * room, and the goal's label above its rule at the left. A label fits when
- * its line, `PAD` clear of both edges, lies inside the band all along its
- * width and clear of the goal's rule and label; a band too thin for that on
- * either side goes unlabelled, and its tip still names it. Labels in disjoint
- * bands cannot overlap. Positions are the pixels Plot will draw at, from the
+ * margin: each series' name inside its own band, and the goal's label above
+ * its rule at the left. A label fits where its line, `PAD` clear of both
+ * edges, lies inside the band all along its width and clear of the goal's
+ * rule and label and of every label already placed. Each series takes the
+ * first of these that fits: at 13px, at the first x reading rightward or the
+ * last x reading leftward, whichever leaves more room; at 13px, wherever
+ * along the band leaves most room; the same two at 11px; for the top band
+ * only, at 13px just above it. A band too thin for all of them goes
+ * unlabelled, and its tip still names it. Positions are the pixels Plot will draw at, from the
  * spec's margins or Plot's defaults (40 left, 20 top, 30 bottom). Undefined
  * when those pixels cannot be known here: an x that is not a number, a
  * negative value (it stacks below zero), an inset, or a scale whose type,
@@ -710,7 +716,8 @@ function insideLabels(rows, f, goal, fmt, own, width) {
     const t = a1 === a0 ? 0 : (p - a0) / (a1 - a0);
     return py(/** @type {number} */ (vs[k - 1]) * (1 - t) + /** @type {number} */ (vs[k]) * t);
   };
-  // Pixel boxes a label must stay clear of: the goal's rule, and its label.
+  // Pixel boxes a label must stay clear of: the goal's rule and label, then
+  // each label as it is placed.
   /** @type {Array<{ a: number, b: number, top: number, bottom: number }>} */
   const blocked = [];
   /** @type {Inside['goal']} */
@@ -728,51 +735,100 @@ function insideLabels(rows, f, goal, fmt, own, width) {
     });
     goalLabel = { y: goal.value, label, lineWidth: Math.max(0, room) / 13 };
   }
-  /** @type {Inside} */
-  const out = { left: [], right: [], ...(goalLabel ? { goal: goalLabel } : {}) };
+  const first = /** @type {number} */ (at[0]);
+  const last = /** @type {number} */ (at.at(-1));
+  /**
+   * Where a label `h` tall fits over pixels a..b between two edges: the
+   * centres left once every blocked box is cleared by PAD, and of those the
+   * middle of the widest run, or with `low` the lowest centre of all.
+   * @param {number} a @param {number} b @param {number} h
+   * @param {(p: number) => number} topAt @param {(p: number) => number} bottomAt
+   * @param {boolean} low
+   */
+  const fit = (a, b, h, topAt, bottomAt, low) => {
+    if (a < first || b > last) return undefined;
+    const ps = [a, b, ...at.filter((p) => p > a && p < b)];
+    const lo = Math.max(...ps.map(topAt)) + PAD + h / 2;
+    const hi = Math.min(...ps.map(bottomAt)) - PAD - h / 2;
+    const cuts = blocked
+      .filter((o) => o.a < b && o.b > a)
+      .map((o) => [o.top - h / 2 - PAD, o.bottom + h / 2 + PAD])
+      .sort((m, n) => /** @type {number} */ (m[0]) - /** @type {number} */ (n[0]));
+    /** @type {{ from: number, to: number } | undefined} */
+    let gap;
+    let from = lo;
+    for (const [cut, after] of [...cuts, [hi, hi]]) {
+      const to = Math.min(hi, /** @type {number} */ (cut));
+      if (to >= from && (low || !gap || to - from > gap.to - gap.from)) gap = { from, to };
+      from = Math.max(from, /** @type {number} */ (after));
+    }
+    if (!gap) return undefined;
+    return { room: gap.to - gap.from, cy: low ? gap.to : (gap.from + gap.to) / 2 };
+  };
+  /** @type {Map<string, InsideGroup>} */
+  const groups = new Map();
   f.order.forEach((s, i) => {
     const band = /** @type {{ lo: number[], hi: number[] }} */ (bands[i]);
-    const w = s.length * CH;
-    const first = /** @type {number} */ (at[0]);
-    const last = /** @type {number} */ (at.at(-1));
-    /** @type {{ side: 'left' | 'right', room: number, cy: number } | undefined} */
-    let best;
-    for (const [side, a, b] of /** @type {const} */ ([
-      ['left', first + 4, first + 4 + w],
-      ['right', last - 4 - w, last - 4],
-    ])) {
-      if (a < first || b > last) continue;
-      const ps = [a, b, ...at.filter((p) => p > a && p < b)];
-      const lo = Math.max(...ps.map((p) => edge(band.hi, p))) + PAD + LINE / 2;
-      const hi = Math.min(...ps.map((p) => edge(band.lo, p))) - PAD - LINE / 2;
-      // The centres left once the goal's rule and label are cleared by PAD,
-      // and the widest run of them: its middle is the label's.
-      let gap = { from: lo, to: lo - 1 };
-      let from = lo;
-      const cuts = blocked
-        .filter((o) => o.a < b && o.b > a)
-        .map((o) => [o.top - LINE / 2 - PAD, o.bottom + LINE / 2 + PAD])
-        .sort((m, n) => /** @type {number} */ (m[0]) - /** @type {number} */ (n[0]));
-      for (const [cut, after] of [...cuts, [hi, hi]]) {
-        const to = Math.min(hi, /** @type {number} */ (cut));
-        if (to - from > gap.to - gap.from) gap = { from, to };
-        from = Math.max(from, /** @type {number} */ (after));
+    /** @param {number} p */
+    const bandTop = (p) => edge(band.hi, p);
+    /** @type {Array<(p: number) => number>} */
+    const inBand = [bandTop, (p) => edge(band.lo, p)];
+    /** @type {Array<(p: number) => number>} */
+    const above = [() => top, bandTop];
+    const tries = [
+      ...[LINE, SMALL].flatMap((h) => [
+        { h, along: false, edges: inBand, low: false },
+        { h, along: true, edges: inBand, low: false },
+      ]),
+      ...(i === f.order.length - 1 ? [{ h: LINE, along: false, edges: above, low: true }] : []),
+    ];
+    for (const t of tries) {
+      const w = s.length * CH * (t.h / LINE);
+      /** @type {Array<[InsideSide, number]>} */
+      const spans = t.along
+        ? Array.from(
+            { length: Math.max(0, Math.floor((last - first - 8 - w) / 4)) + 1 },
+            (_, k) => ['along', first + 4 + k * 4],
+          )
+        : [
+            ['left', first + 4],
+            ['right', last - 4 - w],
+          ];
+      /** @type {{ side: InsideSide, a: number, room: number, cy: number } | undefined} */
+      let best;
+      for (const [side, a] of spans) {
+        const [topAt, bottomAt] = /** @type {Array<(p: number) => number>} */ (t.edges);
+        const got = fit(
+          a,
+          a + w,
+          t.h,
+          /** @type {(p: number) => number} */ (topAt),
+          /** @type {(p: number) => number} */ (bottomAt),
+          t.low,
+        );
+        if (got && (!best || got.room > best.room)) best = { side, a, ...got };
       }
-      const room = gap.to - gap.from;
-      if (room >= 0 && (!best || room > best.room)) {
-        best = { side, room, cy: (gap.from + gap.to) / 2 };
-      }
+      if (!best) continue;
+      blocked.push({ a: best.a, b: best.a + w, top: best.cy - t.h / 2, bottom: best.cy + t.h / 2 });
+      const x =
+        best.side === 'left'
+          ? /** @type {number} */ (xs[0])
+          : best.side === 'right'
+            ? /** @type {number} */ (xs.at(-1))
+            : x0 + ((best.a - left) / (right - left)) * (x1 - x0);
+      const key = `${best.side} ${t.h}`;
+      const group = groups.get(key) ?? { side: best.side, size: t.h, labels: [] };
+      group.labels.push({ x, y: dataY(best.cy), series: s, label: s });
+      groups.set(key, group);
+      return;
     }
-    if (!best) return;
-    const x = /** @type {number} */ (best.side === 'left' ? xs[0] : xs.at(-1));
-    out[best.side].push({ x, y: dataY(best.cy), series: s, label: s });
   });
-  return out;
+  return { groups: [...groups.values()], ...(goalLabel ? { goal: goalLabel } : {}) };
 }
 
 /**
- * The marks that draw `insideLabels`: a text mark per side, in the house ink
- * and halo, and the goal's label.
+ * The marks that draw `insideLabels`: a text mark per side and size, in the
+ * house ink and halo, and the goal's label.
  * @param {Inside} inside
  * @returns {PlotMarkSpec[]}
  */
@@ -796,17 +852,17 @@ function insideMarks(inside) {
       },
     });
   }
-  for (const side of /** @type {const} */ (['left', 'right'])) {
-    if (inside[side].length === 0) continue;
+  for (const { side, size, labels } of inside.groups) {
     marks.push({
       mark: 'text',
-      data: inside[side],
+      data: labels,
       options: {
         x: 'x',
         y: 'y',
         text: 'label',
-        textAnchor: side === 'left' ? 'start' : 'end',
-        dx: side === 'left' ? 4 : -4,
+        textAnchor: side === 'right' ? 'end' : 'start',
+        ...(side === 'along' ? {} : { dx: side === 'left' ? 4 : -4 }),
+        ...(size === LINE ? {} : { fontSize: size }),
       },
     });
   }

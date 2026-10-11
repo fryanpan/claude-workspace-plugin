@@ -10,7 +10,15 @@ import { PRESET, PRESET_SPEC } from './fixtures/plot-chart.ts';
  */
 
 type Pt = [number, number];
-type Box = { text: string; a: number; b: number; top: number; bottom: number; anchor: string };
+type Box = {
+  text: string;
+  a: number;
+  b: number;
+  top: number;
+  bottom: number;
+  anchor: string;
+  size: number;
+};
 
 const CH = 7.5;
 const LINE = 13;
@@ -51,12 +59,13 @@ const boxes = (svg: Element): Box[] =>
   [...svg.querySelectorAll('[aria-label="text"]')].flatMap((g) => {
     const [dx, dy] = translate(g);
     const anchor = g.getAttribute('text-anchor') ?? 'start';
+    const size = Number(g.getAttribute('font-size') ?? LINE);
     return [...g.querySelectorAll('text')].map((t) => {
       const [x, y] = translate(t);
       const text = t.firstChild?.textContent ?? '';
-      const w = text.length * CH;
+      const w = text.length * CH * (size / LINE);
       const a = anchor === 'end' ? x + dx - w : x + dx;
-      return { text, a, b: a + w, top: y + dy - LINE / 2, bottom: y + dy + LINE / 2, anchor };
+      return { text, a, b: a + w, top: y + dy - size / 2, bottom: y + dy + size / 2, anchor, size };
     });
   });
 
@@ -113,6 +122,25 @@ const FIVE = {
 };
 
 const TWO_ORDER = ['Walking', 'Biking'];
+
+/** The all-modes chart: three bands under 10 of 160 in places, about 20px. */
+const THIN: Record<string, number[]> = {
+  'Car passenger': [95, 100, 105, 110, 112],
+  'Teen driver': [12, 9, 7, 5, 4],
+  Walking: [30, 27, 24, 22, 20],
+  Biking: [3, 5, 7, 9, 8],
+  Other: [3, 4, 4, 5, 5],
+};
+const THIN_ORDER = Object.keys(THIN);
+const THREE_THIN = {
+  data: {
+    rows: [2005, 2010, 2015, 2020, 2025].flatMap((year, i) =>
+      THIN_ORDER.map((mode) => ({ year, mode, n: THIN[mode]?.[i] ?? 0 })),
+    ),
+  },
+  options: { height: 380, y: { domain: [0, 160] } },
+  preset: { ...FIVE.preset, order: THIN_ORDER },
+};
 
 describe('a stackedArea chart at 430px', () => {
   it('names each series inside its own band, on one line with no value', () => {
@@ -186,6 +214,37 @@ describe('a stackedArea chart at 430px', () => {
       [...t.querySelectorAll('tspan')].map((s) => s.textContent),
     );
     expect(lines).toContainEqual(['Walking', '19']);
+  });
+});
+
+describe('a stackedArea chart with three thin bands at 430px', () => {
+  const svg = () => at(THREE_THIN);
+
+  it('names every band, no two labels overlapping', () => {
+    const all = boxes(svg());
+    expect(all.map((l) => l.text).sort()).toEqual([...THIN_ORDER].sort());
+    expect(overlaps(all)).toEqual([]);
+  });
+
+  it('sets a band too thin for 13px at 11px, or along the band where it is thickest', () => {
+    const all = Object.fromEntries(boxes(svg()).map((l) => [l.text, l]));
+    expect(all['Teen driver']?.size).toBe(11);
+    expect(all.Biking).toMatchObject({ size: 13, anchor: 'start' });
+    // Biking is thickest at 2020, well inside the plot, not at either end.
+    expect(all.Biking?.a).toBeGreaterThan(200);
+    expect(outsideBand(svg(), THIN_ORDER)).toEqual(['Other']);
+  });
+
+  it('sets the top band’s label just above it when the band cannot hold it', () => {
+    const drawn = svg();
+    const other = boxes(drawn).find((l) => l.text === 'Other');
+    const band = bands(drawn).at(-1);
+    if (!other || !band) throw new Error('no Other label or band');
+    for (const x of [other.a, other.b]) {
+      expect(other.bottom).toBeLessThanOrEqual(edgeAt(band.top, x));
+      expect(edgeAt(band.top, x) - other.bottom).toBeLessThan(4);
+    }
+    expect(other.top).toBeGreaterThanOrEqual(20);
   });
 });
 
