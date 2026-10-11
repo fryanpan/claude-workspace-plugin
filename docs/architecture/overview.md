@@ -1971,7 +1971,13 @@ doc reasserts itself a second later while git still exits 0. The doc→file
 direction is never refused, so a doc emptied in the editor empties its file;
 `file-binding.ts` first copies what the file held into the data dir's
 `clobber-backups/` (`<docId>-emptied-<ms>.md`) and logs the path, and the
-editor offers Undo for the same edit (`mass-delete-undo.ts`). A new field needs
+editor offers Undo for the same edit (`mass-delete-undo.ts`). A file change
+the doc did not write, landing on un-flushed edits, is a conflict: the file's
+version is backed up there too and the live doc is written over it. While one
+of our own writes is still on the thread pool, a flush does not read the file
+at all and re-arms instead, because the file then holds our bytes under an
+mtime not yet recorded, and reading it would back up our own write as an
+outside change. A new field needs
 three additions, MCP tool schema, route and service, and the route is the one
 nothing type-checks, so add an HTTP-level test for every new parameter. The
 audio socket is the meeting's lifecycle: every way it can end ends the meeting

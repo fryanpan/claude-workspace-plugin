@@ -2245,6 +2245,18 @@ export class FileBindings {
         this.failedWrites.add(doc.docId);
         return;
       }
+      // One write at a time per binding, and this check comes BEFORE both
+      // disk guards below. Two pool writes racing to the same path would land
+      // in whichever order the pool chose, and the loser would be the newer
+      // content. And while a write is on the pool its rename may have landed
+      // with its callback not yet run, so the mtime guard would see our own
+      // bytes under a stamp we have not recorded and the conflict arm would
+      // back them up as an outside edit. Re-arm instead: the debounce that
+      // brought us here will bring us back with whatever the doc says then.
+      if (how === 'pool' && binding.writeInFlight) {
+        this.scheduleFileWrite(doc, binding);
+        return;
+      }
       // Guard (RC2a): the poll has already SEEN an external change and is
       // holding it behind the read debounce. It advanced `lastMtimeMs` the
       // instant it saw the change, so the mtime guard below now compares disk
@@ -2316,14 +2328,6 @@ export class FileBindings {
       // REALPATH — renaming onto a symlink would replace the link with a
       // regular file instead of writing through it (codex P2).
       if (how === 'pool') {
-        // One write at a time per binding. Two pool writes racing to the same
-        // path would land in whichever order the pool chose, and the loser
-        // would be the newer content. Re-arm instead: the debounce that
-        // brought us here will bring us back with whatever the doc says then.
-        if (binding.writeInFlight) {
-          this.scheduleFileWrite(doc, binding);
-          return;
-        }
         binding.writeInFlight = true;
         const seq = (binding.writeSeq = (binding.writeSeq ?? 0) + 1);
         // `lastWritten` and the pending flag are set when the bytes LAND, not
