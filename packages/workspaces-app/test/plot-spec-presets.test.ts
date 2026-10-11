@@ -206,26 +206,30 @@ const dataRight = (svg: Element) =>
     ),
   );
 
-describe('a chart under 600px wide', () => {
-  const stacked = (over: Partial<typeof PRESET> = {}) => ({
-    ...PRESET_SPEC,
-    preset: { ...PRESET, goal: undefined, ...over },
+describe('a lines chart under 600px wide', () => {
+  const linesSpec = (over: Record<string, unknown> = {}, rows: unknown[] = LINES) => ({
+    data: { rows },
+    preset: { type: 'lines', data: 'rows', x: 'year', y: 'v', series: 'place', ...over },
   });
   const atWidth = (spec: Parameters<typeof buildPlot>[1], width: number) =>
     buildPlot(Plot, spec, { width }) as SVGSVGElement;
 
-  it('sets each end label as its series over its value', () => {
-    const svg = atWidth(stacked(), 430);
+  it('sets each end label as its series over its value, its end dots still drawn', () => {
+    const svg = atWidth(linesSpec(), 430);
     expect(endLines(svg)).toEqual([
-      ['Walking', '19'],
-      ['Biking', '8'],
+      ['Harborlight', '112'],
+      ['Riverbend', '97'],
     ]);
-    // The margin fits "Walking", the longest line, not "Walking 19".
-    expect(dataRight(svg)).toBe(430 - (Math.ceil(7 * 7.5) + 16));
+    expect(svg.querySelectorAll('[aria-label="dot"] circle')).toHaveLength(2);
+    // The margin fits "Harborlight", the longest line, not "Harborlight 112".
+    expect(dataRight(svg)).toBe(430 - (Math.ceil(11 * 7.5) + 16));
   });
 
   it('keeps two-thirds of the width for the data, cutting a long label with an ellipsis', () => {
-    const svg = atWidth(PRESET_SPEC, 430);
+    const svg = atWidth(
+      linesSpec({ goal: { value: 120, label: 'Safe Routes goal, 16 a year' } }),
+      430,
+    );
     expect(dataRight(svg)).toBe(430 - Math.floor(430 / 3));
     const goal = [...svg.querySelectorAll('[aria-label="text"] text')].find((t) =>
       t.textContent?.startsWith('Safe Routes'),
@@ -233,44 +237,26 @@ describe('a chart under 600px wide', () => {
     expect(goal?.firstChild?.textContent).toMatch(/^Safe Routes goal,?…$/);
     expect(goal?.querySelector('title')?.textContent).toBe('Safe Routes goal, 16 a year');
     // The end labels still fit whole.
-    expect(endLines(svg)[0]).toEqual(['Walking', '19']);
+    expect(endLines(svg)[0]).toEqual(['Harborlight', '112']);
   });
 
   it('cuts a series name too long for a third of the width', () => {
-    const rows = ROWS.map((r) => ({
+    const rows = LINES.map((r) => ({
       ...r,
-      mode: r.mode === 'Walking' ? 'Walking to Harborlight school' : r.mode,
+      place: r.place === 'Harborlight' ? 'Harborlight Elementary school' : r.place,
     }));
-    const svg = atWidth({ ...stacked({ order: undefined }), data: { rows } }, 430);
+    const svg = atWidth(linesSpec({}, rows), 430);
     expect(dataRight(svg)).toBe(430 - Math.floor(430 / 3));
     const [name, value] = endLines(svg)[0] ?? [];
-    expect(name).toMatch(/^Walking to .+…$/);
-    expect(value).toBe('19');
-  });
-
-  it('sets a lines chart’s end labels the same way, its end dots still drawn', () => {
-    const spec = {
-      data: { rows: LINES },
-      preset: { type: 'lines', data: 'rows', x: 'year', y: 'v', series: 'place' },
-    };
-    const svg = atWidth(spec, 430);
-    expect(endLines(svg)).toEqual([
-      ['Harborlight', '112'],
-      ['Riverbend', '97'],
-    ]);
-    expect(svg.querySelectorAll('[aria-label="dot"] circle')).toHaveLength(2);
-    expect(dataRight(svg)).toBeGreaterThanOrEqual((430 * 2) / 3);
+    expect(name).toMatch(/^Harborlight .+…$/);
+    expect(value).toBe('112');
   });
 
   it('starts at 599px, and the spec’s own width counts when the page gives none', () => {
-    expect(endLines(atWidth(stacked(), 599))[0]).toEqual(['Walking', '19']);
-    expect(endLines(atWidth(stacked(), 600))[0]).toEqual([]);
-    const own = { ...stacked(), options: { ...PRESET_OPTIONS, width: 430 } };
-    expect(endLines(svgOf(own))[0]).toEqual(['Walking', '19']);
-    expect(expandPreset(own).marks.at(-2)?.data).toEqual([
-      { x: 2025, y: 9.5, series: 'Walking', label: 'Walking\n19' },
-      { x: 2025, y: 23, series: 'Biking', label: 'Biking\n8' },
-    ]);
+    expect(endLines(atWidth(linesSpec(), 599))[0]).toEqual(['Harborlight', '112']);
+    expect(endLines(atWidth(linesSpec(), 600))[0]).toEqual([]);
+    const own = { ...linesSpec(), options: { width: 430 } };
+    expect(endLines(svgOf(own))[0]).toEqual(['Harborlight', '112']);
   });
 });
 
@@ -292,8 +278,8 @@ describe('explicit x ticks under 600px wide', () => {
   const at = (spec: Parameters<typeof buildPlot>[1], width: number) =>
     xTicks(buildPlot(Plot, spec, { width }));
 
-  it('keeps every other school year at 360px, the first kept, no two labels overlapping', () => {
-    const ticks = at(SCHOOL_YEARS, 360);
+  it('keeps every other school year at 300px, the first kept, no two labels overlapping', () => {
+    const ticks = at(SCHOOL_YEARS, 300);
     expect(ticks.map((t) => t.text)).toEqual(['2005-06', '2015-16', '2025-26']);
     for (const [i, t] of ticks.slice(1).entries()) {
       const prev = ticks[i] as { text: string; x: number };

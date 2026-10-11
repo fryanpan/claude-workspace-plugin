@@ -1,4 +1,4 @@
-// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 4 (2026-10-10, sha256 8c7b39817b5c3405). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
+// plot-spec.mjs: the canonical copy, in claude-workspaces packages/core/src. Version 5 (2026-10-11, sha256 63d6d63ca6607350). Other repos copy these bytes verbatim and compare this line; `tail -n +2` of the file hashes to that sha256 prefix.
 // @ts-check
 
 /**
@@ -23,7 +23,7 @@
  * Plain JavaScript importing nothing: sf-works runs it under Node as it is.
  */
 
-export const PLOT_SPEC_VERSION = 4;
+export const PLOT_SPEC_VERSION = 5;
 
 export const PLOT_MARKS = /* @__PURE__ */ Object.freeze([
   'areaY',
@@ -568,7 +568,7 @@ function zeroTicks(max) {
 function goalMarks(goal, fmt, fit) {
   if (!goal) return [];
   return [
-    { mark: 'ruleY', data: [goal.value], options: { stroke: HOUSE.ink, strokeDasharray: '6 4' } },
+    goalRule(goal),
     {
       mark: 'text',
       data: [{ y: goal.value, label: goal.label ?? fmt(goal.value) }],
@@ -576,6 +576,13 @@ function goalMarks(goal, fmt, fit) {
     },
   ];
 }
+
+/** The goal's dashed rule. @param {{ value: number }} goal @returns {PlotMarkSpec} */
+const goalRule = (goal) => ({
+  mark: 'ruleY',
+  data: [goal.value],
+  options: { stroke: HOUSE.ink, strokeDasharray: '6 4' },
+});
 
 /** The right margin that fits the longest end label. @param {string[]} labels */
 const endMargin = (labels) => Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * CH) + 16;
@@ -606,6 +613,204 @@ function endLayout(ends, goal, width, own) {
   // Plot measures a line in ems of the 13px house text; 16px is the dx and a gap.
   const fit = { lineWidth: Math.max(0, room - 16) / 13, textOverflow: 'ellipsis' };
   return { label, margin, fit };
+}
+
+/** A 13px label's height, and the gap it keeps from each edge of its band. */
+const LINE = 13;
+const PAD = 2;
+/** The right margin of a narrow stacked chart, whose labels sit inside it. */
+const INSIDE_MARGIN = 20;
+/** Scale options that move a value's pixel away from the linear map. */
+const SCALE_SHAPES = ['type', 'reverse', 'range', 'nice'];
+
+/**
+ * @typedef {{ x: number, y: number, series: string, label: string }} InsideLabel
+ * @typedef {{ left: InsideLabel[], right: InsideLabel[], goal?: { y: number, label: string, lineWidth: number } }} Inside
+ */
+
+/**
+ * Below `NARROW`, where a stacked chart's labels go instead of its right
+ * margin: each series' name inside its own band, at the first x reading
+ * rightward or the last x reading leftward, whichever leaves the label more
+ * room, and the goal's label above its rule at the left. A label fits when
+ * its line, `PAD` clear of both edges, lies inside the band all along its
+ * width and clear of the goal's rule and label; a band too thin for that on
+ * either side goes unlabelled, and its tip still names it. Labels in disjoint
+ * bands cannot overlap. Positions are the pixels Plot will draw at, from the
+ * spec's margins or Plot's defaults (40 left, 20 top, 30 bottom). Undefined
+ * when those pixels cannot be known here: an x that is not a number, a
+ * negative value (it stacks below zero), an inset, or a scale whose type,
+ * direction, range or rounding the spec sets.
+ * @param {unknown[]} rows
+ * @param {{ x: string, y: string, series: string, order: string[] }} f
+ * @param {{ value: number, label?: string } | undefined} goal
+ * @param {(v: unknown) => string} fmt
+ * @param {Record<string, unknown>} own
+ * @param {number} width
+ * @returns {Inside | undefined}
+ */
+function insideLabels(rows, f, goal, fmt, own, width) {
+  const ownX = isRecord(own.x) ? own.x : {};
+  const ownY = isRecord(own.y) ? own.y : {};
+  const reshaped = (/** @type {Record<string, unknown>} */ o, /** @type {string[]} */ keys) =>
+    Object.keys(o).some((k) => keys.includes(k) || k.startsWith('inset'));
+  if (reshaped(own, []) || [ownX, ownY].some((s) => reshaped(s, SCALE_SHAPES))) return undefined;
+  if (!rows.every((r) => finite(get(r, f.x)))) return undefined;
+  if (rows.some((r) => finite(get(r, f.y)) && Number(get(r, f.y)) < 0)) return undefined;
+  const xs = [...new Set(rows.map((r) => Number(get(r, f.x))))].sort((a, b) => a - b);
+  if (xs.length < 2) return undefined;
+  /** @type {Map<string, number>} */
+  const sums = new Map();
+  for (const r of rows) {
+    const k = `${get(r, f.x)}|${get(r, f.series)}`;
+    const v = get(r, f.y);
+    sums.set(k, (sums.get(k) ?? 0) + (finite(v) ? Number(v) : 0));
+  }
+  const bands = f.order.map(() => ({
+    lo: /** @type {number[]} */ ([]),
+    hi: /** @type {number[]} */ ([]),
+  }));
+  const totals = xs.map((xv) => {
+    let base = 0;
+    f.order.forEach((s, i) => {
+      const band = /** @type {{ lo: number[], hi: number[] }} */ (bands[i]);
+      band.lo.push(base);
+      base += sums.get(`${xv}|${s}`) ?? 0;
+      band.hi.push(base);
+    });
+    return base;
+  });
+  const pair = (/** @type {unknown} */ d) =>
+    Array.isArray(d) && d.length === 2 && d.every(finite) ? /** @type {number[]} */ (d) : undefined;
+  const [x0, x1] = pair(ownX.domain) ?? [
+    /** @type {number} */ (xs[0]),
+    /** @type {number} */ (xs.at(-1)),
+  ];
+  const [y0, y1] = pair(ownY.domain) ?? [0, Math.max(...totals, goal?.value ?? 0)];
+  const margin = (/** @type {string} */ k, /** @type {number} */ d) =>
+    /** @type {number} */ (finite(own[k]) ? own[k] : finite(own.margin) ? own.margin : d);
+  const height = finite(own.height) ? /** @type {number} */ (own.height) : PLOT_DEFAULT_HEIGHT;
+  const left = margin('marginLeft', 40);
+  const right = width - margin('marginRight', INSIDE_MARGIN);
+  const top = margin('marginTop', 20);
+  const bottom = height - margin('marginBottom', 30);
+  if (!(x1 > x0 && y1 > y0 && right > left && bottom > top)) return undefined;
+  const px = (/** @type {number} */ v) => left + ((v - x0) / (x1 - x0)) * (right - left);
+  const py = (/** @type {number} */ v) => bottom - ((v - y0) / (y1 - y0)) * (bottom - top);
+  const dataY = (/** @type {number} */ p) => y0 + ((bottom - p) / (bottom - top)) * (y1 - y0);
+  const at = xs.map(px);
+  /** A band edge's pixel y at pixel x, the area being straight between its xs. */
+  const edge = (/** @type {number[]} */ vs, /** @type {number} */ p) => {
+    const k = Math.max(
+      1,
+      at.findIndex((a) => a >= p),
+    );
+    const a0 = /** @type {number} */ (at[k - 1]);
+    const a1 = /** @type {number} */ (at[k]);
+    const t = a1 === a0 ? 0 : (p - a0) / (a1 - a0);
+    return py(/** @type {number} */ (vs[k - 1]) * (1 - t) + /** @type {number} */ (vs[k]) * t);
+  };
+  // Pixel boxes a label must stay clear of: the goal's rule, and its label.
+  /** @type {Array<{ a: number, b: number, top: number, bottom: number }>} */
+  const blocked = [];
+  /** @type {Inside['goal']} */
+  let goalLabel;
+  if (goal) {
+    const gy = py(goal.value);
+    const label = goal.label ?? fmt(goal.value);
+    const room = right - left - 4;
+    blocked.push({ a: left, b: right, top: gy - 1, bottom: gy + 1 });
+    blocked.push({
+      a: left,
+      b: left + 4 + Math.min(room, label.length * CH),
+      top: gy - 9 - LINE / 2,
+      bottom: gy - 9 + LINE / 2,
+    });
+    goalLabel = { y: goal.value, label, lineWidth: Math.max(0, room) / 13 };
+  }
+  /** @type {Inside} */
+  const out = { left: [], right: [], ...(goalLabel ? { goal: goalLabel } : {}) };
+  f.order.forEach((s, i) => {
+    const band = /** @type {{ lo: number[], hi: number[] }} */ (bands[i]);
+    const w = s.length * CH;
+    const first = /** @type {number} */ (at[0]);
+    const last = /** @type {number} */ (at.at(-1));
+    /** @type {{ side: 'left' | 'right', room: number, cy: number } | undefined} */
+    let best;
+    for (const [side, a, b] of /** @type {const} */ ([
+      ['left', first + 4, first + 4 + w],
+      ['right', last - 4 - w, last - 4],
+    ])) {
+      if (a < first || b > last) continue;
+      const ps = [a, b, ...at.filter((p) => p > a && p < b)];
+      const lo = Math.max(...ps.map((p) => edge(band.hi, p))) + PAD + LINE / 2;
+      const hi = Math.min(...ps.map((p) => edge(band.lo, p))) - PAD - LINE / 2;
+      // The centres left once the goal's rule and label are cleared by PAD,
+      // and the widest run of them: its middle is the label's.
+      let gap = { from: lo, to: lo - 1 };
+      let from = lo;
+      const cuts = blocked
+        .filter((o) => o.a < b && o.b > a)
+        .map((o) => [o.top - LINE / 2 - PAD, o.bottom + LINE / 2 + PAD])
+        .sort((m, n) => /** @type {number} */ (m[0]) - /** @type {number} */ (n[0]));
+      for (const [cut, after] of [...cuts, [hi, hi]]) {
+        const to = Math.min(hi, /** @type {number} */ (cut));
+        if (to - from > gap.to - gap.from) gap = { from, to };
+        from = Math.max(from, /** @type {number} */ (after));
+      }
+      const room = gap.to - gap.from;
+      if (room >= 0 && (!best || room > best.room)) {
+        best = { side, room, cy: (gap.from + gap.to) / 2 };
+      }
+    }
+    if (!best) return;
+    const x = /** @type {number} */ (best.side === 'left' ? xs[0] : xs.at(-1));
+    out[best.side].push({ x, y: dataY(best.cy), series: s, label: s });
+  });
+  return out;
+}
+
+/**
+ * The marks that draw `insideLabels`: a text mark per side, in the house ink
+ * and halo, and the goal's label.
+ * @param {Inside} inside
+ * @returns {PlotMarkSpec[]}
+ */
+function insideMarks(inside) {
+  /** @type {PlotMarkSpec[]} */
+  const marks = [];
+  if (inside.goal) {
+    const { lineWidth, ...goal } = inside.goal;
+    marks.push({
+      mark: 'text',
+      data: [goal],
+      options: {
+        y: 'y',
+        text: 'label',
+        frameAnchor: 'left',
+        textAnchor: 'start',
+        dx: 4,
+        dy: -9,
+        lineWidth,
+        textOverflow: 'ellipsis',
+      },
+    });
+  }
+  for (const side of /** @type {const} */ (['left', 'right'])) {
+    if (inside[side].length === 0) continue;
+    marks.push({
+      mark: 'text',
+      data: inside[side],
+      options: {
+        x: 'x',
+        y: 'y',
+        text: 'label',
+        textAnchor: side === 'left' ? 'start' : 'end',
+        dx: side === 'left' ? 4 : -4,
+      },
+    });
+  }
+  return marks;
 }
 
 /**
@@ -657,7 +862,8 @@ function axisDefaults(own, rows, x, formats, valueAxis) {
 
 /**
  * Stacked areas, one per series, each labelled at its end with its name and
- * last value inside its own band; an optional goal rule; a tip that reads the
+ * last value inside its own band (under `NARROW`, with its name inside the
+ * band itself: `insideLabels`); an optional goal rule; a tip that reads the
  * stacked positions and shows the value itself.
  * @param {Record<string, unknown>} p
  * @param {unknown[]} rows
@@ -690,10 +896,33 @@ function stackedArea(p, rows, own, width) {
   const end = endLayout(ends, goal?.label, width, own);
   const labelled = ends.map(({ value, ...e }) => ({ ...e, label: end.label({ ...e, value }) }));
   const key = y === 'x' || y === 'y' ? 'value' : y;
+  const inside =
+    finite(width) && /** @type {number} */ (width) < NARROW
+      ? insideLabels(rows, { x, y, series, order }, goal, fy, own, /** @type {number} */ (width))
+      : undefined;
+  /** @type {PlotMarkSpec[]} */
+  const labels = inside
+    ? [...(goal ? [goalRule(goal)] : []), ...insideMarks(inside)]
+    : [
+        ...goalMarks(goal, fy, end.fit),
+        {
+          mark: 'text',
+          data: labelled,
+          options: {
+            x: 'x',
+            y: 'y',
+            text: 'label',
+            fill: 'series',
+            textAnchor: 'start',
+            dx: 8,
+            ...end.fit,
+          },
+        },
+      ];
   return {
     grid: 'y',
     options: {
-      marginRight: end.margin,
+      marginRight: inside ? INSIDE_MARGIN : end.margin,
       // The first series takes the first house colour.
       color: { domain: order },
       ...own,
@@ -706,20 +935,7 @@ function stackedArea(p, rows, own, width) {
         transform: 'stackY',
         options: { x, y, fill: series, order },
       },
-      ...goalMarks(goal, fy, end.fit),
-      {
-        mark: 'text',
-        data: labelled,
-        options: {
-          x: 'x',
-          y: 'y',
-          text: 'label',
-          fill: 'series',
-          textAnchor: 'start',
-          dx: 8,
-          ...end.fit,
-        },
-      },
+      ...labels,
       {
         mark: 'tip',
         data: dataRef(p),
